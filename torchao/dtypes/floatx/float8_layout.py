@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.utils._python_dispatch import (
@@ -26,6 +26,18 @@ from torchao.float8.inference import (
 from torchao.utils import _is_float8_type, fill_defaults
 
 aten = torch.ops.aten
+FLOAT8_IMPL_OPS_TABLE: Dict[Any, Any] = {}
+
+
+def implements(aten_ops: List[Any]):
+    """Register aten ops to the float8 op table"""
+
+    def decorator(func):
+        for op in aten_ops:
+            FLOAT8_IMPL_OPS_TABLE[op] = func
+        return func
+
+    return decorator
 
 
 def _same_metadata(self: "Float8AQTTensorImpl", src: "Float8AQTTensorImpl") -> bool:
@@ -33,7 +45,6 @@ def _same_metadata(self: "Float8AQTTensorImpl", src: "Float8AQTTensorImpl") -> b
     transposed_match = (self.transposed == src.transposed) or (
         self.transposed is False and src.transposed is None
     )
-
     return (
         isinstance(self, Float8AQTTensorImpl)
         and isinstance(src, Float8AQTTensorImpl)
@@ -160,89 +171,22 @@ class Float8AQTTensorImpl(AQTTensorImpl):
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
 
-        if func is aten.detach.default:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-            )
-        elif func is aten.clone.default:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
-            )
-        elif func is aten.t.default:
-            """we don't need to repack the weight and just rely on external
-            shape being changed and record the status of transpose/no-transpose
-            """
-            args[0].transposed = not args[0].transposed
-            return return_and_correct_aliasing(func, args, kwargs, args[0])
-        elif func is aten.copy_.default:
-            self = args[0]
-            src = args[1]
-            if _same_metadata(self, src):
-                self_tensors = self.__tensor_flatten__()[0]
-                for tensor_name in self_tensors:
-                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
-                return
-            raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
-            )
-        elif func in [aten.select.int, aten.index.Tensor]:
-            return return_and_correct_aliasing(
-                func,
-                args,
-                kwargs,
-                args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
-            )
-        elif func is aten.slice.Tensor:
-            self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim == 0:
-                # TODO: scale replecation should be dependent on block size
-                if self.scale.ndim == 1:
-                    return return_and_correct_aliasing(
-                        func,
-                        args,
-                        kwargs,
-                        args[0]._apply_fn_to_data(
-                            lambda x: aten.slice.Tensor(x, dim, start, end, step)
-                        ),
-                    )
-                elif self.scale.ndim == 0:
-                    return return_and_correct_aliasing(
-                        func,
-                        args,
-                        kwargs,
-                        Float8AQTTensorImpl(
-                            aten.slice.Tensor(self.float8_data, dim, start, end, step),
-                            self.scale,
-                            None,
-                            self._layout,
-                        ),
-                    )
-                else:
-                    raise NotImplementedError(
-                        f"Float8AQTTensorImpl dispatch: attempting to run {func}, with scale ndim={dim}, that is not supported"
-                    )
-            elif dim == 1:
-                return return_and_correct_aliasing(
-                    func,
-                    args,
-                    kwargs,
-                    Float8AQTTensorImpl(
-                        aten.slice.Tensor(
-                            self.float8_data, dim, start, end, step
-                        ).contiguous(),
-                        self.scale,
-                        None,
-                        self._layout,
-                    ),
+        def allowed_subclasses(type):
+            return (
+                issubclass(cls, type)
+                or issubclass(torch._subclasses.fake_tensor.FakeTensor, type)
+                or issubclass(
+                    torch._subclasses.functional_tensor.FunctionalTensor, type
                 )
-            else:
-                raise NotImplementedError(
-                    f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
-                )
-        else:
-            raise NotImplementedError(
-                f"Float8AQTTensorImpl dispatch: attempting to run {func}, this is not supported"
             )
+
+        if not all(allowed_subclasses(t) for t in types):
+            return NotImplemented
+
+        if func in FLOAT8_IMPL_OPS_TABLE:
+            return FLOAT8_IMPL_OPS_TABLE[func](func, types, args, kwargs)
+
+        raise NotImplementedError(f"attempting to run {func}, this is not supported")
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
@@ -279,6 +223,130 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             f"transposed={self.transposed}, "
             f"_layout={_layout})"
         )
+
+
+##########################
+# Regsiter FP8 Ops
+##########################
+
+
+@implements([aten.detach.default, aten.alias.default, aten.clone.default])
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(func)
+    )
+
+
+@implements([aten.t.default])
+def _(func, types, args, kwargs):
+    """we don't need to repack the weight and just rely on external
+    shape being changed and record the status of transpose/no-transpose
+    """
+    args[0].transposed = not args[0].transposed
+    return return_and_correct_aliasing(func, args, kwargs, args[0])
+
+
+@implements([aten.copy_.default])
+def _(func, types, args, kwargs):
+    self = args[0]
+    src = args[1]
+    if _same_metadata(self, src):
+        self_tensors = self.__tensor_flatten__()[0]
+        for tensor_name in self_tensors:
+            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+        return
+    raise ValueError(
+        f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
+    )
+
+
+@implements([aten.select.int, aten.index.Tensor])
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
+    )
+
+
+@implements([aten.slice.Tensor])
+def _(func, types, args, kwargs):
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+
+    # Always slice the float8_data
+    sliced_data = aten.slice.Tensor(self.float8_data, dim, start, end, step)
+
+    if self.scale.numel() == 1:
+        # Per-tensor quantization - scale doesn't change
+        sliced_scale = self.scale
+    else:
+        # Block-wise quantization - need to slice the scale appropriately
+        sliced_scale = _slice_scale_for_dimension(
+            self.scale, self.float8_data.shape, dim, start, end, step
+        )
+
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        Float8AQTTensorImpl(
+            sliced_data,
+            sliced_scale,
+            self.transposed,
+            self._layout,
+        ),
+    )
+
+
+def _slice_scale_for_dimension(
+    scale: torch.Tensor,
+    data_shape: List[int],
+    dim: int,
+    start: int,
+    end: int,
+    step: int,
+) -> torch.Tensor:
+    """
+    Slice the scale tensor appropriately based on the data tensor slicing.
+
+    This function calculates how the scale should be sliced when the data tensor
+    is sliced along a given dimension, taking into account the block structure.
+    """
+    # Unsupported case for now, this would be 1 scale per data element
+    if scale.shape == data_shape:
+        return aten.slice.Tensor(scale, dim, start, end, step)
+
+    # Reconstruct block sizes based on data shape and scale shape
+    block_sizes = tuple(data_shape[i] // scale.shape[i] for i in range(len(data_shape)))
+
+    if dim >= len(block_sizes):
+        # Slicing beyond the dimensions we care about
+        return scale
+
+    block_size_for_dim = block_sizes[dim]
+
+    if block_size_for_dim == 1:
+        # Scale is per-element along this dimension
+        # Slice away as normal
+        return aten.slice.Tensor(scale, dim, start, end, step)
+    else:
+        # There is blocking in this dimension
+        # Calculate which scale elements correspond to the sliced data
+        scale_start = start // block_size_for_dim if start is not None else None
+        scale_end = (
+            (end + block_size_for_dim - 1) // block_size_for_dim
+            if end is not None
+            else None
+        )
+
+        # Error on Step > 1
+        if step > 1:
+            raise NotImplementedError(
+                "Slicing with step > 1 is not implemented for scale tensors."
+            )
+
+        return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
 
 
 ##########################
@@ -333,13 +401,12 @@ def _linear_fp8_act_fp8_weight_impl(
     input_scale = input_tensor.tensor_impl.scale
     # Handle case where input tensor is more than 2D
     inpt_data = inpt_data.reshape(-1, inpt_data.shape[-1])
-
     # Handle rowwise case
     if _is_rowwise_scaled(weight_tensor):
         assert _is_rowwise_scaled(input_tensor), (
             "Input tensor must be rowwise block size"
         )
-        w_scale = w_scale.unsqueeze(-1).T
+        w_scale = w_scale.T
         input_scale = preprocess_scale(input_scale, input_tensor.shape)
 
     # Preprocess data
