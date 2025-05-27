@@ -343,9 +343,9 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
       TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<false>));
 }
 
-TORCH_LIBRARY_IMPL(torchao, Meta, m) {
-  m.impl(
-      TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
-      TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<true>));
-}
+// TORCH_LIBRARY_IMPL(torchao, Meta, m) {
+//   m.impl(
+//       TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
+//       TORCH_FN(torchao::_sparse24_fp8_sm90_cutlass_gemm<true>));
+// }
 #endif

@@ -412,8 +412,8 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
       TORCH_FN(sparse24_sm90_sparsify<false>));
 }
 
-TORCH_LIBRARY_IMPL(torchao, Meta, m) {
-  m.impl(
-      TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
-      TORCH_FN(sparse24_sm90_sparsify<true>));
-}
+// TORCH_LIBRARY_IMPL(torchao, Meta, m) {
+//   m.impl(
+//       TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
+//       TORCH_FN(sparse24_sm90_sparsify<true>));
+// }
