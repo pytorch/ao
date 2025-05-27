@@ -279,9 +279,7 @@ def get_extensions():
         print("Compiling in debug mode")
 
     if CUDA_HOME is None and torch.version.cuda:
-        print(
-            "CUDA toolkit is not available. Skipping compilation of CUDA extensions"
-        )
+        print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
