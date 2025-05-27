@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import importlib.util
 import logging
 import types
 import warnings
@@ -1971,24 +1972,31 @@ def _fpx_weight_only_transform(
 
 @dataclass
 class FbgemmConfig(AOBaseConfig):
+    """Quantization Config for fbgemm-genai kernels
+    Args:
+       io_dtype (str): The input output dtype of the input, weight and output of the kernel,
+         for example: bf16i4bf16 means input is bf16, weight is int4 and output is bf16.
+         Currently available options are ["bf16i4bf16"]
+       group_size (int): The group size for weight
+    """
+
     io_dtype: str
     group_size: int = 128
-    is_grouped_mm: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
 def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
-    if config.io_dtype == "bf16i4bf16" and not config.is_grouped_mm:
-        try:
-            import fbgemm_gpu.experimental.gen_ai  # noqa: F401
+    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
+    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
+    if importlib.util.find_spec("fbgemm_gpu") is None:
+        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
-            logger.info("Using efficient FP8 or INT4 operators in fbgemm-gpu.")
-        except ImportError:
-            logger.error(
-                "No efficient FP8 or INT4 operators. Please install fbgemm-gpu."
-            )
-            raise
+    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
+    if fbgemm_gpu.__version__ < "1.2.0":
+        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+    if config.io_dtype == "bf16i4bf16":
         weight = to_fbgemm_int4(module.weight, config.group_size)
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)

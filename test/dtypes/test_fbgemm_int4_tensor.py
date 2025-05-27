@@ -29,7 +29,7 @@ class TestFbgemmInt4Tensor(TestCase):
         input = torch.randn(1, 128, dtype=dtype, device=device)
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
         original = linear(input)
-        config = FbgemmConfig(io_dtype="bf16i4bf16", is_grouped_mm=False)
+        config = FbgemmConfig(io_dtype="bf16i4bf16")
         quantize_(linear, config)
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > 20)
