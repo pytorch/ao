@@ -55,7 +55,7 @@ jobs:
           ${CONDA_RUN} echo $PYTHONPATH
 
           # Run microbenchmarks
-          ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks && echo $PYTHONPATH && python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
+          ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks" && echo $PYTHONPATH && python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
             --config benchmarks/microbenchmarks/benchmark_config.yml \
             --output ${{ runner.temp }}/benchmark-results/microbenchmark-results.json
 
