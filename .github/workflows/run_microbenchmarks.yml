@@ -1,12 +1,7 @@
 name: Microbenchmarks-Perf-Nightly
 
 on:
-  push:
-    tags:
-      - ciflow/benchmark/*
-  workflow_dispatch:
-  schedule:
-    - cron: '0 3 * * *'  # Run daily at 7 AM UTC
+  pull_request:
 
 jobs:
   benchmark:
