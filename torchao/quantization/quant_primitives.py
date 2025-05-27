@@ -1970,6 +1970,7 @@ def choose_qparams_affine_float8(
     tensor: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
     scale_dtype: torch.dtype = torch.float32,
+    block_size: Optional[Tuple[int, ...]] = None,
 ) -> torch.Tensor:
     """
     Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
@@ -1977,14 +1978,84 @@ def choose_qparams_affine_float8(
     Args:
         tensor (torch.Tensor): Input tensor to be quantized.
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
+        scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).
+        block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.
     """
+    quant_max = torch.finfo(float8_dtype).max
     # only tensorwise scaling is supported for now:
-    quant_min, quant_max = torch.finfo(float8_dtype).min, torch.finfo(float8_dtype).max
-    min_val_neg = torch.min(tensor)
-    max_val_pos = torch.max(tensor)
-    max_val_pos = torch.max(-min_val_neg, max_val_pos)
-    scale = max_val_pos / (float(quant_max - quant_min) / 2)
-    return scale.to(dtype=scale_dtype)
+    if block_size is None:
+        max_abs = tensor.abs().max()
+        scale = max_abs / quant_max
+    else:
+        shape_for_reduction, reduction_dims = _get_reduction_params(
+            block_size, tensor.shape
+        )
+        tensor_reshaped = tensor.view(shape_for_reduction)
+        max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
+
+        scale = max_abs / quant_max
+        # Reshape scale back to match the expected output shape
+        # The scale tensor should have the same shape as the input divided by block_size
+        output_shape = [
+            input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
+        ]
+        scale = scale.reshape(output_shape)
+
+    if scale_dtype is not torch.float32:
+        # Shielding for Version > 2.8
+        assert scale_dtype is torch.float8_e8m0fnu, "Only float8_e8m0fnuz is supported"
+        scale = torch.exp2(torch.round(torch.log2(scale)))
+    return scale.to(dtype=torch.float32)
+
+
+def _expand_scale_to_tensor_shape(
+    scale: torch.Tensor, target_shape: torch.Size
+) -> torch.Tensor:
+    """
+    Expand a scale tensor to match the target tensor shape for block-wise quantization.
+
+    Args:
+        scale (torch.Tensor): Scale tensor with shape corresponding to block structure
+        target_shape (torch.Size): Target tensor shape to expand to
+
+    Returns:
+        torch.Tensor: Scale tensor expanded to match target_shape
+    """
+    if scale.shape == target_shape:
+        # Scale already matches target shape
+        return scale
+
+    if scale.numel() == 1:
+        # Scalar scale - can broadcast naturally
+        return scale
+
+    # Calculate block sizes from shape difference
+    if len(scale.shape) != len(target_shape):
+        raise ValueError(
+            f"Scale tensor has {len(scale.shape)} dimensions but target has {len(target_shape)}"
+        )
+
+    block_sizes = tuple(
+        target_shape[i] // scale.shape[i] for i in range(len(target_shape))
+    )
+
+    # Verify that target_shape is evenly divisible by scale.shape
+    for i, (target_dim, scale_dim, block_size) in enumerate(
+        zip(target_shape, scale.shape, block_sizes)
+    ):
+        if target_dim != scale_dim * block_size:
+            raise ValueError(
+                f"Dimension {i}: target size {target_dim} is not evenly divisible "
+                f"by scale size {scale_dim} (block size would be {target_dim / scale_dim})"
+            )
+
+    # Expand scale using repeat_interleave
+    expanded_scale = scale
+    for i, block_size in enumerate(block_sizes):
+        if block_size > 1:
+            expanded_scale = expanded_scale.repeat_interleave(block_size, dim=i)
+
+    return expanded_scale
 
 
 def quantize_affine_float8(
@@ -1994,16 +2065,13 @@ def quantize_affine_float8(
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
-
-    Args:
-        tensor (torch.Tensor): Input tensor to be quantized.
-        scale (torch.Tensor): Scaling factor for the quantization.
-        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
     """
-    # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
-    # upcasted to `float32` to multiply with the scale, since scale is a fp32 tensor in float8 quantization.
-    # In order to match numerics between eager and compile, we upcast manually here.
-    tensor_scaled = tensor.to(torch.float32) / scale
+    tensor_fp32 = tensor.to(torch.float32)
+
+    # Expand scale to match tensor dimensions for block-wise quantization
+    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+
+    tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
     fp8_tensor = tensor_clamped.to(float8_dtype)
@@ -2017,15 +2085,11 @@ def dequantize_affine_float8(
 ) -> torch.Tensor:
     """
     Dequantizes the float8 tensor to high precision tensor.
-
-    Args:
-        tensor (torch.Tensor): Input float8 tensor to be dequantized.
-        scale (torch.Tensor): Scaling factor for the dequantization.
-        output_dtype (torch.dtype): Data type of the output tensor (e.g., torch.float32).
     """
-    # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
-    # upcasted to `float32` to divide by the scale, since scale is a fp32 for float8 quantization.
-    # In order to match numerics between eager and compile, we upcast manually here.
     fp8_tensor = tensor.to(torch.float32)
-    hp_tensor = fp8_tensor * scale
+
+    # Expand scale to match tensor dimensions for block-wise quantization
+    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+
+    hp_tensor = fp8_tensor * scale_expanded
     return hp_tensor.to(output_dtype)
