@@ -18,6 +18,7 @@ __all__ = [
 aten = torch.ops.aten
 
 
+# copied from https://github.com/pytorch/FBGEMM/blob/2bf4d9aa739b3e78362ca801a72dacb16c67346f/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L60
 def int4_row_quantize(
     x: torch.Tensor,
     group_size: int = 128,
@@ -46,6 +47,7 @@ def int4_row_quantize(
     return out, scales.to(x.dtype), zeros.to(x.dtype)
 
 
+# copied from https://github.com/pytorch/FBGEMM/blob/2bf4d9aa739b3e78362ca801a72dacb16c67346f/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L18
 def pack_int4(x: torch.Tensor) -> torch.Tensor:
     # Given int8 x, pack adjacent int4 values into a single int8.
     low_x = x[:, ::2]
