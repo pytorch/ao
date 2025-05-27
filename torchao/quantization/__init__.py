@@ -39,7 +39,6 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    AOPerModuleConfig,
     CutlassInt4PackedLayout,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
@@ -55,6 +54,7 @@ from .quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
@@ -79,7 +79,9 @@ from .quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
     choose_qparams_affine,
+    choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_floatx,
+    choose_qparams_affine_tinygemm,
     choose_qparams_affine_with_min_max,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
@@ -145,7 +147,7 @@ __all__ = [
     "IntxWeightOnlyConfig",
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
-    "AOPerModuleConfig",
+    "ModuleFqnToConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -161,6 +163,8 @@ __all__ = [
     "AffineQuantizedObserverBase",
     # quant primitive ops
     "choose_qparams_affine",
+    "choose_qparams_affine_tinygemm",
+    "choose_qparams_affine_dont_preserve_zero",
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
     "quantize_affine",

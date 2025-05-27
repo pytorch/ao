@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -17,7 +18,11 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import ZeroPointDomain, _get_reduction_params
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    _get_reduction_params,
+    quantize_affine_float_zero_point,
+)
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     fill_defaults,
@@ -314,7 +319,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         # between these two devices, in the future we should not use the same layout for
         # cpu and cuda device: https://github.com/pytorch/ao/issues/1117
         if not is_device(torch.device(self.device).type, device):
-            raise ValueError(
+            logging.warning(
                 f"TensorCoreTiledAQTTensorImpl does not support conversion from {self.device} to {device}"
             )
         return self.__class__(
@@ -464,10 +469,6 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         return tuple([*ones, groupsize])
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        from torchao.quantization.quant_primitives import (
-            ZeroPointDomain,
-            quantize_affine,
-        )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
         def dequant_4d(self):
@@ -510,8 +511,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        zero_point_domain = ZeroPointDomain.FLOAT
-        int_data = quantize_affine(
+        int_data = quantize_affine_float_zero_point(
             dequantized,
             self.block_size,
             scale,
@@ -519,7 +519,6 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             target_dtype,
             quant_min,
             quant_max,
-            zero_point_domain,
         )
         return int_data, scale, zero
 

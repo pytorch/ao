@@ -56,6 +56,7 @@ from torchao.float8.float8_utils import (
     tensor_to_scale,
 )
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.utils import is_MI300, is_ROCM
 
 random.seed(0)
 torch.manual_seed(0)
@@ -270,6 +271,15 @@ class TestFloat8Tensor:
         c_ref = torch.mm(a, b.t())
         sqnr = compute_error(c_ref, c_fp8_compute)
         assert sqnr >= 25.0
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_fp8_dtype(
+        self,
+    ):
+        if is_ROCM() and is_MI300():
+            assert e4m3_dtype == torch.float8_e4m3fnuz
+        else:
+            assert e4m3_dtype == torch.float8_e4m3fn
 
 
 class TestFloat8Linear:

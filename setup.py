@@ -55,6 +55,10 @@ build_macos_arm_auto = (
     and platform.system() == "Darwin"
 )
 
+use_cpp_kernels = os.getenv("USE_CPP_KERNELS", "0") == "1"
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
 version = (
@@ -312,6 +316,21 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
+        if (
+            use_cpp_kernels
+            and platform.system() == "Linux"
+            and TORCH_VERSION_AT_LEAST_2_7
+        ):
+            if torch._C._cpu._is_avx512_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
+
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
             if "nvcc" in extra_compile_args:
@@ -361,6 +380,12 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+    if not use_cpp_kernels or platform.system() != "Linux":
+        # Remove csrc/cpu/*.cpp
+        excluded_sources = list(
+            glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in excluded_sources]
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -445,6 +470,7 @@ def get_extensions():
                     "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
                 ),
                 os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
+                os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
             ]
             for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
                 cutlass_90a_sources.append(
