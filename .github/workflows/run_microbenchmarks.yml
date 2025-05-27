@@ -51,7 +51,6 @@ jobs:
             export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
             echo "PYTHONPATH is: $PYTHONPATH"
             echo "Current directory is: $(pwd)"
-            ls
             python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
               --config benchmarks/microbenchmarks/benchmark_config.yml \
               --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results.json"'
