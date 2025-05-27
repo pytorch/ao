@@ -9,6 +9,7 @@
 #include <ATen/Parallel.h>
 #include <ATen/Tensor.h>
 #include <c10/util/irange.h>
+#include <c10/util/Unroll.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -24,6 +25,8 @@
 namespace torchao {
 
 namespace {
+
+#define BLOCK_N 32
 
 static bool use_cpublas_checked = false;
 static bool use_cpublas = false;
@@ -72,7 +75,7 @@ da8w4_linear_prepack_impl(
   int G = scales.size(1);
   int group_size = K / G;
   int block_k = group_size > 128 ? 128 : group_size;
-  constexpr int block_n = 32;
+  constexpr int block_n = BLOCK_N;
   int Nc = N / block_n;
   int Kc = K / block_k;
 
@@ -284,6 +287,116 @@ void _dequant_weight_zp_only(
 }
 #endif
 
+#if defined(CPU_CAPABILITY_AVX512_VNNI)
+inline __m512i combine_m256i(__m256i a, __m256i b) {
+  __m512i c = _mm512_castsi256_si512(a);
+  return _mm512_inserti64x4(c, b, 1);
+}
+
+inline __m512i combine_m256i(std::array<__m256i, 2> two_256) {
+  return combine_m256i(two_256[0], two_256[1]);
+}
+
+template <int64_t M>
+void _dequant_gemm_accum_small_M(
+    float* C,
+    const uint8_t* A,
+    const float* scales_a,
+    const int32_t* qzeros_a,
+    const uint8_t* B,
+    const float* scales_b,
+    const int8_t* qzeros_b,
+    const int32_t* compensation,
+    int64_t K,
+    int64_t lda,
+    int64_t ldb,
+    int64_t ldc) {
+
+  constexpr int N = BLOCK_N;
+  constexpr int COLS = N / 16;
+  __m512i va;
+  __m512i vb[COLS];
+  __m512i vc[M * COLS];
+  __m512 vscales[COLS];
+  __m512i vzps[COLS];
+  __m512i vcompensate[COLS];
+
+  // Load scales and zps
+  c10::ForcedUnroll<COLS>{}([&](auto i) {
+      vscales[i] = _mm512_loadu_ps(scales_b + i * 16);
+      vzps[i] = combine_m256i(load_zps_4vnni(qzeros_b + i * 16));
+    });
+  c10::ForcedUnroll<M * COLS>{}(
+      [&](auto i) { vc[i] = _mm512_setzero_epi32(); });
+
+  auto compute = [&](auto i, int k) {
+    constexpr const int row = i / COLS;
+    constexpr const int col = i % COLS;
+
+    if constexpr (col == 0) {
+      va = _mm512_set1_epi32(*(int32_t*)(A + row * lda + k));
+    }
+
+    if constexpr (row == 0) {
+      vb[col] = combine_m256i(load_uint4_as_int8(B + k * ldb + col * 16 * 2));
+      vb[col] = _mm512_sub_epi8(vb[col], vzps[col]);
+      vcompensate[col] = _mm512_loadu_epi32(compensation + col * 16);
+      _mm_prefetch(B + (k + 32) * ldb + col * 16 * 2, _MM_HINT_T0);
+    }
+    vc[i] = _mm512_dpbusd_epi32(vc[i], va, vb[col]);
+  };
+
+  // Accumulate along k
+  constexpr const int unroll = 4;
+  int k = 0;
+  for (; k < K / 4 / unroll; k++) {
+    c10::ForcedUnroll<unroll>{}([&](auto i) {
+      c10::ForcedUnroll<M * COLS>{}(compute, 4 * (k * unroll + i));
+    });
+  }
+  k *= 4 * unroll;
+  for (; k < K; k += 4) {
+    c10::ForcedUnroll<M * COLS>{}(compute, k);
+  }
+
+  // Store to C
+  auto store = [&](auto i) {
+    constexpr const int row = i / COLS;
+    constexpr const int col = i % COLS;
+    // compute (qC - compensate * zp_a) * scale_a * scale_b
+    __m512 vc_float;
+    vc[i] = _mm512_sub_epi32(
+        vc[i],
+        _mm512_mullo_epi32(
+            vcompensate[col], _mm512_set1_epi32(*(qzeros_a + row))));
+    vc_float = _mm512_cvtepi32_ps(vc[i]);
+    vc_float = _mm512_mul_ps(vc_float, _mm512_set1_ps(*(scales_a + row)));
+
+    vc_float = _mm512_mul_ps(vc_float, vscales[col]);
+    auto vc_old = _mm512_loadu_ps(C + row * ldc + col * 16);
+    vc_float = _mm512_add_ps(vc_float, vc_old);
+    _mm512_storeu_ps(C + row * ldc + col * 16, vc_float);
+  };
+  c10::ForcedUnroll<M * COLS>{}(store);
+
+}
+
+#define call_dequant_gemm_accum_small_M(M) \
+  _dequant_gemm_accum_small_M<M>( \
+      C, \
+      A, \
+      scales_a, \
+      qzeros_a, \
+      B, \
+      scales_b, \
+      qzeros_b, \
+      compensation, \
+      K, \
+      lda, \
+      ldb, \
+      ldc);
+#endif
+
 template <bool use_cpublas>
 void _dequant_gemm_accum(
     float* C,
@@ -302,6 +415,25 @@ void _dequant_gemm_accum(
     int64_t ldc) {
   // Compute GEMM int8 * int8 -> int32
   // dequant result to float by applying scales/qzeros
+  auto tid = at::get_thread_num();
+#if defined(CPU_CAPABILITY_AVX512_VNNI)
+  if (M <= 4 && N == BLOCK_N) {
+    switch (M) {
+      case 1:
+        call_dequant_gemm_accum_small_M(1);
+        return;
+      case 2:
+        call_dequant_gemm_accum_small_M(2);
+        return;
+      case 3:
+        call_dequant_gemm_accum_small_M(3);
+        return;
+      case 4:
+        call_dequant_gemm_accum_small_M(4);
+        return;
+    }
+  }
+#endif
 
   int8_t dqB[K * N];
   _dequant_weight_zp_only(B, dqB, qzeros_b, N, K, ldb);
@@ -320,6 +452,8 @@ void _dequant_gemm_accum(
         dqB,
         C_i32,
         true /* is_vnni */);
+    _mm_prefetch(B + N * K / 2, _MM_HINT_T0);
+    _mm_prefetch(A + K, _MM_HINT_T0);
     _dequant_and_store<true>(
         C,
         C_i32,
@@ -444,7 +578,8 @@ void _da8w4_linear_impl(
   int64_t Nc = weight.size(0);
   int64_t Kc = weight.size(1);
   int64_t block_k = weight.size(2);
-  int64_t block_n = weight.size(3) * 2;
+  constexpr int64_t block_n = BLOCK_N;
+  TORCH_CHECK(weight.size(3) * 2 == block_n, "DA8W4: unexpected weight shape");
   int64_t N = Nc * block_n;
   TORCH_CHECK(K == Kc * block_k, "DA8W4: weight and input shapes mismatch");
   int64_t block_m = [&]() -> long {
@@ -512,10 +647,10 @@ void _da8w4_linear_impl(
         store_out<out_dtype>(y_buf[0], c_ptr + mci * block_m * N + nc * block_n, m_size, block_n, N);
       }
     }
+    if constexpr (use_cpublas) {
+      at::native::cpublas::brgemm_release();
+    }
   });
-  if constexpr (use_cpublas) {
-    at::native::cpublas::brgemm_release();
-  }
 }
 
 at::Tensor da8w4_linear_impl(

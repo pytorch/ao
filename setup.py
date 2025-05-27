@@ -325,6 +325,12 @@ def get_extensions():
                         "-fopenmp",
                     ]
                 )
+            if torch._C._cpu._is_avx512_vnni_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512_VNNI",
+                    ]
+                )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")

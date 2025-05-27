@@ -885,11 +885,12 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
-    def test_8da4w_cpu(self, dtype, x_dim, bias):
+    @common_utils.parametrize("bs", [1, 160])
+    def test_8da4w_cpu(self, dtype, x_dim, bias, bs):
         device = "cpu"
         m = ToyLinearModel(bias=bias).eval().to(dtype).to(device)
         m2 = copy.deepcopy(m)
-        example_inputs = m.example_inputs(dtype=dtype, device=device)
+        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
