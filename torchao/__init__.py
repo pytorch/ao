@@ -43,13 +43,14 @@ from torchao.quantization import (
     quantize_,
 )
 
-from . import dtypes, optim, quantization, testing
+from . import dtypes, optim, quantization, swizzle, testing
 
 __all__ = [
     "dtypes",
     "autoquant",
     "optim",
     "quantize_",
+    "swizzle",
     "testing",
     "ops",
     "quantization",
