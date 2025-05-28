@@ -54,6 +54,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         offs: torch.Tensor,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
     ) -> torch.Tensor:
+        print(f"danvm scaled_grouped_mm: {A.shape} @ {B_t.shape}")
         # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
@@ -83,7 +84,10 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert not _is_column_major(A), "A must be row-major"
 
         # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
-        assert _is_column_major(B_t), "B must be column-major"
+        if not _is_column_major(B_t):
+            # FSDP will complain if B_t (weights) is not contiguous, we can't require B_t to be column-major.
+            # TODO: figure out better solution than transposing for each forward pass.
+            B_t = B_t.transpose(-2, -1).contiguous().transpose(-2, -1)
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K)
@@ -172,6 +176,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         #
         # grad_A = grad_output @ B
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
+        print(f"grad_A={grad_output_fp8_row_major.shape} @ {B_fp8_col_major.shape}")
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major,
             B_fp8_col_major,
@@ -211,6 +216,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Compute grad_B = grad_output_t @ A.
         # grad_B = grad_output_t @ A
         # grad_B = (N,M) @ (M,K) = (N,K)
+        print(f"grad_B={grad_output_t_fp8_row_major.shape} @ {A_fp8_col_major.shape}")
         grad_B = torch._scaled_grouped_mm(
             grad_output_t_fp8_row_major,
             A_fp8_col_major,
