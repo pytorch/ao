@@ -115,11 +115,20 @@ To fake quantize embedding in addition to linear, you can additionally call
 the following with a filter function during the prepare step:
 
 ```
-from torchao.quantization.quant_api import _is_linear
+# first apply linear transformation to the model as above
+activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
+quantize_(
+    model,
+    IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+)
+
+# then apply weight-only transformation to embedding layers
+# activation fake quantization is not supported for embedding layers
 quantize_(
     m,
-    IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
-    filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding) or _is_linear(m),
+    IntXQuantizationAwareTrainingConfig(weight_config=weight_config), 
+    filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding) 
 )
 ```
 
