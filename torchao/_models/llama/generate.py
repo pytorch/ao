@@ -439,6 +439,17 @@ def main(
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
             quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+        elif "fbgemm" in quantization:
+            from torchao.quantization import FbgemmConfig
+
+            _, precision, group_size = quantization.split("-")
+            group_size = int(group_size)
+            if precision == "int4":
+                quantize_(model, FbgemmConfig("bf16i4bf16", group_size))
+            else:
+                raise NotImplementedError(
+                    f"FbegemmConfig({precision=}) not supported yet"
+                )
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
@@ -1163,7 +1174,7 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>, fbgemm-int4-<group_size>"
         ),
     )
     parser.add_argument(

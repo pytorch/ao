@@ -40,6 +40,7 @@ from .observer import (
 )
 from .quant_api import (
     CutlassInt4PackedLayout,
+    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
@@ -148,6 +149,7 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "ModuleFqnToConfig",
+    "FbgemmConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
