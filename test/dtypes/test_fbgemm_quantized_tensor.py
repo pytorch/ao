@@ -29,8 +29,12 @@ class TestFbgemmInt4Tensor(TestCase):
         input = torch.randn(1, 128, dtype=dtype, device=device)
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
         original = linear(input)
-        # config = FbgemmConfig(io_dtype="bf16i4bf16")
-        config = FbgemmConfig(io_dtype="bf16i8bf16")
+        config = FbgemmConfig(
+            input_dtype=torch.bfloat16,
+            weight_dtype=torch.int4,
+            output_dtype=torch.bfloat16,
+            block_size=(1, 128),
+        )
         quantize_(linear, config)
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > 20)

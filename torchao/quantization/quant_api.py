@@ -47,7 +47,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-    to_fbgemm_int4,
+    to_fbgemm_quantized,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -1979,14 +1979,16 @@ class FbgemmKernelIODtype(str, Enum):
 class FbgemmConfig(AOBaseConfig):
     """Quantization Config for fbgemm-genai kernels
     Args:
-       io_dtype (str): The input output dtype of the input, weight and output of the kernel,
-         for example: bf16i4bf16 means input is bf16, weight is int4 and output is bf16.
-         Currently available options are ["bf16i4bf16"]
+       input_dtype (torch.dtype): input dtype of the kernel
+       weight_dtype (torch.dtype): weight dtype of the kernel
+       output_dtype (torch.dtype): output dtype of the kernel
        group_size (int): The group size for weight
     """
 
-    io_dtype: FbgemmKernelIODtype
-    group_size: int = 128
+    input_dtype: torch.dtype
+    weight_dtype: torch.dtype
+    output_dtype: torch.dtype
+    block_size: Tuple[int]
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -2001,13 +2003,27 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
     if fbgemm_gpu.__version__ < "1.2.0":
         raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
-    if config.io_dtype == "bf16i4bf16":
-        weight = to_fbgemm_int4(module.weight, config.group_size)
+    _SUPPORTED_DTYPES = {
+        (torch.bfloat16, torch.int4, torch.bfloat16),
+    }
+
+    if (
+        config.input_dtype,
+        config.weight_dtype,
+        config.output_dtype,
+    ) in _SUPPORTED_DTYPES:
+        weight = to_fbgemm_quantized(
+            module.weight,
+            config.input_dtype,
+            config.weight_dtype,
+            config.output_dtype,
+            config.block_size,
+        )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
     else:
         raise NotImplementedError(
-            f"{config} is not supported. supported io_dtypes are: {list(FbgemmKernelIODtype)}"
+            f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"
         )
 
 

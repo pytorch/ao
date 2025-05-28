@@ -6,6 +6,7 @@
 
 
 import importlib.util
+from typing import Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -13,7 +14,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
-    "to_fbgemm_int4",
+    "to_fbgemm_quantized",
 ]
 
 aten = torch.ops.aten
@@ -71,7 +72,25 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float(cls, w: torch.Tensor, group_size: int = 128):
+    def from_float(
+        cls,
+        w: torch.Tensor,
+        input_dtype: torch.dtype,
+        weight_dtype: torch.dtype,
+        output_dtype: torch.dtype,
+        block_size: Tuple[int],
+    ):
+        assert len(block_size) == w.ndim, (
+            f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
+        )
+        group_size = block_size[-1]
+
+        assert (input_dtype, weight_dtype, output_dtype) == (
+            torch.bfloat16,
+            torch.int4,
+            torch.bfloat16,
+        )
+
         if w.ndim >= 3:
             wq, scale, zero_point = zip(
                 *[int4_row_quantize_zp(i, group_size) for i in w], strict=False
@@ -138,4 +157,5 @@ def _(func, types, args, kwargs):
     )
 
 
-to_fbgemm_int4 = FbgemmInt4Tensor.from_float
+# We can have `to_fbgemm_tensor` to dispatch to different Fbgemm tensors later
+to_fbgemm_quantized = FbgemmInt4Tensor.from_float
