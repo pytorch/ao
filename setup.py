@@ -83,8 +83,6 @@ from torch.utils.cpp_extension import (
     _get_cuda_arch_flags,
 )
 
-IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
-
 
 class BuildOptions:
     def __init__(self):
@@ -280,30 +278,35 @@ def get_extensions():
     if debug_mode:
         print("Compiling in debug mode")
 
-    if not torch.version.cuda:
-        print(
-            "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
-        )
-    if (CUDA_HOME is None and ROCM_HOME is None) and torch.version.cuda:
-        print(
-            "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
-        )
+    if CUDA_HOME is None and torch.version.cuda:
+        print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
+    if ROCM_HOME is None and torch.version.hip:
+        print("ROCm is not available. Skipping compilation of ROCm extensions")
+        print("If you'd like to compile ROCm extensions locally please install ROCm")
 
-    use_cuda = torch.version.cuda and (CUDA_HOME is not None or ROCM_HOME is not None)
-    extension = CUDAExtension if use_cuda else CppExtension
+    use_cuda = torch.version.cuda and CUDA_HOME is not None
+    use_rocm = torch.version.hip and ROCM_HOME is not None
+    extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
+
+    nvcc_args = [
+        "-DNDEBUG" if not debug_mode else "-DDEBUG",
+        "-O3" if not debug_mode else "-O0",
+        "-t=0",
+        "-std=c++17",
+    ]
+    rocm_args = [
+        "-DNDEBUG" if not debug_mode else "-DDEBUG",
+        "-O3" if not debug_mode else "-O0",
+        "-std=c++17",
+    ]
 
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": [
-            "-DNDEBUG" if not debug_mode else "-DDEBUG",
-            "-O3" if not debug_mode else "-O0",
-            "-t=0",
-            "-std=c++17",
-        ],
+        "nvcc": nvcc_args if use_cuda else rocm_args,
     }
 
     if not IS_WINDOWS:
@@ -341,6 +344,34 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
+    rocm_sparse_marlin_supported = False
+    if use_rocm:
+        # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
+        found_col16 = False
+        found_vec_ext = False
+        print("ROCM_HOME", ROCM_HOME)
+        hipblaslt_headers = list(
+            glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h"))
+        )
+        print("hipblaslt_headers", hipblaslt_headers)
+        for header in hipblaslt_headers:
+            with open(header) as f:
+                text = f.read()
+                if "HIPBLASLT_ORDER_COL16" in text:
+                    found_col16 = True
+                if "HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER_VEC_EXT" in text:
+                    found_vec_ext = True
+        if found_col16:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_HAS_ORDER_COL16")
+            print("hipblaslt found extended col order enums")
+        else:
+            print("hipblaslt does not have extended col order enums")
+        if found_vec_ext:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_VEC_EXT")
+            print("hipblaslt found vec ext")
+        else:
+            print("hipblaslt does not have vec ext")
+
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
@@ -354,42 +385,46 @@ def get_extensions():
         )
         sources = [s for s in sources if s not in excluded_sources]
 
+    # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(
         glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
     )
 
-    # Define HIP source directories
-    hip_source_dirs = [
+    # Define ROCm source directories
+    rocm_source_dirs = [
+        os.path.join(extensions_dir, "rocm", "swizzle"),
         os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
-        # TODO: Add sparse_marlin back in once we have a ROCm build for it
-        # os.path.join(extensions_dir, "cuda", "sparse_marlin")
     ]
+    if rocm_sparse_marlin_supported:
+        rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
-    # Collect all HIP sources from the defined directories
-    hip_sources = []
-    for hip_dir in hip_source_dirs:
-        hip_sources.extend(glob.glob(os.path.join(hip_dir, "*.cu"), recursive=True))
+    # Collect all ROCm sources from the defined directories
+    rocm_sources = []
+    for rocm_dir in rocm_source_dirs:
+        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.cu"), recursive=True))
+        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.hip"), recursive=True))
+        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.cpp"), recursive=True))
 
-    # Collect CUDA source files if needed
-    if not IS_ROCM and use_cuda:
+    # Add CUDA source files if needed
+    if use_cuda:
         sources += cuda_sources
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
-    if IS_ROCM and use_cuda:
+    if use_rocm:
         # Add ROCm GPU architecture check
-        gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch != "gfx942":
+        gpu_arch = None
+        if torch.cuda.is_available():
+            gpu_arch = torch.cuda.get_device_properties(0).name
+        if gpu_arch and gpu_arch != "gfx942":
             print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print(
-                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
-            )
-        else:
-            sources += hip_sources
+            print("Currently only gfx942 is supported. Compiling only for gfx942.")
+        extra_compile_args["nvcc"].append("--offload-arch=gfx942")
+        sources += rocm_sources
 
     use_cutlass = False
     cutlass_90a_sources = None
-    if use_cuda and not IS_ROCM and not IS_WINDOWS:
+    if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
