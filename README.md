@@ -213,7 +213,7 @@ We're also fortunate to be integrated into some of the leading open-source libra
 4. [TorchTune](https://pytorch.org/torchtune/main/tutorials/qlora_finetune.html?highlight=qlora) for our QLoRA and QAT recipes
 5. VLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html)
 6. SGLang for LLM serving: [usage](https://docs.sglang.ai/backend/server_arguments.html#server-arguments) and the major [PR](https://github.com/sgl-project/sglang/pull/1341).
-7. [Axolotl](https://docs.axolotl.ai/docs/qat.html) for Quantization Aware Training and [post-training quantization](https://docs.axolotl.ai/docs/quantize.html)
+7. Axolotl for [Quantization Aware Training](https://docs.axolotl.ai/docs/qat.html) and [post-training quantization](https://docs.axolotl.ai/docs/quantize.html)
 
 ## Videos
 * [Keynote talk at GPU MODE IRL](https://youtu.be/FH5wiwOyPX4?si=VZK22hHz25GRzBG1&t=1009)
