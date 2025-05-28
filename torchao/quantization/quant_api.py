@@ -20,7 +20,6 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
@@ -1969,10 +1968,6 @@ def _fpx_weight_only_transform(
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
-
-
-class FbgemmKernelIODtype(str, Enum):
-    bf16i4bf16 = "bf16i4bf16"
 
 
 @dataclass
