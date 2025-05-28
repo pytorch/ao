@@ -17,12 +17,16 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_90,
+)
 
 
 class TestFbgemmInt4Tensor(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Need torch >= 2.6")
     def test_linear(self):
         dtype = torch.bfloat16
         device = "cuda"

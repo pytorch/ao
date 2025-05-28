@@ -1539,7 +1539,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         activation_granularity, weight_granularity = _normalize_granularity(
             self.granularity
         )
-        self.granularity = (activation_granularity, weight_granularity)
+        self.granularity = [activation_granularity, weight_granularity]
 
 
 # for bc
