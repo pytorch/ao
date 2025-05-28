@@ -424,11 +424,12 @@
 <span class="sd">and mixed GEMM kernels</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">types</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -454,6 +455,7 @@
     <span class="n">to_affine_quantized_floatx</span><span class="p">,</span>
     <span class="n">to_affine_quantized_floatx_static</span><span class="p">,</span>
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
+    <span class="n">to_fbgemm_quantized</span><span class="p">,</span>
     <span class="n">to_marlinqqq_quantized_intx</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -551,6 +553,7 @@
     <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Float8DynamicActivationFloat8SemiSparseWeightConfig&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ModuleFqnToConfig&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;FbgemmConfig&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span> <span class="o">=</span> <span class="p">{</span>
@@ -1934,9 +1937,7 @@
 
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
-    <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
-        <span class="n">Union</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">FP8Granularity</span><span class="p">]]</span>
-    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 
@@ -1947,7 +1948,7 @@
         <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">[</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">]</span>
 
 
 <span class="c1"># for bc</span>
@@ -2374,6 +2375,58 @@
     <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FbgemmConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Quantization Config for fbgemm-genai kernels</span>
+<span class="sd">    Args:</span>
+<span class="sd">       input_dtype (torch.dtype): input dtype of the kernel</span>
+<span class="sd">       weight_dtype (torch.dtype): weight dtype of the kernel</span>
+<span class="sd">       output_dtype (torch.dtype): output dtype of the kernel</span>
+<span class="sd">       group_size (int): The group size for weight</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">input_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">output_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">FbgemmConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">FbgemmConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="c1"># TODO: use is_package_at_least(&quot;fbgemm_gpu&quot;, &quot;1.2.0&quot;) when</span>
+    <span class="c1"># https://github.com/pytorch/FBGEMM/issues/4198 is fixed</span>
+    <span class="k">if</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">&quot;fbgemm_gpu&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;Requires fbgemm-gpu-genai &gt;= 1.2.0&quot;</span><span class="p">)</span>
+
+    <span class="kn">import</span><span class="w"> </span><span class="nn">fbgemm_gpu.experimental.gen_ai</span>  <span class="c1"># noqa: F401</span>
+
+    <span class="k">if</span> <span class="n">fbgemm_gpu</span><span class="o">.</span><span class="n">__version__</span> <span class="o">&lt;</span> <span class="s2">&quot;1.2.0&quot;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;Requires fbgemm-gpu-genai &gt;= 1.2.0&quot;</span><span class="p">)</span>
+
+    <span class="n">_SUPPORTED_DTYPES</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">),</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">input_dtype</span><span class="p">,</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">,</span>
+    <span class="p">)</span> <span class="ow">in</span> <span class="n">_SUPPORTED_DTYPES</span><span class="p">:</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_fbgemm_quantized</span><span class="p">(</span>
+            <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">input_dtype</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config</span><span class="si">}</span><span class="s2"> is not supported. supported input, weight, output kernel dtypes are: </span><span class="si">{</span><span class="n">_SUPPORTED_DTYPES</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
 
 <span class="nd">@dataclass</span>
