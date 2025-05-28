@@ -1528,9 +1528,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    granularity: Optional[
-        Union[FP8Granularity, List[FP8Granularity]]
-    ] = None
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
 
