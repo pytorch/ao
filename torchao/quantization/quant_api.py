@@ -20,7 +20,7 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -1529,7 +1529,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[
-        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
+        Union[FP8Granularity, List[FP8Granularity]]
     ] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
@@ -1983,7 +1983,7 @@ class FbgemmConfig(AOBaseConfig):
     input_dtype: torch.dtype
     weight_dtype: torch.dtype
     output_dtype: torch.dtype
-    block_size: Tuple[int]
+    block_size: List[int]
 
 
 @register_quantize_module_handler(FbgemmConfig)

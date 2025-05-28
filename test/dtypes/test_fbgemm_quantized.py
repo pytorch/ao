@@ -33,7 +33,7 @@ class TestFbgemmInt4Tensor(TestCase):
             input_dtype=torch.bfloat16,
             weight_dtype=torch.int4,
             output_dtype=torch.bfloat16,
-            block_size=[1, 128],
+            block_size=(1, 128),
         )
         quantize_(linear, config)
         quantized = linear(input)

@@ -130,7 +130,13 @@ class ConfigJSONEncoder(json.JSONEncoder):
 
         # For lists and dictionaries, recursively process their items
         if isinstance(o, list):
-            return [self.encode_value(item) for item in o]
+            return type(o)(self.encode_value(item) for item in o)
+
+        if isinstance(o, tuple):
+            raise NotImplementedError(
+                "Tuples will be serialized as List in JSON, so we recommend to use "
+                "Lists instead to avoid surprises"
+            )
 
         if isinstance(o, dict):
             return {k: self.encode_value(v) for k, v in o.items()}
@@ -245,18 +251,24 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
 
     # Process nested structures for dictionary obj_data
     processed_data = {}
+    print("obj data:", obj_data)
     for key, value in obj_data.items():
         if isinstance(value, dict) and "_type" in value and "_data" in value:
             # Recursively handle nested configs
             processed_data[key] = config_from_dict(value)
         elif isinstance(value, list):
-            # Handle lists of possible configs
+            # Handle lists or tuples of possible configs
             processed_data[key] = [
                 config_from_dict(item)
                 if isinstance(item, dict) and "_type" in item and "_data" in item
                 else item
                 for item in value
             ]
+        elif isinstance(value, tuple):
+            raise NotImplementedError(
+                "Tuples will be serialized as List in JSON, so we recommend to use "
+                "Lists instead to avoid surprises"
+            )
         elif isinstance(value, dict):
             # Handle dicts of possible configs
             processed_data[key] = {

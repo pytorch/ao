@@ -6,7 +6,7 @@
 
 
 import importlib.util
-from typing import Tuple
+from typing import List
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -78,7 +78,7 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         input_dtype: torch.dtype,
         weight_dtype: torch.dtype,
         output_dtype: torch.dtype,
-        block_size: Tuple[int],
+        block_size: List[int],
     ):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"

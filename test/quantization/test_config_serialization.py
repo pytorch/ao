@@ -20,6 +20,7 @@ from torchao.core.config import (
     config_to_dict,
 )
 from torchao.quantization.quant_api import (
+    FbgemmConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -39,6 +40,7 @@ from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeigh
 configs = [
     Float8DynamicActivationFloat8WeightConfig(),
     Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+    Float8DynamicActivationFloat8WeightConfig(granularity=[PerRow(), PerRow()]),
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),
@@ -76,6 +78,7 @@ configs = [
             "linear2": Int8DynamicActivationInt4WeightConfig(),
         }
     ),
+    FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256]),
 ]
 
 
