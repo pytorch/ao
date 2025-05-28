@@ -52,8 +52,10 @@ if TYPE_CHECKING:
 import torch._inductor.config
 
 from torchao.quantization.pt2e.inductor_passes.x86 import (
+   quant_lift_up,
+)
+from torchao.quantization.pt2e.inductor_passes.arm import (
     _register_quantization_weight_pack_pass,
-    quant_lift_up,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 

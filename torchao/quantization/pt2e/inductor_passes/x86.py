@@ -92,14 +92,14 @@ def _may_generate_pattern_with_reshape(pattern, reshape_size=Arg(), with_reshape
 
 
 def _generate_linear_t_pattern(
-    dequant_pattern,
+    _dequant_per_channel_pattern,
     dtype,
 ):
     assert dtype in [torch.float32, torch.bfloat16]
     t_pattern = CallFunction(
         aten.permute.default,
         _may_generate_pattern_with_dtype_convert(
-            dequant_pattern,
+            _dequant_per_channel_pattern,
             KeywordArg("autocast_wgt_dtype"),
             dtype == torch.bfloat16,
         ),
@@ -130,34 +130,6 @@ def get_dequantize_per_tensor_activation_pattern(is_tensor_overload=False):
     )
     return dequantize_per_tensor_activation_pattern
 
-dequantize_per_tensor_weight_pattern = CallFunction(
-    quantized_decomposed.dequantize_per_tensor.default,
-    KeywordArg("q_weight"),
-    KeywordArg("w_scale"),
-    KeywordArg("w_zp"),
-    KeywordArg("w_quant_min"),
-    KeywordArg("w_quant_max"),
-    KeywordArg("w_dtype"),
-)
-
-dequantize_per_tensor_to_bf16_weight_pattern = (
-    _may_generate_pattern_with_dtype_convert(
-        dequantize_per_tensor_weight_pattern,
-        KeywordArg("autocast_wgt_dtype"),
-    )
-)
-
-dequantize_per_tensor_clone_weight_pattern = CallFunction(
-    aten.clone.default,
-    dequantize_per_tensor_weight_pattern,
-    memory_format=KeywordArg("memory_format"),
-)
-
-dequantize_per_tensor_to_bf16_clone_weight_pattern = CallFunction(
-    aten.clone.default,
-    dequantize_per_tensor_to_bf16_weight_pattern,
-    memory_format=KeywordArg("memory_format"),
-)
 
 dequantize_per_channel_weight_pattern = CallFunction(
     quantized_decomposed.dequantize_per_channel.default,
@@ -695,12 +667,7 @@ def _is_valid_dequant_conv_pattern(dtype):
     return _inner
 
 
-def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float32, per_channel = True,):
-    expected_dequant_op = (
-        quantized_decomposed.dequantize_per_channel.default
-        if per_channel
-        else quantized_decomposed.dequantize_per_tensor.default
-    )
+def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float32):
     @register_freezing_graph_pattern(
         pattern,
         extra_check=_is_valid_dequant_conv_pattern(dtype),
@@ -713,12 +680,12 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
           |
         dequant_per_tensor
           |
-        Conv2d <- optional(aten.clone.default) <- expected_dequant_op <- int8_weight
+        Conv2d <- optional(aten.clone.default) <- dequant_per_channel <- int8_weight
 
         Insert weight prepack node and change the pattern to:
         int8 activation
           |
-        onednn.qconv2d_pointwise <- onednn.qconv_prepack <- int8_weight
+        onednn.qconv_pointwise <- onednn.qconv_prepack <- int8_weight
         """
         assert dtype in [torch.float32, torch.bfloat16]
         conv_node = match.output_node()
@@ -736,7 +703,7 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
         )
 
         if dtype == torch.float32:
-            dq_weight = (
+            dequant_per_channel = (
                 clone_node.args[0]  # type: ignore[union-attr]
                 if has_clone_to_channel_last_node_in_pattern
                 else conv_node.args[1]
@@ -747,11 +714,11 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
                 if has_clone_to_channel_last_node_in_pattern
                 else conv_node.args[1]
             )
-            dq_weight = weight_to_bf16_node.args[0]  # type: ignore[union-attr]
+            dequant_per_channel = weight_to_bf16_node.args[0]  # type: ignore[union-attr]
 
         assert (
-            dq_weight.target  # type: ignore[union-attr]
-            is expected_dequant_op
+            dequant_per_channel.target  # type: ignore[union-attr]
+            is quantized_decomposed.dequantize_per_channel.default
         )
 
         # Activation QParams
@@ -776,18 +743,7 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
             kwargs["dilation"],
             kwargs["groups"],
         )
-        if not isinstance(w_scale, torch.fx.Node):
-            w_scale = match.graph.call_function(
-        torch.tensor,
-        args=([float(w_scale)],),          # <- wrap in list 
-        kwargs=dict(dtype=torch.float32),  # ensure f32
-        )
-        if not isinstance(w_zp, torch.fx.Node):
-            w_zp = match.graph.call_function(
-        torch.tensor,
-        args=([int(w_zp)],),
-        kwargs=dict(dtype=torch.int32),    # oneDNN expects s32 ZP
-        )
+
         x_shape = qx.meta.get("tensor_meta").shape
         if has_free_symbols(x_shape):
             # For dynamic shape case, we can't get activation shape ahead of runtime.
@@ -831,7 +787,7 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
                 "",  # algorithm
             )
             new_conv_node = graph.call_function(
-                torch.ops.onednn.qconv2d_pointwise.default, args=new_args
+                torch.ops.onednn.qconv_pointwise.default, args=new_args
             )
             conv_node.replace_all_uses_with(new_conv_node)
             new_conv_node.meta.update(conv_node.meta)
@@ -847,15 +803,15 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
                 graph.erase_node(clone_node)  # type: ignore[arg-type]
             if dtype == torch.bfloat16:
                 graph.erase_node(weight_to_bf16_node)  # type: ignore[possibly-undefined, arg-type]
-            graph.erase_node(dq_weight)  # type: ignore[arg-type]
-            counters["inductor"]["qconv2d_weight_prepack_matcher_count"] += 1
-            counters["inductor"]["qconv2d_weight_prepack_matcher_nodes"] += len(
+            graph.erase_node(dequant_per_channel)  # type: ignore[arg-type]
+            counters["inductor"]["qconv_weight_prepack_matcher_count"] += 1
+            counters["inductor"]["qconv_weight_prepack_matcher_nodes"] += len(
                 match.nodes
             )
 
 
 def _generate_dequant_convolution_node_pattern(
-    dequant_weight_pattern, dtype=torch.float32
+    _dequant_per_channel_pattern, dtype=torch.float32
 ):
     assert dtype in [torch.float32, torch.bfloat16]
     dequant_convolution_node_pattern = CallFunction(
@@ -865,7 +821,7 @@ def _generate_dequant_convolution_node_pattern(
             KeywordArg("autocast_act_dtype"),
             dtype == torch.bfloat16,
         ),
-        dequant_weight_pattern,
+        _dequant_per_channel_pattern,
         KeywordArg("b"),
         KeywordArg("stride"),
         KeywordArg("padding"),
@@ -877,17 +833,13 @@ def _generate_dequant_convolution_node_pattern(
     return dequant_convolution_node_pattern
 
 
-def _generate_qconv_weight_prepack_patterns(dtype=torch.float32, per_channel=True,):
-    """
-    per_channel = False → per-tensor weight de-quant
-    per_channel = True  → per-channel weight de-quant
-    """
+def _generate_qconv_weight_prepack_patterns(dtype=torch.float32):
     assert dtype in [torch.float32, torch.bfloat16]
     return (
         _generate_dequant_convolution_node_pattern(
-            dequantize_per_channel_weight_pattern if per_channel else dequantize_per_tensor_weight_pattern
+            dequantize_per_channel_weight_pattern
             if dtype == torch.float32
-            else dequantize_per_channel_to_bf16_weight_pattern if per_channel else dequantize_per_tensor_to_bf16_weight_pattern,
+            else dequantize_per_channel_to_bf16_weight_pattern,
             dtype,
         ),
         # There is another pattern due to the pass of convert_conv_weights_to_channels_last
@@ -895,9 +847,9 @@ def _generate_qconv_weight_prepack_patterns(dtype=torch.float32, per_channel=Tru
         # Depend on some heuristics, it may or may not insert to(channel_last) node
         # between convolution and dequant_per_channel node
         _generate_dequant_convolution_node_pattern(
-            dequantize_per_channel_weight_pattern if per_channel else dequantize_per_tensor_weight_pattern
+            dequantize_per_channel_clone_weight_pattern
             if dtype == torch.float32
-            else dequantize_per_channel_to_bf16_weight_pattern if per_channel else dequantize_per_tensor_to_bf16_weight_pattern,
+            else dequantize_per_channel_to_bf16_clone_weight_pattern,
             dtype,
         ),
     )
@@ -1040,14 +992,7 @@ def _register_qlinear_weight_prepack_pass(
     dtype=torch.float32,
     input_dim_exceeds_two=False,
     input_contiguous=True,
-    per_channel=True,
 ):
-    
-    expected_dq_op = (
-        quantized_decomposed.dequantize_per_channel.default
-        if per_channel else
-        quantized_decomposed.dequantize_per_tensor.default
-    )
     @register_freezing_graph_pattern(
         pattern,
         extra_check=_is_valid_dequant_linear_pattern(
@@ -1062,7 +1007,7 @@ def _register_qlinear_weight_prepack_pass(
           |
         dequant_per_tensor
           |
-        mm/addmm <- t <- expected_dq_op  <- int8_weight
+        mm/addmm <- t <- dequant_per_channel <- int8_weight
 
         Insert weight prepack node and change the pattern to:
         int8 activation
@@ -1094,12 +1039,14 @@ def _register_qlinear_weight_prepack_pass(
             t_node = linear_node.args[weight_index]
 
         if dtype == torch.float32:
-            dq_weight = t_node.args[0]
+            dequant_per_channel = t_node.args[0]
         else:
             weight_to_bf16_node = t_node.args[0]
-            dq_weight = weight_to_bf16_node.args[0]
-
-        assert (dq_weight.target is expected_dq_op)
+            dequant_per_channel = weight_to_bf16_node.args[0]
+        assert (
+            dequant_per_channel.target
+            is quantized_decomposed.dequantize_per_channel.default
+        )
 
         # Activation QParams
         qx, x_zp, x_scale = (
@@ -1118,20 +1065,6 @@ def _register_qlinear_weight_prepack_pass(
         # Params
         bias = kwargs["b"] if "b" in kwargs else None
 
-        if not isinstance(w_scale, torch.fx.Node):
-            w_scale = match.graph.call_function(
-        torch.tensor,
-        args=([float(w_scale)],),          # <- wrap in list 
-        kwargs=dict(dtype=torch.float32),  # ensure f32
-        )
-            
-        if not isinstance(w_zp, torch.fx.Node):
-            w_zp = match.graph.call_function(
-        torch.tensor,
-        args=([int(w_zp)],),
-        kwargs=dict(dtype=torch.int32),    # oneDNN expects s32 ZP
-        )
-            
         x_shape = qx.meta.get("tensor_meta").shape
         if has_free_symbols(x_shape):
             # For dynamic shape case, we can't get activation shape ahead of runtime.
@@ -1210,7 +1143,7 @@ def _register_qlinear_weight_prepack_pass(
             graph.erase_node(t_node)
             if dtype == torch.bfloat16:
                 graph.erase_node(weight_to_bf16_node)  # type: ignore[possibly-undefined]
-            graph.erase_node(dq_weight)
+            graph.erase_node(dequant_per_channel)
 
             counters["inductor"]["qlinear_weight_prepack_matcher_count"] += 1
             counters["inductor"]["qlinear_weight_prepack_matcher_nodes"] += len(
@@ -1219,13 +1152,13 @@ def _register_qlinear_weight_prepack_pass(
 
 
 def _generate_dequant_linear_node_pattern(
-    dequant_weight_pattern,
+    _dequant_per_channel_pattern,
     dtype=torch.float32,
     input_dim_exceeds_two=False,
     is_tensor_overload=False,
 ):
     assert dtype in [torch.float32, torch.bfloat16]
-    t_pattern = _generate_linear_t_pattern(dequant_weight_pattern, dtype)
+    t_pattern = _generate_linear_t_pattern(_dequant_per_channel_pattern, dtype)
     dequant_linear_bias_pattern = _may_generate_pattern_with_reshape(
         CallFunction(
             aten.addmm.default,
@@ -1265,13 +1198,13 @@ def _generate_dequant_linear_node_pattern(
 
 
 def _generate_dequant_bmm_node_pattern(
-    dequant_weight_pattern,
+    _dequant_per_channel_pattern,
     dtype=torch.float32,
     with_bias=False,
     is_tensor_overload=False,
 ):
     # When activation of linear dim exceed 2 and not contiguous
-    t_pattern = _generate_linear_t_pattern(dequant_weight_pattern, dtype)
+    t_pattern = _generate_linear_t_pattern(_dequant_per_channel_pattern, dtype)
 
     assert dtype in [torch.float32, torch.bfloat16]
     dequant_bmm_pattern = CallFunction(
@@ -1311,19 +1244,17 @@ def _generate_qlinear_weight_prepack_patterns(
     input_contiguous=True,
     with_bias=False,
     is_tensor_overload=False,
-    per_channel = True, 
 ):
-    weight_dq_quant = dequantize_per_channel_weight_pattern if per_channel else dequantize_per_tensor_weight_pattern
     if input_dim_exceeds_two and not input_contiguous:
         return _generate_dequant_bmm_node_pattern(
-            weight_dq_quant,
+            dequantize_per_channel_weight_pattern,
             dtype,
             with_bias,
             is_tensor_overload,
         )
     else:
         return _generate_dequant_linear_node_pattern(
-            weight_dq_quant,
+            dequantize_per_channel_weight_pattern,
             dtype,
             input_dim_exceeds_two,
             is_tensor_overload,
@@ -1441,17 +1372,17 @@ def _register_dequant_promotion():
         )  # pass_number=0 to run before weight prepack
 
 
-def _register_qconv_weight_prepack(per_channel=True):
+def _register_qconv_weight_prepack():
     for dtype in [torch.float32, torch.bfloat16]:
-        weight_prepack_patterns = _generate_qconv_weight_prepack_patterns(dtype=dtype, per_channel=per_channel)
+        weight_prepack_patterns = _generate_qconv_weight_prepack_patterns(dtype)
         for weight_prepack_pattern in weight_prepack_patterns:
             # Register to pass_number 1, so we can do dequant promotion in pass_number 0.
             _register_qconv_weight_prepack_pass(
-                weight_prepack_pattern, pass_number=1, dtype=dtype, per_channel=per_channel
+                weight_prepack_pattern, pass_number=1, dtype=dtype
             )
 
 
-def _register_qlinear_weight_prepack(per_channel=True):
+def _register_qlinear_weight_prepack():
     # 6 Linear related patterns will be matched based on the dtype, input dimension size and input contiguous.
     # Then convert the pattern into a QLinear node with int8_fp32/bf16.
     # Case 1: int8-mixed-fp32, input dim size is 2
@@ -1496,7 +1427,6 @@ def _register_qlinear_weight_prepack(per_channel=True):
             dtype,
             input_dim_exceeds_two,
             is_tensor_overload=is_tensor_overload,
-            per_channel=per_channel,
         )
         for weight_prepack_pattern in weight_prepack_patterns:
             # Register to pass_number 1, so we can do dequant promotion in pass_number 0.
@@ -1505,7 +1435,6 @@ def _register_qlinear_weight_prepack(per_channel=True):
                 pass_number=1,
                 dtype=dtype,
                 input_dim_exceeds_two=input_dim_exceeds_two,
-                per_channel=per_channel,
             )
 
     # Step 2: register patterns from bmm
@@ -1523,7 +1452,6 @@ def _register_qlinear_weight_prepack(per_channel=True):
             input_contiguous=False,
             with_bias=with_bias,
             is_tensor_overload=is_tensor_overload,
-            per_channel=per_channel,
         )
         _register_qlinear_weight_prepack_pass(
             bmm_pattern,
@@ -1533,7 +1461,6 @@ def _register_qlinear_weight_prepack(per_channel=True):
             dtype=dtype,
             input_dim_exceeds_two=True,
             input_contiguous=False,
-            per_channel=per_channel,
         )
 
 
@@ -2814,15 +2741,15 @@ def _register_qlinear_binary_fusion():
 
 
 @functools.lru_cache(None)
-def _register_quantization_weight_pack_pass(per_channel=True):
+def _register_quantization_weight_pack_pass():
     # Step 1: Dequant promotion for int8-mixed-fp32/bf16
     _register_dequant_promotion()
 
     # Step 2: QConv weight prepack
-    _register_qconv_weight_prepack(per_channel)
+    _register_qconv_weight_prepack()
 
     # Step 3: QLinear weight prepack
-    _register_qlinear_weight_prepack(per_channel)
+    _register_qlinear_weight_prepack()
     _register_linear_dynamic_fp16_weight_prepack()
 
     # Step 4: weight prepack for SmoothQuant from Torchao
