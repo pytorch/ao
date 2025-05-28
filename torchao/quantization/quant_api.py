@@ -20,6 +20,7 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
@@ -1970,6 +1971,10 @@ def _fpx_weight_only_transform(
     return module
 
 
+class FbgemmKernelIODtype(str, Enum):
+    bf16i4bf16 = "bf16i4bf16"
+
+
 @dataclass
 class FbgemmConfig(AOBaseConfig):
     """Quantization Config for fbgemm-genai kernels
@@ -1980,7 +1985,7 @@ class FbgemmConfig(AOBaseConfig):
        group_size (int): The group size for weight
     """
 
-    io_dtype: str
+    io_dtype: FbgemmKernelIODtype
     group_size: int = 128
 
 
@@ -2001,7 +2006,9 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
     else:
-        raise NotImplementedError(f"{config} not supported yet")
+        raise NotImplementedError(
+            f"{config} is not supported. supported io_dtypes are: {list(FbgemmKernelIODtype)}"
+        )
 
 
 @dataclass

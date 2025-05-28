@@ -4,7 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Tuple
+
+import importlib.util
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -18,48 +19,11 @@ __all__ = [
 aten = torch.ops.aten
 
 
-# copied from https://github.com/pytorch/FBGEMM/blob/2bf4d9aa739b3e78362ca801a72dacb16c67346f/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L60
-def int4_row_quantize(
-    x: torch.Tensor,
-    group_size: int = 128,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    n_bit = 4  # Number of target bits.
-    to_quant = x.reshape(-1, group_size).to(torch.float)
-
-    max_val = to_quant.amax(dim=1, keepdim=True)
-    min_val = to_quant.amin(dim=1, keepdim=True)
-    max_int = 2**n_bit - 1
-    min_int = 0
-    scales = (max_val - min_val).clamp(min=1e-6) / max_int
-
-    zeros = min_val + scales * (2 ** (n_bit - 1))
-
-    out = to_quant.sub(min_val).div(scales).round().clamp_(min_int, max_int)
-
-    # Recenter output and move to int8.
-    out = (out - 2 ** (n_bit - 1)).to(dtype=torch.int8).reshape(x.shape)
-
-    # Cutlass expects column major layout for scale and zero point,
-    # so we transpose here and make them contiguous.
-    scales = scales.view(x.shape[0], -1).t().contiguous()
-    zeros = zeros.view(x.shape[0], -1).t().contiguous()
-
-    return out, scales.to(x.dtype), zeros.to(x.dtype)
-
-
-# copied from https://github.com/pytorch/FBGEMM/blob/2bf4d9aa739b3e78362ca801a72dacb16c67346f/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L18
-def pack_int4(x: torch.Tensor) -> torch.Tensor:
-    # Given int8 x, pack adjacent int4 values into a single int8.
-    low_x = x[:, ::2]
-    high_x = x[:, 1::2]
-
-    # High bits need to left shift, this also masks off extra bits.
-    high_x = torch.bitwise_left_shift(high_x, 4)
-    # Low bits need to have sign bits removed.
-    low_x = torch.bitwise_and(low_x, 0xF)
-
-    # Recombine into a single value with bitwise or.
-    return torch.bitwise_or(low_x, high_x).contiguous()
+if importlib.util.find_spec("fbgemm_gpu") is None:
+    int4_row_quantize_zp = None
+    pack_int4 = None
+else:
+    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
 
 
 class FbgemmInt4Tensor(TorchAOBaseTensor):
@@ -110,14 +74,18 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
     def from_float(cls, w: torch.Tensor, group_size: int = 128):
         if w.ndim >= 3:
             wq, scale, zero_point = zip(
-                *[int4_row_quantize(i, group_size) for i in w], strict=False
+                *[int4_row_quantize_zp(i, group_size) for i in w], strict=False
             )
             wq = torch.stack([pack_int4(i) for i in wq], dim=0)
             scale = torch.stack(scale, dim=0)
             zero_point = torch.stack(zero_point, dim=0)
         else:
-            wq, scale, zero_point = int4_row_quantize(w, group_size)
+            wq, scale, zero_point = int4_row_quantize_zp(w, group_size)
             wq = pack_int4(wq)
+
+        scale = scale.to(w.dtype)
+        zero_point = zero_point.to(w.dtype)
+
         del w
         return FbgemmInt4Tensor(
             packed_weight=wq,
