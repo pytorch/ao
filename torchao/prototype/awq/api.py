@@ -16,6 +16,7 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     Int4XPULayout,
 )
+from torchao.dtypes.utils import Layout
 from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
 from torchao.quantization.granularity import PerGroup
@@ -107,16 +108,17 @@ class AWQUIntXConfig(AOBaseConfig):
 
     Args:
         quant_dtype: The data type of the quantized weights. Currently only torch.uint4 is intended to be used but can be used with torch.uint1 -> torch.uint8
+        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         group_size: Quantization granularity. Use -1 for channel wise quantization
         weight_quant_fn: The quantization function to be used, which takes in the weight and returns the quantized weight. If None, then affine uint4 quantization is used
         set_inductor_config: if True, adjusts `torchinductor` settings to recommended values.
     """
 
     quant_dtype: torch.dtype = torch.uint4
+    layout: Optional[Layout] = TensorCoreTiledLayout(inner_k_tiles=8)
     group_size: int = 64
     use_hqq: bool = False
     set_inductor_config: bool = True
-    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.FLOAT
 
 
 # for bc
@@ -139,24 +141,19 @@ def _awq_uintx_transform(
         "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     )
     
-    device = observed_linear.weight.device
     equalization_scale = observed_linear.act_obs.calculate_qparams()
     # AQT config
     if quant_dtype == torch.uint4:
-        if ((config.zero_point_domain == ZeroPointDomain.INT) and ("xpu" not in device.type)):
-            raise ValueError(
-                f"_awq_uintx_transform with ZeroPointDomain.INT is only applicable to Intel GPU."
-            )
         target_dtype = torch.int32
         eps = 1e-6
         preserve_zero = False
-        zero_point_dtype = torch.bfloat16 if config.zero_point_domain != ZeroPointDomain.INT else torch.int8
-        zero_point_domain = config.zero_point_domain
-
-        if "xpu" in device.type:
-            _layout = Int4XPULayout()
+        _layout = config.layout
+        if isinstance(_layout, Int4XPULayout):
+            zero_point_dtype = torch.int8
+            zero_point_domain = ZeroPointDomain.INT
         else:
-            _layout = TensorCoreTiledLayout(inner_k_tiles=8)
+            zero_point_dtype = torch.bfloat16
+            zero_point_domain = ZeroPointDomain.FLOAT
     else:
         target_dtype = torch.uint8
         eps = torch.finfo(torch.float32).eps
