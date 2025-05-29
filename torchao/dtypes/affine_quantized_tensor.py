@@ -458,10 +458,25 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout,
         scale_dtype: Optional[torch.dtype] = None,
     ):
+        from torchao.dtypes.floatx.cutlass_semi_sparse_layout import CutlassSemiSparseLayout
         """Convert a high precision tensor to a float8 quantized tensor."""
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
+
+            # handle CUTLASS specially
+            if isinstance(_layout, CutlassSemiSparseLayout):
+                tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+                tensor_impl = tensor_impl_ctr(input_float, None, None, _layout)
+                return cls(
+                    tensor_impl,
+                    block_size,
+                    original_shape,
+                    dtype=input_float.dtype,
+                )
+
+
+
             scale = choose_qparams_affine_float8(
                 input_float, float8_dtype=target_dtype, block_size=block_size
             )

@@ -157,5 +157,6 @@ def sparsify_(
 
 
 from torchao.sparsity.activation.squared_relu_sparse import (
-    ActivationSparseLinearConfig
+    ActivationSparseLinearConfig, 
+    Float8DynamicSemiSparseActivationFloat8WeightConfig,
 )

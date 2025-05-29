@@ -9,6 +9,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_api import _float8_cutlass_quant
+from torchao.sparsity.activation.squared_relu_sparse import Float8DynamicSemiSparseActivationFloat8WeightConfig
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
 
@@ -116,7 +117,7 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         quantize_(
             reference_linear,
             Float8DynamicActivationFloat8WeightConfig(
-                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=False)
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
             ),
         )
 
@@ -125,7 +126,7 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
             x = F.relu(x) ** 2
             return reference_linear(x)
 
-        # reference_srelu = torch.compile(reference_srelu, fullgraph=True)
+        reference_srelu = torch.compile(reference_srelu, fullgraph=True)
 
         # this only works with fullgraph=True, errors in eager
         # TODO figure out exactly why this happens
@@ -134,19 +135,22 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
             SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(),
         )
         # (reference_linear_copy)
-        # reference_linear_copy.forward = torch.compile(
-        #     reference_linear_copy.forward, fullgraph=True
-        # )
+        reference_linear_copy.forward = torch.compile(
+            reference_linear_copy.forward, fullgraph=True
+        )
 
         reference_output = reference_srelu(input_tensor)
         custom_output = reference_linear_copy(input_tensor)
+
+        print(reference_output)
+        print(custom_output)
 
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
 
 
 from torchao.sparsity.sparse_api import ActivationSparseLinearConfig
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
-def test_asdf(M=512, K=2048, N=1024):
+def test_asdf(M=16384, K=2048, N=1024):
     with torch.no_grad():
         torch.manual_seed(0)
         input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
@@ -159,26 +163,29 @@ def test_asdf(M=512, K=2048, N=1024):
         quantize_(
             reference_linear,
             Float8DynamicActivationFloat8WeightConfig(
-                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=False)
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
             ),
         )
+        reference_linear.forward = torch.compile(reference_linear.forward, fullgraph=True)
 
         # this only works with fullgraph=True, errors in eager
         # TODO figure out exactly why this happens
         sparsify_(
             reference_linear_copy,
-            ActivationSparseLinearConfig(),
+            Float8DynamicSemiSparseActivationFloat8WeightConfig(
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
+            ),
         )
         # (reference_linear_copy)
-        # reference_linear_copy.forward = torch.compile(
-        #     reference_linear_copy.forward, fullgraph=True
-        # )
+        reference_linear_copy.forward = torch.compile(
+            reference_linear_copy.forward, fullgraph=True, 
+        )
 
         reference_output = reference_linear(input_tensor)
         custom_output = reference_linear_copy(input_tensor)
 
-        print(reference_output)
-        print(custom_output)
+        print(reference_output.is_contiguous())
+        print(custom_output.is_contiguous())
 
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
 

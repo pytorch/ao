@@ -38,12 +38,6 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
 ):
     return FP8SemiSparseActivationLinear.from_dense(module, config)
 
-def _to_fp8_rowwise(x: torch.Tensor, dtype):
-    max_v = torch.finfo(dtype).max
-    x_scale = (x.abs().max(1, keepdim=True)[0] / max_v).float()
-    x = (x / x_scale).to(dtype)
-    return x, x_scale
-
 
 class FP8SemiSparseActivationLinear(nn.Module):
     """
@@ -54,43 +48,41 @@ class FP8SemiSparseActivationLinear(nn.Module):
         super().__init__()
         self.config = config
 
-        # W_aqt = _float8_cutlass_quant(weight, self.config.weight_dtype)
-        # self.Wq = W_aqt.tensor_impl.float8_data
-        # self.W_scale = W_aqt.tensor_impl.scale
-        W, W_scale = _to_fp8_rowwise(weight, self.config.weight_dtype)
-        self.W = W
-        self.W_scale = W_scale
+        W_aqt = _float8_cutlass_quant(weight, self.config.weight_dtype)
+        self.W = W_aqt.tensor_impl.float8_data
+        self.W_scale = W_aqt.tensor_impl.scale
 
     def forward(self, x):
+        # breakpoint()
+        # print(x)
         X_scale = torch.empty([x.shape[0], 1], device=x.device, dtype=torch.float32)
-        # X_scale = _float8_cutlass_quant(x, self.config.activation_dtype).tensor_impl.scale.repeat([x.shape[0], 1])
         Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
             x,
             "cutlass",
-            "srelu",
+            "identity",
             "largest",
             dtype=self.config.activation_dtype,
             scale=X_scale,
         )
-        breakpoint()
-        result = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
-            Xq_sparse,
-            X_meta,
-            self.W.T,
-            a_scale=X_scale,
-            b_scale=self.W_scale.T,
-        )
-        
 
         # result = rowwise_scaled_linear_sparse_cutlass_f8f8(
-        #     self.Wq,
-        #     self.W_scale,
+        #     self.W,
+        #     self.W_scale.squeeze(),
         #     Xq_sparse,
         #     X_meta,
-        #     X_scale,
+        #     X_scale.squeeze(),
         #     bias=None,
         #     out_dtype=torch.bfloat16,
         # ).t()
+
+        # result = 
+        result = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
+            Xq_sparse,
+            X_meta,
+            self.W.t(),
+            a_scale=X_scale,
+            b_scale=self.W_scale.t(),
+        )
 
         return result
 

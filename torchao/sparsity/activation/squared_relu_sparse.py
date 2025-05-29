@@ -1,44 +1,39 @@
-
 import types
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import List, Optional, Union
 
 import torch
-from torch.sparse import to_sparse_semi_structured
 
+import torchao
 from torchao.core.config import AOBaseConfig
-from torchao.float8.inference import Float8MMConfig
-from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
-    WeightNormSparsifier,
+from torchao.dtypes import (
+    CutlassSemiSparseLayout,
+    Float8Layout,
+    to_affine_quantized_floatx,
 )
+from torchao.float8.config import e4m3_dtype
+from torchao.float8.inference import (
+    Float8MMConfig,
+    FP8Granularity,
+    _check_hardware_support,
+    _normalize_granularity,
+)
+from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_api import (
-    _is_linear,
-    _linear_extra_repr,
-    _replace_with_custom_fn_if_matches_filter,
-)
-from torchao.quantization.transform_module import (
-    _QUANTIZE_CONFIG_HANDLER,
-    register_quantize_module_handler,
-)
-from torchao.sparsity.blocksparse import BlockSparseTensor
-from dataclasses import dataclass
-
-import torch
-from torch import nn
-
-from torchao.core.config import AOBaseConfig
-from torchao.ops import (
-    rowwise_scaled_linear_sparse_cutlass_f8f8,
-)
-from torchao.quantization.quant_api import (
+    PerRow,
     _float8_cutlass_quant,
+    _linear_extra_repr,
+    to_linear_activation_quantized,
 )
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.utils import (
+    is_MI300,
+    is_sm_at_least_89,
+)
 
-from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
-from torch.utils._python_dispatch import return_and_correct_aliasing
+
 def _to_fp8_rowwise(x: torch.Tensor, dtype):
     max_v = torch.finfo(dtype).max
     x_scale = (x.abs().max(1, keepdim=True)[0].clip(1e-12) / max_v).float()
@@ -47,20 +42,12 @@ def _to_fp8_rowwise(x: torch.Tensor, dtype):
 
 
 from torchao.utils import TorchAOBaseTensor
-from torchao.quantization import LinearActivationQuantizedTensor
 
-from torchao.float8.float8_utils import tensor_to_scale
-from torchao.float8.float8_scaling_utils import (
-    get_maybe_axiswise_dim,
-    hp_tensor_to_float8_dynamic,
-    hp_tensor_and_scale_to_float8,
-)
-from torchao.float8.config import CastConfig, ScalingGranularity
 
 @dataclass
 class ActivationSparseLinearConfig(AOBaseConfig):
     """
-    Adds in acceleration for activation sparsity to linear layers for decode. 
+    Adds in acceleration for activation sparsity to linear layers for decode.
 
     Args:
         `activation_dtype`: data type for quantized activation tensor.
@@ -70,8 +57,10 @@ class ActivationSparseLinearConfig(AOBaseConfig):
     activation_dtype: torch.dtype = torch.float8_e4m3fn
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
-@register_quantize_module_handler(
-    ActivationSparseLinearConfig)
+    mm_config = Float8MMConfig(use_fast_accum=True)
+
+
+@register_quantize_module_handler(ActivationSparseLinearConfig)
 def _(
     module: torch.nn.Module,
     config: ActivationSparseLinearConfig,
@@ -138,27 +127,17 @@ class ActivationSparseTensor(TorchAOBaseTensor):
     @classmethod
     def from_dense(cls, weight, use_fp8=True):
         if use_fp8:
-            # weight, scale = _to_fp8_rowwise(weight, torch.float8_e4m3fn)
-            # scale = None
-            scale = tensor_to_scale(
-                weight,
-                torch.float8_e4m3fn,
-                reduce_amax=False,
-                device_mesh=None,
-                scaling_granularity=ScalingGranularity.TENSORWISE,
-                axiswise_dim=-1,
-                round_scales_to_power_of_2=False,
-            )
-            x2_lp = hp_tensor_and_scale_to_float8(weight, scale, torch.float8_e4m3fn)
-            return cls(weight.shape,
-                    data=x2_lp,
-                    scale=None,
-                    requires_grad=False)
+            W_aqt = _float8_cutlass_quant(weight, torch.float8_e4m3fn)
+            W = W_aqt.tensor_impl.float8_data
+            W_scale = W_aqt.tensor_impl.scale
+            return cls(weight.shape, data=W, scale=W_scale, requires_grad=False)
         else:
-            return cls(weight.shape,
-                    data=weight.data.t().contiguous().t(),
-                    scale=None,
-                    requires_grad=False)
+            return cls(
+                weight.shape,
+                data=weight.data.t().contiguous().t(),
+                scale=None,
+                requires_grad=False,
+            )
 
     def apply_fn_to_shard(self, func):
         return ActivationSparseTensor(
@@ -167,6 +146,7 @@ class ActivationSparseTensor(TorchAOBaseTensor):
             scale=func(self.scale),
             requires_grad=self.requires_grad,
         )
+
 
 # Subclass op dispatch registration
 implements = ActivationSparseTensor.implements
@@ -192,62 +172,229 @@ def _(func, types, args, kwargs):
         requires_grad=False,
     )
 
-@implements(
-    [aten.copy_.default]
-)
+
+@implements([aten.copy_.default])
 def _(func, types, args, kwargs):
     self = args[0]
     src = args[1]
     if not isinstance(src, ActivationSparseTensor):
         src_subclass = ActivationSparseTensor.from_dense(src)
-
-    self.data.copy_(src.data)
-    # slef.scale.copy_(src.scale)
-    if self.scale is None:
-        self.scale = None
-    else:
-        self.scale.copy_(src.scale)
+        self.data.copy_(src_subclass.data)
+        self.scale.copy_(src_subclass.scale)
     return
+
+
+def _pad_dense_input(dense_input: torch.Tensor) -> torch.Tensor:
+    """
+    Calculates padding for dense tensor and pads tensor if necessary.
+    If padding is not required, this function returns the original tensor.
+    """
+    # only 2d matmul
+    assert dense_input.dim() == 2
+
+    # check shape
+    m, n = dense_input.shape
+    min_rows = 64
+    min_cols = 64
+
+    # calculate padding
+    to_pad_m = -m % min_rows if m < min_rows or m % min_rows else 0
+    to_pad_n = -n % min_cols if n < min_cols or n % min_rows else 0
+    if to_pad_m or to_pad_n:
+        return torch.nn.functional.pad(dense_input, (0, to_pad_n, 0, to_pad_m))
+    else:
+        return dense_input
+
 
 @implements(torch.nn.functional.linear)
 def sparse_activation_linear(func, types, args, kwargs):
     x_orig, w, bias = args
     assert bias is None
     x = x_orig.view(-1, x_orig.size(-1))
-    # M = w.shape[0]
-    # K = w.shape[1]
+    m, n = x.shape
 
-    if x.shape[0] % 64 != 0:
-        # w_dequantized = (w.data.to(torch.bfloat16))
-        # x_relu = torch.square(torch.nn.functional.relu(x))
-        return torch.nn.functional.linear(x_orig, w.data.to_original_precision().to(torch.bfloat16), bias)
-        # res = torch.ops.torchao.splitk_sparse_gemv(x_relu,
-        #                                             w.data)
-        # return res.view(*x_orig.shape[:-1], w.shape[0])
-    else:
-        # X_scale = torch.empty([x.shape[0], 1], dtype=torch.float32, device=x.device)
-        # Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
-        #     x,
-        #     "cutlass",
-        #     "identity",
-        #     "largest",
-        #     dtype=torch.float8_e4m3fn,
-        #     scale=X_scale,
-        # )
-        x_ast = ActivationSparseTensor.from_dense(x_orig) # .data.to_original_precision().to(torch.bfloat16)
-        # x_orig = 
-        # return torch.nn.functional.linear(x_ast, w.data.to_original_precision().to(torch.bfloat16), bias)
-        breakpoint()
-        return torch._scaled_mm(x_ast.data._data, w.data._data.T, scale_a=x_ast.data._scale, scale_b=w.data._scale.T, out_dtype=torch.bfloat16)
-
+    # # # if x input is the right shape, we use sparse matmul
+    # x_padded = _pad_dense_input(x)
+    # if (x.size(0) % 64) == 0:
+    # if (x.size(0) == 64) or (x.size(0) == 128) or (x.size(0) ==256) or (x.size(0)==512):
+    if False:
+        X_scale = torch.empty(
+            [x.shape[0], 1], dtype=torch.float32, device=x_orig.device
+        )
+        Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
+            x,
+            "cutlass",
+            "identity",
+            "largest",
+            dtype=torch.float8_e4m3fn,
+            scale=X_scale,
+        )
 
         out_sparse = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
-            Xq_sparse, X_meta, w.data._data.T, a_scale=X_scale, b_scale=w.data._scale.T,
+            Xq_sparse,
+            X_meta,
+            w.data.t(),
+            a_scale=X_scale,
+            b_scale=w.scale.t(),
         )
-        out_sparse = out_sparse.view(*x_orig.shape[:-1], w.shape[0])
-
+        # print(out_sparse.shape)
+        out_sparse = out_sparse.reshape(*x_orig.shape[:-1], w.shape[0])
         return out_sparse
+    else:
+        w_dequantized = (w.data.to(torch.float32) * w.scale).to(torch.bfloat16)
+        return torch.nn.functional.linear(x_orig, w_dequantized, bias)
 
-        # For normal linear
-        # x_orig_relu = torch.square(torch.nn.functional.relu(x_orig))
-        # return torch.nn.functional.linear(x_orig_relu, w.data, bias)
+
+from torchao.quantization.quant_api import (
+    Float8Layout,
+    _check_hardware_support,
+    _fp8_mm_compat,
+    to_affine_quantized_floatx,
+)
+
+
+@dataclass
+class Float8DynamicSemiSparseActivationFloat8WeightConfig(AOBaseConfig):
+    """
+    Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.
+
+    Args:
+        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        granularity:
+            The granularity for quantization. Can be either a single granularity (applied to both
+            activations and weights) or a tuple of two granularities (one for activations, one for weights).
+            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And
+            only PerTensor and PerRow are supported.
+        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+        set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+
+    """
+
+    activation_dtype: torch.dtype = e4m3_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
+    mm_config: Optional[Float8MMConfig] = None
+    set_inductor_config: bool = True
+
+    def __post_init__(self):
+        if self.mm_config is None:
+            self.mm_config = Float8MMConfig(use_fast_accum=True)
+
+        activation_granularity, weight_granularity = _normalize_granularity(
+            self.granularity
+        )
+        self.granularity = [activation_granularity, weight_granularity]
+
+
+def _float8_dynamic_sparse_activation_float8_weight_quantize_tensor(weight, config):
+    activation_dtype = config.activation_dtype
+    weight_dtype = config.weight_dtype
+    granularity = config.granularity
+    mm_config = config.mm_config
+
+    # Ensure works on device
+    _check_hardware_support(granularity)
+    activation_granularity, weight_granularity = granularity
+
+    if not _fp8_mm_compat(weight):
+        # TODO(future PR): this should really throw an exception instead of silently
+        # not doing what the user asked
+        return weight
+    if isinstance(weight_granularity, PerRow):
+        assert weight.dtype == torch.bfloat16, (
+            "PerRow quantization only works for bfloat16 precision input weight"
+        )
+    block_size = get_block_size(weight.shape[-2:], weight_granularity)
+    if weight.dim() == 3:
+        block_size = tuple([1] + list(block_size))
+    quantized_weight = to_affine_quantized_floatx(
+        input_float=weight,
+        block_size=block_size,
+        target_dtype=weight_dtype,
+        scale_dtype=torch.float32,
+        _layout=Float8Layout(mm_config=mm_config),
+    )
+
+    input_quant_func = _input_activation_quant_func_fp8_sparse
+    input_quant_kwargs = {
+        "activation_granularity": activation_granularity,
+        "activation_dtype": activation_dtype,
+    }
+
+
+    quantized_weight = to_linear_activation_quantized(
+        quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
+    )
+    return quantized_weight
+
+
+@register_quantize_module_handler(Float8DynamicSemiSparseActivationFloat8WeightConfig)
+def _float8_dynamic_activation_sparse_float8_weight_transform(
+    module: torch.nn.Module, config: Float8DynamicSemiSparseActivationFloat8WeightConfig
+):
+    assert is_sm_at_least_89() or is_MI300(), (
+        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
+    )
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying float8 dynamic activation quant requires module to have weight attribute"
+        + f"but {module} does not have one"
+    )
+    quantized_weight = _float8_dynamic_sparse_activation_float8_weight_quantize_tensor(
+        module.weight, config
+    )
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+def _input_activation_quant_func_fp8_sparse(
+    x: torch.Tensor,
+    activation_granularity,
+    activation_dtype: torch.dtype,
+    scale: Optional[torch.Tensor] = None,
+    zero_point: Optional[torch.Tensor] = None,
+):
+    """This function is used to quantize the input activation tensor for an aqt_float variant. If scale
+    is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.
+    """
+    x_2d = x.view(-1, x.size(-1))
+
+    assert zero_point is None, (
+        "Zero point is not supported for dynamic FP8 quantization"
+    )
+    if isinstance(activation_granularity, PerRow):
+        assert x.dtype == torch.bfloat16, (
+            "PerRow quantization only works for bfloat16 precision input activation"
+        )
+
+    if (
+        (x_2d.size(0) == 64) or
+        (x_2d.size(0) == 128) or
+        (x_2d.size(0) == 192) or
+        (x_2d.size(0) == 256) or
+        (x_2d.size(0) == 320) or
+        (x_2d.size(0) == 384) or
+        (x_2d.size(0) == 448) or
+        (x_2d.size(0) == 512) or
+        (x_2d.size(0) == 1024) or
+        (x_2d.size(0) == 2048) or
+        (x_2d.size(0) == 4096) or
+        (x_2d.size(0) == 8192) 
+    ):
+        layout=CutlassSemiSparseLayout()
+    else:
+        layout=Float8Layout(mm_config=None)
+
+    block_size = get_block_size(x.shape, activation_granularity)
+    activation = to_affine_quantized_floatx(
+        input_float=x,
+        block_size=block_size,
+        target_dtype=activation_dtype,
+        scale_dtype=torch.float32,
+        _layout=layout,
+    )
+    return activation

@@ -169,7 +169,7 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           cutlass::arch::Sm90,
           cutlass::arch::OpClassSparseTensorOp,
           TileShape,
-          cute::Shape<cute::_2, cute::_1, cute::_1>,
+          cute::Shape<cute::_1, cute::_1, cute::_1>,
           cutlass::epilogue::collective::EpilogueTileAuto,
           float,
           float,
@@ -193,8 +193,8 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           cutlass::layout::ColumnMajor,
           16,
           float,
-          cute::Shape<cute::_128, cute::_128, cute::_64>,
-          cute::Shape<cute::_2, cute::_1, cute::_1>,
+          cute::Shape<cute::_64, cute::_64, cute::_64>,
+          cute::Shape<cute::_1, cute::_1, cute::_1>,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
           cutlass::gemm::KernelTmaWarpSpecializedCooperative>::CollectiveOp;
@@ -272,6 +272,11 @@ Tensor _sparse24_fp8_sm90_cutlass_gemm(
       {cute::get<0>(args.problem_shape), cute::get<1>(args.problem_shape)},
       at::TensorOptions().dtype(K::kElementOutAt));
 
+  // meta registration
+  if (kIsMeta) {
+    return out;
+  }
+
   args.mainloop.ptr_A =
       reinterpret_cast<K::ElementA const*>(tensor_a.data_ptr());
   args.mainloop.ptr_B = static_cast<K::ElementB const*>(tensor_b.data_ptr());
@@ -343,9 +348,9 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
       TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<false>));
 }
 
-// TORCH_LIBRARY_IMPL(torchao, Meta, m) {
-//   m.impl(
-//       TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
-//       TORCH_FN(torchao::_sparse24_fp8_sm90_cutlass_gemm<true>));
-// }
+TORCH_LIBRARY_IMPL(torchao, Meta, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
+      TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<true>));
+}
 #endif
