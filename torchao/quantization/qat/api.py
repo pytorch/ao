@@ -51,7 +51,7 @@ class FakeQuantizeConfig:
         zero_point_precision: zero point dtype (default torch.int32)
         zero_point_domain: whether zero point is in integer (default) or float domain
         is_dynamic: whether to use dynamic (default) or static scale and zero points
-        range_learning: whether to learn scale and zero points during training
+        range_learning (prototype): whether to learn scale and zero points during training
             (default false), not compatible with `is_dynamic`.
 
     kwargs (optional):
@@ -406,7 +406,7 @@ def initialize_fake_quantizers(
     example_inputs: Tuple[Any, ...],
 ) -> None:
     """
-    Initialize the scales and zero points on all
+    (Prototype) Initialize the scales and zero points on all
     :class:`~`torchao.quantization.qat.fake_quantizer.FakeQuantizer`
     in the model based on the provided example inputs.
     """
