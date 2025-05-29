@@ -5,8 +5,31 @@ from torchao.prototype.scaled_grouped_mm import _scaled_grouped_mm
 
 aten = torch.ops.aten
 
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
 OP_OVERRIDES_TABLE = {}
 
+# FSDP pads its local tensor on dim-0. The subclass should be preserved such
+# that the padded local tensor (and any transformations like copying to GPU)
+# is of the subclass as well.
+_ops_to_preserve_subclass = {
+    # fsdp ops
+    torch.ops.aten.empty_like.default,
+    torch.ops.aten.new_zeros.default,
+    torch.ops.aten.slice.Tensor,
+    torch.ops.aten.copy_.default,
+    torch.ops.aten.view.default,
+    torch.ops.aten.as_strided.default,
+    torch.ops.aten._to_copy.default,
+    torch.ops.aten._pin_memory.default,
+    torch.ops.aten.split.Tensor,
+    torch.ops.aten.clone.default,
+
+    # other ops
+    aten.detach.default,
+    aten.t.default,
+    aten.transpose.int,
+}
 
 def implements(aten_ops):
     """Register aten ops to the op override table"""
@@ -15,12 +38,6 @@ def implements(aten_ops):
             OP_OVERRIDES_TABLE[op] = func
         return func
     return decorator
-
-
-@implements([aten.detach.default, aten.empty_like.default])
-def _desugar(aten_op, args, kwargs=None):
-    new_data = aten_op(args[0]._data, *args[1:], **kwargs)
-    return ScaledGroupedMMTensor(new_data)
 
 
 @implements([aten._grouped_mm.default])
@@ -34,6 +51,58 @@ def _grouped_mm(aten_op, args, kwargs=None):
     )
     return _scaled_grouped_mm(a, b._data, offs=offs)
 
+
+
+@implements([aten.split.Tensor])
+def _split(aten_op, args, kwargs=None):
+    new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
+
+    def make_subclass(data):
+        return ScaledGroupedMMTensor(
+            data,
+        )
+
+    out = map(make_subclass, new_data_tensors)
+    return list(out)
+
+
+@implements([aten.cat.default])
+def _cat(aten_op, args, kwargs=None):
+    chunked_tensors: tuple[ScaledGroupedMMTensor] = args[0]
+    chunk_data = []
+    for chunk in chunked_tensors:
+        assert isinstance(chunk, ScaledGroupedMMTensor), (
+            "Expecting all chunks to be of type ScaledGroupedMMTensor"
+        )
+        chunk_data.append(chunk._data)
+    new_data = aten_op(chunk_data, *args[1:], **kwargs)
+    return ScaledGroupedMMTensor(new_data)
+
+
+@implements(
+    [
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+    ]
+)
+def _allgather(aten_op, args, kwargs=None):
+    input = args[0]
+    assert isinstance(input, ScaledGroupedMMTensor), (
+        f"expecting a ScaledGroupedMMTensor for allgather but found {type(input)}"
+    )
+
+    data = input._data
+    data = data.contiguous()
+    out = aten_op(data, *args[1:], **kwargs)
+    return ScaledGroupedMMTensor(out)
+
+
+@implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
+def _wait_tensor(aten_op, args, kwargs=None):
+    input = args[0]
+    assert isinstance(input, ScaledGroupedMMTensor)
+    out = aten_op(input._data, *args[1:], **kwargs)
+    return ScaledGroupedMMTensor(out)
 
 class ScaledGroupedMMTensor(torch.Tensor):
     """
@@ -92,16 +161,42 @@ class ScaledGroupedMMTensor(torch.Tensor):
             return NotImplemented
 
         if func in OP_OVERRIDES_TABLE:
+            print(f"{func}: calling override")
             return OP_OVERRIDES_TABLE[func](func, args, kwargs)
 
-        # fallback to regular tensor behavior for all other ops, returning a regular tensor as well.
-        args_a = pytree.tree_map_only(ScaledGroupedMMTensor, lambda x: x._data, args)
-        kwargs_a = pytree.tree_map_only(
-            ScaledGroupedMMTensor, lambda x: x._data, kwargs
+        # return pytree.tree_unflatten(out_a_flat, spec)
+        unwrap = lambda x: x._data if isinstance(x, ScaledGroupedMMTensor) else x
+        args, kwargs = pytree.tree_map_only(
+            ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
-        out_a = func(*args_a, **kwargs_a)
-        out_a_flat, spec = pytree.tree_flatten(out_a)
-        return pytree.tree_unflatten(out_a_flat, spec)
+        out = func(*args, **kwargs)
+        if func not in _ops_to_preserve_subclass:
+            print(f"{func}: not preserving subclass")
+            return out
+        print(f"{func}: preserving subclass")
+        return pytree.tree_map_only(
+            torch.Tensor,
+            lambda x: hp_to_scaled_grouped_mm_tensor(x),
+            out,
+        )
 
     # Do not force the ScaledGroupedMMTensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
+
+
+@torch._dynamo.allow_in_graph
+class _ConvertFunc(torch.autograd.Function):
+    """
+    A differentiable conversion to ScaledGroupedMMTensor.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        return ScaledGroupedMMTensor(x)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
+        return grad_output
+        
+def hp_to_scaled_grouped_mm_tensor(hp_tensor: torch.Tensor) -> ScaledGroupedMMTensor:
+    return _ConvertFunc.apply(hp_tensor)

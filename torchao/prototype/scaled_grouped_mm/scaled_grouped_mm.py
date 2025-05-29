@@ -54,7 +54,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         offs: torch.Tensor,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
     ) -> torch.Tensor:
-        print(f"danvm scaled_grouped_mm: {A.shape} @ {B_t.shape}")
+        print(f"danvm scaled_grouped_mm fwd: {A.shape} @ {B_t.shape}")
         # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
@@ -152,6 +152,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
+        print(f"danvm scaled_grouped_mm bwd: grad_output={grad_output.shape}")
         A, B_fp8_col_major, B_scales, offs = ctx.saved_tensors
         out_dtype = ctx.out_dtype
 

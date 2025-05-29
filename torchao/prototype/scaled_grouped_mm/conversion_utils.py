@@ -1,7 +1,6 @@
 from typing import Callable, Optional
 
 from torch import nn
-
 from torchao.prototype.scaled_grouped_mm.tensor import ScaledGroupedMMTensor
 
 
