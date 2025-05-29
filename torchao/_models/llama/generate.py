@@ -180,6 +180,7 @@ def generate(
     max_seq_length = (
         min(T + max_new_tokens, model.config.block_size) if not interactive else 350
     )
+    print(f"max_seq_length={max_seq_length}, prompt_length={T}")
     new_tokens = max_seq_length - T
 
     # format model input
@@ -242,11 +243,13 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
 
 
 def _load_model(checkpoint_path, device, precision):
-    checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+    checkpoint = torch.load(
+        str(checkpoint_path), mmap=True, weights_only=True, map_location=device
+    )
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
     with torch.device("meta"):
-        model = Transformer.from_name(checkpoint_path.parent.name)
+        model = Transformer.from_name(checkpoint_path)
     model.load_state_dict(checkpoint, assign=True)
     model = model.to(device=device, dtype=precision)
 
@@ -585,7 +588,7 @@ def main(
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
             group_size = int(_quant_args[2])
             granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
-            is_asymmetric = bool(_quant_args[3])
+            is_asymmetric = bool(_quant_args[3].lower() == "true")
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
