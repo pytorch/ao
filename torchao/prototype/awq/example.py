@@ -13,9 +13,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
 from torchao.quantization import int4_weight_only, quantize_
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
-)
 from torchao.dtypes import Int4XPULayout
 
 
@@ -242,7 +239,6 @@ def wikitext2_ppl(
             model,
             awq_uintx_config,
             is_observed_linear,
-            torch.device(device),
         )
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:

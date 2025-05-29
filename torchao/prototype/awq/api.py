@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import types
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Optional
 
 import torch
 
