@@ -15,8 +15,8 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
     to_affine_quantized_intx,
     Int4XPULayout,
+    Layout,
 )
-from torchao.dtypes.utils import Layout
 from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
 from torchao.quantization.granularity import PerGroup
