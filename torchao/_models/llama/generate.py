@@ -589,7 +589,6 @@ def main(
             group_size = int(_quant_args[2])
             granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
             is_asymmetric = bool(_quant_args[3].lower() == "true")
-            print(_quant_args[3], is_asymmetric)
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
