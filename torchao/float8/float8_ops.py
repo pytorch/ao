@@ -100,7 +100,6 @@ def implements(aten_ops):
 
 @implements(
     [
-        aten.view.default,
         aten._unsafe_view.default,
         aten.as_strided.default,
         aten.clone.default,
