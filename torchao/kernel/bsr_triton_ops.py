@@ -30,7 +30,6 @@ from torch.utils._triton import has_triton
 
 AUTOTUNE = os.getenv("BSR_AUTOTUNE", False)
 
-
 def tune_bsr_dense_addmm(
     input,
     bsr,
@@ -83,7 +82,7 @@ def tune_bsr_dense_addmm(
     else:
         version_dtype = (dtype, out_dtype)
     version = (0, version_dtype, sparsity)
-    key = (M, K, N, BM, BK, beta == 0, beta == 1, alpha == 1)
+    key = (M, K, N, BM, BK, beta == 0, beta == 1, alpha == 1, N % max(N // BM, 1)== 0)
 
     # For tuning, for an initial state, use parameters from the
     # database if available, otherwise, use the reference parameters.
@@ -123,7 +122,7 @@ def tune_bsr_dense_addmm(
         is_log = name in {"SPLIT_N", "num_warps"}
         min_value = dict(SPLIT_N=1, num_warps=1, num_stages=1, GROUP_SIZE_ROW=1)[name]
         max_value = dict(SPLIT_N=max(N // BM, 1)).get(name)
-        value_step = dict(SPLIT_N=2, num_warps=2, num_stages=1, GROUP_SIZE_ROW=1)[name]
+        value_step = dict(SPLIT_N=2, num_warps=2, num_stages=1, GROUP_SIZE_ROW=2)[name]
         if is_log:
             next_value = (
                 value * value_step**direction
@@ -136,7 +135,7 @@ def tune_bsr_dense_addmm(
             next_value = max(next_value, min_value)
         if max_value is not None:
             next_value = min(next_value, max_value)
-        if name == "SPLIT_N" and N % next_value != 0:
+        if name == "SPLIT_N" and N % (next_value * BM) != 0:
             return value
         return next_value
 
@@ -171,8 +170,9 @@ def bsr_dense_addmm_meta(
     M,
     K,
     N,
-    Ms,
-    Ks,
+    # Ms,
+    # Ks,
+    blocksize: tuple[int,int],
     beta,
     alpha,
     SPLIT_N=None,
@@ -194,9 +194,18 @@ def bsr_dense_addmm_meta(
         out_dtype = dtype
     if sparsity is None:
         sparsity = 0.5
-    if {SPLIT_N, num_warps, num_stages, GROUP_SIZE_ROW} == {None}:
+    # if {SPLIT_N, num_warps, num_stages, GROUP_SIZE_ROW} == {None}:
+    BM, BK = blocksize
+    #calculate a default SPLIT_N that ensures BN is valid
+    default_split_n = max(N // BM, 1)
+    if {num_warps, num_stages, GROUP_SIZE_ROW} == {None}:
         device_name = torch.cuda.get_device_name()
-        key = (M, K, N, Ms, Ks, beta == 0, beta == 1, alpha == 1)
+        key = (M, K, N, BM, BK, beta == 0, beta == 1, alpha == 1, N % default_split_n == 0)
+        # If no parameters are specified, use the default parameters.
+        # if AUTOTUNE:
+            # If AUTOTUNE is True, try to find the optimal triton kernel
+            # parameters. If the optimal triton kernel parameters are not
+            # found, use the default parame,ters.
         if dtype is out_dtype:
             version_dtype = dtype
         else:
@@ -219,17 +228,18 @@ def bsr_dense_addmm_meta(
                 "bsr_dense_addmm", key, device_name, version=(_version, dtype, 0.5)
             )
         if meta is None:
-            # find approximate meta such that N % SPLIT_N == 0.
+            # If still no meta found, search for approximate considering N divisibility
+            approx_key = (*key[:2], "*", *key[3:-1], True)
             matching_meta = get_meta(
                 "bsr_dense_addmm",
-                (*key[:2], "*", *key[3:]),
+                approx_key,
                 device_name,
                 version=(_version, version_dtype, 0.5),
             )
             if matching_meta is None and dtype is not out_dtype:
                 matching_meta = get_meta(
                     "bsr_dense_addmm",
-                    (*key[:2], "*", *key[3:]),
+                    approx_key,
                     device_name,
                     version=(_version, dtype, 0.5),
                 )
@@ -241,17 +251,18 @@ def bsr_dense_addmm_meta(
                 if N % c == 0 and n <= N:
                     meta = dict(meta_)
                     meta["SPLIT_N"] = N // c
+                    break
         if meta is not None:
             meta.update(**extra)
             return meta
         else:
             warn_once(
                 "bsr_dense_addmm uses non-optimal triton kernel parameters"
-                f" for {M=} {K=} {N=} {Ms=}, {Ks=} {beta=} {alpha=} {dtype=} {out_dtype=}. "
+                f" for {M=} {K=} {N=} {BM=}, {BK=} {beta=} {alpha=} {dtype=} {out_dtype=}. "
                 "To find optimal triton kernel parameters, run with BSR_AUTOTUNE=1"
             )
 
-    SPLIT_N = SPLIT_N or max(N // Ms, 1)
+    SPLIT_N = SPLIT_N or max(N // BM, 1)
     GROUP_SIZE_ROW = GROUP_SIZE_ROW or 4
     num_stages = num_stages or 4
     num_warps = num_warps or 4
@@ -292,7 +303,7 @@ def bsr_dense_addmm(
     col_indices = bsr.col_indices()
     batch_ndim = crow_indices.dim() - 1
     M, K = bsr.shape[batch_ndim : batch_ndim + 2]
-    blocksize = values.shape[batch_ndim + 1 : batch_ndim + 3]
+    BM, BK = values.shape[batch_ndim + 1 : batch_ndim + 3]
     N = dense.shape[-1]
 
     original_batch_dims_broadcasted = broadcast_batch_dims(f_name, bsr, dense)
@@ -309,7 +320,7 @@ def bsr_dense_addmm(
         return out
 
     if meta is None:
-        sparsity = round(1 - bsr._nnz() * blocksize[0] * blocksize[1] / (M * K), 2)
+        sparsity = round(1 - bsr._nnz() * BM * BK / (M * K), 2)
         if AUTOTUNE:
             meta = tune_bsr_dense_addmm(
                 input,
@@ -330,8 +341,7 @@ def bsr_dense_addmm(
                 M,
                 K,
                 N,
-                blocksize[0],
-                blocksize[1],
+                (BM, BK),
                 beta,
                 alpha,
                 sparsity=sparsity,
@@ -376,9 +386,13 @@ def bsr_dense_addmm(
         out,
     ) = prepare_inputs(bsr, input, dense, left_alpha, right_alpha, out)
 
-    BM, BK = blocksize
     SPLIT_N = meta.get("SPLIT_N", max(N // BM, 1))
     BN = N // SPLIT_N
+
+    if N % SPLIT_N != 0:
+        raise ValueError(
+            f"bsr_dense_addmm only supports N divisible by {SPLIT_N}, got {N}, {SPLIT_N}"
+        )
 
     out_untiled = out
     out = tile_to_blocksize(out, (BM, BN))
@@ -387,7 +401,7 @@ def bsr_dense_addmm(
     left_alpha = tile_to_blocksize(left_alpha, (BM, BN))
     right_alpha = tile_to_blocksize(right_alpha, (BM, BN))
 
-    # tl.dot supports float16, float32, int32 as accumulator types.
+    # Determine accumulator type based on output dtype
     dot_out_dtype = {
         torch.float16: tl.float32,
         torch.bfloat16: tl.float32,
@@ -408,18 +422,19 @@ def bsr_dense_addmm(
         grid_blocks = None
 
     tensor_dims_map = {
-        values: (0, None, None),
-        crow_indices: (0, None, -1),
-        col_indices: (0, None, None),
-        input: (0, -3, -4),
-        dense: (0, -3, None),
-        left_alpha: (0, -3, -4),
-        right_alpha: (0, -3, -4),
-        out: (0, -3, -4),
+        values: (0, None, None),        # 1, 2144, 64, 8
+        crow_indices: (0, None, -1),    # 1, 33
+        col_indices: (0, None, None),   # 1, 2144
+        input: (0, -3, -4),             # 1, 32, 16, 64, 64
+        dense: (0, -3, None),           # 1, 128, 16, 8, 64
+        left_alpha: (0, -3, -4),        # 1, 32, 16, 64, 64
+        right_alpha: (0, -3, -4),       # 1, 32, 16, 64, 64
+        out: (0, -3, -4),               # 1, 32, 16, 64, 64
     }
 
     assert alpha != 0
 
+        
     def kernel(grid, *sliced_tensors):
         _bsr_strided_addmm_kernel[grid](
             *ptr_stride_extractor(*sliced_tensors),
@@ -526,6 +541,8 @@ if has_triton():
         GROUP_SIZE_ROW: tl.constexpr,
         SPLIT_N: tl.constexpr,
     ):
+        MIN_BLOCK_SIZE: tl.constexpr = 16   
+        
         # left/right_alpha tensors are originally (* + 1)-dimensional
         assert left_alpha_tiled_col_stride == 0
         assert left_alpha_col_block_stride == 0
@@ -553,17 +570,28 @@ if has_triton():
         # Compute nnz for the row with number row_block_pid.
         row_nnz = nnz_offset_next - nnz_offset
 
-        row_block_arange = tl.arange(0, BLOCKSIZE_ROW)
-        inner_block_arange = tl.arange(0, BLOCKSIZE_INNER)
+        #---Set up padding for block sizes<MIN BLOCK SIZE -
+        if BLOCKSIZE_ROW < MIN_BLOCK_SIZE:
+            PADDED_BLOCKSIZE_ROW:tl.constexpr = MIN_BLOCK_SIZE
+        else:
+            PADDED_BLOCKSIZE_ROW:tl.constexpr = BLOCKSIZE_ROW
 
-        if BLOCKSIZE_COL < 16 or BLOCKSIZE_COL % 16 != 0:
-            PADDED_BLOCKSIZE_COL: tl.constexpr = 16
+        if BLOCKSIZE_INNER < MIN_BLOCK_SIZE:
+            PADDED_BLOCKSIZE_INNER:tl.constexpr = MIN_BLOCK_SIZE
+        else:
+            PADDED_BLOCKSIZE_INNER:tl.constexpr = BLOCKSIZE_INNER
+
+        if BLOCKSIZE_COL < MIN_BLOCK_SIZE or BLOCKSIZE_COL % MIN_BLOCK_SIZE != 0:
+            PADDED_BLOCKSIZE_COL: tl.constexpr = (BLOCKSIZE_COL + MIN_BLOCK_SIZE - 1) // MIN_BLOCK_SIZE * MIN_BLOCK_SIZE
         else:
             PADDED_BLOCKSIZE_COL: tl.constexpr = BLOCKSIZE_COL
 
+
+        row_block_arange = tl.arange(0, PADDED_BLOCKSIZE_ROW)
+        inner_block_arange = tl.arange(0, PADDED_BLOCKSIZE_INNER)
         col_block_arange = tl.arange(0, PADDED_BLOCKSIZE_COL)
 
-        # Pointers are set to the first block of the current row.
+        # Initialize pointers
         values_block_ptrs = (
             values_ptr
             + values_batch_stride * batch_pid
@@ -572,8 +600,10 @@ if has_triton():
             + values_col_block_stride * inner_block_arange[None, :]
         )
 
-        # NOTE: dense is advanced into all dimensions but the tiled row one.
-        # That will be advanced in the loop according to values in col_indices.
+        #Mask for loading values(handle row and inner padding)
+        values_load_mask = (row_block_arange[:,None] < BLOCKSIZE_ROW) & \
+            (inner_block_arange[None,:] < BLOCKSIZE_INNER)
+        
         dense_block_ptrs = (
             dense_ptr
             + dense_batch_stride * batch_pid
@@ -582,7 +612,11 @@ if has_triton():
             + dense_col_block_stride * col_block_arange[None, :]
         )
 
-        # Pointers are set to exact write-to locations
+        # Mask for loading dense (handle inner and col padding)
+        dense_load_mask = (inner_block_arange[:,None] < BLOCKSIZE_INNER) & \
+            (col_block_arange[None,:] < BLOCKSIZE_COL)
+        
+        # Output pointers set to exact write locations for the current block
         output_ptrs = (
             output_ptr
             + output_batch_stride * batch_pid
@@ -592,6 +626,10 @@ if has_triton():
             + output_col_block_stride * col_block_arange[None, :]
         )
 
+        # Mask for storing output(handle row and col padding)
+        output_store_mask = (row_block_arange[:,None] < BLOCKSIZE_ROW) & \
+            (col_block_arange[None,:] < BLOCKSIZE_COL)
+        
         # Set pointer to the first nonzero element in the current row
         col_index_nnz_ptr = (
             col_indices_ptr
@@ -600,20 +638,22 @@ if has_triton():
         )
 
         output_acc_block = tl.zeros(
-            (BLOCKSIZE_ROW, PADDED_BLOCKSIZE_COL), dtype=acc_dtype
+            (PADDED_BLOCKSIZE_ROW, PADDED_BLOCKSIZE_COL), dtype=acc_dtype
         )
         for _ in range(row_nnz):
-            values_block = tl.load(values_block_ptrs)
+            values_block = tl.load(values_block_ptrs, mask=values_load_mask, other=0.0)
 
-            # find which row of dense needs to get loaded
-            # for multiplication with values_block.
             dense_row_idx = tl.load(col_index_nnz_ptr)
+            # Load dense block with inner and col padding mask
             dense_block = tl.load(
                 dense_block_ptrs + dense_tiled_row_stride * dense_row_idx,
-                mask=col_block_arange[None, :] < BLOCKSIZE_COL,
+                mask = dense_load_mask,
+                other=0.0
             )
 
-            # do block mm
+            # do block mm: tl.dot inputs now have logical shapes
+            # (PADDED BLOCKSIZE ROW，PADDED BLOCKSIZE INNER) and
+            # (PADDED BLOCKSIZE INNER,PADDED BLOCKSIZE cOL), satisfying the assertion.
             output_acc_block += tl.dot(
                 values_block, dense_block, allow_tf32=allow_tf32, out_dtype=acc_dtype
             )
@@ -626,6 +666,7 @@ if has_triton():
             output_acc_block *= alpha
 
         if not left_alpha_is_one:
+            left_alpha_load_mask = row_block_arange[:,None] < BLOCKSIZE_ROW
             left_alpha_ptrs = (
                 left_alpha_ptr
                 + left_alpha_batch_stride * batch_pid
@@ -634,9 +675,10 @@ if has_triton():
                 + left_alpha_row_block_stride * row_block_arange[:, None]
                 + left_alpha_col_block_stride * col_block_arange[None, :]
             )
-            output_acc_block *= tl.load(left_alpha_ptrs)
+            output_acc_block *= tl.load(left_alpha_ptrs, mask=left_alpha_load_mask, other=1.0)
 
         if not right_alpha_is_one:
+            right_alpha_load_mask = col_block_arange[None,:] < BLOCKSIZE_COL
             right_alpha_ptrs = (
                 right_alpha_ptr
                 + right_alpha_batch_stride * batch_pid
@@ -645,9 +687,13 @@ if has_triton():
                 + right_alpha_row_block_stride * row_block_arange[:, None]
                 + right_alpha_col_block_stride * col_block_arange[None, :]
             )
-            output_acc_block *= tl.load(right_alpha_ptrs)
+            output_acc_block *= tl.load(right_alpha_ptrs, mask=right_alpha_load_mask, other=1.0)
 
         if beta_is_nonzero:
+            input_load_mask = (
+                row_block_arange[:,None] < BLOCKSIZE_ROW & \
+                col_block_arange[None,:] < BLOCKSIZE_COL 
+            )
             input_ptrs = (
                 input_ptr
                 + input_batch_stride * batch_pid
@@ -656,16 +702,17 @@ if has_triton():
                 + input_row_block_stride * row_block_arange[:, None]
                 + input_col_block_stride * col_block_arange[None, :]
             )
+            input_block = tl.load(input_ptrs, mask=input_load_mask, other=0.0)
             if beta_is_one:
-                output_acc_block += tl.load(input_ptrs)
+                output_acc_block += input_block
             else:
-                output_acc_block += beta * tl.load(input_ptrs)
+                output_acc_block += beta *input_block
 
         # write back the result
         tl.store(
             output_ptrs,
             output_acc_block.to(output_ptr.dtype.element_ty),
-            mask=col_block_arange[None, :] < BLOCKSIZE_COL,
+            mask=output_store_mask,
         )
 
 else:
