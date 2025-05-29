@@ -202,6 +202,19 @@ tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config ll
 
 For more detail, please refer to [this QAT tutorial](https://pytorch.org/torchtune/main/tutorials/qat_finetune.html).
 
+## Axolotl integration
+
+[Axolotl](https://github.com/axolotl-ai-cloud) uses torchao to support quantized-aware fine-tuning. You can use the following commands to fine-tune, and then quantize a Llama-3.2-3B model:
+
+```bash
+axolotl train examples/llama-3/3b-qat-fsdp2.yaml
+# once training is complete, perform the quantization step
+axolotl quantize examples/llama-3/3b-qat-fsdp2.yaml
+# you should now have a quantized model saved in ./outputs/qat_out/quatized
+```
+
+Please see the [QAT documentation](https://docs.axolotl.ai/docs/qat.html) in axolotl for more details.
+
 ## Evaluation Results
 
 Evaluation was performed on 6-8 A100 GPUs (80GB each) using the torchtune QAT
