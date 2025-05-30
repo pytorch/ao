@@ -203,8 +203,7 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         dense_padded = _pad_dense_input(dense)
         scale_padded = _pad_scale(scale)
 
-        # X_scale = torch.empty((dense.shape[0], 1), device=dense.device, dtype=torch.float32)
-        Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
+        sparse, meta = torch.ops.torchao.sparse24_sm90_sparsify(
             dense_padded,
             "cutlass",
             "identity",
@@ -215,8 +214,8 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
 
         res = cls(
             dense.shape,
-            Xq_sparse,
-            X_meta,
+            sparse,
+            meta,
             scale_padded,
             _layout,
         )

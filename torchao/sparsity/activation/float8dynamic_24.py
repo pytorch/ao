@@ -9,7 +9,6 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     CutlassSemiSparseLayout,
     Float8Layout,
-    to_affine_quantized_floatx,
 )
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.inference import (
@@ -20,9 +19,7 @@ from torchao.float8.inference import (
 )
 from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_api import (
-    Float8Layout,
     PerRow,
-    _check_hardware_support,
     _fp8_mm_compat,
     _linear_extra_repr,
     to_affine_quantized_floatx,

@@ -113,7 +113,7 @@ struct SparseRowwiseKernel<cutlass::float_e4m3_t> {
           cutlass::layout::ColumnMajor,
           16,
           ElementAccumulator,
-          cute::Shape<cute::_128, cute::_128, cute::_64>,
+          cute::Shape<cute::_128, cute::_256, cute::_128>,
           cute::Shape<cute::_2, cute::_1, cute::_1>,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
@@ -193,7 +193,7 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           cutlass::layout::ColumnMajor,
           16,
           float,
-          cute::Shape<cute::_128, cute::_256, cute::_128>,
+          cute::Shape<cute::_128, cute::_128, cute::_64>,
           cute::Shape<cute::_2, cute::_1, cute::_1>,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
