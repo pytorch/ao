@@ -26,8 +26,18 @@ aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
 
-QMAP_SIGNED = create_dynamic_map(signed=True)
-QMAP_UNSIGNED = create_dynamic_map(signed=False)
+# Lazy initialization to avoid meta device issues during import
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def get_qmap_signed():
+    return create_dynamic_map(signed=True)
+
+
+@lru_cache(maxsize=1)
+def get_qmap_unsigned():
+    return create_dynamic_map(signed=False)
 
 
 class OptimState8bit(TorchAOBaseTensor):
@@ -79,7 +89,9 @@ class OptimState8bit(TorchAOBaseTensor):
     def zeros(cls, shape, signed: bool = True, block_size: int = 256, device=None):
         codes = torch.zeros(shape, dtype=torch.uint8, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
-        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
+        qmap = torch.tensor(
+            get_qmap_signed() if signed else get_qmap_unsigned(), device=device
+        )
         return cls(codes, scale, qmap, signed)
 
     def __repr__(self):
