@@ -18,10 +18,10 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
 from torchao.ops import (
     rowwise_scaled_linear_sparse_cutlass_f8f8,
-    to_sparse_semi_structured_cutlass_sm9x_f8,
 )
 
 aten = torch.ops.aten
+
 
 def _pad_dense_input(dense_input: torch.Tensor) -> torch.Tensor:
     """
@@ -32,18 +32,16 @@ def _pad_dense_input(dense_input: torch.Tensor) -> torch.Tensor:
     assert dense_input.dim() == 2
 
     # check shape
-    m, n = dense_input.shape
+    m, n = dense_input.size()
     min_rows = 64
     min_cols = 64
 
     # calculate padding
-    to_pad_m = -m % min_rows if m < min_rows or m % min_rows else 0
-    to_pad_n = -n % min_cols if n < min_cols or n % min_rows else 0
-    if to_pad_m or to_pad_n:
-        return torch.nn.functional.pad(dense_input, (0, to_pad_n, 0, to_pad_m))
-    else:
-        return dense_input
-        
+    to_pad_m = -m % min_rows
+    to_pad_n = -n % min_cols
+    return torch.nn.functional.pad(dense_input, (0, to_pad_n, 0, to_pad_m))
+
+
 def _pad_scale(scale: torch.Tensor) -> torch.Tensor:
     """
     Calculates padding for dense tensor and pads tensor if necessary.
@@ -53,18 +51,14 @@ def _pad_scale(scale: torch.Tensor) -> torch.Tensor:
     assert scale.dim() == 2
 
     # check shape
-    m, n = scale.shape
+    m, n = scale.size()
     assert n == 1
     min_rows = 64
-    # min_cols = 64
 
     # calculate padding
-    to_pad_m = -m % min_rows if m < min_rows or m % min_rows else 0
-    # to_pad_n = -n % min_cols if n < min_cols or n % min_rows else 0
-    if to_pad_m:
-        return torch.nn.functional.pad(scale, (0, 0, 0, to_pad_m))
-    else:
-        return scale
+    to_pad_m = -m % min_rows
+    return torch.nn.functional.pad(scale, (0, 0, 0, to_pad_m))
+
 
 def _same_metadata(
     self: "CutlassSemiSparseTensorImpl", src: "CutlassSemiSparseTensorImpl"
@@ -85,10 +79,10 @@ class CutlassSemiSparseLayout(Layout):
     """Layout class for float8 2:4 sparsity layout for affine quantized tensor, for cutlass kernel."""
 
     # def pre_process(self, dense: torch.Tensor) -> torch.Tensor:
-        # # prune to 2:4 if not already
-        # from torchao.sparsity.utils import mask_creator
+    # # prune to 2:4 if not already
+    # from torchao.sparsity.utils import mask_creator
 
-        # return dense * mask_creator(dense).bool()
+    # return dense * mask_creator(dense).bool()
 
 
 @register_layout(CutlassSemiSparseLayout)
@@ -275,6 +269,7 @@ def _linear_fp8_act_fp8_weight_sparse_cutlass_impl(input_tensor, weight_tensor, 
 
     return out
 
+
 def _linear_fp8_act_sparse_fp8_weight_cutlass_check(input_tensor, weight_tensor, bias):
     from torchao.dtypes.floatx import Float8Layout
 
@@ -296,9 +291,8 @@ def _linear_fp8_act_sparse_fp8_weight_cutlass_check(input_tensor, weight_tensor,
     )
     return res
 
-def _linear_fp8_act_sparse_fp8_weight_cutlass_impl(input_tensor, weight_tensor, bias):
-    from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
 
+def _linear_fp8_act_sparse_fp8_weight_cutlass_impl(input_tensor, weight_tensor, bias):
     input_sparse = input_tensor.tensor_impl.sparse
     input_meta = input_tensor.tensor_impl.meta
     input_scale = input_tensor.tensor_impl.scale
@@ -306,10 +300,14 @@ def _linear_fp8_act_sparse_fp8_weight_cutlass_impl(input_tensor, weight_tensor, 
     weight_scale = weight_tensor.tensor_impl.scale
 
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
-    rows, cols = (input_tensor.shape)
+    rows, cols = input_tensor.shape
 
     out = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
-        input_sparse, input_meta, weight.t(), a_scale=input_scale, b_scale=weight_scale.t(),
+        input_sparse,
+        input_meta,
+        weight.t(),
+        a_scale=input_scale,
+        b_scale=weight_scale.t(),
     )[:rows, :].view(out_shape)
-    
+
     return out

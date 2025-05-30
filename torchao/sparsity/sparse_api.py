@@ -11,7 +11,6 @@ import torch
 from torch.sparse import to_sparse_semi_structured
 
 from torchao.core.config import AOBaseConfig
-from torchao.float8.inference import Float8MMConfig
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
     WeightNormSparsifier,
 )
@@ -24,25 +23,10 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
+from torchao.sparsity.activation.float8dynamic_24 import (
+    Float8DynamicSemiSparseActivationFloat8WeightConfig,  # noqa: F401
+)
 from torchao.sparsity.blocksparse import BlockSparseTensor
-from dataclasses import dataclass
-
-import torch
-from torch import nn
-
-from torchao.core.config import AOBaseConfig
-from torchao.ops import (
-    rowwise_scaled_linear_sparse_cutlass_f8f8,
-)
-from torchao.quantization.quant_api import (
-    _float8_cutlass_quant,
-)
-from torchao.quantization.transform_module import (
-    register_quantize_module_handler,
-)
-
-from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
-from torch.utils._python_dispatch import return_and_correct_aliasing
 
 
 # Sparsity helper functions
@@ -153,10 +137,3 @@ def sparsify_(
         _is_linear if filter_fn is None else filter_fn,
         extra_args=(config,),
     )
-
-
-
-from torchao.sparsity.activation.squared_relu_sparse import (
-    ActivationSparseLinearConfig, 
-    Float8DynamicSemiSparseActivationFloat8WeightConfig,
-)

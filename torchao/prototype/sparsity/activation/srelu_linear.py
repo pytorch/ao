@@ -49,40 +49,29 @@ class FP8SemiSparseActivationLinear(nn.Module):
         self.config = config
 
         W_aqt = _float8_cutlass_quant(weight, self.config.weight_dtype)
-        self.W = W_aqt.tensor_impl.float8_data
+        self.Wq = W_aqt.tensor_impl.float8_data
         self.W_scale = W_aqt.tensor_impl.scale
 
     def forward(self, x):
-        # breakpoint()
-        # print(x)
         X_scale = torch.empty([x.shape[0], 1], device=x.device, dtype=torch.float32)
         Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
             x,
             "cutlass",
-            "identity",
+            "srelu",
             "largest",
             dtype=self.config.activation_dtype,
             scale=X_scale,
         )
 
-        # result = rowwise_scaled_linear_sparse_cutlass_f8f8(
-        #     self.W,
-        #     self.W_scale.squeeze(),
-        #     Xq_sparse,
-        #     X_meta,
-        #     X_scale.squeeze(),
-        #     bias=None,
-        #     out_dtype=torch.bfloat16,
-        # ).t()
-
-        # result = 
-        result = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
+        result = rowwise_scaled_linear_sparse_cutlass_f8f8(
+            self.Wq,
+            self.W_scale,
             Xq_sparse,
             X_meta,
-            self.W.t(),
-            a_scale=X_scale,
-            b_scale=self.W_scale.t(),
-        )
+            X_scale,
+            bias=None,
+            out_dtype=torch.bfloat16,
+        ).t()
 
         return result
 

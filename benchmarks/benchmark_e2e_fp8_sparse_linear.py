@@ -9,19 +9,15 @@ from torch import nn
 from tqdm import tqdm
 from triton.testing import do_bench
 
-from torchao.prototype.sparsity.activation.srelu_linear import (
-    SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
-)
-from torchao.sparsity.sparse_api import (
-    Float8DynamicSemiSparseActivationFloat8WeightConfig
-)
 from torchao.prototype.sparsity.activation.utils import SquaredReLU
 from torchao.quantization import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
     PerRow,
     quantize_,
+)
+from torchao.sparsity.sparse_api import (
+    Float8DynamicSemiSparseActivationFloat8WeightConfig,
 )
 
 PROFILE = False
@@ -94,6 +90,7 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
     if PROFILE:
         print("PROFILING FP8")
         from torchao.prototype.sparsity.activation.utils import profiler_runner
+
         inputs = (ffn_clone, input_tensor)
         profiler_runner(None, benchmark_microseconds, *inputs)
 
@@ -127,6 +124,7 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
     if PROFILE:
         print("PROFILING 24")
         from torchao.prototype.sparsity.activation.utils import profiler_runner
+
         inputs = (ffn_clone, input_tensor)
         profiler_runner(None, benchmark_microseconds, *inputs)
 
