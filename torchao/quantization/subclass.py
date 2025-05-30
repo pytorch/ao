@@ -697,13 +697,6 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             int_data = aten._convert_weight_to_int4pack_for_cpu(
                 input_int4x8, inner_k_tiles
             )
-        if check_xpu_version(input_float.device):
-            from torchao.quantization.utils import convert_weight_to_int4pack_xpu
-
-            int_data = convert_weight_to_int4pack_xpu(
-                input_int4x8,
-                zero_point_domain_is_int=zero_point_domain == ZeroPointDomain.INT,
-            )
         else:
             int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
         return int_data, scales_and_zeros, False, groupsize, inner_k_tiles
