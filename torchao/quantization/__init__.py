@@ -108,6 +108,9 @@ from .utils import (
 )
 from .weight_only import WeightOnlyInt8QuantLinear
 
+# TODO: remove after migration of APIs are done
+AOPerModuleConfig = ModuleFqnToConfig
+
 __all__ = [
     # top level API - auto
     "autoquant",
@@ -148,6 +151,7 @@ __all__ = [
     "IntxWeightOnlyConfig",
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
+    "AOPerModuleConfig",
     "ModuleFqnToConfig",
     "FbgemmConfig",
     # smooth quant - subject to change
