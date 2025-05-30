@@ -442,23 +442,25 @@ def main(
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
             quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
-        elif "fbgemm" in quantization:
+        elif "fbgemm" in quantization and "int4" in quantization:
             from torchao.quantization import FbgemmConfig
 
             _, precision, group_size = quantization.split("-")
             group_size = int(group_size)
             block_size = [1, group_size]
-            if precision == "int4":
-                quantize_(
-                    model,
-                    FbgemmConfig(
-                        torch.bfloat16, torch.int4, torch.bfloat16, block_size
-                    ),
-                )
-            else:
-                raise NotImplementedError(
-                    f"FbegemmConfig({precision=}) not supported yet"
-                )
+            assert precision == "int4", f"FbegemmConfig({precision=}) not supported yet"
+            quantize_(
+                model,
+                FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, block_size),
+            )
+        elif "fbgemm" in quantization and "fp8" in quantization:
+            from torchao.float8.config import e4m3_dtype
+            from torchao.quantization import FbgemmConfig
+
+            quantize_(
+                model,
+                FbgemmConfig(e4m3_dtype, e4m3_dtype, torch.bfloat16),
+            )
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
