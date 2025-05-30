@@ -38,9 +38,9 @@ from .core import (
     AWQObserver,
 )
 
-assert (
-    len(_DTYPE_TO_BIT_WIDTH) > 0
-), "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
+assert len(_DTYPE_TO_BIT_WIDTH) > 0, (
+    "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
+)
 
 
 def insert_awq_observer_(
@@ -63,9 +63,9 @@ def insert_awq_observer_(
         group_size: Quantization granularity. Use -1 for channel wise quantization
     """
     _is_linear = lambda m, fqn: isinstance(m, torch.nn.Linear)
-    assert (
-        quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8
-    ), "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+    assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, (
+        "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+    )
     # AQT config
     mapping_type = MappingType.ASYMMETRIC
     quantization_granularity = PerGroup(group_size)
@@ -137,9 +137,9 @@ def _awq_uintx_transform(
         torchao.quantization.utils.recommended_inductor_config_setter()
     observed_linear = module
 
-    assert (
-        quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8
-    ), "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+    assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, (
+        "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+    )
 
     equalization_scale = observed_linear.act_obs.calculate_qparams()
     # AQT config

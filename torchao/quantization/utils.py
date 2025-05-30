@@ -231,20 +231,19 @@ def quant_int8_per_token_matmul(
       Y_i_j_fp32 = sx * sw dot(X_i, W_j)
     """
 
-    assert (
-        x_vals_int8.dtype == torch.int8
-    ), f"x dtype {x_vals_int8.dtype} not yet supported"
-    assert (
-        w_vals_int8_t.dtype == torch.int8
-    ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
+    assert x_vals_int8.dtype == torch.int8, (
+        f"x dtype {x_vals_int8.dtype} not yet supported"
+    )
+    assert w_vals_int8_t.dtype == torch.int8, (
+        f"w dtype {w_vals_int8_t.dtype} not yet supported"
+    )
 
-    assert (
-        x_scales.dtype
-        in [
-            torch.float,
-            torch.bfloat16,
-        ]
-    ), f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+    assert x_scales.dtype in [
+        torch.float,
+        torch.bfloat16,
+    ], (
+        f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+    )
 
     #
     # 1. do the matrix form of dot(X_i, W_j)
