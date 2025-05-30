@@ -1,7 +1,9 @@
 import torch
 import torch.nn.functional as F
 
+from torchao.dtypes.floatx.cutlass_semi_sparse_layout import ActivationFunction
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
+from torchao.prototype.sparsity.activation.utils import SquaredReLU
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
@@ -13,8 +15,6 @@ from torchao.sparsity.sparse_api import (
     Float8DynamicSemiSparseActivationFloat8WeightConfig,
 )
 
-torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
-
 import copy
 import unittest
 
@@ -23,6 +23,7 @@ from parameterized import parameterized
 from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
 from torchao.sparsity.utils import create_binary_tensor, create_semi_structured_tensor
 from torchao.utils import is_sm_at_least_90
+from torchao.sparsity import ActivationFunction
 
 
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
@@ -144,6 +145,61 @@ def test_fp8_semi_sparse_activation_linear(M, K, N, do_compile=False):
                 granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
             ),
         )
+
+        if do_compile:
+            reference_linear_copy.forward = torch.compile(
+                reference_linear_copy.forward, fullgraph=True
+            )
+
+        reference_output = reference_linear(input_tensor)
+        custom_output = reference_linear_copy(input_tensor)
+
+        torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
+
+@parameterized.expand(
+    [
+        # (1, 8192, 1024, True),
+        # (64, 8192, 1024, True),
+        # (1024, 8192, 1024, True),
+        # (1, 8192, 1024, False),
+        (64, 8192, 1024, False),
+        # (1024, 8192, 1024, False),
+    ]
+)
+@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+def test_srelu_fp8_semi_sparse_activation_linear(M, K, N, do_compile=False):
+    with torch.no_grad():
+        torch.manual_seed(0)
+        input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+        # we have to wrap in a sequential block for quantize_ to work properly
+        reference_linear = torch.nn.Sequential(
+            SquaredReLU(),
+            torch.nn.Linear(K, N, bias=False).cuda().to(torch.bfloat16)
+        )
+        reference_linear_copy = copy.deepcopy(reference_linear[1])
+        print(reference_linear_copy)
+
+        quantize_(
+            reference_linear,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
+            ),
+        )
+
+        if do_compile:
+            reference_linear.forward = torch.compile(
+                reference_linear.forward,
+                fullgraph=True,
+            )
+
+        quantize_(
+            reference_linear_copy,
+            Float8DynamicSemiSparseActivationFloat8WeightConfig(
+                activation_fn=ActivationFunction.SQUARED_RELU,
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
+            ),
+        )
+        print(reference_linear_copy)
 
         if do_compile:
             reference_linear_copy.forward = torch.compile(
