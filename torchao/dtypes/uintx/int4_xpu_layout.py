@@ -242,14 +242,15 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(_layout, Int4XPULayout)
 
-        from torchao.quantization.utils import convert_weight_to_int4pack_xpu
-
         if TORCH_VERSION_AT_LEAST_2_8:
             assert int_data.dtype == torch.int32, (
                 "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             )
-            packed_weight = convert_weight_to_int4pack_xpu(
-                int_data, zero_point.dtype != scale.dtype
+            packed_weight = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(
+                torch.uint8
+            )
+            packed_weight = torch.ops.aten._convert_weight_to_int4pack(
+                packed_weight.contiguous(), 8
             )
         else:
             assert False, "INT4 not supported on XPU until 2.8"
@@ -370,8 +371,8 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.quant_primitives import (
-            ZeroPointDomain,
             quantize_affine,
+            quantize_affine_float_zero_point,
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
@@ -394,7 +395,6 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         quant_max = 15
         assert len(block_size) == 2 and block_size[0] == 1
         if self.scale_and_zero is None:
-            zero_point_domain = ZeroPointDomain.INT
             dequantized = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
                 torch.eye(eye_shape, device=device, dtype=original_dtype),
                 self.packed_weight,
@@ -411,10 +411,8 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 target_dtype,
                 quant_min,
                 quant_max,
-                zero_point_domain,
             )
         else:
-            zero_point_domain = ZeroPointDomain.FLOAT
             dequantized = torch.ops.aten._weight_int4pack_mm(
                 torch.eye(eye_shape, device=device, dtype=original_dtype),
                 self.packed_weight,
@@ -425,7 +423,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
             scale = scale.reshape(scale.shape[:-1]).contiguous()
             zero = zero.reshape(zero.shape[:-1]).contiguous()
-            int_data = quantize_affine(
+            int_data = quantize_affine_float_zero_point(
                 dequantized,
                 block_size,
                 scale,
@@ -433,7 +431,6 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 target_dtype,
                 quant_min,
                 quant_max,
-                zero_point_domain,
             )
         return int_data, scale, zero
 
