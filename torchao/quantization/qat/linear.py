@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.GPTQ import (
+from torchao.quantization.MOVED_GPTQ import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
     _check_linear_int4_k,

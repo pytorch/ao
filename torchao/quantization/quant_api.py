@@ -83,7 +83,7 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import (
+from .MOVED_GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightGPTQQuantizer,

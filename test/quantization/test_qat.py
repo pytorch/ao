@@ -17,7 +17,7 @@ from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
-from torchao.quantization.GPTQ import _replace_linear_8da4w, _replace_linear_int4
+from torchao.quantization.MOVED_GPTQ import _replace_linear_8da4w, _replace_linear_int4
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
@@ -284,7 +284,7 @@ class TestQAT(unittest.TestCase):
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
-        from torchao.quantization.GPTQ import (
+        from torchao.quantization.MOVED_GPTQ import (
             Int8DynActInt4WeightLinear,
             WeightOnlyInt4Linear,
         )
@@ -332,7 +332,7 @@ class TestQAT(unittest.TestCase):
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
     def test_qat_8da4w_linear(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.MOVED_GPTQ import Int8DynActInt4WeightLinear
         from torchao.quantization.qat.linear import Int8DynActInt4WeightQATLinear
 
         group_size = 128
@@ -365,7 +365,7 @@ class TestQAT(unittest.TestCase):
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
     def test_qat_8da4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.MOVED_GPTQ import Int8DynActInt4WeightQuantizer
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
         group_size = 16
@@ -683,7 +683,7 @@ class TestQAT(unittest.TestCase):
     )
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_linear(self):
-        from torchao.quantization.GPTQ import WeightOnlyInt4Linear
+        from torchao.quantization.MOVED_GPTQ import WeightOnlyInt4Linear
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
 
         group_size = 128
@@ -730,7 +730,7 @@ class TestQAT(unittest.TestCase):
     )
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.MOVED_GPTQ import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
         group_size = 32

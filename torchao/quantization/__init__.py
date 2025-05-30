@@ -13,7 +13,7 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .GPTQ import (
+from .MOVED_GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightGPTQQuantizer,
