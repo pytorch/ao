@@ -102,7 +102,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
             w = self.weight_fake_quantizer(self.weight)
         else:
             w = self.weight
-        return F.linear(x, w, self.bias)
+        return F.linear(x.to(w.dtype), w, self.bias)
 
     def to_linear(self) -> torch.nn.Linear:
         new_linear = torch.nn.Linear(
