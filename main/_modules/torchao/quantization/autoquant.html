@@ -430,7 +430,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.kernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">safe_int_mm</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.linear_activation_quantized_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">LinearActivationQuantizedTensor</span><span class="p">,</span>
-    <span class="n">to_linear_activation_quantized</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">MappingType</span><span class="p">,</span>
@@ -1373,7 +1372,9 @@
         <span class="p">)</span>
 
 
-<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AQMixin</span><span class="p">,</span> <span class="n">BFloat16Tensor</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span>
+    <span class="n">AQMixin</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1391,24 +1392,15 @@
             <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
-
-        <span class="c1"># input settings</span>
-        <span class="k">def</span><span class="w"> </span><span class="nf">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-            <span class="n">block_size</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
-                <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
-            <span class="k">return</span> <span class="n">block_size</span>
-
         <span class="n">input_target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
         <span class="n">_layout</span> <span class="o">=</span> <span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
-        <span class="c1"># TODO: make this serializable</span>
+        <span class="c1"># TODO: test serializable</span>
         <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_input_activation_quant_func_fp8</span>
-        <span class="n">input_quant_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">input_quant_args</span> <span class="o">=</span> <span class="p">{</span>
             <span class="s2">&quot;activation_granularity&quot;</span><span class="p">:</span> <span class="bp">cls</span><span class="o">.</span><span class="n">activation_granularity</span><span class="p">,</span>
             <span class="s2">&quot;activation_dtype&quot;</span><span class="p">:</span> <span class="n">input_target_dtype</span><span class="p">,</span>
         <span class="p">}</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
-
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
             <span class="n">input_float</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span>
             <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
@@ -1416,15 +1408,10 @@
             <span class="n">_layout</span><span class="o">=</span><span class="n">_layout</span><span class="p">,</span>
             <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span>
-            <span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">,</span> <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span>
-        <span class="p">)</span>
-        <span class="c1"># at inference time,</span>
-        <span class="c1"># we first convert the input, weight and bias to bfloat16, and then quantize activation</span>
-        <span class="c1"># and then dispatch to the quantized ops</span>
-        <span class="k">return</span> <span class="nb">super</span><span class="p">(</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="nb">super</span><span class="p">(</span>
             <span class="n">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="bp">cls</span>
-        <span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">skip_weight_conversion</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">,</span> <span class="n">input_quant_args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">weight</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span>
