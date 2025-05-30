@@ -27,6 +27,7 @@ from torchao.utils import (
 from .quant_primitives import (
     MappingType,
     dequantize_affine,
+    ZeroPointDomain,
 )
 from .unified import Quantizer
 from .utils import (
@@ -74,7 +75,9 @@ class GenericGPTQRunner(fx.Interpreter):
         blocksize=128,
         percdamp=0.01,
         groupsize=128,
+        device: torch.device = torch.device("cuda"),
     ):
+        self.device = device
         self.id_to_name = {
             id(value): name for name, value in dict(model.named_parameters()).items()
         }
@@ -100,6 +103,7 @@ class GenericGPTQRunner(fx.Interpreter):
         self.inputs = inputs
         self.gptq_done = False
         self.debug = False
+        
 
     def configure_quantization_mode(
         self,
@@ -163,16 +167,16 @@ class GenericGPTQRunner(fx.Interpreter):
         return quantized_state_dict
 
     def call_function(self, target, args, kwargs, already_quantized=False):  # noqa: C901
-        def tensors_to_cuda(args):
+        def tensors_to_device(args):
             new_args = []
             for x in args:
-                new_args.append(x.cuda() if isinstance(x, torch.Tensor) else x)
+                new_args.append(x.to(self.device) if isinstance(x, torch.Tensor) else x)
             return new_args
 
         # flatten args and kwargs together
         flat_args, spec = tree_flatten((args, kwargs))
         # move all single tensors to cuda, will move _MultiInputs to cuda one at a time
-        flat_args = tensors_to_cuda(flat_args)
+        flat_args = tensors_to_device(flat_args)
 
         has_multi_input = _MultiInput in [type(x) for x in flat_args]
         if has_multi_input:
@@ -212,7 +216,7 @@ class GenericGPTQRunner(fx.Interpreter):
             total_batches = 0
 
         for inp in transposed_args:
-            inp = tensors_to_cuda(inp)
+            inp = tensors_to_device(inp)
             cur_args, cur_kwargs = tree_unflatten(inp, spec)
 
             if quantize_linear:  # calculate H instead of output (will run the linear eventually with updated weight)
@@ -234,6 +238,9 @@ class GenericGPTQRunner(fx.Interpreter):
 
                 # get output if its not a linear
                 out = super().call_function(target, cur_args, cur_kwargs)
+                # TODO:There is a xpu issue(https://github.com/pytorch/pytorch/issues/153903). And it will be remove if after issue fixed. 
+                if target.__name__ == "scaled_dot_product_attention.default" and isinstance(out, torch.Tensor) and (not cur_args[0].is_contiguous()) and ('xpu' in cur_args[0].device.type):
+                    out = out.transpose(1, 2).contiguous().transpose(1, 2)
                 if isinstance(out, torch.Tensor):
                     outputs.append(out.cpu())
                 else:
@@ -283,7 +290,7 @@ class GenericGPTQRunner(fx.Interpreter):
                     "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
                 )  # matches
                 print(
-                    "SQNR for weight (can be low)", SQNR(W, DQ.cuda())
+                    "SQNR for weight (can be low)", SQNR(W, DQ.to(self.device))
                 )  # fine to not match
                 print(
                     "SQNR for output with GPTQ (hopefully 35+)",
@@ -385,7 +392,12 @@ class GenericGPTQRunner(fx.Interpreter):
 
             W[:, i2:] -= Err1.to(Hinv.dtype).matmul(Hinv[i1:i2, i2:])
 
-        torch.cuda.synchronize()
+        if 'cuda' in self.device.type:
+            torch.cuda.synchronize()
+        elif 'xpu' in self.device.type:
+            torch.xpu.synchronize()
+        else:
+            pass
 
         if all_qparams == []:
             all_qparams.append(cur_qparams)
@@ -498,6 +510,7 @@ class GPTQQuantizer(Quantizer):
             blocksize,
             percdamp,
             groupsize,
+            self.device,
         ).configure_quantization_mode(
             self.get_qparams_func,  # pyre-ignore[16]
             self.quantize_func,  # pyre-ignore[16]
@@ -561,6 +574,31 @@ def linear_forward_int4(
     return c
 
 
+def linear_forward_int4_zero_point_domain_int(
+    x: torch.Tensor,
+    weight_int4pack: torch.Tensor,
+    scales: torch.Tensor,
+    zeros: torch.Tensor,
+    out_features: int,
+    groupsize: int,
+    precision: torch.dtype = torch.bfloat16,
+    scales_precision: torch.dtype = torch.bfloat16,
+    zeros_precision: torch.dtype = torch.int8,
+):
+    origin_x_size = x.size()
+    x = x.reshape(-1, origin_x_size[-1])
+    c = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
+        x.contiguous().to(precision),
+        weight_int4pack,
+        groupsize,
+        scales.to(scales_precision),
+        zeros.to(zeros_precision),
+    ).to(dtype=x.dtype)
+    new_shape = origin_x_size[:-1] + (out_features,)
+    c = c.reshape(new_shape)
+    return c
+
+
 class WeightOnlyInt4Linear(torch.nn.Module):
     __constants__ = ["in_features", "out_features"]
     in_features: int
@@ -579,6 +617,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         inner_k_tiles: int = 8,
         precision: torch.dtype = torch.bfloat16,
         scales_precision: torch.dtype = torch.bfloat16,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
     ) -> None:
         super().__init__()
         self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
@@ -594,9 +633,13 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         self.inner_k_tiles = inner_k_tiles
         self.precision = precision
         self.scales_precision = scales_precision
+        self.zero_point_domain = zero_point_domain
 
         if dtype is not None:
             raise ValueError("Please specify 'precision' instead of 'dtype'")
+
+        if zero_point_domain == ZeroPointDomain.INT:
+            self.zeros_precision = torch.int8
 
         assert out_features % 8 == 0, "require out_features % 8 == 0"
         assert in_features % (inner_k_tiles * 16) == 0, (
@@ -611,6 +654,18 @@ class WeightOnlyInt4Linear(torch.nn.Module):
                         in_features // 2,
                     ),
                     dtype=torch.uint8,
+                    device=device,
+                ),
+            )
+        elif is_device(device.type, "xpu"):
+            self.register_buffer(
+                "weight",
+                torch.zeros(
+                    (
+                        out_features,
+                        in_features // 8,
+                    ),
+                    dtype=torch.int32,
                     device=device,
                 ),
             )
@@ -629,27 +684,60 @@ class WeightOnlyInt4Linear(torch.nn.Module):
                 ),
             )
         self.dtype = dtype
-        self.register_buffer(
-            "scales_and_zeros",
-            torch.zeros(
-                (in_features // groupsize, out_features, 2),
-                dtype=self.scales_precision,
-                device=device,
-            ),
-        )
+        if self.zero_point_domain == ZeroPointDomain.INT:
+            self.register_buffer(
+                "scales",
+                torch.zeros(
+                    (in_features // groupsize, out_features),
+                    dtype=self.scales_precision,
+                    device=device,
+                ),
+            )
+
+            self.register_buffer(
+                "zeros",
+                torch.zeros(
+                    (in_features // groupsize, out_features),
+                    dtype=self.zeros_precision,
+                    device=device,
+                ),
+            )
+        else:
+            self.register_buffer(
+                "scales_and_zeros",
+                torch.zeros(
+                    (in_features // groupsize, out_features, 2),
+                    dtype=self.scales_precision,
+                    device=device,
+                ),
+            )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.padding:
             input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
-        return linear_forward_int4(
-            input,
-            self.weight,
-            self.scales_and_zeros,
-            self.out_features,
-            self.groupsize,
-            self.precision,
-            self.scales_precision,
-        )
+
+        if self.zero_point_domain != ZeroPointDomain.INT:
+            return linear_forward_int4(
+                input,
+                self.weight,
+                self.scales_and_zeros,
+                self.out_features,
+                self.groupsize,
+                self.precision,
+                self.scales_precision,
+            )
+        else:
+            return linear_forward_int4_zero_point_domain_int(
+                input,
+                self.weight,
+                self.scales,
+                self.zeros,
+                self.out_features,
+                self.groupsize,
+                self.precision,
+                self.scales_precision,
+                self.zeros_precision,
+            )
 
 
 def _replace_linear_int4(
@@ -662,6 +750,8 @@ def _replace_linear_int4(
     scales_precision: torch.dtype = torch.bfloat16,
     linear_class: Type[torch.nn.Module] = WeightOnlyInt4Linear,
     copy_weights: bool = False,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+    device: torch.device = torch.device("cuda"),
 ):
     for name, child in module.named_children():
         # TODO: support linear bias
@@ -678,11 +768,12 @@ def _replace_linear_int4(
                     child.in_features,
                     child.out_features,
                     bias=False,
-                    device=child.weight.device,
+                    device=device,
                     groupsize=groupsize,
                     inner_k_tiles=inner_k_tiles,
                     precision=precision,
                     scales_precision=scales_precision,
+                    zero_point_domain = zero_point_domain,
                 )
                 # TODO: merge with 8da4w?
                 # In distributed training, the model may be instantiated
@@ -702,11 +793,19 @@ def _replace_linear_int4(
                 scales_precision,
                 linear_class,
                 copy_weights,
+                zero_point_domain=zero_point_domain,
+                device=device,
             )
 
 
 def replace_linear_int4(
-    module, groupsize, inner_k_tiles, padding_allowed, skip_layer_func=None
+    module,
+    groupsize,
+    inner_k_tiles,
+    padding_allowed,
+    skip_layer_func=None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+    device: torch.device = torch.device("cuda"),
 ):
     _replace_linear_int4(
         module,
@@ -715,6 +814,8 @@ def replace_linear_int4(
         padding_allowed,
         skip_layer_func,
         linear_class=WeightOnlyInt4Linear,
+        zero_point_domain = zero_point_domain,
+        device = device,
     )
 
 
@@ -809,6 +910,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
             skip_layer_func=None,
             precision=self.precision,
             scales_precision=self.precision,
+            device=self.device,
         )
         return model
 
@@ -830,6 +932,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         groupsize=64,
         inner_k_tiles=8,
         padding_allowed=True,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
         device: torch.device = torch.device("cuda"),
     ):
         self.blocksize = blocksize
@@ -837,15 +940,22 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self.groupsize = groupsize
         self.inner_k_tiles = inner_k_tiles
         self.padding_allowed = padding_allowed
+        self.zero_point_domain = zero_point_domain
         self.device = device
         self.act_fake_quant_func = None
         n_bit = 4
+
+        if ((zero_point_domain == ZeroPointDomain.INT) and ("xpu" not in device.type)):
+            raise ValueError(
+                f"Int4WeightOnlyGPTQQuantizer with ZeroPointDomain.INT is only applicable to Intel GPU."
+            )
+
         self.get_qparams_func = lambda w: get_groupwise_affine_qparams(
-            w, n_bit, groupsize
+            w, n_bit, groupsize, zero_point_domain=self.zero_point_domain,
         )
         self.quantize_func = (
             lambda w, qparams: groupwise_affine_quantize_tensor_from_qparams(
-                w, qparams[0], qparams[1], n_bit, groupsize
+                w, qparams[0], qparams[1], n_bit, groupsize, zero_point_domain=self.zero_point_domain,
             )
         )
         self.dequantize_func = (
@@ -855,6 +965,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
                 qparams[1],
                 n_bit,
                 groupsize,
+                zero_point_domain = self.zero_point_domain,
             )
         )
         self.combine_qparams_list_func = lambda qparams_list: [
@@ -864,6 +975,9 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self.skip_layer_func = lambda linear_weight: not (
             _check_linear_int4_k(linear_weight.shape[-1], groupsize) or padding_allowed
         )
+
+        if zero_point_domain == ZeroPointDomain.INT:
+            self.zeros_precision = torch.int8
 
         # we need to do the padding here, both for q and the qparams if necessary
 
@@ -886,14 +1000,33 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
                     F.pad(q, pad=(0, delta_k)), inner_k_tiles
                 )
             scales = qparams[0].to(torch.bfloat16).to(self.device)
-            zeros = qparams[1].to(torch.bfloat16).to(self.device)
-            scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-            # how many new groups we need for padded weight
-            delta_groups = new_k // groupsize - scales_and_zeros.shape[0]
-            final_s_and_z = F.pad(
-                scales_and_zeros, pad=(0, 0, 0, 0, 0, delta_groups), value=1
-            )
-            return {"weight": final_q, "scales_and_zeros": final_s_and_z}
+            if zero_point_domain == ZeroPointDomain.FLOAT:
+                zeros = qparams[1].to(torch.bfloat16).to(self.device)
+                scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
+                # how many new groups we need for padded weight
+                delta_groups = new_k // groupsize - scales_and_zeros.shape[0]
+                final_s_and_z = F.pad(
+                    scales_and_zeros, pad=(0, 0, 0, 0, 0, delta_groups), value=1
+                )
+                return {"weight": final_q, "scales_and_zeros": final_s_and_z}
+            if zero_point_domain == ZeroPointDomain.INT:
+                zeros = qparams[1].to(self.zeros_precision).to(self.device)
+                if scales.size() != zeros.size():
+                    raise ValueError(
+                        f"Expected Tensor scales size equal to zeros, but scales size is {scales.size()} and zeros size is {zeros.size()}."
+                    )
+                scales = scales.transpose(0, 1).contiguous()
+                zeros = zeros.transpose(0, 1).contiguous()
+                # how many new groups we need for padded weight
+                delta_groups = new_k // groupsize - scales.shape[0]
+                final_s = F.pad(
+                    scales, pad=(0, 0, 0, delta_groups), value=1
+                )
+                final_z = F.pad(
+                    zeros, pad=(0, 0, 0, delta_groups), value=1
+                )
+                return {"weight": final_q, "scales": final_s, "zeros": final_z}
+
 
         self.make_names_and_values_dict_func = make_names_and_values_dict_func
         super().__init__()
@@ -905,6 +1038,8 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             self.inner_k_tiles,
             self.padding_allowed,
             skip_layer_func=self.skip_layer_func,
+            zero_point_domain=self.zero_point_domain,
+            device=self.device,
         )
         return model
 
@@ -1221,6 +1356,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         inner_k_tiles=8,
         padding_allowed=True,
         precision=torch.float32,
+        device: torch.device = torch.device("cuda"),
     ):
         self.blocksize = blocksize
         self.percdamp = percdamp
@@ -1228,6 +1364,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         self.inner_k_tiles = inner_k_tiles
         self.padding_allowed = padding_allowed
         self.precision = precision
+        self.device = device
 
         self.act_fake_quant_func = per_token_dynamic_quant
         n_bit = 4
