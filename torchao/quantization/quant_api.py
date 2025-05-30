@@ -1797,7 +1797,7 @@ def _uintx_weight_only_transform(
 
     if use_hqq:
         if dtype == torch.uint4:
-            logger.warn(
+            logger.warning(
                 "Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance"
             )
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
