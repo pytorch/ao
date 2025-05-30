@@ -232,7 +232,9 @@ def wikitext2_ppl(
         use_hqq = "hqq" in quant
         print(f"running {quant_dtype} quantization")
         t0 = time.time()
-        awq_uintx_config = awq_uintx(quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq)
+        awq_uintx_config = awq_uintx(
+            quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq
+        )
         if "xpu" in device:
             awq_uintx_config.layout = Int4XPULayout()
         quantize_(
@@ -248,7 +250,9 @@ def wikitext2_ppl(
         group_size = int(quant.split("-")[1])
         use_hqq = "hqq" in quant
         print(f"running {quant} quantization with group size {group_size}")
-        int4_weight_only_config = int4_weight_only(group_size=group_size, use_hqq=use_hqq)
+        int4_weight_only_config = int4_weight_only(
+            group_size=group_size, use_hqq=use_hqq
+        )
         if "xpu" in device:
             int4_weight_only_config.layout = Int4XPULayout()
         quantize_(model, int4_weight_only_config)
