@@ -1,6 +1,11 @@
+import copy
+import unittest
+
 import torch
 import torch.nn.functional as F
+from parameterized import parameterized
 
+from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -9,17 +14,10 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_api import _float8_cutlass_quant
-
-torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
-
-import copy
-import unittest
-
-from torchao.prototype.sparsity.activation.srelu_linear import (
-    SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
+from torchao.sparsity.sparse_api import (
+    Float8DynamicSemiSparseActivationFloat8WeightConfig,
 )
-from torchao.sparsity import sparsify_
-from torchao.sparsity.utils import create_semi_structured_tensor
+from torchao.sparsity.utils import create_binary_tensor, create_semi_structured_tensor
 from torchao.utils import is_sm_at_least_90
 
 
@@ -102,8 +100,18 @@ def test_sparse24_sm90_sparsify_srelu(M=512, K=1024, fp8=torch.float8_e4m3fn) ->
     assert (A_packed != A_packed_ref).float().mean().item() < 0.1
 
 
+@parameterized.expand(
+    [
+        (1, 8192, 1024, True),
+        (64, 8192, 1024, True),
+        (1024, 8192, 1024, True),
+        (1, 8192, 1024, False),
+        (64, 8192, 1024, False),
+        (1024, 8192, 1024, False),
+    ]
+)
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
-def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
+def test_fp8_semi_sparse_activation_linear(M, K, N, do_compile=False):
     with torch.no_grad():
         torch.manual_seed(0)
         input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
@@ -116,32 +124,49 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         quantize_(
             reference_linear,
             Float8DynamicActivationFloat8WeightConfig(
-                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=False)
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
             ),
         )
 
-        # define reference implementation
-        def srelu_linear(x):
-            x = F.relu(x) ** 2
-            return reference_linear(x)
+        if do_compile:
+            reference_linear.forward = torch.compile(
+                reference_linear.forward,
+                fullgraph=True,
+            )
 
-        reference_srelu = torch.compile(srelu_linear, fullgraph=True)
-
-        # this only works with fullgraph=True, errors in eager
-        # TODO figure out exactly why this happens
-        sparsify_(
+        quantize_(
             reference_linear_copy,
-            SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(),
-        )
-        # (reference_linear_copy)
-        reference_linear_copy.forward = torch.compile(
-            reference_linear_copy.forward, fullgraph=True
+            Float8DynamicSemiSparseActivationFloat8WeightConfig(
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
+            ),
         )
 
-        reference_output = reference_srelu(input_tensor)
+        if do_compile:
+            reference_linear_copy.forward = torch.compile(
+                reference_linear_copy.forward, fullgraph=True
+            )
+
+        reference_output = reference_linear(input_tensor)
         custom_output = reference_linear_copy(input_tensor)
 
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Needs cuda to run")
+def test_splitk_sparse_gemv():
+    torch.manual_seed(0)
+
+    activation = create_binary_tensor((1, 4096), 0.2).cuda().to(torch.float16)
+    weight = torch.randn(16384, 4096, dtype=torch.float16).cuda()
+
+    # weight must be column major
+    weight_transposed = weight.T.contiguous().T
+
+    sparse_res = splitk_sparse_gemv(activation, weight_transposed)
+    dense_res = F.linear(activation, weight_transposed)
+
+    # This rtol is ridiculousl high, because the split gemv output accumulates slightly differently than the dense output.
+    torch.testing.assert_close(sparse_res, dense_res, rtol=10, atol=0.1)
 
 
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
@@ -171,7 +196,7 @@ def test_sparse24_fp8_sm90_cutlass_gemm_eye(
     # Check MM with scale
     b_scale = torch.randn([1, A.shape[1]], device=eye.device, dtype=torch.float32)
     a_scale = torch.randn([A.shape[0], 1], device=eye.device, dtype=torch.float32)
-    A_reconstructed = torch.ops.torchao._sparse24_fp8_sm90_cutlass_gemm(
+    A_reconstructed = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         A_packed, A_mdata, eye, a_scale=a_scale, b_scale=b_scale
     )
     assert torch.allclose(
