@@ -11,10 +11,13 @@ from typing import List
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
 __all__ = [
-    "to_fbgemm_quantized",
+    "to_fbgemm_int4",
 ]
 
 aten = torch.ops.aten
@@ -71,25 +74,22 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
             f"shape={self.shape}, device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
+    def _quantization_type(self):
+        return f"shape={self.shape}, group_size={self.group_size}, device={self.device}"
+
     @classmethod
     def from_float(
         cls,
         w: torch.Tensor,
-        input_dtype: torch.dtype,
-        weight_dtype: torch.dtype,
-        output_dtype: torch.dtype,
         block_size: List[int],
     ):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
-        group_size = block_size[-1]
+        if int4_row_quantize_zp is None:
+            raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
-        assert (input_dtype, weight_dtype, output_dtype) == (
-            torch.bfloat16,
-            torch.int4,
-            torch.bfloat16,
-        )
+        group_size = block_size[-1]
 
         if w.ndim >= 3:
             wq, scale, zero_point = zip(
@@ -138,9 +138,10 @@ def _(func, types, args, kwargs):
         weight_tensor.scale,
         weight_tensor.zero_point,
     )
+    res = res.reshape(*orig_act_size[:-1], orig_out_features)
     if bias is not None:
         res = res + bias
-    return res.reshape(*orig_act_size[:-1], orig_out_features)
+    return res
 
 
 @implements([aten.detach.default, aten.alias.default])
@@ -157,5 +158,9 @@ def _(func, types, args, kwargs):
     )
 
 
-# We can have `to_fbgemm_tensor` to dispatch to different Fbgemm tensors later
-to_fbgemm_quantized = FbgemmInt4Tensor.from_float
+to_fbgemm_int4 = FbgemmInt4Tensor.from_float
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    # Allow a model with FbgemmInt4Tensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([FbgemmInt4Tensor])
