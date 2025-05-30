@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import importlib.metadata
 import importlib.util
 import os
 import random
@@ -15,6 +16,7 @@ import numpy as np
 import pytest
 import torch
 
+from packaging import version
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 if not TORCH_VERSION_AT_LEAST_2_7:
@@ -29,6 +31,12 @@ if not VLLM_AVAILABLE:
 
 if not TRANSFORMERS_AVAILABLE:
     pytest.skip("transformers not installed", allow_module_level=True)
+
+if VLLM_AVAILABLE:
+    vllm_version = importlib.metadata.version("vllm")
+    # Bad vLLM version due to adding AOPerModuleConfig
+    if version.parse(vllm_version) == version.parse("0.9.0"):
+        pytest.skip("vLLM version must be greater than 0.9.0", allow_module_level=True)
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 from vllm import LLM, SamplingParams
