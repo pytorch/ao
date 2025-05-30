@@ -424,6 +424,9 @@ def get_extensions():
 
     use_cutlass = False
     cutlass_90a_sources = None
+    cutlass_100a_sources = None
+    build_for_sm90a = False
+    build_for_sm100a = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
@@ -453,32 +456,47 @@ def get_extensions():
         )
 
         cuda_arch_flags = _get_cuda_arch_flags()
-        build_for_sm90 = "-gencode=arch=compute_90,code=sm_90" in cuda_arch_flags
         build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
-        if build_for_sm90 and not build_for_sm90a:
-            cutlass_90a_sources = [
+        build_for_sm100a = "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags
+        # Define sm90a sources
+        cutlass_90a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "rowwise_scaled_linear_sparse_cutlass",
+                "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
+            ),
+            os.path.join(
+                extensions_cuda_dir,
+                "to_sparse_semi_structured_cutlass_sm9x",
+                "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+            ),
+            os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
+            os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
+        ]
+        for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
+            cutlass_90a_sources.append(
                 os.path.join(
                     extensions_cuda_dir,
                     "rowwise_scaled_linear_sparse_cutlass",
-                    "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
-                ),
-                os.path.join(
-                    extensions_cuda_dir,
-                    "to_sparse_semi_structured_cutlass_sm9x",
-                    "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
-                ),
-                os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
-                os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
-            ]
-            for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
-                cutlass_90a_sources.append(
-                    os.path.join(
-                        extensions_cuda_dir,
-                        "rowwise_scaled_linear_sparse_cutlass",
-                        "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
-                    )
+                    "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
-            sources = [s for s in sources if s not in cutlass_90a_sources]
+            )
+        # Always remove sm90a sources from main sources
+        sources = [s for s in sources if s not in cutlass_90a_sources]
+
+        # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
+        cutlass_100a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "mx_kernels",
+                "mx_fp_cutlass_kernels.cu",
+            ),
+        ]
+        # Remove from main sources to prevent compilation with other architectures
+        sources = [
+            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+        ]
+
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -492,6 +510,11 @@ def get_extensions():
 
     ext_modules = []
     if len(sources) > 0:
+        # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
+        sources = [
+            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+        ]
+
         ext_modules.append(
             extension(
                 "torchao._C",
@@ -502,17 +525,44 @@ def get_extensions():
             )
         )
 
-    if cutlass_90a_sources is not None and len(cutlass_90a_sources) > 0:
+    # Only build the cutlass_90a extension if sm90a is in the architecture flags
+    if (
+        cutlass_90a_sources is not None
+        and len(cutlass_90a_sources) > 0
+        and build_for_sm90a
+    ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        cutlass_90a_extra_compile_args["nvcc"].extend(
-            cuda_arch_flags + ["-gencode=arch=compute_90a,code=sm_90a"]
+        # Only use sm90a architecture for these sources, ignoring other flags
+        cutlass_90a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_90a,code=sm_90a"
         )
         ext_modules.append(
             extension(
-                "torchao._C",
+                "torchao._C_cutlass_90a",
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    # Only build the cutlass_100a extension if sm100a is in the architecture flags
+    if (
+        cutlass_100a_sources is not None
+        and len(cutlass_100a_sources) > 0
+        and build_for_sm100a
+    ):
+        cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
+        # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
+        cutlass_100a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_100a,code=sm_100a"
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C_cutlass_100a",
+                cutlass_100a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_100a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
