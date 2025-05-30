@@ -11,9 +11,9 @@ from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from torchao.dtypes import Int4XPULayout
 from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
 from torchao.quantization import int4_weight_only, quantize_
-from torchao.dtypes import Int4XPULayout
 
 
 # adapted from: https://github.com/mit-han-lab/llm-awq/blob/main/awq/entry.py#L255

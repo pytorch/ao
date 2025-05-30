@@ -371,7 +371,6 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.quant_primitives import (
-            ZeroPointDomain,
             quantize_affine,
             quantize_affine_float_zero_point,
         )
