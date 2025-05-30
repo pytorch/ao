@@ -19,7 +19,6 @@ from torchao.quantization.granularity import (
 from torchao.utils import (
     is_MI300,
     is_sm_at_least_89,
-    is_sm_at_least_90,
 )
 
 Tensor = torch.Tensor
@@ -168,13 +167,11 @@ def _check_hardware_support(
         ValueError: If invalid granularity type is provided
     """
     for _granularity in granularities:
-        if isinstance(_granularity, PerTensor):
-            assert is_sm_at_least_89() or is_MI300(), (
-                "PerTensor quantization only works for CUDA>=8.9 and MI300+"
+        if not isinstance(_granularity, (PerTensor, PerRow)):
+            raise ValueError(
+                f"Invalid granularity type: {_granularity}, only PerTensor or PerRow are supported."
             )
-        elif isinstance(_granularity, PerRow):
-            assert is_sm_at_least_90() or is_MI300(), (
-                "PerRow quantization only works for CUDA>=9.0 and MI300+"
-            )
-        else:
-            raise ValueError(f"Invalid granularity type: {_granularity}")
+
+        assert is_sm_at_least_89() or is_MI300(), (
+            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+."
+        )
