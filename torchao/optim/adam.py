@@ -180,7 +180,7 @@ def single_param_adam(
     bias_correction2 = 1 - beta2**step
 
     # keep high precision copy for param update
-    exp_avg_f32 = exp_avg.float().lerp(grad_f32, 1 - beta1).float()
+    exp_avg_f32 = exp_avg.float().lerp(grad_f32.half(), 1 - beta1)
     exp_avg_sq_f32 = exp_avg_sq.float().lerp(grad_f32.square(), 1 - beta2)
 
     exp_avg.copy_(exp_avg_f32)
