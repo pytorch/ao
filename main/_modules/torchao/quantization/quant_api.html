@@ -2206,7 +2206,7 @@
 
     <span class="k">if</span> <span class="n">use_hqq</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
                 <span class="s2">&quot;Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance&quot;</span>
             <span class="p">)</span>
         <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">dtype</span><span class="p">]</span>
