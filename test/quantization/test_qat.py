@@ -17,13 +17,13 @@ from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
-from torchao.quantization.MOVED_GPTQ import _replace_linear_8da4w, _replace_linear_int4
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
     PerRow,
     PerToken,
 )
+from torchao.quantization.MOVED_GPTQ import _replace_linear_8da4w, _replace_linear_int4
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,

@@ -13,13 +13,6 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .MOVED_GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightLinear,
-    Int8DynActInt4WeightQuantizer,
-)
 from .granularity import (
     PerAxis,
     PerGroup,
@@ -33,6 +26,13 @@ from .linear_activation_quantized_tensor import (
 )
 from .linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
+)
+from .MOVED_GPTQ import (
+    Int4WeightOnlyGPTQQuantizer,
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightGPTQQuantizer,
+    Int8DynActInt4WeightLinear,
+    Int8DynActInt4WeightQuantizer,
 )
 from .observer import (
     AffineQuantizedMinMaxObserver,
