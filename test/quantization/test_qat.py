@@ -46,7 +46,6 @@ from torchao.quantization.qat.linear import (
 from torchao.quantization.qat.utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _GenericFakeQuantize,
     _get_qmin_qmax,
 )
 from torchao.quantization.quant_api import (
@@ -581,42 +580,6 @@ class TestQAT(unittest.TestCase):
 
         quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=16)
         self._test_qat_quantized_gradients(quantizer)
-
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
-    def test_qat_generic_fake_quantize(self):
-        """
-        Test that the generic fake quantize used in 8da4w QAT matches
-        the numerics of existing fake quantize ops in Pytorch in both
-        the forward and the backward passes.
-        """
-        (qmin, qmax) = _get_qmin_qmax(4)
-        py_input = torch.randn(16, 64).float().requires_grad_()
-        py_s = torch.randn(16).float()
-        py_zp = torch.randint(qmax, size=(16,), dtype=torch.int32)
-        py_out = torch.fake_quantize_per_channel_affine(
-            py_input, py_s, py_zp, 0, qmin, qmax
-        )
-        py_out.sum().backward()
-
-        ao_input = copy.deepcopy(py_input)
-        ao_input.grad.data.zero_()
-        block_size = (1, ao_input.shape[-1])
-        ao_s = copy.deepcopy(py_s)
-        ao_zp = copy.deepcopy(py_zp)
-        ao_out = _GenericFakeQuantize.apply(
-            ao_input, block_size, ao_s, ao_zp, qmin, qmax
-        )
-        ao_out.sum().backward()
-
-        torch.testing.assert_close(py_out, ao_out, atol=0, rtol=0)
-
-        # Test that gradients are close enough
-        num_grads = py_input.grad.numel()
-        num_equal_grads = torch.eq(py_input.grad, ao_input.grad).flatten().sum().item()
-        num_equal_grad_threshold = 0.8
-        self.assertGreaterEqual(num_equal_grads / num_grads, num_equal_grad_threshold)
 
     def _assert_close_4w(self, val, ref):
         # Note: for int4 weight-only quantization, we do not expect exact match
@@ -1697,16 +1660,24 @@ class TestQAT(unittest.TestCase):
         m(*example_inputs)
 
         # Simulate training
+        num_steps = 10
         optimizer = torch.optim.SGD(
             m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5
         )
         loss_fn = torch.nn.CrossEntropyLoss()
-        target = torch.randn(1, 512).float()
-        out = m(*example_inputs)
-        loss = loss_fn(out, target)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        for i in range(num_steps):
+            prev_scale = copy.deepcopy(m.linear1.weight_fake_quantizer.scale)
+            optimizer.zero_grad()
+            target = torch.randn(1, 512).float()
+            out = m(*example_inputs)
+            loss = loss_fn(out, target)
+            loss.backward()
+            optimizer.step()
+            # Assert that scales have valid gradients and are being updated
+            new_scale = m.linear1.weight_fake_quantizer.scale
+            self.assertIsNotNone(new_scale.grad)
+            self.assertNotEqual(torch.count_nonzero(new_scale.grad), 0)
+            self.assertFalse(torch.equal(new_scale, prev_scale))
 
 
 if __name__ == "__main__":

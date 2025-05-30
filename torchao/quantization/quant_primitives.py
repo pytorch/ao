@@ -212,6 +212,20 @@ quant_lib = torch.library.Library("torchao", "FRAGMENT")
 register_custom_op = _register_custom_op(quant_lib)
 
 
+class _Round(torch.autograd.Function):
+    """
+    Implementation of generic round operation with backward STE.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        return torch.round(x)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        return gy
+
+
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     """Get quant_min and quant_max args based on dtype and also
@@ -407,7 +421,7 @@ def _quantize_affine_no_dtype_cast(
         zero_point = None
 
     quant = torch.clamp(
-        torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
+        _Round.apply(input * (1.0 / scale)) + zero_point, quant_min, quant_max
     )
     quant = quant.view(original_shape)
 
@@ -493,7 +507,7 @@ def _quantize_affine_float_zero_point_no_dtype_cast(
 
     mid_point = (quant_max + quant_min + 1) / 2
     min_val = zero_point - scale * mid_point
-    quant = torch.clamp(torch.round((input - min_val) / scale), quant_min, quant_max)
+    quant = torch.clamp(_Round.apply((input - min_val) / scale), quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant
@@ -577,7 +591,7 @@ def _quantize_affine_no_zero_point_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = torch.clamp(torch.round(input * (1.0 / scale)), quant_min, quant_max)
+    quant = torch.clamp(_Round.apply(input * (1.0 / scale)), quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant
@@ -1202,7 +1216,7 @@ def choose_qparams_affine_dont_preserve_zero(
     scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
     scale = torch.clamp(scale, min=eps)
     # Zero point is int
-    zero_point = quant_min - torch.round(min_val_neg / scale)
+    zero_point = quant_min - _Round.apply(min_val_neg / scale)
     zero_point = torch.clamp(zero_point, quant_min, quant_max)
     if zero_point_dtype is None:
         zero_point_dtype = torch.int32
@@ -1308,7 +1322,7 @@ def choose_qparams_affine_with_min_max(
         if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None
         elif zero_point_domain == ZeroPointDomain.INT:
-            zero_point = quant_min - torch.round(min_val_neg / scale)
+            zero_point = quant_min - _Round.apply(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
             if zero_point_dtype is None:
                 zero_point_dtype = torch.int32
@@ -1400,7 +1414,7 @@ def _choose_qparams_affine(
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         scale = torch.clamp(scale, min=eps)
-        zero_point = quant_min - torch.round(min_val_neg / scale)
+        zero_point = quant_min - _Round.apply(min_val_neg / scale)
         zero_point = torch.clamp(zero_point, quant_min, quant_max)
         if zero_point_dtype is None:
             zero_point_dtype = torch.int32
@@ -1434,7 +1448,7 @@ def choose_qparams_and_quantize_affine_qqq(
         s_group *= 2 / max_q_val  # 2 => symmetric
 
         # Quantize
-        q_w = torch.round(w / s_group).int()
+        q_w = _Round.apply(w / s_group).int()
         q_w += half_q_val
         q_w = torch.clamp(q_w, 0, max_q_val)
         # Compute ref (dequantized)
@@ -1467,7 +1481,7 @@ def choose_qparams_and_quantize_affine_qqq(
         s_channel /= max_q_val
 
         # Quantize
-        q_w = torch.round(w / s_channel).int()
+        q_w = _Round.apply(w / s_channel).int()
         q_w = torch.clamp(q_w, -max_q_val, max_q_val)
         # Compute ref (dequantized)
         w_ref = q_w.half() * s_channel
@@ -1871,7 +1885,7 @@ def choose_qparams_and_quantize_affine_hqq(
 
     # Round zero as in: https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/quantizer.py#L42C9-L42C14
     if nbits in [4]:
-        zero = torch.round(zero)
+        zero = _Round.apply(zero)
 
     # Fine-tune weights
     if optimize:
@@ -1887,7 +1901,7 @@ def choose_qparams_and_quantize_affine_hqq(
     else:
         zero = zero.to(compute_dtype)
         scale = scale.to(compute_dtype)
-        W_q = torch.round(W * scale + zero).clamp(min_max[0], min_max[1])
+        W_q = _Round.apply(W * scale + zero).clamp(min_max[0], min_max[1])
 
     # Store meta-data (we invert the scale for dequantization)
     scale = 1.0 / scale
@@ -2004,7 +2018,7 @@ def choose_qparams_affine_float8(
     if scale_dtype is not torch.float32:
         # Shielding for Version > 2.8
         assert scale_dtype is torch.float8_e8m0fnu, "Only float8_e8m0fnuz is supported"
-        scale = torch.exp2(torch.round(torch.log2(scale)))
+        scale = torch.exp2(_Round.apply(torch.log2(scale)))
     return scale.to(dtype=torch.float32)
 
 
