@@ -466,8 +466,11 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
             # handle CUTLASS specially
             if isinstance(_layout, CutlassSemiSparseLayout):
+                scale = choose_qparams_affine_float8(
+                    input_float, float8_dtype=target_dtype, block_size=block_size
+                )
                 tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-                tensor_impl = tensor_impl_ctr(input_float, None, None, _layout)
+                tensor_impl = tensor_impl_ctr(input_float, scale, None, _layout)
                 return cls(
                     tensor_impl,
                     block_size,

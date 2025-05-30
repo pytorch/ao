@@ -169,7 +169,7 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           cutlass::arch::Sm90,
           cutlass::arch::OpClassSparseTensorOp,
           TileShape,
-          cute::Shape<cute::_1, cute::_1, cute::_1>,
+          cute::Shape<cute::_2, cute::_1, cute::_1>,
           cutlass::epilogue::collective::EpilogueTileAuto,
           float,
           float,
@@ -193,8 +193,8 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           cutlass::layout::ColumnMajor,
           16,
           float,
-          cute::Shape<cute::_64, cute::_64, cute::_64>,
-          cute::Shape<cute::_1, cute::_1, cute::_1>,
+          cute::Shape<cute::_128, cute::_256, cute::_128>,
+          cute::Shape<cute::_2, cute::_1, cute::_1>,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
           cutlass::gemm::KernelTmaWarpSpecializedCooperative>::CollectiveOp;

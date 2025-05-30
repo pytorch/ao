@@ -150,7 +150,7 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
 
 from torchao.sparsity.sparse_api import ActivationSparseLinearConfig
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
-def test_asdf(M=16384, K=2048, N=1024):
+def test_asdf(M=1, K=16384, N=4096):
     with torch.no_grad():
         torch.manual_seed(0)
         input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
@@ -166,20 +166,20 @@ def test_asdf(M=16384, K=2048, N=1024):
                 granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
             ),
         )
-        reference_linear.forward = torch.compile(reference_linear.forward, fullgraph=True)
+        # reference_linear.forward = torch.compile(reference_linear.forward)
 
         # this only works with fullgraph=True, errors in eager
         # TODO figure out exactly why this happens
-        sparsify_(
+        quantize_(
             reference_linear_copy,
             Float8DynamicSemiSparseActivationFloat8WeightConfig(
                 granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
             ),
         )
         # (reference_linear_copy)
-        reference_linear_copy.forward = torch.compile(
-            reference_linear_copy.forward, fullgraph=True, 
-        )
+        # reference_linear_copy.forward = torch.compile(
+        #     reference_linear_copy.forward, 
+        # )
 
         reference_output = reference_linear(input_tensor)
         custom_output = reference_linear_copy(input_tensor)

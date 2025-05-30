@@ -102,7 +102,7 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
         nn.Sequential(
             nn.Linear(hidden_size, intermediate_size, bias=False),
             # no Squared RELU since it will be fused into the second linear
-            SquaredReLU(),
+            # SquaredReLU(),
             nn.Linear(intermediate_size, hidden_size, bias=False),
         )
         .to(torch.bfloat16)
@@ -115,11 +115,11 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
         ),
     )
     quantize_(
-        ffn_clone,
+        ffn_clone[1],
         Float8DynamicSemiSparseActivationFloat8WeightConfig(
             granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
         ),
-        filter_fn=lambda mod, fqn: "2" in fqn,
+        # filter_fn=lambda mod, fqn: "1" in fqn,
     )
     ffn_clone.forward = torch.compile(ffn_clone.forward, fullgraph=True)
     fp8_c_activation_sparse_time = benchmark_microseconds(ffn_clone, input_tensor)
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         results = []
         # for num_tokens in tqdm([64, 128, 256, 512, 1024, 2048, 4096]):
-        for num_tokens in tqdm([512, 1024, 2048, 4096, 8192]):
+        for num_tokens in tqdm([64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]):
             results.append(benchmark(num_tokens))
             torch.compiler.reset()
 

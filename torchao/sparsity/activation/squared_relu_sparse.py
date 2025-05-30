@@ -33,13 +33,7 @@ from torchao.utils import (
     is_sm_at_least_89,
 )
 
-
-def _to_fp8_rowwise(x: torch.Tensor, dtype):
-    max_v = torch.finfo(dtype).max
-    x_scale = (x.abs().max(1, keepdim=True)[0].clip(1e-12) / max_v).float()
-    x = (x.float() / x_scale).clamp(min=-max_v, max=max_v).to(dtype)
-    return x, x_scale
-
+import torch.nn.functional as F
 
 from torchao.utils import TorchAOBaseTensor
 
@@ -184,26 +178,6 @@ def _(func, types, args, kwargs):
     return
 
 
-def _pad_dense_input(dense_input: torch.Tensor) -> torch.Tensor:
-    """
-    Calculates padding for dense tensor and pads tensor if necessary.
-    If padding is not required, this function returns the original tensor.
-    """
-    # only 2d matmul
-    assert dense_input.dim() == 2
-
-    # check shape
-    m, n = dense_input.shape
-    min_rows = 64
-    min_cols = 64
-
-    # calculate padding
-    to_pad_m = -m % min_rows if m < min_rows or m % min_rows else 0
-    to_pad_n = -n % min_cols if n < min_cols or n % min_rows else 0
-    if to_pad_m or to_pad_n:
-        return torch.nn.functional.pad(dense_input, (0, to_pad_n, 0, to_pad_m))
-    else:
-        return dense_input
 
 
 @implements(torch.nn.functional.linear)
@@ -316,6 +290,7 @@ def _float8_dynamic_sparse_activation_float8_weight_quantize_tensor(weight, conf
         _layout=Float8Layout(mm_config=mm_config),
     )
 
+    # input_quant_func = torch.compile(_input_activation_quant_func_fp8_sparse, fullgraph=True)
     input_quant_func = _input_activation_quant_func_fp8_sparse
     input_quant_kwargs = {
         "activation_granularity": activation_granularity,
@@ -350,7 +325,10 @@ def _float8_dynamic_activation_sparse_float8_weight_transform(
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
+from collections import Counter
+from pprint import pprint
 
+SEEN = Counter()
 def _input_activation_quant_func_fp8_sparse(
     x: torch.Tensor,
     activation_granularity,
@@ -361,7 +339,8 @@ def _input_activation_quant_func_fp8_sparse(
     """This function is used to quantize the input activation tensor for an aqt_float variant. If scale
     is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.
     """
-    x_2d = x.view(-1, x.size(-1))
+    # print(x.shape)
+    # x_2d = x.view(-1, x.size(-1))
 
     assert zero_point is None, (
         "Zero point is not supported for dynamic FP8 quantization"
@@ -371,23 +350,29 @@ def _input_activation_quant_func_fp8_sparse(
             "PerRow quantization only works for bfloat16 precision input activation"
         )
 
-    if (
-        (x_2d.size(0) == 64) or
-        (x_2d.size(0) == 128) or
-        (x_2d.size(0) == 192) or
-        (x_2d.size(0) == 256) or
-        (x_2d.size(0) == 320) or
-        (x_2d.size(0) == 384) or
-        (x_2d.size(0) == 448) or
-        (x_2d.size(0) == 512) or
-        (x_2d.size(0) == 1024) or
-        (x_2d.size(0) == 2048) or
-        (x_2d.size(0) == 4096) or
-        (x_2d.size(0) == 8192) 
-    ):
-        layout=CutlassSemiSparseLayout()
-    else:
-        layout=Float8Layout(mm_config=None)
+    # x_2d = _pad_dense_input(x_2d)
+    # if x.shape not in SEEN:
+    #     SEEN[x.shape] += 1
+    #     pprint(SEEN)
+    # else:
+    #     SEEN[x.shape] += 1
+
+
+    # if (
+    #     (x.size(0) == 64) or
+    #     (x.size(0) == 128) or
+    #     (x.size(0) == 192) or
+    #     (x.size(0) == 256) or
+    #     (x.size(0) == 320) or
+    #     (x.size(0) == 384) or
+    #     (x.size(0) == 448) or
+    #     (x.size(0) == 512) 
+    # ):
+        # print(x.shape)
+    # if x.shape[0] % 64 == 0:
+    # else:
+    #     layout=Float8Layout(mm_config=None)
+    layout=CutlassSemiSparseLayout()
 
     block_size = get_block_size(x.shape, activation_granularity)
     activation = to_affine_quantized_floatx(

@@ -23,6 +23,48 @@ from torchao.ops import (
 
 aten = torch.ops.aten
 
+def _pad_dense_input(dense_input: torch.Tensor) -> torch.Tensor:
+    """
+    Calculates padding for dense tensor and pads tensor if necessary.
+    If padding is not required, this function returns the original tensor.
+    """
+    # only 2d matmul
+    assert dense_input.dim() == 2
+
+    # check shape
+    m, n = dense_input.shape
+    min_rows = 64
+    min_cols = 64
+
+    # calculate padding
+    to_pad_m = -m % min_rows if m < min_rows or m % min_rows else 0
+    to_pad_n = -n % min_cols if n < min_cols or n % min_rows else 0
+    if to_pad_m or to_pad_n:
+        return torch.nn.functional.pad(dense_input, (0, to_pad_n, 0, to_pad_m))
+    else:
+        return dense_input
+        
+def _pad_scale(scale: torch.Tensor) -> torch.Tensor:
+    """
+    Calculates padding for dense tensor and pads tensor if necessary.
+    If padding is not required, this function returns the original tensor.
+    """
+    # only 2d matmul
+    assert scale.dim() == 2
+
+    # check shape
+    m, n = scale.shape
+    assert n == 1
+    min_rows = 64
+    # min_cols = 64
+
+    # calculate padding
+    to_pad_m = -m % min_rows if m < min_rows or m % min_rows else 0
+    # to_pad_n = -n % min_cols if n < min_cols or n % min_rows else 0
+    if to_pad_m:
+        return torch.nn.functional.pad(scale, (0, 0, 0, to_pad_m))
+    else:
+        return scale
 
 def _same_metadata(
     self: "CutlassSemiSparseTensorImpl", src: "CutlassSemiSparseTensorImpl"
@@ -126,29 +168,29 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         # semi-structured format, so multiplying with identity matrix,
         # and using identity scale factors, for the conversion.
         # breakpoint()
-        raise NotImplementedError("get_plain not supported for CutlassSemiSparseTensorImpl")
-        # cols = self.shape[-1]
-        # input = torch.eye(cols, dtype=self.sparse.dtype, device=self.sparse.device)
-        # input_scale = torch.ones(
-        #     (cols,), dtype=self.scale.dtype, device=self.sparse.device
-        # )
-        # sparse_scale = torch.ones_like(self.scale)
-        # out_dtype = torch.bfloat16
-        # dense = (
-        #     rowwise_scaled_linear_sparse_cutlass_f8f8(
-        #         input,
-        #         input_scale,
-        #         self.sparse,
-        #         self.meta,
-        #         sparse_scale,
-        #         out_dtype=out_dtype,
-        #     )
-        #     .to(self.dtype)
-        #     .t()
-        #     .contiguous()
-        # )
+        # raise NotImplementedError("get_plain not supported for CutlassSemiSparseTensorImpl")
+        cols = self.shape[-1]
+        input = torch.eye(cols, dtype=self.sparse.dtype, device=self.sparse.device)
+        input_scale = torch.ones(
+            (cols,), dtype=self.scale.dtype, device=self.sparse.device
+        )
+        sparse_scale = torch.ones_like(self.scale)
+        out_dtype = torch.bfloat16
+        dense = (
+            rowwise_scaled_linear_sparse_cutlass_f8f8(
+                input,
+                input_scale,
+                self.sparse,
+                self.meta,
+                sparse_scale,
+                out_dtype=out_dtype,
+            )
+            .to(self.dtype)
+            .t()
+            .contiguous()
+        )
 
-        # return dense, self.scale, None
+        return dense, self.scale, None
 
     @classmethod
     def from_plain(
@@ -160,25 +202,31 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
     ):
         assert zero_point is None or torch.all(zero_point == 0)
         # print(dense.shape)
-        dense_2d = dense.view(-1, dense.shape[-1])
+        # dense_2d = dense.view(-1, dense.shape[-1])
+        assert dense.ndim == 2
+        assert dense.is_contiguous()
 
-        X_scale = torch.empty((dense_2d.shape[0], 1), device=dense.device, dtype=torch.float32)
+        dense_padded = _pad_dense_input(dense)
+        scale_padded = _pad_scale(scale)
+
+        # X_scale = torch.empty((dense.shape[0], 1), device=dense.device, dtype=torch.float32)
         Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
-            dense_2d,
+            dense_padded,
             "cutlass",
             "identity",
             "largest",
             dtype=torch.float8_e4m3fn,
-            scale=X_scale,
+            scale=scale_padded,
         )
 
-        return cls(
+        res = cls(
             dense.shape,
             Xq_sparse,
             X_meta,
-            X_scale,
+            scale_padded,
             _layout,
         )
+        return res
 
     def get_layout(self) -> Layout:
         return self._layout
@@ -230,9 +278,6 @@ def _linear_fp8_act_fp8_weight_sparse_cutlass_impl(input_tensor, weight_tensor, 
 def _linear_fp8_act_sparse_fp8_weight_cutlass_check(input_tensor, weight_tensor, bias):
     from torchao.dtypes.floatx import Float8Layout
 
-    # if isinstance(input_tensor, AffineQuantizedTensor) and isinstance(input_tensor._layout, CutlassSemiSparseLayout):
-    #     breakpoint()
-
     res = (
         isinstance(input_tensor, AffineQuantizedTensor)
         and isinstance(input_tensor._layout, CutlassSemiSparseLayout)
@@ -261,15 +306,10 @@ def _linear_fp8_act_sparse_fp8_weight_cutlass_impl(input_tensor, weight_tensor, 
     weight_scale = weight_tensor.tensor_impl.scale
 
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
+    rows, cols = (input_tensor.shape)
 
-    out_dtype = input_tensor.dtype
-
-    # out = rowwise_scaled_linear_sparse_cutlass_f8f8(
-    #     weight, weight_scale, input_sparse, input_meta, input_scale, bias, out_dtype
-    # ).t().view(out_shape)
-
-    out= torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
+    out = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         input_sparse, input_meta, weight.t(), a_scale=input_scale, b_scale=weight_scale.t(),
-    ).view(out_shape)
-
+    )[:rows, :].view(out_shape)
+    
     return out
