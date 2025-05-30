@@ -78,12 +78,6 @@ def _same_metadata(
 class CutlassSemiSparseLayout(Layout):
     """Layout class for float8 2:4 sparsity layout for affine quantized tensor, for cutlass kernel."""
 
-    # def pre_process(self, dense: torch.Tensor) -> torch.Tensor:
-    # # prune to 2:4 if not already
-    # from torchao.sparsity.utils import mask_creator
-
-    # return dense * mask_creator(dense).bool()
-
 
 @register_layout(CutlassSemiSparseLayout)
 class CutlassSemiSparseTensorImpl(AQTTensorImpl):
@@ -161,8 +155,6 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         # No support in CUTLASS to convert back to dense from sparse
         # semi-structured format, so multiplying with identity matrix,
         # and using identity scale factors, for the conversion.
-        # breakpoint()
-        # raise NotImplementedError("get_plain not supported for CutlassSemiSparseTensorImpl")
         cols = self.shape[-1]
         input = torch.eye(cols, dtype=self.sparse.dtype, device=self.sparse.device)
         input_scale = torch.ones(
@@ -195,8 +187,6 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         assert zero_point is None or torch.all(zero_point == 0)
-        # print(dense.shape)
-        # dense_2d = dense.view(-1, dense.shape[-1])
         assert dense.ndim == 2
         assert dense.is_contiguous()
 
