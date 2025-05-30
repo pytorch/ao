@@ -655,6 +655,12 @@ def is_Navi4():
     return False
 
 
+def is_sm_version(major: int, minor: int) -> bool:
+    """Check if the CUDA version is exactly major.minor"""
+    is_cuda = torch.cuda.is_available() and torch.version.cuda
+    return torch.cuda.get_device_capability() == (major, minor) if is_cuda else False
+
+
 def is_sm_at_least_89():
     return (
         torch.cuda.is_available()
