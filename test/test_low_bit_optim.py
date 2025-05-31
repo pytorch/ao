@@ -166,6 +166,26 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("device", _DEVICES)
+    def test_optim_default_dtype_bf16(self, optim_name, device):
+        old_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+
+        try:
+            model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+            model.to(device=device)
+            optimizer = getattr(optim, optim_name)(model.parameters())
+
+            x = torch.randn(4, 32, device=device)
+            loss = model(x).sum()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+        finally:
+            torch.set_default_dtype(old_dtype)
+
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
