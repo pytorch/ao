@@ -404,6 +404,10 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 
 You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
 
+### GPTQ Quantization
+We have a GPTQ quantization workflow that can be used to quantize a model to int4. More details can be found in [GPTQ](./GPTQ/README.md),
+an example can be found in `torchao/_models/llama/eval.py`.
+
 ### Automatic Inductor Configuration
 
 :warning: <em>This functionality is being migrated from the top level `quantize_` API to individual workflows, see https://github.com/pytorch/ao/issues/1715 for more details.</em>

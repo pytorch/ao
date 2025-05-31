@@ -10,7 +10,8 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.GPTQ import (
+from torchao.quantization.granularity import PerGroup
+from torchao.quantization.linear_quant_modules import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
     _check_linear_int4_k,
@@ -18,7 +19,6 @@ from torchao.quantization.GPTQ import (
     _replace_linear_int4,
     groupwise_affine_quantize_tensor,
 )
-from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
