@@ -13,7 +13,7 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .GPTQ import (
+from .GPTQ.GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     MultiTensor,
     MultiTensorInputRecorder,
