@@ -523,7 +523,7 @@ def get_extensions():
                 "-DCUTE_USE_PACKED_TUPLE=1",
                 "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
                 "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
-                "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
+                "-DCUTLASS_DEBUG_TRACE_LEVEL=1",
                 "--ftemplate-backtrace-limit=0",
                 # "--keep",
                 # "--ptxas-options=--verbose,--register-usage-level=5,--warn-on-local-memory-usage",
@@ -534,6 +534,7 @@ def get_extensions():
         )
 
         build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
+        build_for_sm100a = True
         # Define sm90a sources
         cutlass_90a_sources = [
             os.path.join(
@@ -631,7 +632,8 @@ def get_extensions():
         cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
         cutlass_100a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_100a,code=sm_100a"
+            # "-gencode=arch=compute_100a,code=sm_100a"
+            "-gencode=arch=compute_120a,code=sm_120a",
         )
         ext_modules.append(
             extension(
