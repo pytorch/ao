@@ -47,10 +47,10 @@ class MultiTensor(torch.Tensor):
     make_qtensor = None
     skip_layer_func = None
     act_fake_quant_func = None
-    group_size = -1
-    percdamp = 0.01
-    blocksize = 128
-    in_place_threshold = (
+    group_size: int = -1
+    percdamp: float = 0.01
+    blocksize: int = 128
+    in_place_threshold: int = (
         3  # Number of times to see a function before assuming it's not in-place
     )
 

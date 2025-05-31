@@ -132,4 +132,4 @@ class FakeSparsity(nn.Module):
 
     def forward(self, x):
         assert self.mask.shape == x.shape
-        return (self.mask * x).to(x.dtype)
+        return self.mask * x

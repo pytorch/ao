@@ -199,6 +199,7 @@ class TestMultiTensorInputRecorder(TestCase):
 
         self.assertGreater(compute_error(outgptq, out), 30)
         self.assertGreater(compute_error(outgptq, out), compute_error(outq, out))
+        torch.set_default_dtype(torch.float32)
 
 
 if __name__ == "__main__":
