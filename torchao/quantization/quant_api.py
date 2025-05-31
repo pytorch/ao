@@ -46,7 +46,8 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-    to_fbgemm_quantized,
+    to_fbgemm_fp8,
+    to_fbgemm_int4,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -536,6 +537,9 @@ def _quantization_type(weight: torch.Tensor):
 
     if isinstance(weight, LinearActivationQuantizedTensor):
         return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
+
+    if hasattr(weight, "_quantization_type"):
+        return f"{weight.__class__.__name__}({weight._quantization_type()})"
 
     if type(weight) is torch.Tensor:
         return "not quantized"
@@ -1981,7 +1985,8 @@ class FbgemmConfig(AOBaseConfig):
     input_dtype: torch.dtype
     weight_dtype: torch.dtype
     output_dtype: torch.dtype
-    block_size: List[int]
+    block_size: Optional[List[int]] = None
+    activation_scale_ub: Optional[float] = None
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -1998,19 +2003,28 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
 
     _SUPPORTED_DTYPES = {
         (torch.bfloat16, torch.int4, torch.bfloat16),
+        (e4m3_dtype, e4m3_dtype, torch.bfloat16),
     }
 
     if (
-        config.input_dtype,
-        config.weight_dtype,
-        config.output_dtype,
-    ) in _SUPPORTED_DTYPES:
-        weight = to_fbgemm_quantized(
+        (config.input_dtype == torch.bfloat16)
+        and (config.weight_dtype == torch.int4)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        weight = to_fbgemm_int4(
             module.weight,
-            config.input_dtype,
-            config.weight_dtype,
-            config.output_dtype,
             config.block_size,
+        )
+        module.weight = torch.nn.Parameter(weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    elif (
+        (config.input_dtype == e4m3_dtype)
+        and (config.weight_dtype == e4m3_dtype)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        weight = to_fbgemm_fp8(
+            module.weight,
+            config.activation_scale_ub,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
