@@ -223,6 +223,55 @@ def check_submodules():
         )
 
 
+def get_cuda_version_from_nvcc():
+    """Get CUDA version from nvcc if available."""
+    try:
+        result = subprocess.check_output(
+            ["nvcc", "--version"], stderr=subprocess.STDOUT
+        )
+        output = result.decode("utf-8")
+        # Look for version line like "release 12.6"
+        for line in output.split("\n"):
+            if "release" in line.lower():
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part.lower() == "release" and i + 1 < len(parts):
+                        return parts[i + 1].rstrip(",")
+
+    except:
+        return None
+
+
+def get_cutlass_build_flags():
+    """Determine which CUTLASS kernels to build based on CUDA version.
+    SM90a: CUDA 12.6+, SM100a: CUDA 12.8+
+    """
+    # Try nvcc then torch version
+    cuda_version = get_cuda_version_from_nvcc() or torch.version.cuda
+
+    try:
+        if not cuda_version:
+            raise ValueError("No CUDA version found")
+
+        major, minor = map(int, cuda_version.split(".")[:2])
+        build_sm90a = major > 12 or (major == 12 and minor >= 6)
+        build_sm100a = major > 12 or (major == 12 and minor >= 8)
+
+        if build_sm90a:
+            print(f"CUDA {cuda_version}: Enabling SM90a CUTLASS kernels")
+        if build_sm100a:
+            print(f"CUDA {cuda_version}: Enabling SM100a CUTLASS kernels")
+
+        return build_sm90a, build_sm100a
+    except:
+        # Fallback to architecture flags
+        cuda_arch_flags = _get_cuda_arch_flags()
+        return (
+            "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags,
+            "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags,
+        )
+
+
 # BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
 class TorchAOBuildExt(BuildExtension):
     def __init__(self, *args, **kwargs) -> None:
@@ -455,9 +504,7 @@ def get_extensions():
             ]
         )
 
-        cuda_arch_flags = _get_cuda_arch_flags()
-        build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
-        build_for_sm100a = "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags
+        build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
         # Define sm90a sources
         cutlass_90a_sources = [
             os.path.join(
