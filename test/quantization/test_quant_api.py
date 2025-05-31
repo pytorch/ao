@@ -310,7 +310,7 @@ class TestQuantFlow(TestCase):
         not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
     )
     def test_8da4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.MOVED_GPTQ import Int8DynActInt4WeightLinear
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
@@ -325,7 +325,7 @@ class TestQuantFlow(TestCase):
         not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
     )
     def test_8da4w_quantizer_linear_bias(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.MOVED_GPTQ import Int8DynActInt4WeightLinear
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
@@ -343,7 +343,7 @@ class TestQuantFlow(TestCase):
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_8da4w_gptq_quantizer(self):
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
+        from torchao.quantization.MOVED_GPTQ import Int8DynActInt4WeightGPTQQuantizer
 
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
@@ -519,7 +519,7 @@ class TestQuantFlow(TestCase):
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
         from torchao._models._eval import TransformerEvalWrapper
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.MOVED_GPTQ import Int4WeightOnlyQuantizer
 
         precision = torch.bfloat16
         device = "cuda"
@@ -648,7 +648,7 @@ class TestQuantFlow(TestCase):
         )
 
         # reference
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.MOVED_GPTQ import Int8DynActInt4WeightLinear
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(
