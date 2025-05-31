@@ -17,10 +17,10 @@ import pytest
 import torch
 
 from packaging import version
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
 
-if not TORCH_VERSION_AT_LEAST_2_7:
-    pytest.skip("Requires PyTorch 2.7 or higher", allow_module_level=True)
+if not TORCH_VERSION_AT_LEAST_2_8:
+    pytest.skip("Requires PyTorch 2.8 or higher", allow_module_level=True)
 
 
 VLLM_AVAILABLE = importlib.util.find_spec("vllm") is not None
