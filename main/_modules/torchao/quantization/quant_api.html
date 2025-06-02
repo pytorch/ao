@@ -494,9 +494,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">.autoquant</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoQuantizableLinearWeight</span><span class="p">,</span> <span class="n">autoquant</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.GPTQ</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Int4WeightOnlyGPTQQuantizer</span><span class="p">,</span>
-    <span class="n">Int4WeightOnlyQuantizer</span><span class="p">,</span>
-    <span class="n">Int8DynActInt4WeightGPTQQuantizer</span><span class="p">,</span>
-    <span class="n">Int8DynActInt4WeightQuantizer</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Granularity</span><span class="p">,</span>
@@ -508,6 +505,10 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">.linear_activation_quantized_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">LinearActivationQuantizedTensor</span><span class="p">,</span>
     <span class="n">to_linear_activation_quantized</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.linear_quant_modules</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Int4WeightOnlyQuantizer</span><span class="p">,</span>
+    <span class="n">Int8DynActInt4WeightQuantizer</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">intx_quantization_aware_training</span><span class="p">,</span>
@@ -550,7 +551,6 @@
     <span class="s2">&quot;float8_dynamic_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;float8_static_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Float8DynamicActivationFloat8SemiSparseWeightConfig&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ModuleFqnToConfig&quot;</span><span class="p">,</span>
     <span class="s2">&quot;FbgemmConfig&quot;</span><span class="p">,</span>
