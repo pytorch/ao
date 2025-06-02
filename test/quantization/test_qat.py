@@ -17,6 +17,9 @@ from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
+from torchao.float8.config import ScalingGranularity
+from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
@@ -40,15 +43,18 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.fake_quantizer import (
     FakeQuantizer,
+    _Float8RowwiseActivationFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
+    Float8ActInt4WeightQATQuantizer,
     Int4WeightOnlyQATLinear,
     Int8DynActInt4WeightQATLinear,
 )
 from torchao.quantization.qat.utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
+    _Float8RowwiseFakeQuantize,
     _get_qmin_qmax,
 )
 from torchao.quantization.quant_api import (
@@ -68,6 +74,7 @@ from torchao.quantization.unified import (
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
+    compute_error,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
@@ -1474,7 +1481,6 @@ class TestQAT(unittest.TestCase):
         numerics that match exactly over N trials.
         """
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
-        from torchao.quantization.utils import compute_error
 
         num_trials = 1000
         group_size = 16
@@ -1687,6 +1693,61 @@ class TestQAT(unittest.TestCase):
             self.assertIsNotNone(new_weight.grad)
             self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
             self.assertFalse(torch.equal(new_weight, prev_weight))
+
+    def test_float8_rowwise_fake_quantize(self):
+        """
+        Test that `_Float8RowwiseFakeQuantize` is numerically close to `Float8Tensor`.
+        """
+        torch.manual_seed(self.SEED)
+        dtype = torch.float8_e4m3fn
+        x = torch.randn(32, 64)
+        axiswise_dim = 0
+        out = _Float8RowwiseFakeQuantize.apply(x, dtype, axiswise_dim)
+        out_expected = hp_tensor_to_float8_dynamic(
+            x,
+            dtype,
+            LinearMMConfig(),
+            scaling_granularity=ScalingGranularity.AXISWISE,
+            axiswise_dim=axiswise_dim,
+        ).to_original_precision()
+        torch.testing.assert_close(out, out_expected, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
+    )
+    def test_qat_fp8a4w_quantizer(self):
+        """
+        Test basic model training with `Float8ActInt4WeightQATQuantizer`.
+        """
+        torch.manual_seed(self.SEED)
+        m = M()
+        qat_quantizer = Float8ActInt4WeightQATQuantizer()
+        qat_model = qat_quantizer.prepare(m)
+        for linear in [m.linear1, m.sub.linear, m.linear2]:
+            self.assertIsInstance(linear, FakeQuantizedLinear)
+            self.assertIsInstance(
+                linear.activation_fake_quantizer, _Float8RowwiseActivationFakeQuantizer
+            )
+            self.assertIsInstance(linear.weight_fake_quantizer, FakeQuantizer)
+        prev_weight = copy.deepcopy(m.linear1.weight)
+
+        # Simulate training
+        optimizer = torch.optim.SGD(
+            m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5
+        )
+        loss_fn = torch.nn.CrossEntropyLoss()
+        optimizer.zero_grad()
+        target = torch.randn(1, 512).float()
+        example_inputs = m.example_inputs()
+        out = qat_model(*example_inputs)
+        loss = loss_fn(out, target)
+        loss.backward()
+        optimizer.step()
+        # Assert that weights have valid gradients and are being updated
+        new_weight = m.linear1.weight
+        self.assertIsNotNone(new_weight.grad)
+        self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
+        self.assertFalse(torch.equal(new_weight, prev_weight))
 
 
 if __name__ == "__main__":
