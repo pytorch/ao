@@ -206,6 +206,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             "in_features": in_features,
             "out_features": out_features,
             "data_contiguous": meta_args[-1],
+            "elements_per_sample": meta_args[4],
             "W_group_mode": meta_args[10],
             "meta_args": meta_args,
         }
@@ -250,13 +251,14 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             .t()
         )
 
+        # Preserve col-row major layout
         if self.gemlite_kwargs["data_contiguous"]:
             int_data = int_data.contiguous()
 
         # Handle FMA mode: W_q * s + z  -> (W_q - z) * s
         if self.gemlite_kwargs["W_group_mode"] == 4:
             scale_min_val = 1e-8
-            scale = self.scale.float()
+            scale = self.scale.clone().float()
             scale[torch.logical_and(scale >= 0, scale.abs() <= scale_min_val)] = (
                 scale_min_val
             )
@@ -297,14 +299,29 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             assert step == 1, "Only step == 1 is supported in slicing right now"
 
             if dim in [0, 1]:
-                int_data, scale, zero_point = self.get_plain()
-                data_len = int_data.shape[dim]
+                # data in self is transposed, meaning forward() performs x @ W_deq not x @ W_deq.T
+                dim = 1 - dim
+                packed_weight = self.packed_weight
+                scale = self.scale
+                zero_point = self.zero_point
+
+                orig_shape = [
+                    self.gemlite_kwargs["in_features"],
+                    self.gemlite_kwargs["out_features"],
+                ]
+                elements_per_sample = self.gemlite_kwargs["elements_per_sample"]
+                data_len = orig_shape[dim]
                 scale_len = scale.shape[dim]
                 ratio = data_len / scale_len
                 start_scale = int(start / ratio)
                 end_scale = int(end / ratio)
 
-                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
+                # For packing only the K dimension. This should be flipped for N-dim packing.
+                div = elements_per_sample if dim == 0 else 1
+                packed_weight = aten.slice.Tensor(
+                    packed_weight, dim, start // div, end // div, step
+                )
+
                 scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
                 if zero_point is not None and zero_point.numel() > 0:
                     zero_point = aten.slice.Tensor(
@@ -312,15 +329,10 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                     )
                 else:
                     zero_point = None
-                # this is to handle padding
-                int_data, scale, zero_point = self._layout.post_process(
-                    int_data, scale, zero_point, self.block_size
+
+                sliced = GemliteAQTTensorImpl(
+                    packed_weight, scale, zero_point, self.gemlite_kwargs, self._layout
                 )
-
-                sliced = self.from_plain(
-                    int_data, scale, zero_point, self._layout
-                )  # Will be transposed again
-
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
 
             else:
