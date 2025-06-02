@@ -15,11 +15,12 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import importlib.util
 import logging
 import types
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -45,6 +46,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
+    to_fbgemm_quantized,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -142,6 +144,7 @@ __all__ = [
     "Int8DynActInt4WeightGPTQQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
+    "FbgemmConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -1525,9 +1528,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    granularity: Optional[
-        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
-    ] = None
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
 
@@ -1538,7 +1539,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         activation_granularity, weight_granularity = _normalize_granularity(
             self.granularity
         )
-        self.granularity = (activation_granularity, weight_granularity)
+        self.granularity = [activation_granularity, weight_granularity]
 
 
 # for bc
@@ -1796,7 +1797,7 @@ def _uintx_weight_only_transform(
 
     if use_hqq:
         if dtype == torch.uint4:
-            logger.warn(
+            logger.warning(
                 "Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance"
             )
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
@@ -1965,6 +1966,58 @@ def _fpx_weight_only_transform(
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
+
+
+@dataclass
+class FbgemmConfig(AOBaseConfig):
+    """Quantization Config for fbgemm-genai kernels
+    Args:
+       input_dtype (torch.dtype): input dtype of the kernel
+       weight_dtype (torch.dtype): weight dtype of the kernel
+       output_dtype (torch.dtype): output dtype of the kernel
+       group_size (int): The group size for weight
+    """
+
+    input_dtype: torch.dtype
+    weight_dtype: torch.dtype
+    output_dtype: torch.dtype
+    block_size: List[int]
+
+
+@register_quantize_module_handler(FbgemmConfig)
+def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
+    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
+    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
+    if importlib.util.find_spec("fbgemm_gpu") is None:
+        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
+
+    if fbgemm_gpu.__version__ < "1.2.0":
+        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+    _SUPPORTED_DTYPES = {
+        (torch.bfloat16, torch.int4, torch.bfloat16),
+    }
+
+    if (
+        config.input_dtype,
+        config.weight_dtype,
+        config.output_dtype,
+    ) in _SUPPORTED_DTYPES:
+        weight = to_fbgemm_quantized(
+            module.weight,
+            config.input_dtype,
+            config.weight_dtype,
+            config.output_dtype,
+            config.block_size,
+        )
+        module.weight = torch.nn.Parameter(weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    else:
+        raise NotImplementedError(
+            f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"
+        )
 
 
 @dataclass

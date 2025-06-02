@@ -29,8 +29,19 @@ _c10d_functional = torch.ops._c10d_functional
 # https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
 # NOTE: power-1 is linear
 # TODO: since QMAP_UNSIGNED is linear, perhaps doing affine quantize is faster?
-QMAP_SIGNED = create_dynamic_map(True, 3, 4)
-QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
+
+# Lazy initialization to avoid meta device issues during import
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def get_qmap_signed():
+    return create_dynamic_map(True, 3, 4)
+
+
+@lru_cache(maxsize=1)
+def get_qmap_unsigned():
+    return torch.linspace(0, 1, 17, device="cpu")[1:].tolist()  # no zero
 
 
 class OptimState4bit(TorchAOBaseTensor):
@@ -90,7 +101,9 @@ class OptimState4bit(TorchAOBaseTensor):
 
         codes = torch.zeros(n_elems // 2, dtype=torch.uint8, device=device)
         scale = torch.zeros(n_elems // block_size, device=device)
-        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
+        qmap = torch.tensor(
+            get_qmap_signed() if signed else get_qmap_unsigned(), device=device
+        )
         return cls(codes, scale, qmap, signed, shape)
 
     def __repr__(self):

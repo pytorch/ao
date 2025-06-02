@@ -8,17 +8,19 @@ cmake_minimum_required(VERSION 3.19)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../Utils.cmake)
 
-find_package(Torch REQUIRED)
-add_library(torchao_ops_embedding_xbit_aten OBJECT
-    op_embedding_xbit_aten.cpp
-)
-target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_aten "${TORCHAO_PARALLEL_BACKEND}")
-if (TORCHAO_BUILD_CPU_AARCH64)
-    target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE torchao_kernels_aarch64)
+if(TORCHAO_BUILD_ATEN_OPS)
+    find_package(Torch REQUIRED)
+    add_library(torchao_ops_embedding_xbit_aten OBJECT
+        op_embedding_xbit_aten.cpp
+    )
+    target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_aten "${TORCHAO_PARALLEL_BACKEND}")
+    if (TORCHAO_BUILD_CPU_AARCH64)
+        target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE torchao_kernels_aarch64)
+    endif()
+    target_include_directories(torchao_ops_embedding_xbit_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
+    target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE "${TORCH_LIBRARIES}")
+    target_compile_definitions(torchao_ops_embedding_xbit_aten PRIVATE USE_ATEN=1)
 endif()
-target_include_directories(torchao_ops_embedding_xbit_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
-target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE "${TORCH_LIBRARIES}")
-target_compile_definitions(torchao_ops_embedding_xbit_aten PRIVATE USE_ATEN=1)
 
 if(TORCHAO_BUILD_EXECUTORCH_OPS)
     # ExecuTorch package is not required, but EXECUTORCH_INCLUDE_DIRS and EXECUTORCH_LIBRARIES must

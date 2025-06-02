@@ -16,6 +16,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Platform options
+option(TORCHAO_BUILD_ATEN_OPS "Building torchao ops for ATen." ON)
 option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
 option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
 option(TORCHAO_BUILD_CPU_AARCH64 "Build torchao's CPU aarch64 kernels" OFF)
@@ -32,7 +33,7 @@ if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
 endif()
 
 # Set default compiler options
-add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
+add_compile_options("-Wall" "-Werror" "-Wno-deprecated" "-Wno-shorten-64-to-32")
 
 include(CMakePrintHelpers)
 message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
@@ -68,6 +69,7 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     if(TORCHAO_ENABLE_ARM_NEON_DOT)
         message(STATUS "Building with ARM NEON dot product support")
         add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
+        add_compile_options("-march=armv8.4-a+dotprod")
     endif()
 
     if(TORCHAO_ENABLE_ARM_I8MM)
@@ -89,26 +91,28 @@ add_subdirectory(ops/linear_8bit_act_xbit_weight)
 add_subdirectory(ops/embedding_xbit)
 
 # ATen ops lib
-add_library(torchao_ops_aten SHARED)
-target_link_libraries(
-    torchao_ops_aten PRIVATE
-    torchao_ops_linear_8bit_act_xbit_weight_aten
-    torchao_ops_embedding_xbit_aten
-)
+if (TORCHAO_BUILD_ATEN_OPS)
+    add_library(torchao_ops_aten SHARED)
+    target_link_libraries(
+        torchao_ops_aten PRIVATE
+        torchao_ops_linear_8bit_act_xbit_weight_aten
+        torchao_ops_embedding_xbit_aten
+    )
 
-# Add MPS support if enabled
-if (TORCHAO_BUILD_MPS_OPS)
-    message(STATUS "Building with MPS support")
-    add_subdirectory(ops/mps)
-    target_link_libraries(torchao_ops_aten PRIVATE torchao_ops_mps_aten)
+    # Add MPS support if enabled
+    if (TORCHAO_BUILD_MPS_OPS)
+        message(STATUS "Building with MPS support")
+        add_subdirectory(ops/mps)
+        target_link_libraries(torchao_ops_aten PRIVATE torchao_ops_mps_aten)
+    endif()
+
+    # Install ATen targets
+    install(
+        TARGETS torchao_ops_aten
+        EXPORT _targets
+        DESTINATION lib
+    )
 endif()
-
-# Install ATen targets
-install(
-    TARGETS torchao_ops_aten
-    EXPORT _targets
-    DESTINATION lib
-)
 
 # Build executorch lib if enabled
 if(TORCHAO_BUILD_EXECUTORCH_OPS)
