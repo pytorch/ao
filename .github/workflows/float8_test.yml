@@ -55,3 +55,4 @@ jobs:
         pip install .
         pytest test/float8 --verbose -s
         pytest test/integration --verbose -s
+        pytest test/dtypes/test_affine_quantized_float.py --verbose -s
