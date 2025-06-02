@@ -201,10 +201,13 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 int_data, scale, zero_point, bit_width, group_size, bias=None
             )
 
+        meta_args = gemlite_linear.get_meta_args()
         gemlite_kwargs = {
             "in_features": in_features,
             "out_features": out_features,
-            "meta_args": gemlite_linear.get_meta_args(),
+            "data_contiguous": meta_args[-1],
+            "W_group_mode": meta_args[10],
+            "meta_args": meta_args,
         }
 
         packed_weight, scale, zero_point = gemlite_linear.get_tensor_args()
@@ -235,18 +238,38 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         device = self.packed_weight.device
         int_data = (
-            gemlite.bitpack.unpack_over_rows(
-                self.packed_weight.cuda(),
-                W_nbits=self._layout.bit_width,
-                num_output_rows=self.gemlite_kwargs["out_features"],
-                dtype=torch.uint8,
+            (
+                gemlite.bitpack.unpack_over_rows(
+                    self.packed_weight.cuda(),
+                    W_nbits=self._layout.bit_width,
+                    num_output_rows=self.gemlite_kwargs["in_features"],
+                    dtype=torch.uint8,
+                )
             )
+            .to(device)
             .t()
-            .contiguous()
-        ).to(device)
+        )
+
+        if self.gemlite_kwargs["data_contiguous"]:
+            int_data = int_data.contiguous()
+
+        # Handle FMA mode: W_q * s + z  -> (W_q - z) * s
+        if self.gemlite_kwargs["W_group_mode"] == 4:
+            scale_min_val = 1e-8
+            scale = self.scale.float()
+            scale[torch.logical_and(scale >= 0, scale.abs() <= scale_min_val)] = (
+                scale_min_val
+            )
+            scale[
+                torch.logical_and(scale < 0, scale.abs() <= scale_min_val)
+            ] = -scale_min_val
+            zero_point = (-self.zero_point.float() / scale).clamp_(-100, 100)
+            zero_point = zero_point.to(self.scale.dtype)
+        else:
+            zero_point = self.zero_point
 
         scale = self.scale.t().contiguous()
-        zero_point = self.zero_point.t().contiguous()
+        zero_point = zero_point.t().contiguous()
 
         return int_data, scale, zero_point
 
