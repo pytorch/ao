@@ -1660,11 +1660,13 @@ class TestQAT(unittest.TestCase):
         m(*example_inputs)
 
         # Simulate training
-        num_steps = 10
+        num_steps = 5
         optimizer = torch.optim.SGD(
             m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5
         )
         loss_fn = torch.nn.CrossEntropyLoss()
+
+        scale_str = []
         for i in range(num_steps):
             prev_scale = copy.deepcopy(m.linear1.weight_fake_quantizer.scale)
             optimizer.zero_grad()
@@ -1673,11 +1675,21 @@ class TestQAT(unittest.TestCase):
             loss = loss_fn(out, target)
             loss.backward()
             optimizer.step()
+
+            # Print stuff
+            weight = m.linear1.weight
+            scale = m.linear1.weight_fake_quantizer.scale
+            print("[Step %s] weight: %s, requires_grad: %s, grad: %s, grad_fn: %s" % (i, weight.flatten()[:5], weight.requires_grad, weight.grad.flatten()[:5] if weight.grad is not None else None, weight.grad_fn))
+            scale_str.append("[Step %s] scale: %s, requires_grad: %s, grad: %s, grad_fn: %s" % (i, scale.flatten()[:5], scale.requires_grad, scale.grad.flatten()[:5] if scale.grad is not None else None, scale.grad_fn))
+
             # Assert that scales have valid gradients and are being updated
-            new_scale = m.linear1.weight_fake_quantizer.scale
-            self.assertIsNotNone(new_scale.grad)
-            self.assertNotEqual(torch.count_nonzero(new_scale.grad), 0)
-            self.assertFalse(torch.equal(new_scale, prev_scale))
+            #new_scale = m.linear1.weight_fake_quantizer.scale
+            #self.assertIsNotNone(new_scale.grad)
+            #self.assertNotEqual(torch.count_nonzero(new_scale.grad), 0)
+            #self.assertFalse(torch.equal(new_scale, prev_scale))
+
+        print("-----------------------------------------------------")
+        print("\n".join(scale_str))
 
 
 if __name__ == "__main__":

@@ -706,9 +706,9 @@ def _dequantize_affine_no_dtype_check(
 
     # Force a copy to avoid input modification due
     # to upcoming in-place operations.
-    dequant = input.to(torch.int32, copy=True)
+    dequant = input.to(torch.float32, copy=True)
     if zero_point is not None:
-        dequant = dequant - zero_point.to(torch.int32)
+        dequant = dequant - zero_point.to(torch.float32)
     dequant = dequant.to(output_dtype)
     dequant = dequant * scale
 
