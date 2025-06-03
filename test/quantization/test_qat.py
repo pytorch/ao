@@ -17,12 +17,15 @@ from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
-from torchao.quantization.GPTQ import _replace_linear_8da4w, _replace_linear_int4
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
     PerRow,
     PerToken,
+)
+from torchao.quantization.linear_quant_modules import (
+    _replace_linear_8da4w,
+    _replace_linear_int4,
 )
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
@@ -1478,7 +1481,7 @@ class TestQAT(unittest.TestCase):
         example_inputs = m.example_inputs()
         m(*example_inputs)
 
-    @parameterized.expand([torch.float32, torch.bfloat16, torch.float16])
+    @parameterized.expand([(torch.float32,), (torch.bfloat16,), (torch.float16,)])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
@@ -1498,7 +1501,7 @@ class TestQAT(unittest.TestCase):
         baseline_out = per_token_dynamic_quant(x)
         torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
 
-    @parameterized.expand([torch.float32, torch.bfloat16, torch.float16])
+    @parameterized.expand([(torch.float32,), (torch.bfloat16,), (torch.float16,)])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )

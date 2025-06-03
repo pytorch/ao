@@ -85,9 +85,6 @@ from torchao.utils import (
 from .autoquant import AutoQuantizableLinearWeight, autoquant
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
     Granularity,
@@ -99,6 +96,10 @@ from .granularity import (
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
+)
+from .linear_quant_modules import (
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightQuantizer,
 )
 from .qat import (
     intx_quantization_aware_training,
@@ -141,7 +142,6 @@ __all__ = [
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
     "FbgemmConfig",

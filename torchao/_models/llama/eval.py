@@ -44,7 +44,7 @@ def run_evaluation(
     calibration_tasks: Optional[List[str]] = None,
     calibration_limit: Optional[int] = None,
     calibration_seq_length: Optional[int] = None,
-    pad_calibration_inputs: Optional[bool] = False,
+    pad_calibration_inputs: bool = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
     print(
@@ -120,8 +120,8 @@ def run_evaluation(
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
-            from torchao._models._eval import MultiTensorInputRecorder
-            from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
+            from torchao._models._eval import LMEvalInputRecorder
+            from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 
             groupsize = int(quantization.split("-")[-2])
             assert groupsize in [32, 64, 128, 256], (
@@ -132,24 +132,25 @@ def run_evaluation(
             )
             assert "cuda" in device, "int4 gptq quantization only works on cuda"
             inputs = (
-                MultiTensorInputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
-                    pad_calibration_inputs,
                     model.config.vocab_size,
+                    pad_calibration_inputs,
                     device="cpu",
                 )
                 .record_inputs(
                     calibration_tasks,
                     calibration_limit,
                 )
-                .get_inputs()
+                .get_recorded_inputs()
             )
-
+            print("Obtained inputs, starting calibration")
             quantizer = Int4WeightOnlyGPTQQuantizer(group_size=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-            model = quantizer.quantize(model, inputs).to(device)
+            quantizer.quantize(model, *inputs)
+            model = model.to(device)
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
