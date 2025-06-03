@@ -16,7 +16,7 @@ from torch.export import ExportedProgram
 from torch.fx import GraphModule, Node
 from torch.nn import functional as F
 
-from .graph_utils import bfs_trace_with_node_process
+from .graph_utils import _bfs_trace_with_node_process
 
 NUMERIC_DEBUG_HANDLE_KEY = "numeric_debug_handle"
 CUSTOM_KEY = "custom"
@@ -69,13 +69,13 @@ def generate_numeric_debug_handle(ep: ExportedProgram) -> None:
     # Find the max ID that exists in the graph first, in case part of the graph
     # has already been annotated. This way we guarantee there are no duplicate
     # handle IDs.
-    bfs_trace_with_node_process(ep, _find_max_id)
+    _bfs_trace_with_node_process(ep, _find_max_id)
 
     unique_id += 1
 
     # Assign debug handles to all nodes in the graph that don't have one based on the
     # max ID found in the previous step.
-    bfs_trace_with_node_process(ep, _assign_debug_handle)
+    _bfs_trace_with_node_process(ep, _assign_debug_handle)
 
 
 def _detach(x: object) -> object:

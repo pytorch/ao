@@ -26,7 +26,6 @@ from torchao.quantization.pt2e.export_utils import (
     _move_exported_model_to_train as move_exported_model_to_train,
 )
 from torchao.quantization.pt2e.graph_utils import (
-    bfs_trace_with_node_process,
     find_sequential_partitions,
     get_equivalent_types,
     update_equivalent_types_dict,
@@ -123,7 +122,6 @@ __all__ = [
     "find_sequential_partitions",
     "get_equivalent_types",
     "update_equivalent_types_dict",
-    "bfs_trace_with_node_process",
     # pt2e numeric debugger
     "generate_numeric_debug_handle",
     "CUSTOM_KEY",

@@ -24,7 +24,6 @@ __all__ = [
     "find_sequential_partitions",
     "get_equivalent_types",
     "update_equivalent_types_dict",
-    "bfs_trace_with_node_process",
 ]
 
 _EQUIVALENT_TYPES: list[set] = [
@@ -161,7 +160,7 @@ def _get_control_flow_submodules(
     return control_flow_submodules
 
 
-def bfs_trace_with_node_process(
+def _bfs_trace_with_node_process(
     model: Union[ExportedProgram, torch.fx.GraphModule], node_op: Callable
 ) -> None:
     """Traverse the graph module and apply node_op to each node."""
