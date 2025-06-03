@@ -25,7 +25,6 @@ try:
 except:
     gemlite = None
 
-
 aten = torch.ops.aten
 
 
@@ -35,8 +34,7 @@ def _same_metadata(
 ) -> bool:
     kwargs_match = len(self.gemlite_kwargs) == len(src.gemlite_kwargs)
     for k, v in self.gemlite_kwargs.items():
-        if k != "scale_activations":
-            kwargs_match = kwargs_match and (v == src.gemlite_kwargs[k])
+        kwargs_match = kwargs_match and (v == src.gemlite_kwargs[k])
 
     return (
         isinstance(self, GemliteAQTTensorImpl)
@@ -305,11 +303,12 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 scale = self.scale
                 zero_point = self.zero_point
 
+                gemlite_kwargs = self.gemlite_kwargs.copy()
                 orig_shape = [
-                    self.gemlite_kwargs["in_features"],
-                    self.gemlite_kwargs["out_features"],
+                    gemlite_kwargs["in_features"],
+                    gemlite_kwargs["out_features"],
                 ]
-                elements_per_sample = self.gemlite_kwargs["elements_per_sample"]
+                elements_per_sample = gemlite_kwargs["elements_per_sample"]
                 data_len = orig_shape[dim]
                 scale_len = scale.shape[dim]
                 ratio = data_len / scale_len
@@ -322,6 +321,12 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                     packed_weight, dim, start // div, end // div, step
                 )
 
+                # Update in_features/out_features
+                gemlite_kwargs["in_features"] = (
+                    packed_weight.shape[0] * elements_per_sample
+                )
+                gemlite_kwargs["out_features"] = packed_weight.shape[1]
+
                 scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
                 if zero_point is not None and zero_point.numel() > 0:
                     zero_point = aten.slice.Tensor(
@@ -331,7 +336,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                     zero_point = None
 
                 sliced = GemliteAQTTensorImpl(
-                    packed_weight, scale, zero_point, self.gemlite_kwargs, self._layout
+                    packed_weight, scale, zero_point, gemlite_kwargs, self._layout
                 )
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
 
