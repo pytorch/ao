@@ -25,7 +25,7 @@ import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.testing._internal import common_utils
 
-from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl
+from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl, preprocess_scale
 from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -594,6 +594,51 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Verify reasonable quantization error
         error = compute_error(ref_output, quant_output)
         self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
+
+    def test_preprocess_scale_3d_reshape(self):
+        """Test that preprocess_scale correctly handles 3D scale tensors"""
+        device = "cpu"  # Use CPU for basic functionality test
+
+        # Test 1: PerTensor scale (scalar) - should reshape to (1, 1)
+        per_tensor_scale = torch.tensor(0.5, device=device)
+        result = preprocess_scale(per_tensor_scale, (2, 4, 8))
+        expected_shape = (1, 1)
+        self.assertEqual(result.shape, expected_shape)
+        self.assertEqual(result.item(), 0.5)
+
+        # Test 2: 1D scale tensor with one element - should reshape to (1, 1)
+        one_element_scale = torch.tensor([0.3], device=device)
+        result = preprocess_scale(one_element_scale, (2, 4, 8))
+        expected_shape = (1, 1)
+        self.assertEqual(result.shape, expected_shape)
+        self.assertEqual(result.item(), 0.3)
+
+        # Test 3: 3D scale tensor for per-row quantization - should flatten first N-1 dims
+        # This is the key test for the 3D reshape fix
+        scale_3d = torch.randn(
+            2, 4, device=device
+        )  # Shape matches first 2 dims of (2, 4, 8)
+        result = preprocess_scale(scale_3d, (2, 4, 8))
+        expected_shape = (8, 1)  # Flattened (2*4, 1)
+        self.assertEqual(result.shape, expected_shape)
+
+        # Verify the values are preserved correctly
+        expected_values = scale_3d.flatten().unsqueeze(-1)
+        self.assertTrue(torch.allclose(result, expected_values))
+
+        # Test 4: 2D scale tensor (already correct shape) - should just add last dimension
+        scale_2d = torch.randn(8, device=device)
+        result = preprocess_scale(scale_2d, (8, 16))
+        expected_shape = (8, 1)
+        self.assertEqual(result.shape, expected_shape)
+
+        # Test 5: Edge case with higher dimensions (4D)
+        scale_4d = torch.randn(
+            2, 2, 2, device=device
+        )  # Shape matches first 3 dims of (2, 2, 2, 8)
+        result = preprocess_scale(scale_4d, (2, 2, 2, 8))
+        expected_shape = (8, 1)  # Flattened (2*2*2, 1)
+        self.assertEqual(result.shape, expected_shape)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
