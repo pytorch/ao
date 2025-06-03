@@ -28,13 +28,47 @@ except:
 aten = torch.ops.aten
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+logger.error("************* INIT ************")
+
+
 def _same_metadata(
     self: "GemliteAQTTensorImpl",
     src: "GemliteAQTTensorImpl",
 ) -> bool:
+    # return True
+
     kwargs_match = len(self.gemlite_kwargs) == len(src.gemlite_kwargs)
     for k, v in self.gemlite_kwargs.items():
         kwargs_match = kwargs_match and (v == src.gemlite_kwargs[k])
+        logger.error(str(k) + " | " + str(v) + " vs. " + str(src.gemlite_kwargs[k]))
+
+    logger.error(
+        "self.packed_weight.shape"
+        + " | "
+        + str(self.packed_weight.shape)
+        + " vs. "
+        + str(src.packed_weight.shape)
+    )
+    logger.error(
+        "self.scale.shape"
+        + " | "
+        + str(self.scale.shape)
+        + " vs. "
+        + str(src.scale.shape)
+    )
+    logger.error(
+        "self.zero_point.shape"
+        + " | "
+        + str(self.zero_point.shape)
+        + " vs. "
+        + str(src.zero_point.shape)
+    )
+    logger.error(
+        "----------------------------------------------------------------------------------------------------------"
+    )
 
     return (
         isinstance(self, GemliteAQTTensorImpl)
@@ -78,6 +112,7 @@ def get_gemlite_aqt_kwargs(
     weight,
     group_size=64,
     bit_width=4,
+    packing_bitwidth=None,
     use_hqq=True,
 ):
     if gemlite is None:
@@ -97,6 +132,9 @@ def get_gemlite_aqt_kwargs(
     assert group_size is None or bit_width != 8, (
         "gemlite only works with group_size=None for bit_width=8"
     )
+    assert packing_bitwidth in [8, 16, 32, None], (
+        f"Invalid packing bitwidth, got {packing_bitwidth}"
+    )
 
     out_features, in_features = weight.shape
     group_size = in_features if group_size is None else group_size
@@ -105,6 +143,7 @@ def get_gemlite_aqt_kwargs(
     aqt_kwargs["_layout"] = GemlitePackedLayout(
         group_size=group_size,
         bit_width=bit_width,
+        packing_bitwidth=packing_bitwidth,
     )
     aqt_kwargs["use_hqq"] = use_hqq
     return aqt_kwargs
@@ -114,6 +153,7 @@ def get_gemlite_aqt_kwargs(
 class GemlitePackedLayout(Layout):
     group_size: Optional[int] = 64
     bit_width: int = 4
+    packing_bitwidth: Optional[int] = 32
 
 
 @register_layout(GemlitePackedLayout)
@@ -189,13 +229,16 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
 
         group_size, bit_width = _layout.group_size, _layout.bit_width
         out_features, in_features = int_data.shape
+        packing_bitwidth = _layout.packing_bitwidth
 
         if bit_width == 8 and group_size == in_features:
-            gemlite_linear = gemlite.helper.A16W8(device=int_data.device).from_weights(
-                int_data, scales=scale, bias=None
-            )
+            gemlite_linear = gemlite.helper.A16W8(
+                device=int_data.device, packing_bitwidth=packing_bitwidth
+            ).from_weights(int_data, scales=scale, bias=None)
         else:
-            gemlite_linear = gemlite.helper.A16Wn(device=int_data.device).from_weights(
+            gemlite_linear = gemlite.helper.A16Wn(
+                device=int_data.device, packing_bitwidth=packing_bitwidth
+            ).from_weights(
                 int_data, scale, zero_point, bit_width, group_size, bias=None
             )
 
@@ -203,6 +246,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         gemlite_kwargs = {
             "in_features": in_features,
             "out_features": out_features,
+            "packing_bitwidth": packing_bitwidth,
             "data_contiguous": meta_args[-1],
             "elements_per_sample": meta_args[4],
             "W_group_mode": meta_args[10],
