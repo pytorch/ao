@@ -16,11 +16,11 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_tinygemm,
+    fake_quantize_affine,
 )
 from torchao.utils import TorchAOBaseTensor
 
 from .utils import (
-    _GenericFakeQuantize,
     _UnwrapAffineFakeQuantizedTensor,
 )
 
@@ -90,14 +90,15 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
                     scale_dtype,
                     zero_point_dtype,
                 )
-            fq = _GenericFakeQuantize.apply(
+            fq = fake_quantize_affine(
                 t,
                 block_size,
                 scale,
                 zero_point,
-                qmin,
-                qmax,
-                zero_point_domain,
+                quant_dtype=torch.int32,
+                quant_min=qmin,
+                quant_max=qmax,
+                zero_point_domain=zero_point_domain,
             )
             return fq
 

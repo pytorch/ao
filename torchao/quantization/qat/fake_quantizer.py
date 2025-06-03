@@ -17,6 +17,7 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
+    _Round,
     choose_qparams_affine,
 )
 from torchao.quantization.utils import (
@@ -31,7 +32,6 @@ from .api import (
 from .utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _Round,
 )
 
 
