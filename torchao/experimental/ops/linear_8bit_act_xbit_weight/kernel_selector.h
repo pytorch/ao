@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <iostream>
 
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
 #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
@@ -112,6 +113,8 @@ void register_ukernel_config_universal(
     constexpr int m_step = 1;
 
 #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+    std::cout << "CHECKING ARM NEON DOT" << std::endl;
+    std::cout << "cpuinfo_has_arm_neon_dot() = " << cpuinfo_has_arm_neon_dot() << std::endl;
     if (cpuinfo_has_arm_neon_dot()) {
       log_registration(format, "universal: kernel_1x8x16_f32_neondot");
       auto uk = UKernelConfig::make(
