@@ -988,6 +988,7 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
 
     group_size: Optional[int] = 64
     bit_width: int = 4
+    packing_bitwidth: Optional[int] = 32
     set_inductor_config: bool = True
 
 
@@ -1001,6 +1002,7 @@ def _gemlite_uintx_weight_only_transform(
 ):
     group_size = config.group_size
     bit_width = config.bit_width
+    packing_bitwidth = config.packing_bitwidth
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1011,7 +1013,9 @@ def _gemlite_uintx_weight_only_transform(
     use_hqq = True if bit_width == 4 else False
     new_weight = to_affine_quantized_intx(
         weight,
-        **get_gemlite_aqt_kwargs(weight, group_size, bit_width, use_hqq),
+        **get_gemlite_aqt_kwargs(
+            weight, group_size, bit_width, packing_bitwidth, use_hqq
+        ),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)

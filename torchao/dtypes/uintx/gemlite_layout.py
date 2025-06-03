@@ -28,47 +28,13 @@ except:
 aten = torch.ops.aten
 
 
-import logging
-
-logger = logging.getLogger(__name__)
-logger.error("************* INIT ************")
-
-
 def _same_metadata(
     self: "GemliteAQTTensorImpl",
     src: "GemliteAQTTensorImpl",
 ) -> bool:
-    # return True
-
     kwargs_match = len(self.gemlite_kwargs) == len(src.gemlite_kwargs)
     for k, v in self.gemlite_kwargs.items():
         kwargs_match = kwargs_match and (v == src.gemlite_kwargs[k])
-        logger.error(str(k) + " | " + str(v) + " vs. " + str(src.gemlite_kwargs[k]))
-
-    logger.error(
-        "self.packed_weight.shape"
-        + " | "
-        + str(self.packed_weight.shape)
-        + " vs. "
-        + str(src.packed_weight.shape)
-    )
-    logger.error(
-        "self.scale.shape"
-        + " | "
-        + str(self.scale.shape)
-        + " vs. "
-        + str(src.scale.shape)
-    )
-    logger.error(
-        "self.zero_point.shape"
-        + " | "
-        + str(self.zero_point.shape)
-        + " vs. "
-        + str(src.zero_point.shape)
-    )
-    logger.error(
-        "----------------------------------------------------------------------------------------------------------"
-    )
 
     return (
         isinstance(self, GemliteAQTTensorImpl)

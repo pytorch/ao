@@ -740,12 +740,12 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
         if weight.dtype != torch.float16:
             weight = weight.to(torch.float16)
 
-        bit_width = 4
-        packing_bitwidth = 32
-        contiguous = None
+        bit_width = (4,)
+        packing_bitwidth = None
         use_hqq = True
+
         aqt_kwargs = get_gemlite_aqt_kwargs(
-            weight, cls.group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+            weight, cls.group_size, bit_width, packing_bitwidth, use_hqq
         )
         weight = to_affine_quantized_intx(weight, **aqt_kwargs)
         input_quant_func = _to_float16
