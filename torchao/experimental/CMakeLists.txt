@@ -99,7 +99,7 @@ if (NOT TARGET cpuinfo)
     include(FetchContent)
     FetchContent_Declare(cpuinfo
         GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
-        GIT_TAG de0ce7c7251372892e53ce9bc891750d2c9a4fd8)
+        GIT_TAG aaac07ee499895770c89163ce0920ef8bb41ed23)
     FetchContent_MakeAvailable(
         cpuinfo)
 endif()
