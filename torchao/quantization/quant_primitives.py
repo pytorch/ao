@@ -21,6 +21,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     _is_float8_type,
     _register_custom_op,
+    _register_custom_op_with_meta,
 )
 
 __all__ = [
@@ -205,6 +206,7 @@ _ONES_TABLE = [_n_ones(i) for i in range(8)]
 quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
 register_custom_op = _register_custom_op(quant_lib)
+register_custom_op_with_meta = _register_custom_op_with_meta(quant_lib)
 
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
@@ -340,7 +342,6 @@ def quantize_affine(
     )
 
 
-@register_custom_op
 def _quantize_affine(
     input: torch.Tensor,
     block_size: List[int],
@@ -375,6 +376,23 @@ def _quantize_affine(
         output_dtype,
         zero_point_domain,
     ).to(output_dtype)
+
+
+def _quantize_affine_meta(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    output_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+) -> torch.Tensor:
+    return torch.empty(input.shape, dtype=output_dtype, device=input.device)
+
+
+_quantize_affine, _quantize_affine_meta = register_custom_op_with_meta(
+    _quantize_affine, _quantize_affine_meta)
 
 
 def _quantize_affine_no_dtype_cast(
@@ -497,7 +515,6 @@ def dequantize_affine(
     )
 
 
-@register_custom_op
 def _dequantize_affine(
     input: torch.Tensor,
     block_size: List[int],
@@ -531,6 +548,24 @@ def _dequantize_affine(
         zero_point_domain,
         output_dtype,
     )
+
+
+def _dequantize_affine_meta(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    return torch.empty(input.shape, dtype=output_dtype, device=input.device)
+
+
+_dequantize_affine, _dequantize_affine_meta = register_custom_op_with_meta(
+    _dequantize_affine, _dequantize_affine_meta)
 
 
 def _dequantize_affine_no_dtype_check(
