@@ -256,14 +256,14 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     w_vals_int8_t = weight_tensor.tensor_impl.int_data.t()
     scale = weight_tensor.tensor_impl.scale
     m = torch.mm(
-        input_tensor.reshape(-1, input_tensor.shape[-1]),
-        w_vals_int8_t.to(input_tensor.dtype),
+        input_tensor.reshape(-1, input_tensor.shape[-1]).to(torch.float32),
+        w_vals_int8_t.to(torch.float32),
     )
-    y = m * scale.to(m.dtype)
+    y = m * scale.to(torch.float32)
     y = y.reshape(*input_tensor.shape[:-1], y.shape[-1])
     if bias is not None:
-        y += bias.to(m.dtype)
-    return y
+        y += bias.to(torch.float32)
+    return y.to(input_tensor.dtype)
 
 
 def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
