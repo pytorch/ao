@@ -130,7 +130,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero: torch.Tensor,
         meta: torch.Tensor,
         _layout: Layout,
         original_shape: torch.Size,
@@ -151,7 +151,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         self,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero: torch.Tensor,
         meta: torch.Tensor,
         _layout: Layout,
         original_shape: torch.Size,
@@ -159,8 +159,9 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         num_bits: int,
     ):
         self.int_data = int_data
+        self.scale_and_zero = None
         self.scale = scale
-        self.zero_point = zero_point
+        self.zero = zero
         self.meta = meta
         self._layout = _layout
         self.original_shape = original_shape
@@ -181,7 +182,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point", "meta"], [
+        return ["int_data", "scale", "zero", "meta"], [
             self._layout,
             self.original_shape,
             self.group_size,
@@ -194,13 +195,13 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
     ):
         int_data = tensor_data_dict["int_data"]
         scale = tensor_data_dict["scale"]
-        zero_point = tensor_data_dict["zero_point"]
+        zero = tensor_data_dict["zero"]
         meta = tensor_data_dict["meta"]
         _layout, original_shape, group_size, num_bits = tensor_attributes
         return cls(
             int_data,
             scale,
-            zero_point,
+            zero,
             meta,
             _layout,
             original_shape,
@@ -223,14 +224,14 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         )
         int_data_expanded_t = int_data_expanded.t()
         scales_expanded_t = scales_expanded.t()
-        return int_data_expanded_t, scales_expanded_t, self.zero_point
+        return int_data_expanded_t, scales_expanded_t, self.zero
 
     @classmethod
     def from_plain(
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero: torch.Tensor,
         _layout: Layout,
     ):
         from torchao.sparsity.marlin import (
@@ -291,7 +292,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         return cls(
             marlin_24_q_w_comp,
             marlin_24_s,
-            zero_point,
+            zero,
             meta,
             _layout,
             q_w_24.shape,
@@ -305,6 +306,6 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
     def _apply_fn_to_data(self, fn):
         self.int_data = fn(self.int_data)
         self.scale = fn(self.scale)
-        self.zero_point = fn(self.zero_point)
+        self.zero = fn(self.zero)
         self.meta = fn(self.meta)
         return self
