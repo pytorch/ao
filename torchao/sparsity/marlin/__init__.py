@@ -241,6 +241,7 @@ def _to_marlin_weights(
     q_packed = q_packed.to(dtype=torch.int32)
     return q_packed
 
+
 def _from_marlin_weights(
     q_packed: torch.Tensor, size_k: int, size_n: int, num_bits: int
 ) -> torch.Tensor:
