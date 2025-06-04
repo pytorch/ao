@@ -20,6 +20,7 @@ from torchao.core.config import (
     config_to_dict,
 )
 from torchao.quantization.quant_api import (
+    FbgemmConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -34,11 +35,13 @@ from torchao.quantization.quant_api import (
     UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 # Define test configurations as fixtures
 configs = [
     Float8DynamicActivationFloat8WeightConfig(),
     Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+    Float8DynamicActivationFloat8WeightConfig(granularity=[PerRow(), PerRow()]),
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),
@@ -77,6 +80,9 @@ configs = [
         }
     ),
 ]
+
+if TORCH_VERSION_AT_LEAST_2_6:
+    configs += [FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256])]
 
 
 # Create ids for better test naming

@@ -10,7 +10,8 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.GPTQ import (
+from torchao.quantization.granularity import PerGroup
+from torchao.quantization.linear_quant_modules import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
     _check_linear_int4_k,
@@ -83,12 +84,13 @@ class FakeQuantizedLinear(torch.nn.Linear):
 
         # initialize weight fake quantizer
         if weight_config is not None:
-            group_size = weight_config.group_size
-            if group_size is not None and in_features % group_size != 0:
-                raise ValueError(
-                    "in_features (%s) %% group_size (%s) must be == 0"
-                    % (in_features, group_size)
-                )
+            if isinstance(weight_config.granularity, PerGroup):
+                group_size = weight_config.group_size
+                if group_size is not None and in_features % group_size != 0:
+                    raise ValueError(
+                        "in_features (%s) %% group_size (%s) must be == 0"
+                        % (in_features, group_size)
+                    )
             self.weight_fake_quantizer = FakeQuantizer(weight_config)
         else:
             self.weight_fake_quantizer = None
@@ -108,6 +110,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
             self.out_features,
             self.bias is not None,
             device=self.weight.device,
+            dtype=self.weight.dtype,
         )
         # In distributed training, the model may be instantiated
         # on the meta device, in which case there is no need to
@@ -131,6 +134,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
             activation_config=activation_config,
             weight_config=weight_config,
             device=mod.weight.device,
+            dtype=mod.weight.dtype,
         )
         # In distributed training, the model may be instantiated
         # on the meta device, in which case there is no need to

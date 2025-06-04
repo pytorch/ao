@@ -1,5 +1,5 @@
 # Test utilities
-pytest==8.3.4
+pytest
 unittest-xml-reporting
 parameterized
 packaging

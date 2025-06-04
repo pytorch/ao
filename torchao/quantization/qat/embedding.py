@@ -92,6 +92,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             self.scale_grad_by_freq,
             self.sparse,
             device=self.weight.device,
+            dtype=self.weight.dtype,
         )
         # In distributed training, the model may be instantiated
         # on the meta device, in which case there is no need to
@@ -116,6 +117,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             mod.sparse,
             weight_config=weight_config,
             device=mod.weight.device,
+            dtype=mod.weight.dtype,
         )
         # In distributed training, the model may be instantiated
         # on the meta device, in which case there is no need to

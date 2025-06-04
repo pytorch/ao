@@ -31,7 +31,6 @@ add_library(
   ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/reduction/find_min_and_max.cpp
   ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/reduction/compute_sum.cpp
   ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/quantization/quantize.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
 )
 
 if(NOT TORCHAO_INCLUDE_DIRS)
@@ -96,13 +95,6 @@ target_link_libraries(
     torchao_kernels_aarch64
 )
 
-add_executable(test_valpacking test_valpacking.cpp)
-target_link_libraries(
-  test_valpacking
-    PRIVATE
-    GTest::gtest_main
-    dep
-)
 
 add_executable(test_embedding test_embedding.cpp)
 target_link_libraries(
@@ -133,7 +125,6 @@ gtest_discover_tests(test_quantization)
 gtest_discover_tests(test_reduction)
 gtest_discover_tests(test_bitpacking)
 gtest_discover_tests(test_linear)
-gtest_discover_tests(test_valpacking)
 gtest_discover_tests(test_embedding)
 gtest_discover_tests(test_weight_packing)
 gtest_discover_tests(test_qmatmul)
