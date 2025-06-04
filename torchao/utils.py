@@ -177,7 +177,7 @@ def find_multiple(n: int, *args: int) -> int:
     return n + k - (n % k)
 
 
-def _register_custom_op(lib):
+def _register_custom_op(lib, dispatch_key="CompositeImplicitAutograd"):
     """This decorator is used to preserve some high level operators for torch.export.export
     while still allow them to be decomposed for inductor path
 
@@ -219,11 +219,12 @@ def _register_custom_op(lib):
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
-            lib.impl(op_name, fn, "CompositeImplicitAutograd")
+            lib.impl(op_name, fn, dispatch_key)
 
             lib_namespace = lib.ns
             op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            register_decomposition([op])(fn)
+            if dispatch_key == "CompositeImplicitAutograd":
+                register_decomposition([op])(fn)
             return op
         else:
             return fn
@@ -231,7 +232,7 @@ def _register_custom_op(lib):
     return decorator
 
 
-def _register_custom_op_with_meta(lib):
+def _register_meta_op(lib):
     """This decorator is used to preserve some high level operators for torch.export.export
     while still allow them to be decomposed for inductor path
 
@@ -256,7 +257,7 @@ def _register_custom_op_with_meta(lib):
 
     """
 
-    def decorator(fn, meta_fn):
+    def decorator(fn):
         if TORCH_VERSION_AT_LEAST_2_5:
             from torch._library.infer_schema import infer_schema
 
@@ -271,14 +272,13 @@ def _register_custom_op_with_meta(lib):
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
-            lib.impl(op_name, fn, "CompositeExplicitAutograd")
-            lib.impl(op_name, meta_fn, "Meta")
+            lib.impl(op_name, fn, "Meta")
 
             lib_namespace = lib.ns
             op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            return op, meta_fn
+            return op
         else:
-            return fn, meta_fn
+            return fn
 
     return decorator
 

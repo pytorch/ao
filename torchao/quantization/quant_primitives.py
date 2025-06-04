@@ -21,7 +21,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     _is_float8_type,
     _register_custom_op,
-    _register_custom_op_with_meta,
+    _register_meta_op,
 )
 
 __all__ = [
@@ -205,9 +205,6 @@ _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
-register_custom_op = _register_custom_op(quant_lib)
-register_custom_op_with_meta = _register_custom_op_with_meta(quant_lib)
-
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
@@ -342,6 +339,7 @@ def quantize_affine(
     )
 
 
+@_register_custom_op(quant_lib, "CompositeExplicitAutograd")
 def _quantize_affine(
     input: torch.Tensor,
     block_size: List[int],
@@ -378,6 +376,7 @@ def _quantize_affine(
     ).to(output_dtype)
 
 
+_register_meta_op(quant_lib)
 def _quantize_affine_meta(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
@@ -389,11 +388,6 @@ def _quantize_affine_meta(
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> torch.Tensor:
     return torch.empty(input.shape, dtype=output_dtype, device=input.device)
-
-
-_quantize_affine, _quantize_affine_meta = register_custom_op_with_meta(
-    _quantize_affine, _quantize_affine_meta
-)
 
 
 def _quantize_affine_no_dtype_cast(
@@ -516,6 +510,7 @@ def dequantize_affine(
     )
 
 
+@_register_custom_op(quant_lib, "CompositeExplicitAutograd")
 def _dequantize_affine(
     input: torch.Tensor,
     block_size: List[int],
@@ -551,6 +546,7 @@ def _dequantize_affine(
     )
 
 
+_register_meta_op(quant_lib)
 def _dequantize_affine_meta(
     input: torch.Tensor,
     block_size: List[int],
@@ -563,11 +559,6 @@ def _dequantize_affine_meta(
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     return torch.empty(input.shape, dtype=output_dtype, device=input.device)
-
-
-_dequantize_affine, _dequantize_affine_meta = register_custom_op_with_meta(
-    _dequantize_affine, _dequantize_affine_meta
-)
 
 
 def _dequantize_affine_no_dtype_check(
@@ -875,7 +866,7 @@ def choose_qparams_affine_with_min_max(
     )
 
 
-@register_custom_op
+@_register_custom_op(quant_lib)
 def _choose_qparams_affine(
     input: Optional[torch.Tensor],
     mapping_type: str,
