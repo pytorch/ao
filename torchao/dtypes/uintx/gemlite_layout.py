@@ -384,6 +384,8 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 self_tensors = self.__tensor_flatten__()[0]
                 for tensor_name in self_tensors:
                     getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                for key in self.gemlite_kwargs:
+                    self.gemlite_kwargs[key] = src.gemlite_kwargs[key]
                 return
             raise ValueError(
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
