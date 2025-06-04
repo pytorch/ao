@@ -539,7 +539,7 @@
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">zero</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">meta</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
         <span class="n">original_shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
@@ -560,7 +560,7 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">zero</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">meta</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
         <span class="n">original_shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
@@ -568,8 +568,9 @@
         <span class="n">num_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">=</span> <span class="n">int_data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span> <span class="o">=</span> <span class="n">zero_point</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">zero</span> <span class="o">=</span> <span class="n">zero</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">meta</span> <span class="o">=</span> <span class="n">meta</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span> <span class="o">=</span> <span class="n">_layout</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">original_shape</span> <span class="o">=</span> <span class="n">original_shape</span>
@@ -590,7 +591,7 @@
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">,</span> <span class="s2">&quot;zero_point&quot;</span><span class="p">,</span> <span class="s2">&quot;meta&quot;</span><span class="p">],</span> <span class="p">[</span>
+        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">,</span> <span class="s2">&quot;zero&quot;</span><span class="p">,</span> <span class="s2">&quot;meta&quot;</span><span class="p">],</span> <span class="p">[</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">original_shape</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
@@ -603,13 +604,13 @@
     <span class="p">):</span>
         <span class="n">int_data</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">]</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;scale&quot;</span><span class="p">]</span>
-        <span class="n">zero_point</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;zero_point&quot;</span><span class="p">]</span>
+        <span class="n">zero</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;zero&quot;</span><span class="p">]</span>
         <span class="n">meta</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;meta&quot;</span><span class="p">]</span>
         <span class="n">_layout</span><span class="p">,</span> <span class="n">original_shape</span><span class="p">,</span> <span class="n">group_size</span><span class="p">,</span> <span class="n">num_bits</span> <span class="o">=</span> <span class="n">tensor_attributes</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">int_data</span><span class="p">,</span>
             <span class="n">scale</span><span class="p">,</span>
-            <span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">zero</span><span class="p">,</span>
             <span class="n">meta</span><span class="p">,</span>
             <span class="n">_layout</span><span class="p">,</span>
             <span class="n">original_shape</span><span class="p">,</span>
@@ -632,14 +633,14 @@
         <span class="p">)</span>
         <span class="n">int_data_expanded_t</span> <span class="o">=</span> <span class="n">int_data_expanded</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
         <span class="n">scales_expanded_t</span> <span class="o">=</span> <span class="n">scales_expanded</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
-        <span class="k">return</span> <span class="n">int_data_expanded_t</span><span class="p">,</span> <span class="n">scales_expanded_t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span>
+        <span class="k">return</span> <span class="n">int_data_expanded_t</span><span class="p">,</span> <span class="n">scales_expanded_t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_plain</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">zero</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.sparsity.marlin</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -700,7 +701,7 @@
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">marlin_24_q_w_comp</span><span class="p">,</span>
             <span class="n">marlin_24_s</span><span class="p">,</span>
-            <span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">zero</span><span class="p">,</span>
             <span class="n">meta</span><span class="p">,</span>
             <span class="n">_layout</span><span class="p">,</span>
             <span class="n">q_w_24</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
@@ -714,7 +715,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">zero</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">zero</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">meta</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">meta</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span>
 </pre></div>
