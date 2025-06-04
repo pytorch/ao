@@ -740,7 +740,7 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
         if weight.dtype != torch.float16:
             weight = weight.to(torch.float16)
 
-        bit_width = (4,)
+        bit_width = 4
         packing_bitwidth = None
         use_hqq = True
 
