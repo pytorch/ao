@@ -1595,7 +1595,7 @@ class TestAutoQuant(unittest.TestCase):
         undo_recommended_configs()
 
         is_supported_device = (
-            device == "cuda" 
+            device == "cuda"
             and (torch.cuda.is_available() or torch.version.hip is not None)
         )
 
