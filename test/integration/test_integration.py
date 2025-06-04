@@ -1594,16 +1594,17 @@ class TestAutoQuant(unittest.TestCase):
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
 
-        is_supported_device = (
-            device == "cuda"
-            and (torch.cuda.is_available() or torch.version.hip is not None)
+        is_supported_device = device == "cuda" and (
+            torch.cuda.is_available() or torch.version.hip is not None
         )
 
         if not is_supported_device:
             self.skipTest(f"autoquant currently does not support {device}")
 
         # Check CUDA-specific requirements if running on CUDA
-        if is_supported_device and torch.version.hip is None:  # Only apply to CUDA, not ROCm
+        if (
+            is_supported_device and torch.version.hip is None
+        ):  # Only apply to CUDA, not ROCm
             device_capability = torch.cuda.get_device_capability()
             if device_capability < (8, 0):
                 if dtype == torch.bfloat16:
