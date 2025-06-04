@@ -69,6 +69,7 @@ class OptimState4bit(TorchAOBaseTensor):
         assert codes.dtype is torch.uint8
         assert codes.ndim == 1  # flattened buffer
         assert scale.ndim == 1
+        assert qmap.dtype is torch.float32
         self.codes = codes
         self.scale = scale
         self.qmap = qmap
@@ -101,9 +102,8 @@ class OptimState4bit(TorchAOBaseTensor):
 
         codes = torch.zeros(n_elems // 2, dtype=torch.uint8, device=device)
         scale = torch.zeros(n_elems // block_size, device=device)
-        qmap = torch.tensor(
-            get_qmap_signed() if signed else get_qmap_unsigned(), device=device
-        )
+        qmap_list = get_qmap_signed() if signed else get_qmap_unsigned()
+        qmap = torch.tensor(qmap_list, dtype=torch.float32, device=device)
         return cls(codes, scale, qmap, signed, shape)
 
     def __repr__(self):
