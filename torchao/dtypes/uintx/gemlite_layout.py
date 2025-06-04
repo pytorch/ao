@@ -34,7 +34,13 @@ def _same_metadata(
 ) -> bool:
     kwargs_match = len(self.gemlite_kwargs) == len(src.gemlite_kwargs)
     for k, v in self.gemlite_kwargs.items():
-        kwargs_match = kwargs_match and (v == src.gemlite_kwargs[k])
+        if k in [
+            "in_features",
+            "out_features",
+            "packing_bitwidth",
+            "elements_per_sample",
+        ]:
+            kwargs_match = kwargs_match and (v == src.gemlite_kwargs[k])
 
     return (
         isinstance(self, GemliteAQTTensorImpl)
@@ -221,6 +227,10 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
 
         packed_weight, scale, zero_point = gemlite_linear.get_tensor_args()
         packed_weight = packed_weight.to(device)
+        if zero_point is None:
+            zero_point = torch.tensor(
+                [[]], device=packed_weight.device, dtype=torch.int32
+            )
 
         return cls(packed_weight, scale, zero_point, gemlite_kwargs, _layout)
 
@@ -358,6 +368,18 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         elif func is aten.copy_.default:
             self = args[0]
             src = args[1]
+
+            # Handle zero_point = None with symmetric quant
+            if self.zero_point is None:
+                self.zero_point = torch.tensor(
+                    [[]], device=self.packed_weight.device, dtype=torch.int32
+                )
+
+            if src.zero_point is None:
+                src.zero_point = torch.tensor(
+                    [[]], device=src.packed_weight.device, dtype=torch.int32
+                )
+
             if _same_metadata(self, src):
                 self_tensors = self.__tensor_flatten__()[0]
                 for tensor_name in self_tensors:
