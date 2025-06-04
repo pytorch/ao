@@ -11,10 +11,11 @@ import torch
 from torchao.core.config import AOBaseConfig
 from torchao.quantization.transform_module import register_quantize_module_handler
 
-from .gguf_quantized_tensor import GGUFQuantizedTensor
+from .gguf_quantized_tensor import ARGGUFQuantizedTensor, GGUFQuantizedTensor
 
 __all__ = [
     "GGUFWeightOnlyConfig",
+    "ARGGUFWeightOnlyConfig",
 ]
 
 
@@ -47,6 +48,40 @@ def _gguf_weight_only_transform(
         weight,
         n_blocks_per_superblock=config.n_blocks_per_superblock,
         target_dtype=config.dtype,
+    )
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    return module
+
+
+@dataclass
+class ARGGUFWeightOnlyConfig(AOBaseConfig):
+    bits: int = 4
+    group_size: int = 32
+    super_group_size: int = 8
+    super_bits: int = 6
+
+
+@register_quantize_module_handler(ARGGUFWeightOnlyConfig)
+def _ar_gguf_weight_only_transform(
+    module: torch.nn.Module,
+    config: GGUFWeightOnlyConfig,
+):
+    """
+    Applies gguf weight-only quantization to linear layers.
+
+    Returns:
+        Callable for quantization transformation.
+    """
+    weight = module.weight
+    if (weight.ndim != 2) or (weight.shape[-1] % 256 != 0):
+        return module
+
+    quantized_weight = ARGGUFQuantizedTensor.from_float(
+        weight,
+        bits=config.bits,
+        group_size=config.group_size,
+        super_group_size=config.super_group_size,
+        super_bits=config.super_bits,
     )
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     return module

@@ -50,6 +50,9 @@ __all__ = [
     "choose_qparams_gguf",
     "quantize_gguf",
     "dequantize_gguf",
+    "choose_qparams_gguf_ar",
+    "quantize_gguf_ar",
+    "dequantize_gguf_ar",
 ]
 
 
@@ -1699,6 +1702,183 @@ def dequantize_gguf(
         dequant = dequant.to(output_dtype)
 
     return dequant
+
+
+def round_ste(x: torch.Tensor):
+    """Straight-Through Estimator for rounding.
+
+    Args:
+        x: torch.Tensor
+
+    Returns:
+        torch.Tensor
+    """
+    return (x.round() - x).detach() + x
+
+
+def reshape_pad_tensor_by_group_size(data: torch.Tensor, group_size: int):
+    """Reshapes and pads the tensor to ensure that it can be quantized in groups of `group_size`.
+
+    This function adjusts t
+    he input tensor's shape so that its last dimension is a multiple
+    of the specified `group_size`. If padding is required, it adds padding to the tensor
+    to achieve this. If the tensor's last dimension is already divisible by `group_size`,
+    no padding is applied.
+
+    Args:
+        data (torch.Tensor): The input tensor to be reshaped and padded.
+        group_size (int): The size of the groups that the tensor should be reshaped into.
+
+    Returns:
+        torch.Tensor: The reshaped and padded tensor, if necessary.
+        tuple: The original shape of the input tensor.
+        int: The padding length applied to the tensor. Returns 0 if no padding is applied.
+    """
+    orig_shape = data.shape
+    pad_len = 0
+    if len(data.shape) > 2:
+        data = data.reshape(-1, orig_shape[-1])
+    if group_size == -1 or data.shape[1] < group_size:
+        return data, orig_shape, pad_len
+    elif data.shape[1] % group_size == 0:
+        data = data.reshape(-1, group_size)
+        return data, orig_shape, pad_len
+    else:
+        pad_len = (
+            data.shape[1] + group_size - 1
+        ) // group_size * group_size - data.shape[1]
+        data_new = torch.nn.functional.pad(data, (0, pad_len))
+        data_new = data_new.reshape(-1, group_size)
+        return data_new, orig_shape, pad_len
+
+
+def revert_tensor_by_pad(data: torch.Tensor, orig_shape: tuple, pad_len: int):
+    """Reverts the tensor to its original shape by removing padding.
+
+    This function removes the padding added during reshaping and returns the tensor to
+    its original shape.
+
+    Args:
+        data (torch.Tensor): The reshaped and possibly padded tensor.
+        orig_shape (tuple): The original shape of the tensor before reshaping.
+        pad_len (int): The length of the padding to be removed.
+
+    Returns:
+        torch.Tensor: The tensor restored to its original shape.
+    """
+    if pad_len == 0:
+        return data.reshape(orig_shape)
+    else:
+        if len(orig_shape) > 2:
+            tmp_shape = torch.prod(torch.tensor(orig_shape[:-1])).item()
+        else:
+            tmp_shape = orig_shape[0]
+        data_new = data.reshape(tmp_shape, -1)
+        data_new = data_new[:, :-pad_len]
+        data_new = data_new.reshape(orig_shape)
+        return data_new
+
+
+## the values should be positive
+def double_quant_tensor(tensor, bits, q_scale_thresh):
+    maxq = 2**bits - 1
+    wmax = torch.clamp(tensor.max(-1)[0], min=0)
+    scale = torch.clamp(wmax / maxq, q_scale_thresh)
+    scale = scale.view(-1, 1)
+    qdq_tensor = torch.clamp(round_ste(tensor / scale), max=maxq) * scale
+    return qdq_tensor, scale
+
+
+def choose_qparams_gguf_ar(
+    tensor,
+    bits=4,
+    group_size=-1,
+    v=0,
+    min_scale=1.0,
+    max_scale=1.0,
+    scale_dtype=torch.float16,
+    tensor_min=None,
+    tensor_max=None,
+    q_scale_thresh=1e-5,
+    super_group_size=8,
+    super_bits=6,
+    **kwargs,
+):
+    """Quantize and de-quantize tensor asymmetrically.
+
+    Args:
+        tensor: Tensor containing the tensor to be quantized
+        bits: Number of bits for quantization (e.g., 2, 3, 4, 8)
+        group_size: Number of elements to share scale for quantization
+        v: Rounding value perturbation
+        min_scale: Minimum scale coefficient for tensor
+        max_scale: Maximum scale coefficient for tensor
+        tensor_min (Tensor, optional): Minimum tensor value for quantization. Defaults to None.
+        tensor_max (Tensor, optional): Maximum tensor value for quantization. Defaults to None.
+        scale_dtype: dtype of the quantized scale,as most kernels only support FP16 or FP32, while this value is import
+        q_scale_thresh: clip the quantized scale's magnitude to this value to improve the numerical stability
+
+    Returns:
+        Quantized and de-quantized tensor, scale, zero-point
+    """
+    orig_tensor = tensor
+    tensor, orig_shape, pad_len = reshape_pad_tensor_by_group_size(tensor, group_size)
+
+    maxq = 2**bits - 1
+    if tensor_min is None or tensor_max is None:
+        wmin_tmp = torch.clamp(tensor.min(-1)[0], max=0)
+        wmax_tmp = torch.clamp(tensor.max(-1)[0], min=0)
+    else:
+        wmin_tmp = tensor_min
+        wmax_tmp = tensor_max
+    if isinstance(min_scale, torch.Tensor):
+        wmin = wmin_tmp * min_scale
+        wmax = wmax_tmp * max_scale
+    else:
+        wmin = wmin_tmp
+        wmax = wmax_tmp
+    scale = ((wmax - wmin) / maxq).to(scale_dtype)
+    scale = torch.clamp(scale, min=q_scale_thresh)
+    scale = scale.view(-1, super_group_size)
+    wmin_m = -wmin  # pylint: disable=E1130
+    wmin_m = wmin_m.view(-1, super_group_size)
+
+    ##conduct double quant
+    scale, d_scale = double_quant_tensor(scale, super_bits, q_scale_thresh)
+    wmin_m, d_wmin_m = double_quant_tensor(wmin_m, super_bits, q_scale_thresh)
+
+    scale = scale.view(-1, 1)
+    scale = torch.clamp(scale, q_scale_thresh)
+    wmin_m = wmin_m.view(-1, 1)
+
+    # int_w = round_ste(tensor / scale + v)
+    # q = torch.clamp(int_w + round_ste(wmin_m / scale), 0, maxq)
+    # qdq_result = (scale * q - wmin_m).to(tensor.dtype)
+    # qdq_result = revert_tensor_by_pad(qdq_result, orig_shape=orig_shape, pad_len=pad_len)
+    # zp = round_ste(wmin_m / scale)  # remove this later
+    return {
+        "scale": scale,
+        "d_scale": d_scale,
+        "wmin_m": wmin_m,
+        "d_wmin_m": d_wmin_m,
+        "pad_len": pad_len,
+        "orig_shape": orig_shape,
+        "orig_tensor": orig_tensor,
+    }
+
+
+def quantize_gguf_ar(tensor, bits, group_size, scale, wmin_m):
+    maxq = 2**bits - 1
+    tensor, orig_shape, pad_len = reshape_pad_tensor_by_group_size(tensor, group_size)
+    int_w = round_ste(tensor / scale)
+    q = torch.clamp(int_w + round_ste(wmin_m / scale), 0, maxq)
+    return q
+
+
+def dequantize_gguf_ar(q, scale, wmin_m, orig_shape, pad_len, output_dtype):
+    dq = (scale * q - wmin_m).to(output_dtype)
+    dq = revert_tensor_by_pad(dq, orig_shape=orig_shape, pad_len=pad_len)
+    return dq
 
 
 def dequantize_affine_qqq(
