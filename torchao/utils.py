@@ -255,7 +255,6 @@ def _register_custom_op_with_meta(lib):
         # torch.export.export / torch._export.export_for_training
 
     """
-    from torch._inductor.decomposition import register_decomposition
 
     def decorator(fn, meta_fn):
         if TORCH_VERSION_AT_LEAST_2_5:

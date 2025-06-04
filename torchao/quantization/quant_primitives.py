@@ -392,7 +392,8 @@ def _quantize_affine_meta(
 
 
 _quantize_affine, _quantize_affine_meta = register_custom_op_with_meta(
-    _quantize_affine, _quantize_affine_meta)
+    _quantize_affine, _quantize_affine_meta
+)
 
 
 def _quantize_affine_no_dtype_cast(
@@ -565,7 +566,8 @@ def _dequantize_affine_meta(
 
 
 _dequantize_affine, _dequantize_affine_meta = register_custom_op_with_meta(
-    _dequantize_affine, _dequantize_affine_meta)
+    _dequantize_affine, _dequantize_affine_meta
+)
 
 
 def _dequantize_affine_no_dtype_check(
