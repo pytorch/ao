@@ -104,8 +104,7 @@ def _addmm_mx_dispatch(
 
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-# TODO : MXGemmKernelChoice.HIPBLASLT check
-            assert gemm_choice is MXGemmKernelChoice.CUBLAS, (
+            assert gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.HIPBLASLT), (
                 "CUBLAS is the only supported kernel choice for MX FP8 operations"
             )
 
