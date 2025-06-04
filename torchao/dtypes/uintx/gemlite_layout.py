@@ -117,9 +117,9 @@ def get_gemlite_aqt_kwargs(
 
 @dataclass(frozen=True)
 class GemlitePackedLayout(Layout):
-    group_size: Optional[int] = 64
+    group_size: Optional[int] = 128
     bit_width: int = 4
-    packing_bitwidth: Optional[int] = 32
+    packing_bitwidth: Optional[int] = None
 
 
 @register_layout(GemlitePackedLayout)

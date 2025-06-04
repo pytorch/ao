@@ -986,9 +986,9 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
-    group_size: Optional[int] = 64
+    group_size: Optional[int] = 128
     bit_width: int = 4
-    packing_bitwidth: Optional[int] = 32
+    packing_bitwidth: Optional[int] = None
     set_inductor_config: bool = True
 
 
