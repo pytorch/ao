@@ -63,7 +63,6 @@ def _(func, types, args, kwargs):
     )
 
 
-
 def _get_gemm_choice(
     choice_a: Optional[MXGemmKernelChoice], choice_b: Optional[MXGemmKernelChoice]
 ) -> MXGemmKernelChoice:
@@ -89,7 +88,11 @@ def _addmm_mx_dispatch(
     """
     gemm_choice = _get_gemm_choice(a._gemm_kernel_choice, b._gemm_kernel_choice)
 
-    if gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS, MXGemmKernelChoice.HIPBLASLT):
+    if gemm_choice in (
+        MXGemmKernelChoice.CUBLAS,
+        MXGemmKernelChoice.CUTLASS,
+        MXGemmKernelChoice.HIPBLASLT,
+    ):
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         assert a._data.is_contiguous()
@@ -104,9 +107,10 @@ def _addmm_mx_dispatch(
 
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            assert gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.HIPBLASLT), (
-                "CUBLAS is the only supported kernel choice for MX FP8 operations"
-            )
+            assert gemm_choice in (
+                MXGemmKernelChoice.CUBLAS,
+                MXGemmKernelChoice.HIPBLASLT,
+            ), "CUBLAS is the only supported kernel choice for MX FP8 operations"
 
             res = torch._scaled_mm(
                 a._data,
