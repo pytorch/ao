@@ -198,9 +198,9 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         packing_bitwidth = _layout.packing_bitwidth
 
         if bit_width == 8 and group_size == in_features:
-            gemlite_linear = gemlite.helper.A16W8(
-                device=int_data.device, packing_bitwidth=packing_bitwidth
-            ).from_weights(int_data, scales=scale, bias=None)
+            gemlite_linear = gemlite.helper.A16W8(device=int_data.device).from_weights(
+                int_data, scales=scale, bias=None
+            )
         else:
             gemlite_linear = gemlite.helper.A16Wn(
                 device=int_data.device, packing_bitwidth=packing_bitwidth
@@ -213,9 +213,9 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             "in_features": in_features,
             "out_features": out_features,
             "packing_bitwidth": packing_bitwidth,
-            "data_contiguous": meta_args[-1],
-            "elements_per_sample": meta_args[4],
-            "W_group_mode": meta_args[10],
+            "data_contiguous": gemlite_linear.data_contiguous,
+            "elements_per_sample": gemlite_linear.elements_per_sample,
+            "W_group_mode": gemlite_linear.W_group_mode,
             "meta_args": meta_args,
         }
 
