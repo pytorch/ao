@@ -31,7 +31,7 @@ gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
 # gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
 
 # on AMD MI355x GPUs with ROCm 6.5+ and gfx950, you can use HIPBLASLT mxfp8 kernels
-# gemm_kernel_choice = MXGemmKernelChoice.HIPBLASLT
+gemm_kernel_choice = MXGemmKernelChoice.HIPBLASLT
 
 # on older NVIDIA gpus, you can run training with emulated MX gemm
 # gemm_kernel_choice = MXGemmKernelChoice.EMULATED

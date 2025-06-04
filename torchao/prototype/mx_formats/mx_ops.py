@@ -120,7 +120,6 @@ def _addmm_mx_dispatch(
                 bias=bias,
                 out_dtype=torch.bfloat16,
             )
-
         else:
             assert a._elem_dtype == torch.float4_e2m1fn_x2
             assert b._elem_dtype == torch.float4_e2m1fn_x2
