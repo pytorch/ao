@@ -25,6 +25,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_7,
+    TORCH_VERSION_AT_LEAST_2_8,
     fill_defaults,
 )
 
@@ -537,6 +538,15 @@ def _aqt_is_uint8(aqt):
     )
 
 
+def _aqt_is_int8(aqt):
+    """Check if an AffineQuantizedTensor is uint8 quantized Tensor"""
+    return (
+        aqt.tensor_impl.dtype == torch.int8
+        and aqt.quant_min == -127
+        and aqt.quant_max == 127
+    )
+
+
 def _aqt_is_int4(aqt):
     """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
     return (
@@ -553,7 +563,7 @@ def _linear_int8_act_int4_weight_cpu_check(input_tensor, weight_tensor, bias):
         and is_device(weight_tensor.device.type, "cpu")
         and (bias is None or is_device(bias.device.type, "cpu"))
         and isinstance(input_tensor, AffineQuantizedTensor)
-        and _aqt_is_uint8(input_tensor)
+        and (_aqt_is_uint8(input_tensor) or _aqt_is_int8(input_tensor))
         and _is_float(input_tensor.dtype)
         and isinstance(input_tensor._layout, PlainLayout)
         and isinstance(weight_tensor, AffineQuantizedTensor)
@@ -568,6 +578,10 @@ def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
     assert TORCH_VERSION_AT_LEAST_2_7, (
         f"Requires PyTorch version at least 2.7, but got: {torch.__version__}"
     )
+    if _aqt_is_int8(input_tensor):
+        assert TORCH_VERSION_AT_LEAST_2_8, (
+            f"Requires PyTorch version at least 2.8, but got: {torch.__version__}"
+        )
     assert is_device(input_tensor.device.type, "cpu"), (
         f"For CPU device only but got: {input_tensor.device}"
     )

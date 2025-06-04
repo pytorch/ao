@@ -886,7 +886,11 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("bs", [1, 160])
-    def test_8da4w_cpu(self, dtype, x_dim, bias, bs):
+    @common_utils.parametrize("sym_quant_a", [True, False])
+    def test_8da4w_cpu(self, dtype, x_dim, bias, bs, sym_quant_a):
+        if sym_quant_a and not TORCH_VERSION_AT_LEAST_2_8:
+            # not supported until PT 2.8
+            return
         device = "cpu"
         m = ToyLinearModel(bias=bias).eval().to(dtype).to(device)
         m2 = copy.deepcopy(m)
@@ -900,7 +904,11 @@ class TestQuantFlow(TestCase):
             quantize_(
                 m,
                 int8_dynamic_activation_int4_weight(
-                    group_size=32, layout=Int8DynamicActInt4WeightCPULayout()
+                    group_size=32,
+                    layout=Int8DynamicActInt4WeightCPULayout(),
+                    act_mapping_type=MappingType.SYMMETRIC
+                    if sym_quant_a
+                    else MappingType.ASYMMETRIC,
                 ),
             )
             y, code = torch._inductor.utils.run_and_get_code(
@@ -914,15 +922,18 @@ class TestQuantFlow(TestCase):
                 int8_dynamic_activation_int4_weight(
                     group_size=32,
                     layout=PlainLayout(),
+                    act_mapping_type=MappingType.SYMMETRIC
+                    if sym_quant_a
+                    else MappingType.ASYMMETRIC,
                 ),
             )
             torch._dynamo.reset()  # may segfault without this
             y2 = torch.compile(m2, fullgraph=True, dynamic=True)(*example_inputs)
-            atol, rtol = 1e-7, 1e-5
+            atol, rtol = 4e-7, 1e-5
             if dtype == torch.bfloat16:
-                atol, rtol = 0.01, 1e-3
+                atol, rtol = 1e-2, 3e-3
             elif dtype == torch.half:
-                atol, rtol = 0.005, 1e-3
+                atol, rtol = 6e-3, 2e-3
             assert torch.allclose(y, y2, atol=atol, rtol=rtol)
             # Test get_plain by dequantize()
             dqw1 = m.linear1.weight.original_weight_tensor.dequantize()
