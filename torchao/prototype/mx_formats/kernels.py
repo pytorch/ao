@@ -1394,19 +1394,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         BLOCK_ROWS: tl.constexpr,
         BLOCK_COLS: tl.constexpr,
     ):
-        """
-        Rearranges tensor data from row-major to block-scaled swizzle format.
-
-        Args:
-            scale_ptr: Pointer to the input scale tensor
-            scale_rows: Number of rows in the scale tensor
-            scale_cols: Number of columns in the scale tensor
-            output_ptr: Pointer to the output tensor
-            input_row_stride: Stride between rows in the input tensor
-            output_block_stride: Stride between blocks in the output tensor
-            BLOCK_ROWS: Number of rows in a tile (compile-time constant)
-            BLOCK_COLS: Number of columns in a tile (compile-time constant)
-        """
         pid_row = tl.program_id(0)
         pid_col = tl.program_id(1)
 
