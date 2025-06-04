@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 import torch
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard
+from torch.distributed._composable.fsdp import (
+    CPUOffloadPolicy,
+    OffloadPolicy,
+    fully_shard,
+)
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -33,7 +37,6 @@ from torchao.optim.subclass_8bit import OptimState8bit
 from torchao.optim.subclass_fp8 import OptimStateFp8
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_7,
     get_available_devices,
@@ -124,8 +127,6 @@ class TestOptim(TestCase):
     @skip_if_rocm("ROCm enablement in progress")
     def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda":
-            if not TORCH_VERSION_AT_LEAST_2_4:
-                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -162,6 +163,30 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("device", _DEVICES)
+    def test_optim_default_dtype_bf16(self, optim_name, device):
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        old_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+
+        try:
+            model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+            model.to(device=device)
+            optimizer = getattr(optim, optim_name)(model.parameters())
+
+            x = torch.randn(4, 32, device=device)
+            loss = model(x).sum()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+        finally:
+            torch.set_default_dtype(old_dtype)
+
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
@@ -174,8 +199,6 @@ class TestOptim(TestCase):
         if subclass == OptimStateFp8:
             if device == "cpu" and len(shape) > 1 and not TORCH_VERSION_AT_LEAST_2_5:
                 pytest.skip("fill_cpu not implemented for Float8_e4m3fn for torch<2.5")
-            if device == "cuda" and not TORCH_VERSION_AT_LEAST_2_4:
-                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
             if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -427,16 +450,21 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
-        optim_classes = [optim.AdamW8bit, optim.AdamW4bit]
+        # we do this to avoid all combinations
+        args_list = [
+            (optim.AdamW8bit, OffloadPolicy),
+            (optim.AdamW4bit, OffloadPolicy),
+            (optim.AdamW8bit, CPUOffloadPolicy),
+        ]
         if torch.cuda.get_device_capability() >= (8, 9):
-            optim_classes.append(optim.AdamWFp8)
+            args_list.append((optim.AdamWFp8, OffloadPolicy))
 
         self.run_subtests(
-            {"optim_cls": optim_classes},
+            {"args": args_list},
             self._test_fsdp2,
         )
 
-    def _test_fsdp2(self, optim_cls):
+    def _test_fsdp2(self, args):
         import torch.distributed as dist
         import torch.distributed.checkpoint as dcp
         import torch.utils._pytree as pytree
@@ -446,6 +474,8 @@ class TestFSDP2(FSDPTest):
             Transformer,
             TransformerBlock,
         )
+
+        optim_cls, offload_policy = args
 
         batch_size = 3
         vocab_size = 1024
@@ -466,8 +496,8 @@ class TestFSDP2(FSDPTest):
         fsdp_model = copy.deepcopy(base_model)
         for m in fsdp_model.modules():
             if isinstance(m, TransformerBlock):
-                fully_shard(m)
-        fully_shard(fsdp_model)
+                fully_shard(m, offload_policy=offload_policy)
+        fully_shard(fsdp_model, offload_policy=offload_policy)
         fsdp_optim = optim_cls(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)

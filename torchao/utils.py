@@ -4,13 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import functools
+import importlib
 import itertools
 import re
 import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Tuple
+from typing import Any, Callable
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -40,6 +41,7 @@ __all__ = [
     "is_MI300",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
+    "is_package_at_least",
 ]
 
 
@@ -170,7 +172,7 @@ def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     return measurement.mean * 1e6
 
 
-def find_multiple(n: int, *args: Tuple[int]) -> int:
+def find_multiple(n: int, *args: int) -> int:
     k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
     if n % k == 0:
         return n
@@ -653,6 +655,12 @@ def is_Navi4():
     return False
 
 
+def is_sm_version(major: int, minor: int) -> bool:
+    """Check if the CUDA version is exactly major.minor"""
+    is_cuda = torch.cuda.is_available() and torch.version.cuda
+    return torch.cuda.get_device_capability() == (major, minor) if is_cuda else False
+
+
 def is_sm_at_least_89():
     return (
         torch.cuda.is_available()
@@ -694,3 +702,11 @@ TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")
 TORCH_VERSION_AFTER_2_2 = _torch_version_at_least("2.2.0.dev")
+
+
+def is_package_at_least(package_name: str, min_version: str):
+    package_exists = importlib.util.find_spec(package_name) is not None
+    if not package_exists:
+        return False
+
+    return version(package_name) >= min_version

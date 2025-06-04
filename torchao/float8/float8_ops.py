@@ -92,6 +92,10 @@ def implements(aten_ops):
 
     def decorator(func):
         for op in aten_ops:
+            if op in FLOAT8_OPS_TABLE:
+                raise RuntimeError(
+                    f"Float8 op {op} is already registered to {FLOAT8_OPS_TABLE[op].__name__}"
+                )
             FLOAT8_OPS_TABLE[op] = func
         return func
 
@@ -100,7 +104,6 @@ def implements(aten_ops):
 
 @implements(
     [
-        aten.view.default,
         aten._unsafe_view.default,
         aten.as_strided.default,
         aten.clone.default,

@@ -16,11 +16,10 @@ import tabulate
 import torch
 
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
 )
-from torchao.prototype.mx_formats.custom_cast import get_bits
+from torchao.prototype.mx_formats.kernels import get_bits
 
 dtype_to_bitwidth = {
     torch.float: 32,
@@ -494,7 +493,7 @@ def run(dtype):
     headers = ["orig_val", "formula", "s_enc", "e_enc", "m_enc", "note"]
     results = []
 
-    if dtype == DTYPE_FP4:
+    if dtype == torch.float4_e2m1fn_x2:
         results = float4_e2m1_interesting_values
     elif dtype == DTYPE_FP6_E3M2:
         results = float6_e3m2_interesting_values
@@ -539,6 +538,6 @@ if __name__ == "__main__":
         torch.float8_e5m2,
         DTYPE_FP6_E3M2,
         DTYPE_FP6_E2M3,
-        DTYPE_FP4,
+        torch.float4_e2m1fn_x2,
     ):
         run(dtype)

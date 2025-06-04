@@ -1,6 +1,6 @@
 import itertools
+import unittest
 
-import pytest
 import torch
 import torch.utils.checkpoint
 from torch._dynamo.utils import counters
@@ -9,10 +9,12 @@ from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
-from torch.utils.cpp_extension import IS_WINDOWS
 
 import torchao
-from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
+from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import (
+    _int8_sdpa_init,
+    custom_pass,
+)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
@@ -120,10 +122,14 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             if has_fuse_pattern:
                 self.assertGreaterEqual(counters["inductor"]["int8_fuse_attention"], 1)
             if contains:
-                # many of the patterns get re-expanded in dispatcher
-                self.assertIn(
-                    "torchao.scaled_dot_product_int8",
-                    source_code,
+                self.assertTrue(
+                    any(
+                        op_name in source_code
+                        for op_name in [
+                            "qscaled_dot_product",
+                            "cpp_fused_quantize_per_tensor",
+                        ]
+                    )
                 )
 
             # some tests configured with very low dropout where we still want to check equality
@@ -142,10 +148,13 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                         self.assertEqual(arg1.grad, arg2.grad, atol=atol, rtol=rtol)
 
     @skipIfRocm
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
-    @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
+        reason="cpp kernels not built",
+    )
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
         from torch.export import export_for_training
@@ -182,6 +191,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torch.amp.autocast(
                     self.device, enabled=enable_autocast, dtype=torch.bfloat16
                 ),
+                config.patch(post_grad_custom_pre_pass=custom_pass),
             ):
                 _int8_sdpa_init()
                 quantizer = X86InductorQuantizer()

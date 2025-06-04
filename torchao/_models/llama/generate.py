@@ -180,6 +180,7 @@ def generate(
     max_seq_length = (
         min(T + max_new_tokens, model.config.block_size) if not interactive else 350
     )
+    print(f"max_seq_length={max_seq_length}, prompt_length={T}")
     new_tokens = max_seq_length - T
 
     # format model input
@@ -242,11 +243,13 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
 
 
 def _load_model(checkpoint_path, device, precision):
-    checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+    checkpoint = torch.load(
+        str(checkpoint_path), mmap=True, weights_only=True, map_location=device
+    )
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
     with torch.device("meta"):
-        model = Transformer.from_name(checkpoint_path.parent.name)
+        model = Transformer.from_name(checkpoint_path)
     model.load_state_dict(checkpoint, assign=True)
     model = model.to(device=device, dtype=precision)
 
@@ -439,6 +442,23 @@ def main(
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
             quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+        elif "fbgemm" in quantization:
+            from torchao.quantization import FbgemmConfig
+
+            _, precision, group_size = quantization.split("-")
+            group_size = int(group_size)
+            block_size = [1, group_size]
+            if precision == "int4":
+                quantize_(
+                    model,
+                    FbgemmConfig(
+                        torch.bfloat16, torch.int4, torch.bfloat16, block_size
+                    ),
+                )
+            else:
+                raise NotImplementedError(
+                    f"FbegemmConfig({precision=}) not supported yet"
+                )
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
@@ -574,7 +594,7 @@ def main(
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
             group_size = int(_quant_args[2])
             granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
-            is_asymmetric = bool(_quant_args[3])
+            is_asymmetric = bool(_quant_args[3].lower() == "true")
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
@@ -609,13 +629,13 @@ def main(
                     float8_dynamic_activation_float8_weight(granularity=granularity),
                 )
         elif "autoquant_v2" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._models._eval import LMEvalInputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
             inputs = (
-                InputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
@@ -627,7 +647,7 @@ def main(
                     ["wikitext"],
                     1,
                 )
-                .get_inputs()[0]
+                .get_recorded_inputs()[0]
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
@@ -699,12 +719,12 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._models._eval import LMEvalInputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
             inputs = (
-                InputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
@@ -716,7 +736,7 @@ def main(
                     ["wikitext"],
                     1,
                 )
-                .get_inputs()[0]
+                .get_recorded_inputs()[0]
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
@@ -1163,7 +1183,7 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>, fbgemm-int4-<group_size>"
         ),
     )
     parser.add_argument(

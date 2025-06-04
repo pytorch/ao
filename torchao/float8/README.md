@@ -17,6 +17,8 @@ and composable with key systems such as autograd, ```torch.compile``` and distri
 This is the default recipe, with a good balance of performance and accuracy.
 
 ```python
+import time
+
 import torch
 import torch.nn as nn
 from torchao.float8 import convert_to_float8_training
@@ -26,11 +28,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
     raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
+M, K, N = 4096, 8192, 4096
 m = nn.Sequential(
-    nn.Linear(2048, 4096),
-    nn.Linear(4096, 128),
+    nn.Linear(K, N, bias=False),
+    nn.Linear(N, 128, bias=False),
 ).bfloat16().cuda()
-x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
+x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 optimizer = torch.optim.SGD(m.parameters(), lr=0.1)
 
 # optional: filter modules from being eligible for float8 conversion
@@ -50,12 +53,26 @@ convert_to_float8_training(m, module_filter_fn=module_filter_fn)
 # enable torch.compile for competitive performance
 m = torch.compile(m)
 
+# warm up torch.compile for a clean training time measurement
+for _ in range(1):
+    optimizer.zero_grad()
+    y = m(x)
+    y.sum().backward()
+    optimizer.step()
+
+torch.cuda.synchronize()
+start_time = time.time()
+
 # toy training loop
 for _ in range(10):
     optimizer.zero_grad()
     y = m(x)
     y.sum().backward()
     optimizer.step()
+
+torch.cuda.synchronize()
+end_time = time.time()
+print("Training time:", end_time - start_time)
 ```
 
 ## float8 linear with rowwise scaling
@@ -230,3 +247,95 @@ including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=re
    - float8 rowwise with bf16 all-gather + compile: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="rowwise" ./float8_training_benchmark.sh`
 
 See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README.md) for more details.
+
+# E2E training + inference flow
+
+The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model.
+#### 1. Train model and save checkpoint
+```python
+import torch
+from torch import nn
+import torch.nn.functional as F
+
+from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_linear import Float8Linear
+from torchao.float8 import convert_to_float8_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+if not TORCH_VERSION_AT_LEAST_2_5:
+    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
+
+# create model and sample input
+m = nn.Sequential(
+    nn.Linear(2048, 4096),
+    nn.Linear(4096, 128),
+    nn.Linear(128, 1),
+).bfloat16().cuda()
+x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
+optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
+
+# optional: filter modules from being eligible for float8 conversion
+def module_filter_fn(mod: torch.nn.Module, fqn: str):
+    # don't convert the last module
+    if fqn == "1":
+        return False
+    # don't convert linear modules with weight dimensions not divisible by 16
+    if isinstance(mod, torch.nn.Linear):
+        if mod.in_features % 16 != 0 or mod.out_features % 16 != 0:
+            return False
+    return True
+
+# convert specified `torch.nn.Linear` modules to `Float8Linear`
+convert_to_float8_training(m, module_filter_fn=module_filter_fn)
+
+# enable torch.compile for competitive performance
+m = torch.compile(m)
+
+# toy training loop
+for _ in range(10):
+    optimizer.zero_grad()
+    output = m(x)
+    # use fake labels for demonstration purposes
+    fake_labels = torch.ones_like(output)
+    loss = F.mse_loss(output, fake_labels)
+    loss.backward()
+    optimizer.step()
+
+# save the model
+torch.save({
+    'model': m,
+    'model_state_dict': m.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+}, 'checkpoint.pth')
+```
+
+#### 2. Load checkpoint and optionally apply inference quantization
+
+There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.
+
+Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md).
+
+```python
+import torch
+
+from torchao.float8.float8_linear import Float8Linear
+from torchao.quantization.granularity import PerTensor
+from torchao.quantization.quant_api import quantize_
+from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
+)
+
+# load checkpoint
+checkpoint = torch.load('checkpoint.pth', weights_only=False)
+model = checkpoint['model']
+model.load_state_dict(checkpoint['model_state_dict'])
+
+# optional: apply dynamic float8 quantization on both activations and weights for inference
+quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+
+# run inference
+x = torch.randn(1, 4096, 2048, device="cuda", dtype=torch.bfloat16)
+with torch.inference_mode():
+    out = model(x)
+    print(out)
+```

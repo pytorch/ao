@@ -22,9 +22,10 @@ from torch._inductor import config
 from torch._inductor.pattern_matcher import PatternMatcherPass
 
 # Example usage
-patterns = PatternMatcherPass() # create a pattern matcher pass
-_register_patterns(...) # register your own patterns
-config.custom_pass = patterns.apply # define the custom pass with the patterns
+class _CustomPass(...): # create a custom pass class
+custom_pass = _CustomPass() # create an instance of custom pass
+with config.patch(config.custom_pass=custom_pass):
+    _register_patterns(config.custom_pass) # register your own passes
 
 ```
 

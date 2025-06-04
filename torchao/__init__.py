@@ -25,8 +25,8 @@ try:
 
     so_files = list(Path(__file__).parent.glob("_C*.so"))
     if len(so_files) > 0:
-        assert len(so_files) == 1, f"Expected one _C*.so file, found {len(so_files)}"
-        torch.ops.load_library(str(so_files[0]))
+        for file in so_files:
+            torch.ops.load_library(str(file))
         from . import ops
 
     # The following library contains CPU kernels from torchao/experimental
@@ -43,7 +43,7 @@ from torchao.quantization import (
     quantize_,
 )
 
-from . import dtypes, optim, swizzle, testing
+from . import dtypes, optim, quantization, swizzle, testing
 
 __all__ = [
     "dtypes",
@@ -53,4 +53,5 @@ __all__ = [
     "swizzle",
     "testing",
     "ops",
+    "quantization",
 ]

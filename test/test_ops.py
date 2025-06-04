@@ -10,12 +10,12 @@ import sys
 import pytest
 import torch
 from torch.testing._internal.common_utils import (
+    IS_LINUX,
     TestCase,
     instantiate_parametrized_tests,
     parametrize,
 )
 from torch.testing._internal.optests import opcheck
-from torch.utils.cpp_extension import IS_WINDOWS
 
 import torchao
 from torchao.dtypes.floatx import from_scaled_tc_floatx
@@ -156,7 +156,11 @@ class TestOps(TestCase):
     @pytest.mark.skipif(
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
-    @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
+    @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
+    @pytest.mark.skipif(
+        "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
+        reason="cpp kernels not built",
+    )
     @parametrize("batch_size", [56, 120])
     @parametrize("n_head", [2, 16])
     @parametrize("q_seq_len", [18, 89])
@@ -223,7 +227,7 @@ class TestOps(TestCase):
             o_scale=o_scale,
             o_zp=o_zp,
         )
-        actual = torch.ops.torchao.scaled_dot_product_int8(
+        actual = torch.ops.torchao.qscaled_dot_product(
             q,
             k,
             v,
