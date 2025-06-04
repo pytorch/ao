@@ -115,11 +115,20 @@ To fake quantize embedding in addition to linear, you can additionally call
 the following with a filter function during the prepare step:
 
 ```
-from torchao.quantization.quant_api import _is_linear
+# first apply linear transformation to the model as above
+activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
+quantize_(
+    model,
+    IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+)
+
+# then apply weight-only transformation to embedding layers
+# activation fake quantization is not supported for embedding layers
 quantize_(
     m,
-    IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
-    filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding) or _is_linear(m),
+    IntXQuantizationAwareTrainingConfig(weight_config=weight_config), 
+    filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding) 
 )
 ```
 
@@ -192,6 +201,19 @@ tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config ll
 ```
 
 For more detail, please refer to [this QAT tutorial](https://pytorch.org/torchtune/main/tutorials/qat_finetune.html).
+
+## Axolotl integration
+
+[Axolotl](https://github.com/axolotl-ai-cloud) uses torchao to support quantized-aware fine-tuning. You can use the following commands to fine-tune, and then quantize a Llama-3.2-3B model:
+
+```bash
+axolotl train examples/llama-3/3b-qat-fsdp2.yaml
+# once training is complete, perform the quantization step
+axolotl quantize examples/llama-3/3b-qat-fsdp2.yaml
+# you should now have a quantized model saved in ./outputs/qat_out/quatized
+```
+
+Please see the [QAT documentation](https://docs.axolotl.ai/docs/qat.html) in axolotl for more details.
 
 ## Evaluation Results
 
