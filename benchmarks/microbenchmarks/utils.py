@@ -358,7 +358,7 @@ def generate_results_csv(
     os.makedirs(output_dir, exist_ok=True)
     # Generate the filename with the current date and time in the specified format
     if file_name is None:
-        file_name = datetime.now().strftime("results_%d%m%Y_%H%M%S.csv")
+        file_name = datetime.now().strftime("results_%m%d%Y_%H%M%S.csv")
 
     file_path = os.path.join(output_dir, file_name)
 
