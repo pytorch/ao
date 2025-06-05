@@ -1679,6 +1679,8 @@
     <span class="k">if</span> <span class="n">eps</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
 
+    <span class="n">scale_device</span> <span class="o">=</span> <span class="n">min_val</span><span class="o">.</span><span class="n">device</span>
+
     <span class="k">if</span> <span class="n">preserve_zero</span><span class="p">:</span>
         <span class="n">min_val_neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">min_val</span><span class="p">))</span>
         <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">max_val</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">max_val</span><span class="p">))</span>
@@ -1725,7 +1727,9 @@
         <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">assert</span> <span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
-        <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_val_pos</span> <span class="o">-</span> <span class="n">min_val_neg</span><span class="p">)</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_val_pos</span> <span class="o">-</span> <span class="n">min_val_neg</span><span class="p">)</span> <span class="o">/</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">scale_device</span>
+        <span class="p">)</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
