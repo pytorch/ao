@@ -4,6 +4,7 @@ from torchao.float8.config import (
     Float8GemmConfig,
     Float8LinearConfig,
     ScalingType,
+    Float8LinearRecipeName,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -38,6 +39,7 @@ __all__ = [
     "Float8GemmConfig",
     "Float8LinearConfig",
     "CastConfig",
+    "Float8LinearRecipeName",
     # top level UX
     "convert_to_float8_training",
     "precompute_float8_dynamic_scale_for_fsdp",
