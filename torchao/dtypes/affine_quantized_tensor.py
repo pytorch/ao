@@ -465,7 +465,17 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             scale = choose_qparams_affine_float8(
                 input_float, float8_dtype=target_dtype, block_size=block_size
             )
-            data = quantize_affine_float8(input_float, scale, target_dtype)
+
+            # need to import here to avoid circular import
+            from torchao.dtypes.floatx.cutlass_semi_sparse_layout import (
+                CutlassSemiSparseLayout,
+            )
+
+            if isinstance(_layout, CutlassSemiSparseLayout):
+                # handle sparse activation specially, since the sparsification kernel also does the quantization
+                data = input_float
+            else:
+                data = quantize_affine_float8(input_float, scale, target_dtype)
             data, scale, zero_point = _layout.post_process(
                 data, scale, None, block_size
             )
