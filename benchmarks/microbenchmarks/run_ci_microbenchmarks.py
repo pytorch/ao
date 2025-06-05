@@ -20,7 +20,10 @@ The YAML file should contain all necessary configuration parameters for the benc
 
 import argparse
 import json
+import platform
 from typing import Any, Dict, List
+
+import torch
 
 from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
 from benchmarks.microbenchmarks.benchmark_runner import (
@@ -55,31 +58,39 @@ def create_benchmark_result(
     )
 
     # Map device to benchmark device name
-    benchmark_device = "h100" if device == "cuda" else device
+    benchmark_device = (
+        torch.cuda.get_device_name(0)
+        if device == "cuda"
+        else platform.processor()
+        if device == "cpu"
+        else "unknown"
+    )
 
     # Format shape as M-K-N
     mkn_name = f"{shape[0]}-{shape[1]}-{shape[2]}" if len(shape) == 3 else "unknown"
 
     return {
-        "benchmark": (
-            "micro-benchmark api",  # name
-            "inference",  # mode
-            quant_type,  # quantization technique
-            {},
-        ),
-        "model": (
-            mkn_name,  # name in M-K-N format
-            "micro-benchmark custom layer",  # type
-            benchmark_device,  # backend (device)
-            "torchao",  # origins
-            {},
-        ),
-        "metric": (
-            f"{metric_name}(wrt bf16)",  # name with unit
-            metric_values,  # benchmark_values
-            0.0,  # TODO: Will need to define the target value
-            {},
-        ),
+        "benchmark": {
+            "name": "micro-benchmark api",
+            "mode": "inference",
+            "dtype": quant_type,
+            "extra_info": {
+                "device": device,
+                "arch": benchmark_device,
+            },
+        },
+        "model": {
+            "name": mkn_name,  # name in M-K-N format
+            "type": "micro-benchmark custom layer",  # type
+            "origins": ["torchao"],
+        },
+        "metric": {
+            "name": f"{metric_name}(wrt bf16)",  # name with unit
+            "benchmark_values": metric_values,  # benchmark_values
+            "target_value": 0.0,  # TODO: Will need to define the target value
+        },
+        "runners": [],
+        "dependencies": {},
     }
 
 
