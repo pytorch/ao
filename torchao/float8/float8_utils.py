@@ -171,8 +171,8 @@ def fp8_tensor_statistics(
     return (num_zero, num_max)
 
 
-def is_row_major(stride):
-    assert len(stride) == 2, "is_row_major only supports 2D tensors"
+def _is_row_major(stride):
+    assert len(stride) == 2, "_is_row_major only supports 2D tensors"
     return stride[0] > stride[1] and stride[1] == 1
 
 
@@ -196,7 +196,7 @@ def _get_min_alignment(size: int, alignment_value: int) -> int:
     return (1 + ((size - 1) // alignment_value)) * alignment_value
 
 
-def pad_tensor_for_matmul(
+def _pad_tensor_for_matmul(
     tensor: torch.Tensor, dims: Union[int, Iterable[int]]
 ) -> torch.Tensor:
     """
@@ -211,11 +211,11 @@ def pad_tensor_for_matmul(
 
     Usage:
     ```
-        >>> pad_tensor_for_matmul(torch.randn((10, 10)), dims=0).shape
+        >>> _pad_tensor_for_matmul(torch.randn((10, 10)), dims=0).shape
         torch.Size([16, 10])
-        >>> pad_tensor_for_matmul(torch.randn((10, 10)), dims=1).shape
+        >>> _pad_tensor_for_matmul(torch.randn((10, 10)), dims=1).shape
         torch.Size([10, 16])
-        >>> pad_tensor_for_matmul(torch.randn((10, 10)), dims=(0, 1)).shape
+        >>> _pad_tensor_for_matmul(torch.randn((10, 10)), dims=(0, 1)).shape
         torch.Size([16, 16])
     ```
     """
@@ -234,6 +234,10 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+# for BC, confirmed there are users using this util function
+pad_tensor_for_matmul = _pad_tensor_for_matmul
 
 
 def _round_scale_down_to_power_of_2(scale: torch.Tensor):

@@ -14,10 +14,10 @@ from torch.distributed.tensor.parallel import (
 )
 
 from torchao.float8.config import ScalingType, e4m3_dtype
-from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
+from torchao.float8.distributed_utils import _tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
-    NoopFwToFloat8BwDynamic,
-    hp_tensor_to_float8_dynamic,
+    _hp_tensor_to_float8_dynamic,
+    _NoopFwToFloat8BwDynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole
 
@@ -56,8 +56,8 @@ class Float8ColwiseParallel(ColwiseParallel):
                 input_tensor, device_mesh, input_layouts, run_check=False
             )
 
-        if not tensor_already_casted_to_fp8(input_tensor):
-            input_tensor = hp_tensor_to_float8_dynamic(
+        if not _tensor_already_casted_to_fp8(input_tensor):
+            input_tensor = _hp_tensor_to_float8_dynamic(
                 input_tensor,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
@@ -80,7 +80,7 @@ class Float8ColwiseParallel(ColwiseParallel):
             )  # DTensor(torch.Tensor)
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
-        outputs = NoopFwToFloat8BwDynamic.apply(
+        outputs = _NoopFwToFloat8BwDynamic.apply(
             outputs,
             mod.linear_mm_config,
             mod.config.cast_config_grad_output.target_dtype,
@@ -120,8 +120,8 @@ class Float8RowwiseParallel(RowwiseParallel):
                 input_tensor, device_mesh, input_layouts, run_check=False
             )
 
-        if not tensor_already_casted_to_fp8(input_tensor):
-            input_tensor = hp_tensor_to_float8_dynamic(
+        if not _tensor_already_casted_to_fp8(input_tensor):
+            input_tensor = _hp_tensor_to_float8_dynamic(
                 input_tensor,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
@@ -143,7 +143,7 @@ class Float8RowwiseParallel(RowwiseParallel):
             outputs = outputs.redistribute(placements=output_layouts, async_op=True)
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
-        outputs = NoopFwToFloat8BwDynamic.apply(
+        outputs = _NoopFwToFloat8BwDynamic.apply(
             outputs,
             mod.linear_mm_config,
             mod.config.cast_config_grad_output.target_dtype,
@@ -229,7 +229,7 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                     input, mesh, (input_layout,), run_check=False
                 )
 
-            dt_inp = hp_tensor_to_float8_dynamic(
+            dt_inp = _hp_tensor_to_float8_dynamic(
                 dt_inp,
                 e4m3_dtype,
                 self.linear_mm_config,

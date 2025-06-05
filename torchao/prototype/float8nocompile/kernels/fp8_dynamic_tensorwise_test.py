@@ -6,9 +6,9 @@
 import pytest
 import torch
 
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_scaling_utils import _hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import LinearMMConfig
-from torchao.float8.float8_utils import is_row_major
+from torchao.float8.float8_utils import _is_row_major
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
     hp_to_fp8_col_major,
@@ -37,7 +37,7 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -64,8 +64,8 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
     assert x_fp8_row_major.stride() == y_fp8_row_major.stride()
 
     # check memory layout
-    assert is_row_major(x_fp8_row_major.stride())
-    assert is_row_major(y_fp8_row_major.stride())
+    assert _is_row_major(x_fp8_row_major.stride())
+    assert _is_row_major(y_fp8_row_major.stride())
 
     # check underlying memory layout
     assert (
@@ -100,7 +100,7 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -128,8 +128,8 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
     assert x_fp8_row_major_t.stride() == y_fp8_row_major_t.stride()
 
     # check memory layout
-    assert is_row_major(x_fp8_row_major_t.stride())
-    assert is_row_major(y_fp8_row_major_t.stride())
+    assert _is_row_major(x_fp8_row_major_t.stride())
+    assert _is_row_major(y_fp8_row_major_t.stride())
 
     # check underlying memory layout
     assert (
@@ -162,7 +162,7 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -190,8 +190,8 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
     assert x_fp8_col_major.stride() == y_fp8_col_major.stride()
 
     # check memory layout
-    assert not is_row_major(x_fp8_col_major.stride())
-    assert not is_row_major(y_fp8_col_major.stride())
+    assert not _is_row_major(x_fp8_col_major.stride())
+    assert not _is_row_major(y_fp8_col_major.stride())
 
     # check underlying memory layout
     assert (
@@ -224,7 +224,7 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -252,8 +252,8 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
     assert x_fp8_col_major_t.stride() == y_fp8_col_major_t.stride()
 
     # check memory layout
-    assert not is_row_major(x_fp8_col_major_t.stride())
-    assert not is_row_major(y_fp8_col_major_t.stride())
+    assert not _is_row_major(x_fp8_col_major_t.stride())
+    assert not _is_row_major(y_fp8_col_major_t.stride())
 
     # check underlying memory layout
     assert (
@@ -288,7 +288,7 @@ def test_fp8_hp_to_fp8_row_and_col_major(
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -320,10 +320,10 @@ def test_fp8_hp_to_fp8_row_and_col_major(
     assert x_fp8_col_major.stride() == y_fp8_col_major.stride()
 
     # check memory layout
-    assert is_row_major(x_fp8_row_major.stride())
-    assert is_row_major(y_fp8_row_major.stride())
-    assert not is_row_major(x_fp8_col_major.stride())
-    assert not is_row_major(y_fp8_col_major.stride())
+    assert _is_row_major(x_fp8_row_major.stride())
+    assert _is_row_major(y_fp8_row_major.stride())
+    assert not _is_row_major(x_fp8_col_major.stride())
+    assert not _is_row_major(y_fp8_col_major.stride())
 
     # check underlying memory layout
     assert (
@@ -362,7 +362,7 @@ def test_fp8_hp_to_fp8_row_major_t_and_non_t(
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -394,10 +394,10 @@ def test_fp8_hp_to_fp8_row_major_t_and_non_t(
     assert x_fp8_row_major_t.stride() == y_fp8_row_major_t.stride()
 
     # check memory layout
-    assert is_row_major(x_fp8_row_major.stride())
-    assert is_row_major(y_fp8_row_major.stride())
-    assert is_row_major(x_fp8_row_major_t.stride())
-    assert is_row_major(y_fp8_row_major_t.stride())
+    assert _is_row_major(x_fp8_row_major.stride())
+    assert _is_row_major(y_fp8_row_major.stride())
+    assert _is_row_major(x_fp8_row_major_t.stride())
+    assert _is_row_major(y_fp8_row_major_t.stride())
 
     # check underlying memory layout
     assert (
@@ -436,7 +436,7 @@ def test_fp8_hp_to_fp8_col_major_t_and_non_t(
     y_bf16 = input_bf16.clone().detach().to(device)
 
     # production implementation
-    x_fp8_row_major = hp_tensor_to_float8_dynamic(
+    x_fp8_row_major = _hp_tensor_to_float8_dynamic(
         x_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
@@ -469,10 +469,10 @@ def test_fp8_hp_to_fp8_col_major_t_and_non_t(
     assert x_fp8_col_major_t.stride() == y_fp8_col_major_t.stride()
 
     # check memory layout
-    assert not is_row_major(x_fp8_col_major.stride())
-    assert not is_row_major(y_fp8_col_major.stride())
-    assert not is_row_major(x_fp8_col_major_t.stride())
-    assert not is_row_major(y_fp8_col_major_t.stride())
+    assert not _is_row_major(x_fp8_col_major.stride())
+    assert not _is_row_major(y_fp8_col_major.stride())
+    assert not _is_row_major(x_fp8_col_major_t.stride())
+    assert not _is_row_major(y_fp8_col_major_t.stride())
 
     # check underlying memory layout
     assert (

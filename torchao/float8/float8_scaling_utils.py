@@ -13,12 +13,12 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import ScalingGranularity
-from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
+from torchao.float8.distributed_utils import _tensor_already_casted_to_fp8
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
-    hp_tensor_and_scale_to_float8,
+    _hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import (
     tensor_to_scale,
@@ -26,7 +26,7 @@ from torchao.float8.float8_utils import (
 
 
 # TODO(danielvegamyhre): refactor to accept Float8LinearConfig directly
-def hp_tensor_to_float8_dynamic(
+def _hp_tensor_to_float8_dynamic(
     hp_tensor: torch.Tensor,
     float8_dtype: torch.dtype,
     linear_mm_config: LinearMMConfig,
@@ -62,7 +62,7 @@ def hp_tensor_to_float8_dynamic(
         axiswise_dim,
         round_scales_to_power_of_2,
     )
-    return hp_tensor_and_scale_to_float8(
+    return _hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
         float8_dtype,
@@ -72,7 +72,7 @@ def hp_tensor_to_float8_dynamic(
     )
 
 
-def get_maybe_axiswise_dim(
+def _get_maybe_axiswise_dim(
     axiswise_dim: int,
     scaling_granularity: ScalingGranularity,
 ) -> Optional[int]:
@@ -88,7 +88,7 @@ def get_maybe_axiswise_dim(
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8BwDynamic(torch.autograd.Function):
+class _NoopFwToFloat8BwDynamic(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with dynamic scaling
@@ -107,10 +107,10 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, gradY):
-        if tensor_already_casted_to_fp8(gradY):
+        if _tensor_already_casted_to_fp8(gradY):
             return gradY, None, None
         gradY_scale = tensor_to_scale(gradY, ctx.target_dtype)
-        fp8_tensor = hp_tensor_and_scale_to_float8(
+        fp8_tensor = _hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
             ctx.target_dtype,

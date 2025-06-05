@@ -11,7 +11,7 @@ from torch.distributed._tensor import DTensor
 from torchao.float8.float8_tensor import Float8Tensor
 
 
-def tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
+def _tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
     """
     Check if the tensor is already casted to fp8, works if the local
     tensor is wrapped in DTensor.
@@ -20,8 +20,8 @@ def tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
         return True
     elif isinstance(tensor, DTensor):
         # TODO: shall we stick to public API and directly use tensor.to_local() here?
-        return tensor_already_casted_to_fp8(tensor._local_tensor)
+        return _tensor_already_casted_to_fp8(tensor._local_tensor)
     elif isinstance(tensor, funcol.AsyncCollectiveTensor):
-        return tensor_already_casted_to_fp8(tensor.elem)
+        return _tensor_already_casted_to_fp8(tensor.elem)
 
     return False

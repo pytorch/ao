@@ -40,7 +40,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_scaling_utils import _hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import GemmInputRole
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parity_no_mp
@@ -337,7 +337,7 @@ class Test2DParallelMultiThread(FSDPTestMultiThread, TestFloat8Common):
             # rank 2 and 4 are doing nothing but waiting for the 1st stage
             torch.manual_seed(42 + self.rank)
             hp_tensor = torch.randn(768, 32, device="cuda")
-            hp_tensor_to_float8_dynamic(
+            _hp_tensor_to_float8_dynamic(
                 hp_tensor,
                 torch.float8_e4m3fn,
                 Float8LinearConfig(

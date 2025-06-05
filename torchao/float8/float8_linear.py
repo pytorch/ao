@@ -13,16 +13,16 @@ import torch
 import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
-from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
+from torchao.float8.distributed_utils import _tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
-    get_maybe_axiswise_dim,
-    hp_tensor_to_float8_dynamic,
+    _get_maybe_axiswise_dim,
+    _hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
-    hp_tensor_and_scale_to_float8,
+    _hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
@@ -33,7 +33,7 @@ def _get_weight_scale(
     scaling_type_weight: ScalingType,
     config: Float8LinearConfig,
 ) -> Optional[torch.Tensor]:
-    if tensor_already_casted_to_fp8(weight):
+    if _tensor_already_casted_to_fp8(weight):
         return None
     assert scaling_type_weight is ScalingType.DYNAMIC
     return tensor_to_scale(weight, config.cast_config_weight.target_dtype)
@@ -45,9 +45,9 @@ def _cast_weight_to_float8_t(
     linear_mm_config: LinearMMConfig,
     weight_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    if tensor_already_casted_to_fp8(weight):
+    if _tensor_already_casted_to_fp8(weight):
         return weight.t()
-    weight_fp8 = hp_tensor_and_scale_to_float8(
+    weight_fp8 = _hp_tensor_and_scale_to_float8(
         weight,
         weight_scale,
         config.cast_config_weight.target_dtype,
@@ -58,7 +58,7 @@ def _cast_weight_to_float8_t(
 
 
 @torch._dynamo.allow_in_graph
-class matmul_with_hp_or_float8_args(torch.autograd.Function):
+class _matmul_with_hp_or_float8_args(torch.autograd.Function):
     """
     Like torch.matmul, but with the arguments in either high precision or float8.
     * if the arguments are in high precision, they are cast to float8 according
@@ -80,35 +80,35 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
 
         c = config
 
-        if tensor_already_casted_to_fp8(input_hp):
+        if _tensor_already_casted_to_fp8(input_hp):
             input_maybe_fp8 = input_hp
         elif c.cast_config_input.scaling_type is ScalingType.DISABLED:
             input_maybe_fp8 = input_hp
         else:
-            input_maybe_fp8 = hp_tensor_to_float8_dynamic(
+            input_maybe_fp8 = _hp_tensor_to_float8_dynamic(
                 input_hp,
                 c.cast_config_input.target_dtype,
                 linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=c.cast_config_input.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
+                axiswise_dim=_get_maybe_axiswise_dim(
                     -1, c.cast_config_input.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        if tensor_already_casted_to_fp8(weight_hp_t):
+        if _tensor_already_casted_to_fp8(weight_hp_t):
             weight_maybe_fp8_t = weight_hp_t
         elif c.cast_config_weight.scaling_type is ScalingType.DISABLED:
             weight_maybe_fp8_t = weight_hp_t
         else:
-            weight_maybe_fp8_t = hp_tensor_to_float8_dynamic(
+            weight_maybe_fp8_t = _hp_tensor_to_float8_dynamic(
                 weight_hp_t,
                 c.cast_config_weight.target_dtype,
                 linear_mm_config,
                 gemm_input_role=GemmInputRole.WEIGHT,
                 scaling_granularity=c.cast_config_weight.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
+                axiswise_dim=_get_maybe_axiswise_dim(
                     0, c.cast_config_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
@@ -136,25 +136,25 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         # calculate grad_input
         #
 
-        if tensor_already_casted_to_fp8(grad_output_reshaped):
+        if _tensor_already_casted_to_fp8(grad_output_reshaped):
             # TODO(future PR): this var name is axiswise-specific, fix it
             grad_output_reshaped_maybe_fp8_dim0 = grad_output_reshaped
         elif c.cast_config_grad_output.scaling_type is ScalingType.DISABLED:
             grad_output_reshaped_maybe_fp8_dim0 = grad_output_reshaped
         else:
-            grad_output_reshaped_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
+            grad_output_reshaped_maybe_fp8_dim0 = _hp_tensor_to_float8_dynamic(
                 grad_output_reshaped,
                 c.cast_config_grad_output.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.GRAD_OUTPUT,
                 scaling_granularity=c.cast_config_grad_output.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
+                axiswise_dim=_get_maybe_axiswise_dim(
                     -1, c.cast_config_grad_output.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        if tensor_already_casted_to_fp8(weight_hp_t):
+        if _tensor_already_casted_to_fp8(weight_hp_t):
             # TODO(future PR): var name is axiswise specific, fix it
             weight_t_maybe_fp8_dim0 = weight_hp_t
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
@@ -175,13 +175,13 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             # to be solved to have a chance to reuse max(abs(weight, dim=...))
             # from the forward to get max(abs(weight)) here without reading
             # the entire tensor.
-            weight_t_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
+            weight_t_maybe_fp8_dim0 = _hp_tensor_to_float8_dynamic(
                 weight_hp_t,
                 c.cast_config_weight_for_grad_input.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.WEIGHT,
                 scaling_granularity=c.cast_config_weight_for_grad_input.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
+                axiswise_dim=_get_maybe_axiswise_dim(
                     -1, c.cast_config_weight_for_grad_input.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
@@ -202,7 +202,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         # calculate grad_weight
         #
 
-        if tensor_already_casted_to_fp8(grad_output_reshaped):
+        if _tensor_already_casted_to_fp8(grad_output_reshaped):
             # TODO(future PR): var name is axiswise specific, fix it
             grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
         elif (
@@ -211,31 +211,31 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         ):
             grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
         else:
-            grad_output_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
+            grad_output_reshaped_maybe_fp8_dim1 = _hp_tensor_to_float8_dynamic(
                 grad_output_reshaped,
                 c.cast_config_grad_output_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.GRAD_OUTPUT,
                 scaling_granularity=c.cast_config_grad_output_for_grad_weight.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
+                axiswise_dim=_get_maybe_axiswise_dim(
                     0, c.cast_config_grad_output_for_grad_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        if tensor_already_casted_to_fp8(input_hp_reshaped):
+        if _tensor_already_casted_to_fp8(input_hp_reshaped):
             # TODO(future PR): var name is axiswise specific, fix it
             input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
         elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
             input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
         else:
-            input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
+            input_reshaped_maybe_fp8_dim1 = _hp_tensor_to_float8_dynamic(
                 input_hp_reshaped,
                 c.cast_config_input_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=c.cast_config_input_for_grad_weight.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
+                axiswise_dim=_get_maybe_axiswise_dim(
                     0, c.cast_config_input_for_grad_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
@@ -349,7 +349,7 @@ class Float8Linear(torch.nn.Linear):
 
             weight_maybe_fp8_t = weight_fp8_t
 
-        output = matmul_with_hp_or_float8_args.apply(
+        output = _matmul_with_hp_or_float8_args.apply(
             input,
             weight_maybe_fp8_t,
             self.linear_mm_config,

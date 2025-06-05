@@ -16,9 +16,9 @@ from torchao.float8.float8_tensor import (
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
-    hp_tensor_and_scale_to_float8,
+    _hp_tensor_and_scale_to_float8,
 )
-from torchao.float8.float8_utils import pad_tensor_for_matmul
+from torchao.float8.float8_utils import _pad_tensor_for_matmul
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
 # assuming A * B = C, with A being M * K, B being K * N, C being M * N
@@ -63,14 +63,14 @@ def do_fp8_matmul(A, B, fp8_dtype, out_dtype):
     a_config = LinearMMConfig(a_config, a_config, a_config)
     b_config = LinearMMConfig(b_config, b_config, b_config)
 
-    a_fp8 = hp_tensor_and_scale_to_float8(
+    a_fp8 = _hp_tensor_and_scale_to_float8(
         A,
         scale_a,
         fp8_dtype,
         a_config,
         GemmInputRole.INPUT,
     )
-    b_fp8 = hp_tensor_and_scale_to_float8(
+    b_fp8 = _hp_tensor_and_scale_to_float8(
         B,
         scale_b,
         fp8_dtype,
@@ -84,8 +84,8 @@ def do_fp8_matmul(A, B, fp8_dtype, out_dtype):
 def do_fp8_pad_first_matmul(A, B, fp8_dtype, out_dtype):
     # Breaks with compile due to trying to pad on fp8 dtype
     # return do_fp8_matmul(A, B, fp8_dtype, out_dtype)
-    A_pad = pad_tensor_for_matmul(A, dims=1)  # mem copy
-    B_pad = pad_tensor_for_matmul(B, dims=0)  # mem copy
+    A_pad = _pad_tensor_for_matmul(A, dims=1)  # mem copy
+    B_pad = _pad_tensor_for_matmul(B, dims=0)  # mem copy
 
     scale_a = torch.tensor([1], device="cuda", dtype=torch.float32)
     scale_b = torch.tensor([1], device="cuda", dtype=torch.float32)
@@ -105,8 +105,8 @@ def do_hp_matmul(A, B):
 
 
 def do_aligned_bf16_matmul(A, B):
-    A_pad = pad_tensor_for_matmul(A, dims=1)
-    B_pad = pad_tensor_for_matmul(B, dims=0)
+    A_pad = _pad_tensor_for_matmul(A, dims=1)
+    B_pad = _pad_tensor_for_matmul(B, dims=0)
     return torch.matmul(A_pad, B_pad)
 
 

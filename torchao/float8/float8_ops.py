@@ -8,8 +8,8 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 from torch.utils._pytree import tree_map
 
-from torchao.float8.float8_tensor import Float8Tensor, choose_scaled_mm_config
-from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.float8_tensor import Float8Tensor, _choose_scaled_mm_config
+from torchao.float8.float8_utils import _is_row_major, _pad_tensor_for_matmul
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
@@ -22,7 +22,7 @@ FLOAT8_OPS_TABLE: Dict[Any, Any] = {}
 # Cublas defines scale to always mean a multiplicative factor for the respective matrices
 # For a,b going from fp8 -> fp32 we multiple by the inverse of the scale
 # For output going from fp32 -> fp8 we multiply by the scale
-def addmm_float8_unwrapped(
+def _addmm_float8_unwrapped(
     a_data: torch.Tensor,
     a_scale: torch.Tensor,
     b_data: torch.Tensor,
@@ -112,7 +112,7 @@ def implements(aten_ops):
         aten.reshape.default,
     ]
 )
-def float8_desugar_op(aten_op, args, kwargs=None):
+def _float8_desugar_op(aten_op, args, kwargs=None):
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     new_data = aten_op(args[0]._data, *args[1:], **kwargs)
     return Float8Tensor(
@@ -129,7 +129,7 @@ def float8_desugar_op(aten_op, args, kwargs=None):
         aten.detach.default,
     ]
 )
-def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
+def _float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
     new_data = aten_op(args[0]._data, *args[1:], **kwargs)
     new_scale = aten_op(args[0]._scale, *args[1:], **kwargs)
     return Float8Tensor(
@@ -147,7 +147,7 @@ def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
         aten.transpose.int,
     ]
 )
-def float8_transpose(aten_op, args, kwargs=None):
+def _float8_transpose(aten_op, args, kwargs=None):
     new_data = aten_op(args[0]._data, *args[1:], **kwargs)
     if args[0]._scale.ndim > 1:
         new_scale = aten_op(args[0]._scale, *args[1:], **kwargs)
@@ -176,7 +176,7 @@ def float8_transpose(aten_op, args, kwargs=None):
 
 
 @implements([aten.view.default])
-def float8_view(aten_op, args, kwargs=None):
+def _float8_view(aten_op, args, kwargs=None):
     t, new_shape = args[0], args[1]
 
     # if the new shape is the same as old, return an equivalent tensor
@@ -194,7 +194,7 @@ def float8_view(aten_op, args, kwargs=None):
 
     if len(args[0]._scale.shape) < 2:
         # tensorwise scaling
-        return float8_desugar_op(aten_op, args, kwargs)
+        return _float8_desugar_op(aten_op, args, kwargs)
 
     # for now, only support reshaping to [-1, dim] or [dim, -1]
     axiswise_dim = t._axiswise_dim
@@ -231,7 +231,7 @@ def float8_view(aten_op, args, kwargs=None):
 
 
 @implements([aten.split.Tensor])
-def float8_split(aten_op, args, kwargs=None):
+def _float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
     _assert_tensorwise_scale(aten_op, args[0]._scale)
 
@@ -250,7 +250,7 @@ def float8_split(aten_op, args, kwargs=None):
 
 # Errors cant `cat_cuda float8 e4m3fn`
 @implements([aten.cat.default])
-def float8_cat(aten_op, args, kwargs=None):
+def _float8_cat(aten_op, args, kwargs=None):
     chunked_tensors: Tuple[Float8Tensor] = args[0]
 
     orig_dtype = chunked_tensors[0]._orig_dtype
@@ -287,7 +287,7 @@ def float8_cat(aten_op, args, kwargs=None):
 
 
 @implements([aten.sum.dim_IntList])
-def float8_cast_up_op(aten_op, args, kwargs=None):
+def _float8_cast_up_op(aten_op, args, kwargs=None):
     """Be careful with this function, this is a "fallback" op that
     casts the output of the op to the original precision. And performs the op.
 
@@ -307,12 +307,12 @@ def float8_cast_up_op(aten_op, args, kwargs=None):
     return aten_op(*new_args, **new_kwargs)
 
 
-def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
+def _preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     a_data = a._data
     a_scale = a._scale
     b_data = b._data
 
-    scaled_mm_config = choose_scaled_mm_config(
+    scaled_mm_config = _choose_scaled_mm_config(
         a._gemm_input_role,
         a._linear_mm_config,
         b._gemm_input_role,
@@ -323,12 +323,12 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
         assert a._data.size(1) == b._data.size(0), (
             f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
         )
-        a_data = pad_tensor_for_matmul(a_data, dims=1)
-        b_data = pad_tensor_for_matmul(b_data, dims=0)
+        a_data = _pad_tensor_for_matmul(a_data, dims=1)
+        b_data = _pad_tensor_for_matmul(b_data, dims=0)
 
-    if not is_row_major(a_data.stride()):
+    if not _is_row_major(a_data.stride()):
         a_data = a_data.contiguous()
-    if is_row_major(b_data.stride()):
+    if _is_row_major(b_data.stride()):
         b_data = b_data.t().contiguous().t()
     b_scale = b._scale
 
@@ -349,7 +349,7 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
 
 
 @implements([aten.mm.default, aten.matmul.default])
-def float8_mm(aten_op, args, kwargs=None):
+def _float8_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
 
@@ -358,9 +358,9 @@ def float8_mm(aten_op, args, kwargs=None):
             type(a), type(b)
         )
     )
-    a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
+    a_data, a_scale, b_data, b_scale = _preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
-    scaled_mm_config = choose_scaled_mm_config(
+    scaled_mm_config = _choose_scaled_mm_config(
         a._gemm_input_role,
         a._linear_mm_config,
         b._gemm_input_role,
@@ -370,7 +370,7 @@ def float8_mm(aten_op, args, kwargs=None):
         return torch.mm(a._data.float() / a._scale, b._data.float() / b._scale).to(
             output_dtype
         )
-    tensor_out = addmm_float8_unwrapped(
+    tensor_out = _addmm_float8_unwrapped(
         a_data,
         a_scale,
         b_data,
@@ -384,7 +384,7 @@ def float8_mm(aten_op, args, kwargs=None):
 
 
 @implements([aten.addmm.default])
-def float8_addmm(aten_op, args, kwargs=None):
+def _float8_addmm(aten_op, args, kwargs=None):
     assert (
         isinstance(args[0], torch.Tensor)
         and isinstance(args[1], Float8Tensor)
@@ -393,10 +393,10 @@ def float8_addmm(aten_op, args, kwargs=None):
     bias = args[0]
     a = args[1]
     b = args[2]
-    a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
+    a_data, a_scale, b_data, b_scale = _preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     assert bias.dtype == output_dtype, "bias dtype must match output dtype"
-    scaled_mm_config = choose_scaled_mm_config(
+    scaled_mm_config = _choose_scaled_mm_config(
         a._gemm_input_role,
         a._linear_mm_config,
         b._gemm_input_role,
@@ -407,7 +407,7 @@ def float8_addmm(aten_op, args, kwargs=None):
             output_dtype
         )
         return out + bias
-    tensor_out = addmm_float8_unwrapped(
+    tensor_out = _addmm_float8_unwrapped(
         a_data,
         a_scale,
         b_data,
@@ -421,13 +421,13 @@ def float8_addmm(aten_op, args, kwargs=None):
 
 
 @implements([aten.is_same_size.default])
-def float8_is_same_size(aten_op, args, kwargs=None):
+def _float8_is_same_size(aten_op, args, kwargs=None):
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     return args[0].shape == args[1].shape
 
 
 @implements([aten._to_copy.default])
-def autocast_to_copy(aten_op, args, kwargs=None):
+def _autocast_to_copy(aten_op, args, kwargs=None):
     """This gets called when running matmul under autocast
     when the input is a Float8Tensor, presenting as a fp32
     tensor.
@@ -456,7 +456,7 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         _c10d_functional.all_gather_into_tensor.default,
     ]
 )
-def allgather_fp8(aten_op, args, kwargs=None):
+def _allgather_fp8(aten_op, args, kwargs=None):
     """
     override funcol with FP8 handling
     """
@@ -479,7 +479,7 @@ def allgather_fp8(aten_op, args, kwargs=None):
 
 
 @implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
-def wait_tensor_fp8(aten_op, args, kwargs=None):
+def _wait_tensor_fp8(aten_op, args, kwargs=None):
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     fp8_input = args[0]
     assert isinstance(fp8_input, Float8Tensor)
@@ -496,7 +496,7 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
 
 
 @implements([aten.index_put_.default])
-def index_put_fp8(aten_op, args, kwargs=None):
+def _index_put_fp8(aten_op, args, kwargs=None):
     fp8_self = args[0]
     fp8_values = args[2]
     assert isinstance(fp8_self, Float8Tensor)
@@ -519,7 +519,7 @@ def index_put_fp8(aten_op, args, kwargs=None):
 
 
 @implements([aten.copy_.default])
-def copy_fp8(aten_op, args, kwargs=None):
+def _copy_fp8(aten_op, args, kwargs=None):
     # For a copy op with Float8Tensors involved, only the following combinations are allowed:
     # 1. self is a high precision (hp) tensor, src is a Float8Tensor:
     #    in this case src is upcasted and unscaled to go into the hp tensor

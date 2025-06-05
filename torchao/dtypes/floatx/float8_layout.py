@@ -19,8 +19,8 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
 from torchao.float8.inference import (
     Float8MMConfig,
+    _addmm_float8_unwrapped_inference,
     _is_rowwise_scaled,
-    addmm_float8_unwrapped_inference,
     preprocess_data,
 )
 from torchao.utils import _is_float8_type, fill_defaults
@@ -413,7 +413,7 @@ def _linear_fp8_act_fp8_weight_impl(
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
     # Perform the computation
-    return addmm_float8_unwrapped_inference(
+    return _addmm_float8_unwrapped_inference(
         inpt_data,
         input_scale,
         w_data,
