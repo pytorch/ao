@@ -24,7 +24,9 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
+from torchao.float8.config import e4m3_dtype
 from torchao.quantization import (
+    FbgemmConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
@@ -45,6 +47,7 @@ from torchao.utils import (
     is_fbcode,
     is_ROCM,
     is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 is_cusparselt_available = (
@@ -98,6 +101,10 @@ def get_quantization_functions(
 
     if is_sm_at_least_89():
         base_functions.append(float8_weight_only())
+
+    if is_sm_at_least_90():
+        base_functions.append(FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16))
+        base_functions.append(FbgemmConfig(e4m3_dtype, e4m3_dtype, torch.bfloat16))
 
     return base_functions
 
