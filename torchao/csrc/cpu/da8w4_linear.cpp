@@ -9,20 +9,17 @@ namespace {
 
 #define BLOCK_N 32
 
-static bool use_cpublas_checked = false;
-static bool use_cpublas = false;
+static bool cpublas_checked = false;
+static bool cpublas_can_pack = false;
 
-bool da8w4_can_pack_weight() {
-#if defined(CPU_CAPABILITY_AVX512)
-  if (use_cpublas_checked) {
-    return use_cpublas;
+bool cpublas_could_pack() {
+  // the could_pack check requires AMX support implicitly
+  if (cpublas_checked) {
+    return cpublas_can_pack;
   }
-  use_cpublas = at::native::cpublas::could_pack(at::kByte);
-  use_cpublas_checked = true;
-  return use_cpublas;
-#else
-  return false;
-#endif
+  cpublas_can_pack = at::native::cpublas::could_pack(at::kByte);
+  cpublas_checked = true;
+  return cpublas_can_pack;
 }
 
 /*
@@ -71,7 +68,7 @@ da8w4_linear_prepack_impl(
   at::Tensor compensation = weight_view.to(at::kInt).sub(8).sum(-1);
   compensation = compensation.permute({0, 2, 1}).contiguous().to(at::kInt);
 
-  if (da8w4_can_pack_weight()) {
+  if (cpublas_could_pack()) {
     blocked_weight = at::empty({Nc, Kc, block_k, block_n / 2}, weight.options());
     auto weight_ptr = weight_reordered.data_ptr<uint8_t>();
     auto blocked_weight_ptr = blocked_weight.data_ptr<uint8_t>();
@@ -421,7 +418,7 @@ void _dequant_gemm_accum_small_M(
       ldc);
 #endif
 
-template <bool use_cpublas, int64_t N, int64_t ldb, bool sym_quant_a>
+template <bool cpublas_can_pack, int64_t N, int64_t ldb, bool sym_quant_a>
 void _dequant_gemm_accum(
     float* C,
     const uint8_t* A,
@@ -438,7 +435,7 @@ void _dequant_gemm_accum(
   // Compute GEMM int8 * int8 -> int32
   // dequant result to float by applying scales/qzeros
 #if defined(CPU_CAPABILITY_AVX512_VNNI)
-  if (M <= 4) {
+  if (M <= 4 && cpublas_can_pack) {
     switch (M) {
       case 1:
         call_dequant_gemm_accum_small_M(1);
@@ -461,7 +458,7 @@ void _dequant_gemm_accum(
   using Tin = typename ActDtype<sym_quant_a>::type;
   Tin* A_ptr = (Tin*)A;
 #if defined(CPU_CAPABILITY_AVX512)
-  if constexpr (use_cpublas) {
+  if constexpr (cpublas_can_pack) {
     int32_t C_i32[M * N];
     at::native::cpublas::brgemm(
         M,
@@ -585,7 +582,7 @@ inline void store_out(const float* y_buf, out_dtype* c_ptr, int64_t m, /* int64_
   }
 }
 
-template<typename out_dtype, bool use_cpublas, bool sym_quant_a>
+template<typename out_dtype, bool cpublas_can_pack, bool sym_quant_a>
 void _da8w4_linear_impl(
     const at::Tensor& input,
     const at::Tensor& input_scales,
@@ -660,7 +657,7 @@ void _da8w4_linear_impl(
         auto bias_data = bias_ptr ? bias_ptr + nc * block_n : nullptr;
         copy_bias<block_n>(bias_data, y_buf[0], m_size);
         for (int kci = 0; kci < Kc; ++kci) {
-          _dequant_gemm_accum<use_cpublas, block_n, block_n / 2, sym_quant_a>(
+          _dequant_gemm_accum<cpublas_can_pack, block_n, block_n / 2, sym_quant_a>(
             y_buf[0] /*C*/,
             (uint8_t*)a_ptr + mci * block_m * K + kci * block_k /*A*/,
             a_scales_ptr + mci * block_m /*scales_a*/,
@@ -682,7 +679,7 @@ void _da8w4_linear_impl(
           N /*lda*/);
       }
     }
-    if constexpr (use_cpublas) {
+    if constexpr (cpublas_can_pack) {
       at::native::cpublas::brgemm_release();
     }
   });
@@ -698,17 +695,17 @@ at::Tensor da8w4_linear_impl(
     const at::Tensor& compensation,
     const std::optional<at::Tensor>& bias,
     at::ScalarType output_dtype) {
-  static bool use_cpublas = da8w4_can_pack_weight();
+  static bool cpublas_can_pack = cpublas_could_pack();
   bool sym_quant_a = input.scalar_type() == c10::kChar;
   auto out_sizes = input.sizes().vec();
   int64_t N = weight.size(0) * weight.size(-1) * 2;
   out_sizes.back() = N;
   auto output = at::empty(out_sizes, input.options().dtype(output_dtype));
 
-#define call__da8w4_linear_impl(use_cpublas, sym_quant_act) \
+#define call__da8w4_linear_impl(cpublas_can_pack, sym_quant_act) \
     AT_DISPATCH_FLOATING_TYPES_AND2( \
         at::ScalarType::BFloat16, at::ScalarType::Half, output_dtype, "da8w4_linear_cpu", [&] { \
-          _da8w4_linear_impl<scalar_t, use_cpublas, sym_quant_act>( \
+          _da8w4_linear_impl<scalar_t, cpublas_can_pack, sym_quant_act>( \
               input, \
               input_scales, \
               input_qzeros, \
@@ -720,7 +717,7 @@ at::Tensor da8w4_linear_impl(
               output); \
         });
 
-  if (use_cpublas) {
+  if (cpublas_can_pack) {
     if (sym_quant_a) {
       call__da8w4_linear_impl(true, true);
     } else {
