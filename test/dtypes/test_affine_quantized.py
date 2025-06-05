@@ -371,11 +371,80 @@ class TestAffineQuantizedBasic(TestCase):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8
         # to test slice + padding for int4 weight only quantization
-        dummy = nn.Linear(256, 512, dtype=dtype, device=device)
-        quantize_(dummy, GemliteUIntXWeightOnlyConfig())
+        in_features, out_features, group_size, bit_width = 256, 512, 64, 4
+        orig_shape = [out_features, in_features]
+        dummy = nn.Linear(
+            in_features, out_features, bias=False, dtype=dtype, device=device
+        )
+        quantize_(
+            dummy,
+            GemliteUIntXWeightOnlyConfig(bit_width=bit_width, group_size=group_size),
+        )
+        W_group_mode = dummy.weight.tensor_impl.gemlite_kwargs["meta_args"][10]
+
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
+
+        # Dequant op
+        import gemlite
+
+        def dequant(input_layer, in_features, orig_shape):
+            int_data = input_layer.tensor_impl.packed_weight
+            scale = input_layer.tensor_impl.scale
+            zero_point = input_layer.tensor_impl.zero_point
+
+            W_q = (
+                gemlite.bitpack.unpack_over_rows(
+                    int_data,
+                    W_nbits=bit_width,
+                    num_output_rows=in_features,
+                    dtype=torch.uint8,
+                )
+                .T.contiguous()
+                .view([-1, group_size])
+            )
+
+            s = scale.t().contiguous().view(-1, 1)
+            z = zero_point.t().contiguous().view(-1, 1)
+
+            if W_group_mode == 4:  # FMA
+                W_deq = (W_q * s + z).view(orig_shape)
+            else:
+                W_deq = ((W_q - z) * s).view(orig_shape)
+
+            return W_deq
+
+        W_r = dequant(dummy.weight, dummy.in_features, orig_shape)
+
+        # Slicing in half
+        for slice_axis, start, end in [
+            (0, 0, 256),
+            (0, 256, 256),
+            (1, 0, 128),
+            (1, 128, 128),
+        ]:
+            layer_sliced = dummy.weight.narrow(slice_axis, start, end)
+
+            if slice_axis == 0:
+                num_rows, out_shape = (
+                    dummy.in_features,
+                    (orig_shape[0] // 2, orig_shape[1]),
+                )
+            else:
+                num_rows, out_shape = (
+                    dummy.in_features // 2,
+                    (orig_shape[0], orig_shape[1] // 2),
+                )
+
+            W_slice = dequant(layer_sliced, num_rows, out_shape)
+
+            W_slice_ref = (
+                W_r[start : start + end, :]
+                if slice_axis == 0
+                else W_r[:, start : start + end]
+            )
+            self.assertEqual((W_slice_ref - W_slice).abs().mean().item(), 0)
 
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
