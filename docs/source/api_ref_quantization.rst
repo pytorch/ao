@@ -36,6 +36,8 @@ Quantization APIs for quantize_
     Float8StaticActivationFloat8WeightConfig
     FPXWeightOnlyConfig
 
+.. currentmodule:: torchao.quantization.qat
+
 QAT APIs for quantize_
 ----------------------
 
@@ -53,6 +55,8 @@ QAT APIs for quantize_
     initialize_fake_quantizers
     intx_quantization_aware_training
     from_intx_quantization_aware_training
+
+.. currentmodule:: torchao.quantization
 
 Quantization Primitives
 -----------------------
