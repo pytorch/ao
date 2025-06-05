@@ -37,17 +37,17 @@ from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
-from torchao.float8.float8_ops import addmm_float8_unwrapped
+from torchao.float8.float8_ops import _addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
-    get_maybe_axiswise_dim,
-    hp_tensor_to_float8_dynamic,
+    _get_maybe_axiswise_dim,
+    _hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
-    hp_tensor_and_scale_to_float8,
+    _hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import (
     FP8_TYPES,
@@ -76,7 +76,7 @@ class TestFloat8Tensor:
         for hp_dtype, lp_dtype in itertools.product(hp_dtypes, lp_dtypes):
             x1_hp = torch.randn(4, 4, dtype=hp_dtype)
             x1_s = tensor_to_scale(x1_hp, lp_dtype)
-            x2_lp = hp_tensor_and_scale_to_float8(x1_hp, x1_s, lp_dtype)
+            x2_lp = _hp_tensor_and_scale_to_float8(x1_hp, x1_s, lp_dtype)
             x3_hp = x2_lp.to_original_precision()
             assert x3_hp.dtype == hp_dtype
 
@@ -86,7 +86,7 @@ class TestFloat8Tensor:
             x = torch.randn(1).requires_grad_()
             grad = torch.randn(1)
             x_s = tensor_to_scale(x, f8_dtype)
-            x_f8 = hp_tensor_and_scale_to_float8(x, x_s, f8_dtype)
+            x_f8 = _hp_tensor_and_scale_to_float8(x, x_s, f8_dtype)
             x_f8_hp = x_f8.to_original_precision()
             x_f8_hp.backward(grad)
             # the gradient should be unchanged through both casts
@@ -95,7 +95,7 @@ class TestFloat8Tensor:
     def test_split_cat(self):
         a = torch.rand(16, 16, dtype=torch.bfloat16)
         scale = tensor_to_scale(a, e4m3_dtype)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale, e4m3_dtype)
+        fp8_a = _hp_tensor_and_scale_to_float8(a, scale, e4m3_dtype)
 
         splits = torch.split(fp8_a, 16)
         catted = torch.cat(splits, dim=0)
@@ -104,14 +104,14 @@ class TestFloat8Tensor:
     def test_index_put(self):
         a = torch.rand(16, dtype=torch.bfloat16)
         scale_a = tensor_to_scale(a, e4m3_dtype)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
+        fp8_a = _hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
 
         index = torch.randint(0, 15, (16,), dtype=torch.long)
 
         b = torch.rand(16, 16, dtype=torch.bfloat16)
         scale_b = tensor_to_scale(b, e4m3_dtype)
-        fp8_b = hp_tensor_and_scale_to_float8(b, scale_a, e4m3_dtype)
-        fp8_b_bad = hp_tensor_and_scale_to_float8(b, scale_b, e4m3_dtype)
+        fp8_b = _hp_tensor_and_scale_to_float8(b, scale_a, e4m3_dtype)
+        fp8_b_bad = _hp_tensor_and_scale_to_float8(b, scale_b, e4m3_dtype)
 
         with pytest.raises(AssertionError):
             b[index] = fp8_a
@@ -122,7 +122,7 @@ class TestFloat8Tensor:
     def test_copy_(self):
         a = torch.rand(16, dtype=torch.bfloat16)
         scale_a = tensor_to_scale(a, e4m3_dtype)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
+        fp8_a = _hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
 
         b = torch.empty(16, dtype=torch.bfloat16)
         b.copy_(fp8_a)  # Should work
@@ -143,10 +143,10 @@ class TestFloat8Tensor:
         a = torch.rand((16, 16), dtype=torch.bfloat16)
         for axiswise_dim in (None, 0, -1):
             scale_a = tensor_to_scale(a, e4m3_dtype)
-            fp8_a = hp_tensor_and_scale_to_float8(
+            fp8_a = _hp_tensor_and_scale_to_float8(
                 a, scale_a, e4m3_dtype, axiswise_dim=axiswise_dim
             )
-            fp8_b = hp_tensor_and_scale_to_float8(
+            fp8_b = _hp_tensor_and_scale_to_float8(
                 a, scale_a, e4m3_dtype, axiswise_dim=axiswise_dim
             )
 
@@ -166,7 +166,7 @@ class TestFloat8Tensor:
     ):
         a = torch.randn(*shape, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
-        a_fp8 = hp_tensor_to_float8_dynamic(
+        a_fp8 = _hp_tensor_to_float8_dynamic(
             a,
             e4m3_dtype,
             linear_mm_config,
@@ -183,7 +183,7 @@ class TestFloat8Tensor:
         linear_mm_config = LinearMMConfig()
 
         # if we scale across dim0, we can only reshape to [3, -1]
-        a_fp8_d0 = hp_tensor_to_float8_dynamic(
+        a_fp8_d0 = _hp_tensor_to_float8_dynamic(
             a,
             e4m3_dtype,
             linear_mm_config,
@@ -207,7 +207,7 @@ class TestFloat8Tensor:
             a_fp8_d0.reshape(-1, 7)
 
         # if we scale across dim2, we can only reshape to [-1, 7]
-        a_fp8_d2 = hp_tensor_to_float8_dynamic(
+        a_fp8_d2 = _hp_tensor_to_float8_dynamic(
             a,
             e4m3_dtype,
             linear_mm_config,
@@ -247,23 +247,23 @@ class TestFloat8Tensor:
 
         linear_mm_config = LinearMMConfig()
 
-        a_fp8 = hp_tensor_to_float8_dynamic(
+        a_fp8 = _hp_tensor_to_float8_dynamic(
             a,
             e4m3_dtype,
             linear_mm_config,
             gemm_input_role=GemmInputRole.INPUT,
             scaling_granularity=a_granularity,
-            axiswise_dim=get_maybe_axiswise_dim(-1, a_granularity),
+            axiswise_dim=_get_maybe_axiswise_dim(-1, a_granularity),
         )
         a_fp8 = a_fp8.reshape(-1, a_shape[-1])
 
-        b_fp8 = hp_tensor_to_float8_dynamic(
+        b_fp8 = _hp_tensor_to_float8_dynamic(
             b,
             e4m3_dtype,
             linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
             scaling_granularity=b_granularity,
-            axiswise_dim=get_maybe_axiswise_dim(-1, b_granularity),
+            axiswise_dim=_get_maybe_axiswise_dim(-1, b_granularity),
         )
 
         c_fp8_compute = torch.mm(a_fp8, b_fp8.t())
@@ -528,10 +528,10 @@ class TestScaledMM:
         a_scale = tensor_to_scale(a, input_dtype).float()
         b_scale = tensor_to_scale(b, input_dtype).float()
 
-        a_fp8 = hp_tensor_and_scale_to_float8(a, a_scale, input_dtype)
-        b_fp8 = hp_tensor_and_scale_to_float8(b, b_scale, input_dtype)
+        a_fp8 = _hp_tensor_and_scale_to_float8(a, a_scale, input_dtype)
+        b_fp8 = _hp_tensor_and_scale_to_float8(b, b_scale, input_dtype)
 
-        out_scaled_mm = addmm_float8_unwrapped(
+        out_scaled_mm = _addmm_float8_unwrapped(
             a_fp8._data,
             a_fp8._scale,
             b_fp8._data,
@@ -569,14 +569,14 @@ class TestScaledMM:
             ScaledMMConfig(True, False, False, False),
             ScaledMMConfig(True, False, False, False),
         )
-        a = hp_tensor_and_scale_to_float8(
+        a = _hp_tensor_and_scale_to_float8(
             x_fp32,
             x_scale,
             fp8_dtype,
             linear_config_a,
             GemmInputRole.INPUT,
         )
-        b = hp_tensor_and_scale_to_float8(
+        b = _hp_tensor_and_scale_to_float8(
             x_fp32,
             x_scale,
             fp8_dtype,
@@ -608,10 +608,10 @@ class TestScaledMM:
         a_scale = tensor_to_scale(a, input_dtype).float()
         b_scale = tensor_to_scale(b, input_dtype).float()
 
-        a_fp8 = hp_tensor_and_scale_to_float8(
+        a_fp8 = _hp_tensor_and_scale_to_float8(
             a, a_scale, input_dtype, None, GemmInputRole.INPUT
         )
-        b_fp8 = hp_tensor_and_scale_to_float8(
+        b_fp8 = _hp_tensor_and_scale_to_float8(
             b, b_scale, input_dtype, None, GemmInputRole.WEIGHT
         )
 
@@ -628,14 +628,14 @@ class TestScaledMM:
             scaled_mm_config, scaled_mm_config, scaled_mm_config
         )
 
-        a_fp8 = hp_tensor_and_scale_to_float8(
+        a_fp8 = _hp_tensor_and_scale_to_float8(
             a,
             a_scale,
             input_dtype,
             pad_config,
             GemmInputRole.INPUT,
         )
-        b_fp8 = hp_tensor_and_scale_to_float8(
+        b_fp8 = _hp_tensor_and_scale_to_float8(
             b,
             b_scale,
             input_dtype,
@@ -651,14 +651,14 @@ class TestScaledMM:
             emulated_scaled_mm_config,
             emulated_scaled_mm_config,
         )
-        a_fp8 = hp_tensor_and_scale_to_float8(
+        a_fp8 = _hp_tensor_and_scale_to_float8(
             a,
             a_scale,
             input_dtype,
             emulated_config,
             GemmInputRole.INPUT,
         )
-        b_fp8 = hp_tensor_and_scale_to_float8(
+        b_fp8 = _hp_tensor_and_scale_to_float8(
             b,
             b_scale,
             input_dtype,
@@ -813,19 +813,19 @@ class TestFloat8LinearUtils(unittest.TestCase):
 
             # Overflow caused by a too large scaling factor
             s_overflow = torch.tensor(1e9)
-            fp8_overflow = hp_tensor_and_scale_to_float8(x1_hp, s_overflow, lp_dtype)
+            fp8_overflow = _hp_tensor_and_scale_to_float8(x1_hp, s_overflow, lp_dtype)
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_overflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (0, tensor_len))
 
             # Underflow caused by a too small scaling factor
             s_underflow = torch.tensor(1e-9)
-            fp8_underflow = hp_tensor_and_scale_to_float8(x1_hp, s_underflow, lp_dtype)
+            fp8_underflow = _hp_tensor_and_scale_to_float8(x1_hp, s_underflow, lp_dtype)
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_underflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (tensor_len, 0))
 
             # Both overflow and underflow
             x2_hp = torch.cat((x1_hp * 1e9, x1_hp * 1.0, x1_hp * 1e-9), 0)
-            fp8_over_underflow = hp_tensor_and_scale_to_float8(
+            fp8_over_underflow = _hp_tensor_and_scale_to_float8(
                 x2_hp, torch.tensor(1.0), lp_dtype
             )
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_over_underflow, lp_dtype)

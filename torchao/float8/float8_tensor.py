@@ -94,7 +94,7 @@ class GemmInputRole(enum.Enum):
 
 
 # choose which scaled_mm_config to use based on gemm inputs
-def choose_scaled_mm_config(
+def _choose_scaled_mm_config(
     a_role: GemmInputRole,
     a_linear_mm_config: LinearMMConfig,
     b_role: GemmInputRole,
@@ -209,7 +209,7 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
         return g, None, None
 
 
-def hp_tensor_and_scale_to_float8(
+def _hp_tensor_and_scale_to_float8(
     hp_tensor: torch.Tensor,
     s: torch.Tensor,
     float8_dtype: torch.dtype,

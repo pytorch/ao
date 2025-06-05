@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
-def swap_linear_layers(
+def _swap_linear_layers(
     module: nn.Module,
     from_float_func: Callable[[nn.Linear], nn.Linear],
     *,
@@ -79,6 +79,10 @@ def swap_linear_layers(
 
     post_order_traversal(root_module)
     return root_module
+
+
+# for BC, confirmed there are users of this util function
+swap_linear_layers = _swap_linear_layers
 
 
 def convert_to_float8_training(

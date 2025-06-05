@@ -43,12 +43,12 @@ from torchao.float8.config import (
     e4m3_dtype,
 )
 from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
+from torchao.float8.float8_scaling_utils import _NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
-    hp_tensor_and_scale_to_float8,
+    _hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_tensor_parallel import (
     Float8ColwiseParallel,
@@ -92,10 +92,10 @@ def _test_scaled_mm(mesh: DeviceMesh, size=16):
         x_scale = tensor_to_scale(x_fp32, fp8_dtype).float()
         y_scale = tensor_to_scale(y_fp32, fp8_dtype).float()
 
-        x_fp8 = hp_tensor_and_scale_to_float8(
+        x_fp8 = _hp_tensor_and_scale_to_float8(
             x_fp32, x_scale, fp8_dtype, None, GemmInputRole.INPUT
         )
-        y_fp8 = hp_tensor_and_scale_to_float8(
+        y_fp8 = _hp_tensor_and_scale_to_float8(
             y_fp32, y_scale, fp8_dtype, None, GemmInputRole.WEIGHT
         )
 
@@ -122,7 +122,7 @@ def _test_fp8_redistribute(mesh: DeviceMesh, size=16):
 
     x_scale = tensor_to_scale(x_fp32, fp8_dtype).float()
 
-    x_fp8 = hp_tensor_and_scale_to_float8(x_fp32, x_scale, fp8_dtype)
+    x_fp8 = _hp_tensor_and_scale_to_float8(x_fp32, x_scale, fp8_dtype)
 
     dist_x_fp8 = DTensor.from_local(x_fp8, mesh, [Shard(0)], run_check=False)
     out_dist = dist_x_fp8.redistribute(placements=[Replicate()])
@@ -150,7 +150,7 @@ def _test_dtensor_cast_to_fp8(mesh: DeviceMesh, size=16):
     dist_x_scale = tensor_to_scale(dist_x_fp32, fp8_dtype).float()
     assert isinstance(dist_x_scale, DTensor)
 
-    dist_x_fp8 = hp_tensor_and_scale_to_float8(dist_x_fp32, dist_x_scale, fp8_dtype)
+    dist_x_fp8 = _hp_tensor_and_scale_to_float8(dist_x_fp32, dist_x_scale, fp8_dtype)
     assert isinstance(dist_x_fp8, DTensor)
 
 
@@ -169,14 +169,14 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     dist_weight_scale = tensor_to_scale(dist_wight_fp32, fp8_dtype).float()
     dist_target = distribute_tensor(target, mesh, [Shard(0)])
 
-    dist_x_fp8 = hp_tensor_and_scale_to_float8(
+    dist_x_fp8 = _hp_tensor_and_scale_to_float8(
         dist_x_fp32,
         dist_x_scale,
         fp8_dtype,
         None,
         GemmInputRole.INPUT,
     )
-    dist_weight_fp8 = hp_tensor_and_scale_to_float8(
+    dist_weight_fp8 = _hp_tensor_and_scale_to_float8(
         dist_wight_fp32,
         dist_weight_scale,
         fp8_dtype,
@@ -185,7 +185,7 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     )
 
     out = torch.nn.functional.linear(dist_x_fp8, dist_weight_fp8)
-    out = NoopFwToFloat8BwDynamic.apply(out, LinearMMConfig(), fp8_dtype)
+    out = _NoopFwToFloat8BwDynamic.apply(out, LinearMMConfig(), fp8_dtype)
     assert isinstance(out, DTensor), f"Expected DTensor, got {type(out)}"
     loss = torch.sum(torch.abs(out - dist_target))
     loss.backward()

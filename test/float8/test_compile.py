@@ -34,7 +34,7 @@ from torchao.float8.config import (
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_dynamic,
+    _hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
@@ -221,7 +221,7 @@ class TestGraphBreaks(DynamoTestCase):
             self.graph_break = graph_break
 
         def forward(self, x):
-            x_fp8 = hp_tensor_to_float8_dynamic(
+            x_fp8 = _hp_tensor_to_float8_dynamic(
                 x,
                 e4m3_dtype,
                 LinearMMConfig(),
@@ -373,7 +373,7 @@ def test_dynamic_scale_numeric_parity(
             float8_config.pad_inner_dim,
         ),
     )
-    float8_eager = hp_tensor_to_float8_dynamic(
+    float8_eager = _hp_tensor_to_float8_dynamic(
         hp_tensor1,
         e4m3_dtype,
         linear_mm_config,
@@ -381,7 +381,7 @@ def test_dynamic_scale_numeric_parity(
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     torch._dynamo.reset()
-    float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
+    float8_compile = torch.compile(_hp_tensor_to_float8_dynamic)(
         hp_tensor2,
         e4m3_dtype,
         linear_mm_config,

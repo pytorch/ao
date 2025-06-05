@@ -13,13 +13,13 @@ import torch.utils._pytree as pytree
 from torch._prims_common import suggest_memory_format
 
 from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_dynamic,
+    _hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
-    hp_tensor_and_scale_to_float8,
+    _hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import EPS
 
@@ -217,7 +217,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
 
     def fsdp_pre_all_gather(self, mesh):
         if self._precomputed_scale is not None:
-            float8_tensor = hp_tensor_and_scale_to_float8(
+            float8_tensor = _hp_tensor_and_scale_to_float8(
                 self._tensor,
                 self._precomputed_scale,
                 self._dtype,
@@ -225,7 +225,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 GemmInputRole.WEIGHT,
             )
         else:
-            float8_tensor = hp_tensor_to_float8_dynamic(
+            float8_tensor = _hp_tensor_to_float8_dynamic(
                 self._tensor,
                 self._dtype,
                 self._linear_mm_config,
