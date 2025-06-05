@@ -18,14 +18,64 @@ _c10d_functional = torch.ops._c10d_functional
 DTYPE = torch.float8_e4m3fn
 
 
-def quantize_fp8(input: Tensor, block_size: int):
+def quantize_fp8_with_dre( input: Tensor, block_size: int):
+
+    shape = input.shape
+    input = input.view(-1, block_size)
+    k = None
+    SqrtMinMax = None
+
+
+    scale = input.abs().amax(-1).clip(1e-12)
+
+    if dynamic_range_expansion:
+        # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
+        # The idea is to align optimizer state distributions more closely
+        # with the FP8 representation range, reducing the quantization error.
+
+    
+    scale = input.abs().amax(-1).clip(1e-12)
+
+    if dynamic_range_expansion:
+        # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
+        # The idea is to align optimizer state distributions more closely
+        # with the FP8 representation range, reducing the quantization error.
+
+    k = torch.ones(input.shape[0], device=input.device)
+    expand_min = torch.tensor(16.0, device=input.device).view(-1, 1)
+    Rdtype = torch.tensor(
+        torch.finfo(DTYPE).max * torch.finfo(DTYPE).max / 2, device=input.device
+    ).view(-1, 1)
+
+    MaxValue = (input.abs().amax(-1) + 1e-20).view(-1, 1)
+    MinValue = (input.abs().amin(-1) + 1e-20).view(-1, 1)
+    SqrtMinMax = torch.sqrt(MaxValue * MinValue)  # geomatric mean of max and min
+
+    Rx = MaxValue / MinValue  # range of input max and min
+
+    k = (
+        torch.floor((torch.log2(Rdtype) / torch.log2(Rx)) * expand_min) / expand_min
+    ).view(-1)  # calculating optimal value k dynamically
+
+    scale = (MaxValue / SqrtMinMax) ** k.view(-1, 1) / torch.finfo(DTYPE).max
+    input = (input.sign() * (input.abs() / SqrtMinMax) ** k.view(-1, 1)) / scale.view(-1,1)
+    
+    k = k.view(-1)
+    SqrtMinMax = SqrtMinMax.view(-1)
+    codes = input.to(DTYPE).view(-1)
+    return codes.view(shape), scale.view(-1), k, SqrtMinMax
+
+
+def quantize_fp8(
+    input: Tensor, block_size: int
+):
+
     shape = input.shape
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
     input = input / scale.view(-1, 1)
     codes = input.to(DTYPE).view(-1)
     return codes.view(shape), scale
-
 
 # NOTE: FP8 sign bit is redundant for unsigned optim state.
 # we may investigate how to use it to increase range/precision for unsigned optim state.
@@ -62,9 +112,23 @@ class OptimStateFp8(TorchAOBaseTensor):
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         return cls(
-            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+            *[
+                tensor_data_dict[name]
+                for name in cls.tensor_attrs
+                + (["k", "sqrt_minmax_exp"] if "k" in tensor_data_dict else [])
+            ],
+            *tensor_attributes,
         )
 
+    def dequanitize_dre(self, float_data):
+
+        float_data = float_data.sign() \
+            * (float_data.abs() ** (1 / self.k.view(-1, 1))) \
+                * self.sqrt_minmax_exp.view(-1, 1)
+                
+        return float_data
+        
+    
     def dequantize(self, output_dtype=None):
         float_data = self.codes.float()
         float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
@@ -97,9 +161,22 @@ def _(func, types, args, kwargs):
         dst.scale.copy_(src.scale)
 
     elif isinstance(dst, OptimStateFp8):
-        codes, scale = quantize_fp8(src, dst.block_size)
+        
+        if dst.k is not None:
+            codes, scale, k, sqrt_minmax_exp= quantize_fp8_with_dre(
+            src, dst.block_size
+        )
+            dst.k.copy_(k)
+            dst.sqrt_minmax_exp.copy_(sqrt_minmax_exp)
+        
+        else:
+            codes, scale= quantize_fp8(
+                src, dst.block_size
+            )
+
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
+        # Used for computation of dynamic range expansion
 
     else:
         dst.copy_(src.dequantize())
