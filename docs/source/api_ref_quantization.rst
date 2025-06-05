@@ -36,6 +36,24 @@ Quantization APIs for quantize_
     Float8StaticActivationFloat8WeightConfig
     FPXWeightOnlyConfig
 
+QAT APIs for quantize_
+----------------------
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    ComposableQATQuantizer
+    FakeQuantizeConfig
+    FromIntXQuantizationAwareTrainingConfig
+    Int4WeightOnlyEmbeddingQATQuantizer
+    Int4WeightOnlyQATQuantizer
+    Int8DynActInt4WeightQATQuantizer
+    IntXQuantizationAwareTrainingConfig
+    initialize_fake_quantizers
+    intx_quantization_aware_training
+    from_intx_quantization_aware_training
+
 Quantization Primitives
 -----------------------
 
