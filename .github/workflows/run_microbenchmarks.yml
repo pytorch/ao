@@ -57,7 +57,7 @@ jobs:
             echo "PYTHONPATH is: $PYTHONPATH"
             echo "Current directory is: $(pwd)"
             python benchmarks/dashboard/ci_microbenchmark_runner.py \
-              --config benchmarks/dashboard/benchmark_config.yml \
+              --config benchmarks/dashboard/microbenchmark_quantization_config.yml \
               --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results.json"'
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
