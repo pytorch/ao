@@ -53,4 +53,4 @@ jobs:
         uv pip install -r dev-requirements.txt
         uv pip install vllm
         pip install .
-        pytest test --verbose -s
+        pytest test/ --verbose -s
