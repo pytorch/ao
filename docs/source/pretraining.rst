@@ -1,5 +1,3 @@
-This is part 1 of the end-to-end tutorial for accelerating (1) pretraining, (2), fine-tuning, and (3) serving with torchao's float8 recipes.
-
 Pretraining with float8
 ---------------------------------
 
@@ -202,5 +200,3 @@ Below is a code snippet showing how to use it:
         'model_state_dict': m.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }, 'checkpoint.pth')
-
-In part 2 of this tutorial series, we'll fine-tune this model using TorchTune!
