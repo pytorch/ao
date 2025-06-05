@@ -51,14 +51,13 @@ jobs:
           # Create benchmark results directory
           mkdir -p ${{ runner.temp }}/benchmark-results
 
-          # Run microbenchmarks
-          # Run microbenchmarks
+          # Run microbenchmarks for dashboard
           ${CONDA_RUN} bash -c '
             export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
             echo "PYTHONPATH is: $PYTHONPATH"
             echo "Current directory is: $(pwd)"
-            python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
-              --config benchmarks/microbenchmarks/benchmark_config.yml \
+            python benchmarks/dashboard/ci_microbenchmark_runner.py \
+              --config benchmarks/dashboard/benchmark_config.yml \
               --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results.json"'
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
