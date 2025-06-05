@@ -13,10 +13,10 @@ Main Quantization APIs
     :toctree: generated/
     :nosignatures:
 
-    quantize_
+    quantize/_
     autoquant
 
-Quantization APIs for quantize_
+Inference APIs for quantize/_
 -------------------------------
 
 .. autosummary::
@@ -24,37 +24,33 @@ Quantization APIs for quantize_
     :nosignatures:
 
     Int4WeightOnlyConfig
-    Int8WeightOnlyConfig
+    Float8DynamicActivationFloat8WeightConfig
+    Float8WeightOnlyConfig
+    Float8StaticActivationFloat8WeightConfig
     Int8DynamicActivationInt4WeightConfig
+    GemliteUIntXWeightOnlyConfig
+    Int8WeightOnlyConfig
     Int8DynamicActivationInt8WeightConfig
     UIntXWeightOnlyConfig
-    GemliteUIntXWeightOnlyConfig
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
-    Float8WeightOnlyConfig
-    Float8DynamicActivationFloat8WeightConfig
-    Float8StaticActivationFloat8WeightConfig
     FPXWeightOnlyConfig
 
 .. currentmodule:: torchao.quantization.qat
 
-QAT APIs for quantize_
+QAT APIs
 ----------------------
 
 .. autosummary::
     :toctree: generated/
     :nosignatures:
 
-    ComposableQATQuantizer
-    FakeQuantizeConfig
+    IntXQuantizationAwareTrainingConfig
     FromIntXQuantizationAwareTrainingConfig
-    Int4WeightOnlyEmbeddingQATQuantizer
+    FakeQuantizeConfig
     Int4WeightOnlyQATQuantizer
     Int8DynActInt4WeightQATQuantizer
-    IntXQuantizationAwareTrainingConfig
+    Int4WeightOnlyEmbeddingQATQuantizer
+    ComposableQATQuantizer
     initialize_fake_quantizers
-    intx_quantization_aware_training
-    from_intx_quantization_aware_training
 
 .. currentmodule:: torchao.quantization
 
