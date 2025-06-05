@@ -16,6 +16,38 @@ from torchao.quantization.utils import (
 )
 
 
+class _Float8RowwiseFakeQuantize(torch.autograd.Function):
+    """
+    Implementation of float8 rowwise fake quantize with backward STE.
+    """
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        x: torch.Tensor,
+        float8_dtype: torch.dtype,
+        axiswise_dim: int,
+    ):
+        # compute rowwise scale based on `torchao.float8.float8_utils.tensor_to_scale`
+        eps = 1e-12
+        amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True)
+        amax = amax.to(torch.float64)
+        scale = torch.finfo(float8_dtype).max / torch.clamp(amax, min=eps)
+        scale = scale.to(torch.float32)
+
+        # fake quantize
+        max_value = torch.finfo(float8_dtype).max
+        x_fq = x.to(torch.float32) * scale
+        x_fq = x_fq.clamp(min=-max_value, max=max_value)
+        x_fq = x_fq.to(float8_dtype).to(x.dtype)
+        x_fq = x_fq / scale
+        return x_fq.to(x.dtype)
+
+    @staticmethod
+    def backward(ctx, gy):
+        return gy, None, None
+
+
 # TODO: delete?
 class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
     """
