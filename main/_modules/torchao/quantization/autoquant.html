@@ -1151,11 +1151,11 @@
             <span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
 
         <span class="n">bit_width</span> <span class="o">=</span> <span class="mi">4</span>
-        <span class="n">packing_bitwidth</span> <span class="o">=</span> <span class="mi">32</span>
-        <span class="n">contiguous</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">packing_bitwidth</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">use_hqq</span> <span class="o">=</span> <span class="kc">True</span>
+
         <span class="n">aqt_kwargs</span> <span class="o">=</span> <span class="n">get_gemlite_aqt_kwargs</span><span class="p">(</span>
-            <span class="n">weight</span><span class="p">,</span> <span class="bp">cls</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span> <span class="n">bit_width</span><span class="p">,</span> <span class="n">packing_bitwidth</span><span class="p">,</span> <span class="n">contiguous</span><span class="p">,</span> <span class="n">use_hqq</span>
+            <span class="n">weight</span><span class="p">,</span> <span class="bp">cls</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span> <span class="n">bit_width</span><span class="p">,</span> <span class="n">packing_bitwidth</span><span class="p">,</span> <span class="n">use_hqq</span>
         <span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">aqt_kwargs</span><span class="p">)</span>
         <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_to_float16</span>
