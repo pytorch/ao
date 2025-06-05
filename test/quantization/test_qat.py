@@ -18,7 +18,7 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noq
 
 from torchao import quantize_
 from torchao.float8.config import ScalingGranularity
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_scaling_utils import _hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.quantization.granularity import (
     PerAxis,
@@ -1703,7 +1703,7 @@ class TestQAT(unittest.TestCase):
         x = torch.randn(32, 64)
         axiswise_dim = 0
         out = _Float8RowwiseFakeQuantize.apply(x, dtype, axiswise_dim)
-        out_expected = hp_tensor_to_float8_dynamic(
+        out_expected = _hp_tensor_to_float8_dynamic(
             x,
             dtype,
             LinearMMConfig(),
