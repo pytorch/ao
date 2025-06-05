@@ -9,6 +9,8 @@
 import unittest
 
 import torch
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from parameterized import parameterized
 
 from torchao.float8.float8_utils import EPS as float8_eps
@@ -960,6 +962,84 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(expected_scale, scale))
         torch.testing.assert_close(expected_quantized, quantized)
         torch.testing.assert_close(expected_dequantized, dequantized)
+
+
+    @parameterized.expand(
+        [
+            (
+                torch.float32,
+                torch.float8_e4m3fn,
+            ),
+            (
+                torch.float32,
+                torch.float8_e5m2,
+            ),
+            (
+                torch.bfloat16,
+                torch.float8_e4m3fn,
+            ),
+            (
+                torch.bfloat16,
+                torch.float8_e5m2,
+            ),
+        ]
+    )
+    def test_float8_quant_primitives_inductor(self, hp_dtype, float8_dtype):
+        from torchao.quantization.quant_primitives import (
+            quantize_affine,
+            dequantize_affine,
+        )
+        from torch._inductor.constant_folding import (
+            add_dont_constant_fold,
+            clear_dont_constant_fold,
+        )
+
+        torch._dynamo.reset()
+
+        clear_dont_constant_fold()
+        add_dont_constant_fold(torch.ops.torchao.dequantize_affine.default)
+        add_dont_constant_fold(torch.ops.torchao.quantize_affine.default)
+
+        input = torch.randn(10, 10)
+        with torch.no_grad():
+            # reference implementation using generic primitives
+            expected_scale, _ = choose_qparams_affine(
+                input,
+                MappingType.SYMMETRIC,
+                input.shape,
+                float8_dtype,
+                eps=float8_eps,  # use same EPS as float8 training
+                scale_dtype=torch.float32,
+                quant_min=torch.finfo(float8_dtype).min,
+                quant_max=torch.finfo(float8_dtype).max,
+            )
+            expected_quantized = quantize_affine(
+                input,
+                input.shape,
+                expected_scale,
+                output_dtype=float8_dtype,
+                quant_min=torch.finfo(float8_dtype).min,
+                quant_max=torch.finfo(float8_dtype).max,
+                zero_point=torch.tensor(0),
+            )
+            expected_dequantized = dequantize_affine(
+                expected_quantized,
+                input.shape,
+                expected_scale,
+                input_dtype=float8_dtype,
+                output_dtype=hp_dtype,
+                quant_min=torch.finfo(float8_dtype).min,
+                quant_max=torch.finfo(float8_dtype).max,
+                zero_point=torch.tensor(0),
+            )
+
+            test_q, (code_q,) = run_and_get_code(torch.compile(quantize_affine), input, input.shape, expected_scale, torch.tensor(0), float8_dtype)
+            FileCheck().check("torch.ops.torchao.quantize_affine.default").run(code_q)
+            test_dq, (code_dq,) = run_and_get_code(torch.compile(dequantize_affine), test_q, input.shape, expected_scale, torch.tensor(0), float8_dtype, output_dtype=hp_dtype)
+            FileCheck().check("torch.ops.torchao.dequantize_affine.default").run(code_dq)
+
+        torch.testing.assert_close(expected_quantized, test_q)
+        torch.testing.assert_close(expected_dequantized, test_dq)
 
 
 if __name__ == "__main__":
