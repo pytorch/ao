@@ -4,6 +4,7 @@ from torchao.float8.config import (
     Float8GemmConfig,
     Float8LinearConfig,
     ScalingType,
+    ScalingGranularity,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -29,12 +30,14 @@ if TORCH_VERSION_AT_LEAST_2_5:
             GemmInputRole,
             LinearMMConfig,
             Float8MMConfig,
+            ScalingGranularity,
         ]
     )
 
 __all__ = [
     # configuration
     "ScalingType",
+    "ScalingGranularity",
     "Float8GemmConfig",
     "Float8LinearConfig",
     "CastConfig",
