@@ -10,4 +10,3 @@ This section introduces the torchao API reference. Dive into the details of how 
 
    api_ref_dtypes
    api_ref_quantization
-   api_ref_sparsity
