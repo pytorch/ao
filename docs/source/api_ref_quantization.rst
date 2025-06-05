@@ -14,7 +14,7 @@ Main Quantization APIs
     :nosignatures:
 
     quantize_
-    autoquant    
+    autoquant
 
 Quantization APIs for quantize_
 -------------------------------
@@ -23,18 +23,18 @@ Quantization APIs for quantize_
     :toctree: generated/
     :nosignatures:
 
-    int4_weight_only
-    int8_weight_only
-    int8_dynamic_activation_int4_weight
-    int8_dynamic_activation_int8_weight
-    uintx_weight_only
-    gemlite_uintx_weight_only
-    intx_quantization_aware_training
-    from_intx_quantization_aware_training
-    float8_weight_only
-    float8_dynamic_activation_float8_weight
-    float8_static_activation_float8_weight
-    fpx_weight_only
+    Int4WeightOnlyConfig
+    Int8WeightOnlyConfig
+    Int8DynamicActivationInt4WeightConfig
+    Int8DynamicActivationInt8WeightConfig
+    UIntXWeightOnlyConfig
+    GemliteUIntXWeightOnlyConfig
+    IntXQuantizationAwareTrainingConfig
+    FromIntXQuantizationAwareTrainingConfig
+    Float8WeightOnlyConfig
+    Float8DynamicActivationFloat8WeightConfig
+    Float8StaticActivationFloat8WeightConfig
+    FPXWeightOnlyConfig
 
 Quantization Primitives
 -----------------------
