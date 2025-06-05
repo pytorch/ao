@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>to_affine_quantized_floatx &mdash; torchao main documentation</title>
+  <title>Pretraining with float8 &mdash; torchao main documentation</title>
   
 
   
@@ -27,21 +27,20 @@
 
   
 
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery-binder.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery-dataframe.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery-rendered-html.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
-    <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="to_affine_quantized_floatx_static" href="torchao.dtypes.to_affine_quantized_floatx_static.html" />
-    <link rel="prev" title="to_affine_quantized_fpx" href="torchao.dtypes.to_affine_quantized_fpx.html" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Writing Your Own Quantized Tensor (advanced)" href="subclass_advanced.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -52,16 +51,16 @@
   
 
   
-  <script src="../_static/js/modernizr.min.js"></script>
+  <script src="_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -299,7 +298,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -316,27 +315,27 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../pretraining.html">Pretraining with float8</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Pretraining with float8</a></li>
 </ul>
 
             
@@ -369,7 +368,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="../index.html">
+        <a href="index.html">
           
             Docs
           
@@ -377,15 +376,13 @@
       </li>
 
         
-          <li><a href="../api_ref_dtypes.html">torchao.dtypes</a> &gt;</li>
-        
-      <li>to_affine_quantized_floatx</li>
+      <li>Pretraining with float8</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.dtypes.to_affine_quantized_floatx.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="_sources/pretraining.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -415,14 +412,173 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="to-affine-quantized-floatx">
-<h1>to_affine_quantized_floatx<a class="headerlink" href="#to-affine-quantized-floatx" title="Permalink to this heading">¶</a></h1>
-<dl class="py function">
-<dt class="sig sig-object py" id="torchao.dtypes.to_affine_quantized_floatx">
-<span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">to_affine_quantized_floatx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_float</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.7)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">_layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.dtypes.Layout.html#torchao.dtypes.Layout" title="torchao.dtypes.utils.Layout"><span class="pre">Layout</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchao.dtypes.to_affine_quantized_floatx" title="Permalink to this definition">¶</a></dt>
-<dd><p>Convert a high precision tensor to a float8 quantized tensor.</p>
-</dd></dl>
+  <section id="pretraining-with-float8">
+<h1>Pretraining with float8<a class="headerlink" href="#pretraining-with-float8" title="Permalink to this heading">¶</a></h1>
+<p>Pretraining with float8 using torchao can provide <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/">up to 1.5x speedups</a> on 512 GPU clusters,
+and up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/">1.34-1.43x speedups</a> on 2K H200 clusters with the latest <cite>torchao.float8</cite> rowwise recipe.</p>
+<p>In this tutorial, we will show 2 ways to use the <strong>torchao.float8</strong> recipes for pretraining:</p>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="#pretraining-with-torchtitan"><span class="std std-ref">Pretraining with torchtitan</span></a>, the offical PyTorch pretraining framework with native torchao integration.</p></li>
+<li><p><a class="reference internal" href="#pretraining-with-torchao-directly"><span class="std std-ref">Pretraining with torchao directly</span></a>, to integrate torchao’s float8 training recipes into your own pretraining code.</p></li>
+</ol>
+<section id="pretraining-with-torchtitan">
+<h2>Pretraining with torchtitan<a class="headerlink" href="#pretraining-with-torchtitan" title="Permalink to this heading">¶</a></h2>
+<p>In this tutorial we’ll pretrain Llama3 8b using torchtitan with torchao’s float8 training recipes: rowwise scaling and tensorwise scaling.</p>
+<p><a class="reference external" href="https://github.com/pytorch/torchtitan/">Torchtitan</a> is PyTorch’s official pretraining framework that is natively integrated with torchao, and supports
+several popular flagship models with common forms of parallelism, float8 training, distributed checkpointing and more.
+See the torchtitan <a class="reference external" href="https://github.com/pytorch/torchtitan">docs</a> for additional details.</p>
+<p>You can use this workflow to get started quickly with a “batteries included” experience. Users commonly
+fork torchtitan and build on top of it when they’re ready.</p>
+<section id="prerequisites">
+<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a>.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation">Install torchtitan</a>, including the “downloading a tokenizer” step.</p></li>
+</ol>
+<p>You’re now ready to start a pretraining job using one of the recipes below!</p>
+</section>
+<section id="rowwise-scaling">
+<h3>Rowwise scaling<a class="headerlink" href="#rowwise-scaling" title="Permalink to this heading">¶</a></h3>
+<p>Run the following command from torchtitan root directory to launch a Llama3 8b training job on 8 GPUs with float8 rowwise training:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile --model.converters=&quot;float8&quot; --float8.recipe_name=&quot;rowwise&quot;</span>
+</pre></div>
+</div>
+<p>Torchtitan will automatically use FSDP2 to parallelize training when more than 1 GPU is used. To use other forms of parallelism, modify hyperparameters, or change other training configurations, you can directly edit the <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/775a486edd173ceb9be1c9b1b30af6ca2d4b4fa0/torchtitan/models/llama3/train_configs/llama3_8b.toml">llama3_8b.toml</a> file or use command line flags (run the command with <code class="code docutils literal notranslate"><span class="pre">--help</span></code> to see more options).</p>
+<p>You should see terminal output that looks like this:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2025-06-04 08:51:48,074 - root - INFO - step:  1  loss: 12.2254  memory: 27.34GiB(28.78%)  tps: 375  tflops: 21.73  mfu: 2.20%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 08:51:58,557 - root - INFO - step: 10  loss: 10.7069  memory: 30.99GiB(32.62%)  tps: 7,034  tflops: 407.35  mfu: 41.19%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 08:52:10,224 - root - INFO - step: 20  loss:  8.9196  memory: 30.99GiB(32.62%)  tps: 7,022  tflops: 406.65  mfu: 41.12%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 08:52:21,904 - root - INFO - step: 30  loss:  8.1423  memory: 30.99GiB(32.62%)  tps: 7,014  tflops: 406.23  mfu: 41.08%</span>
+</pre></div>
+</div>
+<p>As you can see, ignoring the warmup steps we are achieving around ~7k TPS with 30.99GB peak memory usage. To compare performance against bfloat16 training, you can remove the <code class="code docutils literal notranslate"><span class="pre">--model.converters=&quot;float8&quot;</span> <span class="pre">--float8.recipe_name=&quot;rowwise&quot;</span></code> flags
+and run the same command to see the baseline performance of bfloat16 training:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile</span>
+</pre></div>
+</div>
+<p>You should see the following output:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2025-06-04 11:02:37,404 - root - INFO - step:  1  loss: 12.2611  memory: 27.22GiB(28.65%)  tps: 595  tflops: 34.47  mfu: 3.49%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:02:49,027 - root - INFO - step: 10  loss: 10.4260  memory: 30.89GiB(32.51%)  tps: 6,344  tflops: 367.39  mfu: 37.15%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:03:01,988 - root - INFO - step: 20  loss:  8.9482  memory: 30.89GiB(32.51%)  tps: 6,321  tflops: 366.06  mfu: 37.01%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:03:14,991 - root - INFO - step: 30  loss:  8.1183  memory: 30.89GiB(32.51%)  tps: 6,300  tflops: 364.89  mfu: 36.89%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:03:28,013 - root - INFO - step: 40  loss:  7.4659  memory: 30.89GiB(32.51%)  tps: 6,291  tflops: 364.36  mfu: 36.84%</span>
+<span class="go">[rank0]:[titan] 2025-06-04 11:03:39,769 - root - INFO - [GC] Peforming periodical GC collection. 0.02 seconds.</span>
+</pre></div>
+</div>
+<p>As you can see, the bfloat16 baseline achieves ~6.3k TPS using 30.89GB peak memory.</p>
+<p>This means our float8 rowwise scaling recipe achieves <strong>1.11x higher throughput</strong> compared to bfloat16 baseline, using nearly identical peak memory!</p>
+<p>Note that you can achieve even higher throughput improvement using the tensorwise scaling recipe, which exists at a different point on the performane vs accuracy curve.</p>
+</section>
+<section id="tensorwise-scaling">
+<h3>Tensorwise scaling<a class="headerlink" href="#tensorwise-scaling" title="Permalink to this heading">¶</a></h3>
+<p>Float8 training with tensorwise scaling is the default recipe, so we can omit the <code class="code docutils literal notranslate"><span class="pre">--float8.recipe_name</span></code> flag:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile --model.converters=&quot;float8&quot;</span>
+</pre></div>
+</div>
+<p>You should see the output like the following:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2025-06-04 10:52:19,648 - root - INFO - step:  1  loss: 12.2648  memory: 27.28GiB(28.71%)  tps: 557  tflops: 32.29  mfu: 3.26%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:52:29,475 - root - INFO - step: 10  loss: 10.9106  memory: 30.91GiB(32.53%)  tps: 7,503  tflops: 434.53  mfu: 43.94%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:52:40,166 - root - INFO - step: 20  loss:  9.0774  memory: 30.91GiB(32.53%)  tps: 7,663  tflops: 443.78  mfu: 44.87%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:52:50,885 - root - INFO - step: 30  loss:  8.3233  memory: 30.91GiB(32.53%)  tps: 7,643  tflops: 442.66  mfu: 44.76%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:53:01,613 - root - INFO - step: 40  loss:  7.6150  memory: 30.91GiB(32.53%)  tps: 7,637  tflops: 442.27  mfu: 44.72%</span>
+</pre></div>
+</div>
+<p>As you can see, we are achieving ~7.6k TPS using 30.91GB peak memory, which is <strong>1.21x higher throughput</strong> compared to the bfloat16 baseline!</p>
+</section>
+<section id="picking-a-recipe">
+<h3>Picking a recipe<a class="headerlink" href="#picking-a-recipe" title="Permalink to this heading">¶</a></h3>
+<p><strong>TL;DR</strong>: rowwise scaling is better for jobs prioritizing more accurate numerics and training stability, and tensorwise is better for jobs prioritizing training throughput.</p>
+<p>The higher throughput of tensorwise scaling comes at the cost of slightly higher quantization error (i.e., reduced numerical integrity vs bfloat16) compared to rowwise scaling.
+This is because rowwise scaling using a more granular scaling factor (per row, instead of per tensor), which limits the impact of outliers that can cause underflow during scaling.</p>
+<p>Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3 8b on 8xH100 GPUs:</p>
+<img alt="Loss curves for training Llama3 8b on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training." src="_images/fp8-loss-curves.png" />
+</section>
+<section id="important-notes">
+<h3>Important notes<a class="headerlink" href="#important-notes" title="Permalink to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>float8 training is currently only supported on 2+ GPUs in torchtitan, not single GPU training.</p></li>
+<li><p>You must use <code class="code docutils literal notranslate"><span class="pre">--training.compile</span></code> to achieve high performance. torchao float8 training recipes are built natively on top of <code class="code docutils literal notranslate"><span class="pre">torch.compile</span></code>, so it will work out of the box!</p></li>
+</ul>
+</section>
+</section>
+<section id="pretraining-with-torchao-directly">
+<h2>Pretraining with torchao directly<a class="headerlink" href="#pretraining-with-torchao-directly" title="Permalink to this heading">¶</a></h2>
+<p>In this tutorial we’ll pretrain a toy model using torchao APIs directly.</p>
+<p>You can use this workflow to integrate torchao into your own custom pretraining code directly.</p>
+<section id="id1">
+<h3>Prerequisites<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a>.</p></li>
+</ol>
+<p>You’re now ready to integrate torchao into your training code directly!</p>
+</section>
+<section id="model-conversion-api">
+<h3>Model conversion API<a class="headerlink" href="#model-conversion-api" title="Permalink to this heading">¶</a></h3>
+<p>The torchao API for converting your model to use float8 training is: <a class="reference external" href="https://github.com/pytorch/ao/blob/152a8e397e1383c55bf7b87a8eaa2b87ffb2c114/torchao/float8/float8_linear_utils.py#L84">convert_to_float8_training</a>. This API will recursively convert <code class="code docutils literal notranslate"><span class="pre">nn.Linear</span></code> modules in your model to use <a class="reference external" href="https://github.com/pytorch/ao/blob/152a8e397e1383c55bf7b87a8eaa2b87ffb2c114/torchao/float8/float8_linear.py#L254">Float8Linear</a>.</p>
+<p>You can use the <code class="code docutils literal notranslate"><span class="pre">module_filter_fn</span></code> argument to determine which <code class="code docutils literal notranslate"><span class="pre">nn.Linear</span></code> layers should be swapped to use <code class="code docutils literal notranslate"><span class="pre">Float8Linear</span></code>.</p>
+<p>You should refer to this <a class="reference external" href="https://github.com/pytorch/ao/tree/152a8e397e1383c55bf7b87a8eaa2b87ffb2c114/torchao/float8#performance">performance benchmark table</a> to understand
+what kind of performance improvement over bfloat16 you can expect for a given GEMM size.</p>
+<p>Below is a code snippet showing how to use it:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s2">&quot;torchao.float8 requires PyTorch version 2.5 or greater&quot;</span><span class="p">)</span>
+
+<span class="c1"># create model and sample input</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">4096</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">128</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+
+<span class="c1"># optional: filter modules from being eligible for float8 conversion</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">module_filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="c1"># don&#39;t convert the last module</span>
+    <span class="k">if</span> <span class="n">fqn</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="c1"># don&#39;t convert linear modules with weight dimensions not divisible by 16</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">mod</span><span class="o">.</span><span class="n">out_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+<span class="c1"># convert specified `torch.nn.Linear` modules to `Float8Linear`</span>
+<span class="n">convert_to_float8_training</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">module_filter_fn</span><span class="o">=</span><span class="n">module_filter_fn</span><span class="p">)</span>
+
+<span class="c1"># enable torch.compile for competitive performance</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="c1"># toy training loop</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="c1"># use fake labels for demonstration purposes</span>
+    <span class="n">fake_labels</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">mse_loss</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">fake_labels</span><span class="p">)</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="c1"># save the model</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">({</span>
+    <span class="s1">&#39;model&#39;</span><span class="p">:</span> <span class="n">m</span><span class="p">,</span>
+    <span class="s1">&#39;model_state_dict&#39;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span>
+    <span class="s1">&#39;optimizer_state_dict&#39;</span><span class="p">:</span> <span class="n">optimizer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span>
+<span class="p">},</span> <span class="s1">&#39;checkpoint.pth&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
 </section>
 
 
@@ -433,10 +589,8 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.dtypes.to_affine_quantized_floatx_static.html" class="btn btn-neutral float-right" title="to_affine_quantized_floatx_static" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
-      
-        <a href="torchao.dtypes.to_affine_quantized_fpx.html" class="btn btn-neutral" title="to_affine_quantized_fpx" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="subclass_advanced.html" class="btn btn-neutral" title="Writing Your Own Quantized Tensor (advanced)" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -468,7 +622,22 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">to_affine_quantized_floatx</a></li>
+<li><a class="reference internal" href="#">Pretraining with float8</a><ul>
+<li><a class="reference internal" href="#pretraining-with-torchtitan">Pretraining with torchtitan</a><ul>
+<li><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
+<li><a class="reference internal" href="#rowwise-scaling">Rowwise scaling</a></li>
+<li><a class="reference internal" href="#tensorwise-scaling">Tensorwise scaling</a></li>
+<li><a class="reference internal" href="#picking-a-recipe">Picking a recipe</a></li>
+<li><a class="reference internal" href="#important-notes">Important notes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#pretraining-with-torchao-directly">Pretraining with torchao directly</a><ul>
+<li><a class="reference internal" href="#id1">Prerequisites</a></li>
+<li><a class="reference internal" href="#model-conversion-api">Model conversion API</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 
             </div>
@@ -483,23 +652,23 @@
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
-         <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
-         <script src="../_static/doctools.js"></script>
-         <script src="../_static/clipboard.min.js"></script>
-         <script src="../_static/copybutton.js"></script>
-         <script src="../_static/design-tabs.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+         <script src="_static/jquery.js"></script>
+         <script src="_static/underscore.js"></script>
+         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="_static/doctools.js"></script>
+         <script src="_static/clipboard.min.js"></script>
+         <script src="_static/copybutton.js"></script>
+         <script src="_static/design-tabs.js"></script>
      
 
   
 
-  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="../_static/js/theme.js"></script>
+  <script type="text/javascript" src="_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -627,7 +796,7 @@
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../_static/images/pytorch-x.svg">
+    <img class="close-button" src="_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -778,7 +947,7 @@
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {
