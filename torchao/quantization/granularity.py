@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
+from typing import Union
 
 
 @dataclass(frozen=True)
@@ -99,3 +100,6 @@ class PerToken(Granularity):
     """
 
     pass
+
+
+FP8Granularity = Union[PerTensor, PerRow]

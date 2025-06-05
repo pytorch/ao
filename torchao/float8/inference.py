@@ -13,6 +13,7 @@ import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 from torchao.quantization.granularity import (
+    FP8Granularity,
     PerRow,
     PerTensor,
 )
@@ -114,9 +115,6 @@ def _is_rowwise_scaled(x) -> bool:
         x: AffineQuantizedTensor tensor
     """
     return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)
-
-
-FP8Granularity = Union[PerTensor, PerRow]
 
 
 def _normalize_granularity(
