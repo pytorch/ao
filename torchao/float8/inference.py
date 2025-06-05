@@ -12,6 +12,7 @@ from typing import NamedTuple, Optional, Tuple, Union
 import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
     PerRow,
     PerTensor,
@@ -54,9 +55,9 @@ def preprocess_data(
         Preprocessed tensors A and B in the format for _scaled_mm.
     """
     if scaled_mm_config.pad_inner_dim:
-        assert a_data.size(1) == b_data.size(0), (
-            f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
-        )
+        assert a_data.size(1) == b_data.size(
+            0
+        ), f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
         a_data = pad_tensor_for_matmul(a_data, dims=1)
         b_data = pad_tensor_for_matmul(b_data, dims=0)
     if not is_row_major(a_data.stride()):
@@ -114,9 +115,6 @@ def _is_rowwise_scaled(x) -> bool:
         x: AffineQuantizedTensor tensor
     """
     return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)
-
-
-FP8Granularity = Union[PerTensor, PerRow]
 
 
 def _normalize_granularity(
