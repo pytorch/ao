@@ -45,17 +45,45 @@ version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
-use_cpp = os.getenv("USE_CPP")
-
 import platform
 
-build_macos_arm_auto = (
-    use_cpp == "1"
-    and platform.machine().startswith("arm64")
-    and platform.system() == "Darwin"
-)
+################################################################################
+# Build Configuration - Environment Variables and Build Options
+################################################################################
 
-use_cpp_kernels = os.getenv("USE_CPP_KERNELS", "0") == "1"
+# Core build toggles
+use_cpp = os.getenv("USE_CPP", "1")
+use_cpu_kernels = os.getenv("USE_CPU_KERNELS", "0") == "1"
+
+# Platform detection
+is_arm64 = platform.machine().startswith("arm64") or platform.machine() == "aarch64"
+is_macos = platform.system() == "Darwin"
+is_linux = platform.system() == "Linux"
+
+# Auto-enable experimental builds on ARM64 macOS when USE_CPP=1
+build_macos_arm_auto = use_cpp == "1" and is_arm64 and is_macos
+
+# Build configuration hierarchy and relationships:
+#
+# Level 1: USE_CPP (Primary gate)
+#   ├── "0" → Skip all C++ extensions (Python-only mode)
+#   └── "1"/None → Build C++ extensions
+#
+# Level 2: Platform-specific optimizations
+#   ├── USE_CPU_KERNELS="1" + Linux → Include optimized CPU kernels (AVX512, etc.)
+#   └── ARM64 + macOS → Auto-enable experimental builds (build_macos_arm_auto)
+#
+# Level 3: Experimental builds (cmake-based)
+#   ├── BUILD_TORCHAO_EXPERIMENTAL="1" → Force experimental builds
+#   ├── build_macos_arm_auto → Auto-enable on ARM64 macOS
+#   └── When enabled, provides access to:
+#       ├── TORCHAO_BUILD_CPU_AARCH64 → ARM64 CPU kernels
+#       ├── TORCHAO_BUILD_KLEIDIAI → Kleidi AI library integration
+#       ├── TORCHAO_BUILD_EXPERIMENTAL_MPS → MPS acceleration (macOS only)
+#       ├── TORCHAO_ENABLE_ARM_NEON_DOT → ARM NEON dot product instructions
+#       ├── TORCHAO_ENABLE_ARM_I8MM → ARM 8-bit integer matrix multiply
+#       └── TORCHAO_PARALLEL_BACKEND → Backend selection (aten_openmp, executorch, etc.)
+
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
@@ -92,12 +120,10 @@ class BuildOptions:
         # can be built by explicitly setting TORCHAO_BUILD_CPU_AARCH64=1
         self.build_cpu_aarch64 = self._os_bool_var(
             "TORCHAO_BUILD_CPU_AARCH64",
-            default=(self._is_arm64() and self._is_macos()),
+            default=(is_arm64 and is_macos),
         )
         if self.build_cpu_aarch64:
-            assert self._is_arm64(), (
-                "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
-            )
+            assert is_arm64, "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
 
         # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
         # 1) It increases the build time
@@ -115,8 +141,8 @@ class BuildOptions:
             "TORCHAO_BUILD_EXPERIMENTAL_MPS", default=False
         )
         if self.build_experimental_mps:
-            assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
-            assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
+            assert is_macos, "TORCHAO_BUILD_EXPERIMENTAL_MPS requires macOS"
+            assert is_arm64, "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
             assert torch.mps.is_available(), (
                 "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
             )
@@ -129,7 +155,7 @@ class BuildOptions:
         # Enabled by default on macOS silicon
         self.enable_arm_neon_dot = self._os_bool_var(
             "TORCHAO_ENABLE_ARM_NEON_DOT",
-            default=(self._is_arm64() and self._is_macos()),
+            default=(is_arm64 and is_macos),
         )
         if self.enable_arm_neon_dot:
             assert self.build_cpu_aarch64, (
@@ -145,12 +171,6 @@ class BuildOptions:
             assert self.build_cpu_aarch64, (
                 "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
             )
-
-    def _is_arm64(self) -> bool:
-        return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
-
-    def _is_macos(self) -> bool:
-        return platform.system() == "Darwin"
 
     def _os_bool_var(self, var, default) -> bool:
         default_val = "1" if default else "0"
@@ -323,6 +343,11 @@ class CMakeExtension(Extension):
 
 
 def get_extensions():
+    # Skip building C++ extensions if USE_CPP is set to "0"
+    if use_cpp == "0":
+        print("USE_CPP=0: Skipping compilation of C++ extensions")
+        return []
+
     debug_mode = use_debug_mode()
     if debug_mode:
         print("Compiling in debug mode")
@@ -363,11 +388,7 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        if (
-            use_cpp_kernels
-            and platform.system() == "Linux"
-            and TORCH_VERSION_AT_LEAST_2_7
-        ):
+        if use_cpu_kernels and is_linux and TORCH_VERSION_AT_LEAST_2_7:
             if torch._C._cpu._is_avx512_supported():
                 extra_compile_args["cxx"].extend(
                     [
@@ -433,7 +454,7 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
-    if not use_cpp_kernels or platform.system() != "Linux":
+    if not use_cpu_kernels or not is_linux:
         # Remove csrc/cpu/*.cpp
         excluded_sources = list(
             glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
@@ -658,7 +679,9 @@ def get_extensions():
     return ext_modules
 
 
-check_submodules()
+# Only check submodules if we're going to build C++ extensions
+if use_cpp != "0":
+    check_submodules()
 
 setup(
     name="torchao",
