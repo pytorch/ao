@@ -13,7 +13,7 @@ Main Quantization APIs
     :toctree: generated/
     :nosignatures:
 
-    quantize\_
+    quantize_
     autoquant
 
 Inference APIs for quantize\_
