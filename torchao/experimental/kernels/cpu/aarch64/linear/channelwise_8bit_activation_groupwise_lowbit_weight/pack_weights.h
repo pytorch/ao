@@ -224,7 +224,6 @@ map_values(int8_t* dst, int8_t* src, int8x16_t lut, int size) {
 }
 
 // Call pack_weights every n_step columns
-
 template <int weight_nbit, int nr, int kr, int sr, bool has_lut>
 TORCHAO_ALWAYS_INLINE inline void pack_weights_impl(
     // Output
