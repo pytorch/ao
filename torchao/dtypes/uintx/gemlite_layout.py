@@ -85,6 +85,7 @@ def get_gemlite_aqt_kwargs(
     group_size=64,
     bit_width=4,
     packing_bitwidth=None,
+    mode="weight_only",
     use_hqq=True,
 ):
     if gemlite is None:
@@ -108,6 +109,10 @@ def get_gemlite_aqt_kwargs(
         f"Invalid packing bitwidth, got {packing_bitwidth}"
     )
 
+    assert mode in ["weight_only", "dynamic"], (
+        f"Invalid mode: should be either weight_only or dynamic, got {mode}"
+    )
+
     out_features, in_features = weight.shape
     group_size = in_features if group_size is None else group_size
 
@@ -116,6 +121,7 @@ def get_gemlite_aqt_kwargs(
         group_size=group_size,
         bit_width=bit_width,
         packing_bitwidth=packing_bitwidth,
+        mode=mode,
     )
     aqt_kwargs["use_hqq"] = use_hqq
     return aqt_kwargs
@@ -126,6 +132,7 @@ class GemlitePackedLayout(Layout):
     group_size: Optional[int] = 128
     bit_width: int = 4
     packing_bitwidth: Optional[int] = None
+    mode: Optional[str] = "weight_only"
 
 
 @register_layout(GemlitePackedLayout)
@@ -202,13 +209,24 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         group_size, bit_width = _layout.group_size, _layout.bit_width
         out_features, in_features = int_data.shape
         packing_bitwidth = _layout.packing_bitwidth
+        mode = _layout.mode
 
         if bit_width == 8 and group_size == in_features:
-            gemlite_linear = gemlite.helper.A16W8(device=int_data.device).from_weights(
+            processor = (
+                gemlite.helper.A8W8_int8_dynamic
+                if mode == "dynamic"
+                else gemlite.helper.A16W8
+            )
+            gemlite_linear = processor(device=int_data.device).from_weights(
                 int_data, scales=scale, bias=None
             )
         else:
-            gemlite_linear = gemlite.helper.A16Wn(
+            processor = (
+                gemlite.helper.A8Wn_dynamic
+                if mode == "dynamic"
+                else gemlite.helper.A16Wn
+            )
+            gemlite_linear = processor(
                 device=int_data.device, packing_bitwidth=packing_bitwidth
             ).from_weights(
                 int_data, scale, zero_point, bit_width, group_size, bias=None
