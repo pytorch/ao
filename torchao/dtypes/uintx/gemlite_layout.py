@@ -85,7 +85,7 @@ def get_gemlite_aqt_kwargs(
     group_size=64,
     bit_width=4,
     packing_bitwidth=None,
-    mode="static",
+    mode="weight_only",
     use_hqq=True,
 ):
     if gemlite is None:
@@ -109,8 +109,8 @@ def get_gemlite_aqt_kwargs(
         f"Invalid packing bitwidth, got {packing_bitwidth}"
     )
 
-    assert mode in ["static", "dynamic"], (
-        f"Invalid mode: should be either static or dynamic, got {mode}"
+    assert mode in ["weight_only", "dynamic"], (
+        f"Invalid mode: should be either weight_only or dynamic, got {mode}"
     )
 
     out_features, in_features = weight.shape
@@ -132,7 +132,7 @@ class GemlitePackedLayout(Layout):
     group_size: Optional[int] = 128
     bit_width: int = 4
     packing_bitwidth: Optional[int] = None
-    mode: Optional[str] = "static"
+    mode: Optional[str] = "weight_only"
 
 
 @register_layout(GemlitePackedLayout)

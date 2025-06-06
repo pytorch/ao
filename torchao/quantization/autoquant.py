@@ -742,7 +742,7 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
 
         bit_width = 4
         packing_bitwidth = None
-        mode = "static"
+        mode = "weight_only"
         use_hqq = True
 
         aqt_kwargs = get_gemlite_aqt_kwargs(
