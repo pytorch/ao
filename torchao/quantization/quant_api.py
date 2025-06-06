@@ -986,13 +986,14 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
          size is more fine grained
         `bit_width`: bit width of the quantized weight.
         `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+        `mode`: if set to "dyanmic", the activations will be dynamically quantized.
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
     group_size: Optional[int] = 128
     bit_width: int = 4
     packing_bitwidth: Optional[int] = None
+    mode: Optional[str] = "static"
     set_inductor_config: bool = True
 
 
@@ -1007,6 +1008,7 @@ def _gemlite_uintx_weight_only_transform(
     group_size = config.group_size
     bit_width = config.bit_width
     packing_bitwidth = config.packing_bitwidth
+    mode = config.mode
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1018,7 +1020,12 @@ def _gemlite_uintx_weight_only_transform(
     new_weight = to_affine_quantized_intx(
         weight,
         **get_gemlite_aqt_kwargs(
-            weight, group_size, bit_width, packing_bitwidth, use_hqq
+            weight,
+            group_size=group_size,
+            bit_width=bit_width,
+            packing_bitwidth=packing_bitwidth,
+            mode=mode,
+            use_hqq=use_hqq,
         ),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
