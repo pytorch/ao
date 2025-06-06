@@ -13,6 +13,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/channelwise_8bit_activation_groupwise_lowbit_weight.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
+#include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils_lut.h>
 
 float kTol = 0.0001;
 
@@ -454,20 +455,16 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
       kr,
       sr);
 
-  // Define equivalent LUT for affine quantization
-  constexpr int lut_size = (1 << weight_nbit);
-  std::vector<int8_t> weight_qval_idxs(test_case.weight_qvals.size());
-  std::vector<int8_t> lut(lut_size, 0);
-  constexpr int offset = (1 << (weight_nbit - 1));
-  for (int i = 0; i < test_case.weight_qvals.size(); i++) {
-    weight_qval_idxs[i] = test_case.weight_qvals[i] + offset;
-  }
-  for (int i = 0; i < lut_size; i++) {
-    lut[i] = i - offset;
-  }
+  using namespace torchao::test_utils::lut;
+
+  // This single call replaces all the manual LUT setup logic.
+  auto [lut, weight_qval_idxs] = generate_simple_u_to_s_lut_and_indices(
+    weight_nbit,
+    test_case.weight_qvals);
 
   std::vector<char> packed_weights(packed_weights_with_lut_size(
       n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr));
+    // fill in the packed weights
   pack_weights_with_lut<weight_nbit, nr, kr, sr>(
       (void*)packed_weights.data(),
       n,
