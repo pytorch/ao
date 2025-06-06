@@ -78,6 +78,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             m,
             example_inputs,
             dynamic_shapes=dynamic_shapes if export_with_dynamic_shape else None,
+            strict=True,
         ).module()
 
         if is_qat:
