@@ -50,6 +50,17 @@ shifts = {
 
 # for shifting groups left but right if shift is negative
 def abs_lsh(data, shift):
+    """@AI Generated June 4, 2025
+    
+    Performs a left shift when shift is positive and a right shift when shift is negative.
+    
+    Args:
+        data: The data to be shifted
+        shift: The number of bits to shift (positive for left shift, negative for right shift)
+        
+    Returns:
+        The shifted data
+    """
     if shift == 0:
         return data
     elif shift < 0:
@@ -60,6 +71,18 @@ def abs_lsh(data, shift):
 
 # inverse of abs_lsh for unpacking
 def abs_rsh(data, shift):
+    """@AI Generated June 4, 2025
+    
+    Performs a right shift when shift is positive and a left shift when shift is negative.
+    This function is the inverse of abs_lsh.
+    
+    Args:
+        data: The data to be shifted
+        shift: The number of bits to shift (positive for right shift, negative for left shift)
+        
+    Returns:
+        The shifted data
+    """
     if shift == 0:
         return data
     elif shift < 0:
