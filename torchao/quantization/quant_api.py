@@ -986,7 +986,7 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
          size is more fine grained
         `bit_width`: bit width of the quantized weight.
         `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `mode`: if set to "dyanmic", the activations will be dynamically quantized.
+        `mode`: if set to "dynamic", activations are quantized at runtime; default is "static" (weight-only quantization).
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
