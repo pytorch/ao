@@ -139,9 +139,6 @@ def get_quantization_sparsity_recipes(
     """
     config_recipes = set()
 
-    # Always include baseline without sparsity
-    config_recipes.add(("baseline", None))
-
     # Add all quantization techniques without sparsity
     for quant_config in quantization_recipes:
         config_recipes.add((quant_config, None))
