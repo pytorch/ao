@@ -8,13 +8,15 @@ import importlib
 import itertools
 import re
 import time
-from functools import reduce
+from functools import reduce, wraps
 from importlib.metadata import version
 from math import gcd
 from typing import Any, Callable
 
 import torch
 import torch.nn.utils.parametrize as parametrize
+from dataclasses import dataclass
+
 
 __all__ = [
     "benchmark_model",
@@ -710,3 +712,67 @@ def is_package_at_least(package_name: str, min_version: str):
         return False
 
     return version(package_name) >= min_version
+
+try:
+    CURRENT_ACCL_TYPE = torch.accelerator.current_accelerator().type
+except:
+    CURRENT_ACCL_TYPE = 'cpu'
+
+
+def get_device():
+    """
+    Get actual device
+    """
+    return CURRENT_ACCL_TYPE
+
+
+def get_backend():
+    """
+    Get device specific backend
+    """
+    if CURRENT_ACCL_TYPE == 'hpu':
+        return "hpu_backend"
+    else:
+        return "inductor"
+
+
+@dataclass
+class FP8_E4M3FN_RANGE_HPU:
+    """
+    Define FP8_E4M3FN data range supported on HPU
+    """
+    min: float = -240.0
+    max: float =  240.0
+    eps: float =  2**-12
+
+
+@dataclass
+class FP8_E5M2_RANGE_HPU:
+    """
+    Define FP8_E5M2 data range supported on HPU
+    """
+    min: float = -256.0
+    max: float =  256.0
+    eps: float =  2**-12
+
+
+torch_finfo_org = torch.finfo
+
+@wraps(torch.finfo)
+def wrap_torch_finfo(type):
+    """
+    Override torch.finfo to handle different behaviour of HPU
+    """
+    if torch.hpu.is_available():
+        if type == torch.float8_e4m3fn:
+            return FP8_E4M3FN_RANGE_HPU
+        elif type == torch.float8_e5m2:
+            return FP8_E5M2_RANGE_HPU
+    return torch_finfo_org(type)
+
+
+torch.finfo = wrap_torch_finfo
+
+
+def supported_device_available():
+    return torch.cuda.is_available() or torch.hpu.is_available()
