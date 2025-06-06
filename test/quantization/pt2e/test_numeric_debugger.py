@@ -22,7 +22,7 @@ from torchao.quantization.pt2e import (
     generate_numeric_debug_handle,
     prepare_for_propagation_comparison,
 )
-from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
+from torchao.quantization.pt2e.graph_utils import _bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
@@ -45,7 +45,7 @@ class TestNumericDebugger(TestCase):
                 f"Node {node} doesn't have debug handle",
             )
 
-        bfs_trace_with_node_process(model, _assert_node_has_debug_handle)
+        _bfs_trace_with_node_process(model, _assert_node_has_debug_handle)
 
     def _extract_debug_handles(self, model) -> dict[str, int]:
         debug_handle_map: dict[str, int] = {}
@@ -60,7 +60,7 @@ class TestNumericDebugger(TestCase):
                     NUMERIC_DEBUG_HANDLE_KEY
                 ]
 
-        bfs_trace_with_node_process(model, _extract_debug_handles_from_node)
+        _bfs_trace_with_node_process(model, _extract_debug_handles_from_node)
 
         return debug_handle_map
 
@@ -84,7 +84,7 @@ class TestNumericDebugger(TestCase):
                     ), f"Node {node} has different debug handle {debug_handle}"
                     "than previous node sharing the same decomp op {prev_decomp_op}"
 
-        bfs_trace_with_node_process(
+        _bfs_trace_with_node_process(
             model, _extract_debug_handles_with_prev_decomp_op_from_node
         )
         return prev_decomp_op_to_debug_handle_map
