@@ -1680,6 +1680,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        round_scales_to_power_of_2 (bool): If True, round scaling factors down to the nearest power of 2.
     """
 
     scale: torch.Tensor
@@ -1690,6 +1691,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     ] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
+    round_scales_to_power_of_2: bool = False
 
     def __post_init__(self):
         if self.mm_config is None:
@@ -1733,12 +1735,14 @@ def _float8_static_activation_float8_weight_transform(
         target_dtype=weight_dtype,
         scale_dtype=torch.float32,
         _layout=Float8Layout(mm_config=mm_config),
+        round_scales_to_power_of_2=config.round_scales_to_power_of_2,
     )
 
     input_quant_func = _input_activation_quant_func_fp8
     input_quant_kwargs = {
         "activation_granularity": activation_granularity,
         "activation_dtype": activation_dtype,
+        "round_scales_to_power_of_2": config.round_scales_to_power_of_2,
     }
 
     quantized_weight = to_weight_tensor_with_linear_activation_quantization_metadata(
