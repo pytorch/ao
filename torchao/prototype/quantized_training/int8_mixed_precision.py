@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Tuple, Union
 
 import torch
 import torch.utils._pytree as pytree
@@ -17,7 +17,7 @@ from torchao.quantization.transform_module import (
 )
 from torchao.utils import TorchAOBaseTensor
 
-from .int8 import quantize_int8_rowwise
+from .int8 import quantize_int8_rowwise, quantize_int8_tensorwise
 
 if has_triton():
     from .int8_mm import scaled_int8_mm
@@ -38,6 +38,7 @@ class Int8MixedPrecisionTrainingConfig(AOBaseConfig):
     grad_input: bool = True
     grad_weight: bool = True
     module_swap: bool = False
+    scaling_method: Literal["row", "tensor"] = "row"
 
 
 # for bc
@@ -185,7 +186,7 @@ class Int8MixedPrecisionTrainingLinear(nn.Linear):
         )
 
 
-def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
+def _dynamic_int8_mm(A: Tensor, B: Tensor, scaling_method: str = "row") -> Tensor:
     """Dynamically quantize A and B to perform INT8 matmul, then scale the results back to original precision.
     To fuse scaling to matmul output, we use row-wise scaling for A and column-wise scaling for B.
 
@@ -201,11 +202,23 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     We hope that the `.contiguous()` calls, as well as possible layout transpose before quantization, are
     fused into quantize op by torch compiler.
 
-    TODO: check if transpose+quantize are actually fused.
+    Args:
+        A: First tensor for matrix multiplication
+        B: Second tensor for matrix multiplication
+        scaling_method: Method for computing scale values
+            - "row": Use separate scale for each row (default)
+            - "tensor": Use single scale for entire tensor
     """
     # A may have more than 2 dims, while B must be exactly 2-dim
+    # For activations (A), we always use row-wise scaling for better accuracy
     A_i8, A_scale_rowwise = quantize_int8_rowwise(A.view(-1, A.shape[-1]))
-    B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
+
+    # For weights (B), we use the specified scaling method
+    if scaling_method == "row":
+        B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
+    else:  # tensor-wise scaling
+        B_t_i8, B_scale_colwise = quantize_int8_tensorwise(B.T)
+
     out = scaled_int8_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
@@ -244,7 +257,7 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
         weight = weight.to(input.dtype)
 
         if config.output:
-            out = _dynamic_int8_mm(input, weight.T)
+            out = _dynamic_int8_mm(input, weight.T, scaling_method=config.scaling_method)
         else:
             out = input @ weight.T
         out = out + bias if bias is not None else out
@@ -259,7 +272,7 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if ctx.config.grad_input:
-                grad_input = _dynamic_int8_mm(grad_output, weight)
+                grad_input = _dynamic_int8_mm(grad_output, weight, scaling_method=ctx.config.scaling_method)
             else:
                 grad_input = grad_output @ weight
 
@@ -269,7 +282,7 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
             if ctx.config.grad_weight:
                 # grad_weight = _dynamic_int8_mm(grad_output.T, input)
                 grad_weight = _dynamic_int8_mm(
-                    input.T, grad_output
+                    input.T, grad_output, scaling_method=ctx.config.scaling_method
                 ).T  # this is slightly faster
             else:
                 grad_weight = grad_output.T @ input
