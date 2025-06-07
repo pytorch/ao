@@ -362,7 +362,7 @@ def get_extensions():
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
     use_cuda = torch.version.cuda and CUDA_HOME is not None
-    use_rocm = torch.version.hip and ROCM_HOME is not None
+    use_rocm = torch.version.hip and ROCM_HOME is not None and not IS_WINDOWS
     extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
 
     nvcc_args = [
