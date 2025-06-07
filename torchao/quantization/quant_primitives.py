@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
+from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
@@ -1940,7 +1941,10 @@ def choose_qparams_and_quantize_affine_hqq(
 
 
 def choose_qparams_affine_floatx(
-    tensor: torch.Tensor, ebits: int, mbits: int
+    tensor: torch.Tensor,
+    ebits: int,
+    mbits: int,
+    round_scales_to_power_of_2: bool = False,
 ) -> torch.Tensor:
     # _n_ones() is not compatible with torch.compile() due to << operator
     # https://github.com/pytorch/pytorch/issues/119152
@@ -1956,6 +1960,8 @@ def choose_qparams_affine_floatx(
     dtype = tensor.dtype
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    if round_scales_to_power_of_2:
+        scale = _round_scale_down_to_power_of_2(scale.float())
     return scale.to(dtype)
 
 

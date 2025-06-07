@@ -29,6 +29,7 @@ from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl
 from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
     float8_dynamic_activation_float8_weight,
     float8_weight_only,
     quantize_,
@@ -629,6 +630,139 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Verify reasonable quantization error
         error = compute_error(ref_output, quant_output)
         self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    def test_power_of_2_scaling_weight_only(self):
+        """Test that Float8WeightOnlyConfig with round_scales_to_power_of_2=True works correctly"""
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        # Create model
+        model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
+
+        # Test with round_scales_to_power_of_2=True
+        config = Float8WeightOnlyConfig(round_scales_to_power_of_2=True)
+        quantized_model = copy.deepcopy(model)
+        quantize_(quantized_model, config)
+
+        # Verify the model was quantized
+        self.assertTrue(hasattr(quantized_model.weight, "tensor_impl"))
+        weight_impl = quantized_model.weight.tensor_impl
+        self.assertTrue(hasattr(weight_impl, "scale"))
+
+        # Check that scales are powers of 2
+        scale = weight_impl.scale.float()
+        # For power of 2, log2(scale) should be integer
+        log2_scale = torch.log2(scale)
+        is_power_of_2 = torch.allclose(log2_scale, torch.round(log2_scale), atol=1e-6)
+        self.assertTrue(is_power_of_2, "Scales should be powers of 2")
+
+        # Test inference works
+        input_tensor = torch.randn(8, 64, device=device, dtype=dtype)
+        with torch.no_grad():
+            ref_output = model(input_tensor)
+            quant_output = quantized_model(input_tensor)
+
+        # Verify shapes match
+        self.assertEqual(ref_output.shape, quant_output.shape)
+
+        # Verify reasonable quantization error
+        error = compute_error(ref_output, quant_output)
+        self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    def test_power_of_2_scaling_backward_compatibility(self):
+        """Test that default behavior (round_scales_to_power_of_2=False) is unchanged"""
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        # Create model
+        model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
+
+        # Test default behavior (should be False)
+        config_default = Float8WeightOnlyConfig()
+        quantized_model_default = copy.deepcopy(model)
+        quantize_(quantized_model_default, config_default)
+
+        # Test explicit False
+        config_false = Float8WeightOnlyConfig(round_scales_to_power_of_2=False)
+        quantized_model_false = copy.deepcopy(model)
+        quantize_(quantized_model_false, config_false)
+
+        # Get scales from both models
+        scale_default = quantized_model_default.weight.tensor_impl.scale
+        scale_false = quantized_model_false.weight.tensor_impl.scale
+
+        # They should be identical (backward compatibility)
+        self.assertTrue(torch.allclose(scale_default, scale_false))
+
+        # Test that they produce the same results
+        input_tensor = torch.randn(8, 64, device=device, dtype=dtype)
+        with torch.no_grad():
+            output_default = quantized_model_default(input_tensor)
+            output_false = quantized_model_false(input_tensor)
+
+        # Outputs should be identical
+        self.assertTrue(torch.allclose(output_default, output_false))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    def test_power_of_2_vs_regular_scaling(self):
+        """Test that power of 2 scaling produces different (but reasonable) results compared to regular scaling"""
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        # Create model
+        model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
+
+        # Test with regular scaling
+        config_regular = Float8WeightOnlyConfig(round_scales_to_power_of_2=False)
+        quantized_model_regular = copy.deepcopy(model)
+        quantize_(quantized_model_regular, config_regular)
+
+        # Test with power of 2 scaling
+        config_power2 = Float8WeightOnlyConfig(round_scales_to_power_of_2=True)
+        quantized_model_power2 = copy.deepcopy(model)
+        quantize_(quantized_model_power2, config_power2)
+
+        # Get scales from both models
+        scale_regular = quantized_model_regular.weight.tensor_impl.scale.float()
+        scale_power2 = quantized_model_power2.weight.tensor_impl.scale.float()
+
+        # Power of 2 scale should be different from regular scale (unless it was already power of 2)
+        # But the power of 2 scale should be <= regular scale (since we round down)
+        self.assertTrue(torch.all(scale_power2 <= scale_regular))
+
+        # Verify power of 2 scale is actually power of 2
+        log2_scale = torch.log2(scale_power2)
+        is_power_of_2 = torch.allclose(log2_scale, torch.round(log2_scale), atol=1e-6)
+        self.assertTrue(is_power_of_2, "Power-of-2 scales should be powers of 2")
+
+        # Test that both produce reasonable results
+        input_tensor = torch.randn(8, 64, device=device, dtype=dtype)
+        with torch.no_grad():
+            ref_output = model(input_tensor)
+            output_regular = quantized_model_regular(input_tensor)
+            output_power2 = quantized_model_power2(input_tensor)
+
+        # Both should have reasonable quantization error
+        error_regular = compute_error(ref_output, output_regular)
+        error_power2 = compute_error(ref_output, output_power2)
+
+        self.assertGreater(
+            error_regular, 15, f"Regular quantization SQNR too low: {error_regular}"
+        )
+        self.assertGreater(
+            error_power2, 15, f"Power-of-2 quantization SQNR too low: {error_power2}"
+        )
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
