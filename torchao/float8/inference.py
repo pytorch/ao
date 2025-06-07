@@ -94,9 +94,8 @@ def addmm_float8_unwrapped_inference(
             out_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
-        output += bias
-        return output
-    output = torch._scaled_mm(
+        return output + bias
+    return torch._scaled_mm(
         a_data,
         b_data,
         scale_a=a_scale,
@@ -106,7 +105,6 @@ def addmm_float8_unwrapped_inference(
         out_dtype=output_dtype,
         use_fast_accum=use_fast_accum,
     )
-    return output
 
 
 def _is_rowwise_scaled(x) -> bool:

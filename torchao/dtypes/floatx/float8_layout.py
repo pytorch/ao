@@ -370,10 +370,18 @@ def _linear_fp8_act_fp8_weight_check(
     return check_aqt(input_tensor) and check_aqt(weight_tensor)
 
 
-def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
-    """Ensures input tensor is correctly formated for _scaled_mm"""
+def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int, ...]):
+    """Ensures input tensor is correctly formatted for _scaled_mm"""
+
+    # For PerTensor quantization, scale should be a scalar or have shape [1]
+    if input_scale.numel() == 1:
+        # Already a scalar, ensure it has the right shape for _scaled_mm
+        return input_scale.reshape(1, 1)
+
+    # For per-row/block quantization, we need to handle the reshaping
     input_scale = input_scale.unsqueeze(-1)
 
+    # Match: #input_data.reshape(-1, input_data.shape[-1])
     if input_scale.dim() > 2:
         input_scale = input_scale.reshape(-1, input_scale.shape[-1])
 
@@ -388,31 +396,28 @@ def _linear_fp8_act_fp8_weight_impl(
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
     scaled_mm_config = weight_tensor._layout.mm_config
     assert scaled_mm_config is not None
+    assert not weight_tensor.tensor_impl.transposed, "Weight tensor must be contiguous"
+
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
 
-    # Weight tensor preprocessing
-    w_tensor_impl = weight_tensor.tensor_impl
-    assert not w_tensor_impl.transposed, "Weight tensor must be contiguous"
-    w_data = w_tensor_impl.float8_data
-    w_scale = w_tensor_impl.scale
-
-    # Input tensor preprocessing
-    inpt_data = input_tensor.tensor_impl.float8_data
+    # Extract tensor data and scales
+    inpt_data = input_tensor.tensor_impl.float8_data.reshape(
+        -1, input_tensor.tensor_impl.float8_data.shape[-1]
+    )
+    w_data = weight_tensor.tensor_impl.float8_data
     input_scale = input_tensor.tensor_impl.scale
-    # Handle case where input tensor is more than 2D
-    inpt_data = inpt_data.reshape(-1, inpt_data.shape[-1])
-    # Handle rowwise case
+    w_scale = weight_tensor.tensor_impl.scale
+
+    # Handle rowwise scaling
     if _is_rowwise_scaled(weight_tensor):
         assert _is_rowwise_scaled(input_tensor), (
             "Input tensor must be rowwise block size"
         )
-        w_scale = w_scale.T
-        input_scale = preprocess_scale(input_scale, input_tensor.shape)
+        w_scale = w_scale.transpose(-1, -2)
 
-    # Preprocess data
+    input_scale = preprocess_scale(input_scale, input_tensor.shape)
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
-    # Perform the computation
     return addmm_float8_unwrapped_inference(
         inpt_data,
         input_scale,
