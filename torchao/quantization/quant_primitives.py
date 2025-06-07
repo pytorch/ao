@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
+from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
@@ -1940,7 +1941,10 @@ def choose_qparams_and_quantize_affine_hqq(
 
 
 def choose_qparams_affine_floatx(
-    tensor: torch.Tensor, ebits: int, mbits: int
+    tensor: torch.Tensor,
+    ebits: int,
+    mbits: int,
+    round_scales_to_power_of_2: bool = False,
 ) -> torch.Tensor:
     # _n_ones() is not compatible with torch.compile() due to << operator
     # https://github.com/pytorch/pytorch/issues/119152
@@ -1953,10 +1957,13 @@ def choose_qparams_affine_floatx(
         _ONES_TABLE[mbits + 1] / (2**mbits)
     )
 
-    dtype = tensor.dtype
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
-    return scale.to(dtype)
+
+    if round_scales_to_power_of_2:
+        scale = _round_scale_down_to_power_of_2(scale.float())
+
+    return scale
 
 
 def quantize_affine_floatx(
@@ -1988,6 +1995,7 @@ def choose_qparams_affine_float8(
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
     scale_dtype: torch.dtype = torch.float32,
     block_size: Optional[Tuple[int, ...]] = None,
+    round_scales_to_power_of_2: bool = False,
 ) -> torch.Tensor:
     """
     Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
@@ -1997,6 +2005,7 @@ def choose_qparams_affine_float8(
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
         scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).
         block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.
+        round_scales_to_power_of_2 (bool): Whether to round scales down to the nearest power of 2.
     """
     quant_max = torch.finfo(float8_dtype).max
     # only tensorwise scaling is supported for now:
@@ -2018,11 +2027,10 @@ def choose_qparams_affine_float8(
         ]
         scale = scale.reshape(output_shape)
 
-    if scale_dtype is not torch.float32:
-        # Shielding for Version > 2.8
-        assert scale_dtype is torch.float8_e8m0fnu, "Only float8_e8m0fnuz is supported"
-        scale = torch.exp2(_Round.apply(torch.log2(scale)))
-    return scale.to(dtype=torch.float32)
+    if round_scales_to_power_of_2:
+        scale = _round_scale_down_to_power_of_2(scale.float())
+
+    return scale.to(dtype=scale_dtype)
 
 
 def _expand_scale_to_tensor_shape(
