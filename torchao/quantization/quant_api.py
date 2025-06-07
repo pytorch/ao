@@ -1455,6 +1455,7 @@ def _input_activation_quant_func_fp8(
     activation_dtype: torch.dtype,
     scale: Optional[torch.Tensor] = None,
     zero_point: Optional[torch.Tensor] = None,
+    round_scales_to_power_of_2: bool = False,
 ):
     """This function is used to quantize the input activation tensor for an aqt_float variant. If scale
     is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.
@@ -1475,6 +1476,7 @@ def _input_activation_quant_func_fp8(
             target_dtype=activation_dtype,
             scale_dtype=torch.float32,
             _layout=Float8Layout(mm_config=None),  # Config is stored on weight
+            round_scales_to_power_of_2=round_scales_to_power_of_2,
         )
     else:
         assert isinstance(activation_granularity, PerTensor), (
@@ -1532,6 +1534,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
             only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        round_scales_to_power_of_2 (bool): If True, round scaling factors down to the nearest power of 2.
 
     """
 
@@ -1540,6 +1543,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
+    round_scales_to_power_of_2: bool = False
 
     def __post_init__(self):
         if self.mm_config is None:
@@ -1583,12 +1587,14 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         target_dtype=weight_dtype,
         scale_dtype=torch.float32,
         _layout=Float8Layout(mm_config=mm_config),
+        round_scales_to_power_of_2=config.round_scales_to_power_of_2,
     )
 
     input_quant_func = _input_activation_quant_func_fp8
     input_quant_kwargs = {
         "activation_granularity": activation_granularity,
         "activation_dtype": activation_dtype,
+        "round_scales_to_power_of_2": config.round_scales_to_power_of_2,
     }
 
     quantized_weight = to_linear_activation_quantized(
