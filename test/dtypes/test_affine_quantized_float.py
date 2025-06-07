@@ -29,6 +29,7 @@ from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl
 from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
     float8_dynamic_activation_float8_weight,
     float8_weight_only,
     quantize_,
@@ -625,6 +626,48 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         expected_shape = (8, 16)  # batch_size x out_features_sliced
         self.assertEqual(ref_output.shape, expected_shape)
         self.assertEqual(quant_output.shape, expected_shape)
+
+        # Verify reasonable quantization error
+        error = compute_error(ref_output, quant_output)
+        self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    def test_power_of_2_scaling_weight_only(self):
+        """Test that Float8WeightOnlyConfig with round_scales_to_power_of_2=True works correctly"""
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        # Create model
+        model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
+
+        # Test with round_scales_to_power_of_2=True
+        config = Float8WeightOnlyConfig(round_scales_to_power_of_2=True)
+        quantized_model = copy.deepcopy(model)
+        quantize_(quantized_model, config)
+
+        # Verify the model was quantized
+        self.assertTrue(hasattr(quantized_model.weight, "tensor_impl"))
+        weight_impl = quantized_model.weight.tensor_impl
+        self.assertTrue(hasattr(weight_impl, "scale"))
+
+        # Check that scales are powers of 2
+        scale = weight_impl.scale.float()
+        # For power of 2, log2(scale) should be integer
+        log2_scale = torch.log2(scale)
+        is_power_of_2 = torch.allclose(log2_scale, torch.round(log2_scale), atol=1e-6)
+        self.assertTrue(is_power_of_2, "Scales should be powers of 2")
+
+        # Test inference works
+        input_tensor = torch.randn(8, 64, device=device, dtype=dtype)
+        with torch.no_grad():
+            ref_output = model(input_tensor)
+            quant_output = quantized_model(input_tensor)
+
+        # Verify shapes match
+        self.assertEqual(ref_output.shape, quant_output.shape)
 
         # Verify reasonable quantization error
         error = compute_error(ref_output, quant_output)

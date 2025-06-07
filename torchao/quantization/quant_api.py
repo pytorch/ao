@@ -1270,6 +1270,7 @@ def _int4_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
 def _float8_cutlass_quant(
     x: torch.Tensor,
     target_dtype: torch.dtype,
+    round_scales_to_power_of_2: bool = False,
 ) -> torch.Tensor:
     return to_affine_quantized_floatx(
         x,
@@ -1277,12 +1278,14 @@ def _float8_cutlass_quant(
         scale_dtype=torch.float32,
         target_dtype=target_dtype,
         _layout=Float8Layout(mm_config=None),
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
 
 def _float8_cutlass_quant_sparse(
     x: torch.Tensor,
     target_dtype: torch.dtype,
+    round_scales_to_power_of_2: bool = False,
 ) -> (torch.Tensor, torch.Tensor):
     return to_affine_quantized_floatx(
         x,
@@ -1290,6 +1293,7 @@ def _float8_cutlass_quant_sparse(
         scale_dtype=torch.float32,
         target_dtype=target_dtype,
         _layout=CutlassSemiSparseLayout(),
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
 
@@ -1399,6 +1403,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     Args:
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        round_scales_to_power_of_2 (bool): Round scaling factors down to the nearest power of 2.
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
@@ -1406,6 +1411,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
     weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
+    round_scales_to_power_of_2: bool = False
 
 
 # for BC
@@ -1422,6 +1428,7 @@ def _float8_weight_only_quant_tensor(weight, config):
         target_dtype=config.weight_dtype,
         scale_dtype=None,
         _layout=Float8Layout(mm_config=None),
+        round_scales_to_power_of_2=config.round_scales_to_power_of_2,
     )
     return new_weight
 
