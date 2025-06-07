@@ -23,7 +23,7 @@ from torchao.float8.config import (
     Float8LinearConfig,
     Float8LinearRecipeName,
 )
-from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
+from torchao.float8.float8_linear import _matmul_with_hp_or_float8_args
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
@@ -183,7 +183,7 @@ def compute_reference_forward(
 
     # Validate each actual result group from the _scaled_grouped_mm is equal to:
     # 1. A manual _scaled_mm for the group.
-    # 2. A matmul_with_hp_or_float8_args for the group (which is differentiable, and thus used to validate gradients).
+    # 2. A _matmul_with_hp_or_float8_args for the group (which is differentiable, and thus used to validate gradients).
     outputs = []
     list1 = list(zip(A_list_fp8, B_t_fp8, A_scale_list, B_t_scales, result_list))
     list2 = list(zip(A_list, B_t, result_list))
@@ -199,7 +199,7 @@ def compute_reference_forward(
             use_fast_accum=float8_config.gemm_config_output.use_fast_accum,
         )
         a2, b2, result2 = list2[i]
-        ref_group_result2 = matmul_with_hp_or_float8_args.apply(
+        ref_group_result2 = _matmul_with_hp_or_float8_args.apply(
             a2,
             b2,
             LinearMMConfig(),
