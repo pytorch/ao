@@ -1602,15 +1602,27 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
-        if device != "cuda" or not torch.cuda.is_available():
+
+        is_supported_device = device == "cuda" and (
+            torch.cuda.is_available() or torch.version.hip is not None
+        )
+
+        if not is_supported_device:
             self.skipTest(f"autoquant currently does not support {device}")
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
-            if dtype == torch.bfloat16:
-                self.skipTest("bfloat16 requires sm80+")
-            if m1 == 1 or m2 == 1:
-                self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
-        # This test fails on v0.4.0 and torch 2.4, so skipping for now.
-        if m1 == 1 or m2 == 1 and not TORCH_VERSION_AT_LEAST_2_5:
+
+        # Check CUDA-specific requirements if running on CUDA
+        if (
+            is_supported_device and torch.version.hip is None
+        ):  # Only apply to CUDA, not ROCm
+            device_capability = torch.cuda.get_device_capability()
+            if device_capability < (8, 0):
+                if dtype == torch.bfloat16:
+                    self.skipTest("bfloat16 requires sm80+")
+                if m1 == 1 or m2 == 1:
+                    self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
+
+        # Skip certain shapes on older PyTorch versions
+        if (m1 == 1 or m2 == 1) and not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
         model = (
             torch.nn.Sequential(
