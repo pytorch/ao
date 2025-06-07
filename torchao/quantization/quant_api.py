@@ -1285,6 +1285,7 @@ def _float8_cutlass_quant(
 def _float8_cutlass_quant_sparse(
     x: torch.Tensor,
     target_dtype: torch.dtype,
+    round_scales_to_power_of_2: bool = False,
 ) -> (torch.Tensor, torch.Tensor):
     return to_affine_quantized_floatx(
         x,
@@ -1292,6 +1293,7 @@ def _float8_cutlass_quant_sparse(
         scale_dtype=torch.float32,
         target_dtype=target_dtype,
         _layout=CutlassSemiSparseLayout(),
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
 
@@ -1634,11 +1636,13 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
         `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.
         `activation_dtype`: data type for quantized activation tensor.
         `weight_dtype`: data type for quantized weight tensor.
+        `round_scales_to_power_of_2`: If True, round scaling factors down to the nearest power of 2.
     """
 
     layout: Layout = CutlassSemiSparseLayout()
     activation_dtype: torch.dtype = e5m2_dtype
     weight_dtype: torch.dtype = e4m3_dtype
+    round_scales_to_power_of_2: bool = False
 
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
@@ -1657,11 +1661,16 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
             f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
         )
 
-    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
+    weight = _float8_cutlass_quant_sparse(
+        weight, weight_dtype, config.round_scales_to_power_of_2
+    )
     weight = to_linear_activation_quantized(
         weight,
         _float8_cutlass_quant,
-        quant_kwargs={"target_dtype": activation_dtype},
+        quant_kwargs={
+            "target_dtype": activation_dtype,
+            "round_scales_to_power_of_2": config.round_scales_to_power_of_2,
+        },
     )
 
     module.weight = torch.nn.Parameter(weight, requires_grad=False)

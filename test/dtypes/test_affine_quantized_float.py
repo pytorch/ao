@@ -40,6 +40,7 @@ from torchao.quantization.granularity import (
     PerTensor,
 )
 from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     float8_static_activation_float8_weight,
 )
 from torchao.quantization.quant_primitives import (
@@ -855,6 +856,71 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Verify reasonable quantization error
         error = compute_error(ref_output, quant_output)
         self.assertGreater(error, 16, f"Quantization SQNR too low: {error}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    def test_power_of_2_scaling_semi_sparse_weight(self):
+        """Test that Float8DynamicActivationFloat8SemiSparseWeightConfig with round_scales_to_power_of_2=True works correctly"""
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        # Create model with dimensions that are multiples of 16
+        model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
+
+        # Test with round_scales_to_power_of_2=True
+        config = Float8DynamicActivationFloat8SemiSparseWeightConfig(
+            round_scales_to_power_of_2=True
+        )
+        quantized_model = copy.deepcopy(model)
+        quantize_(quantized_model, config)
+
+        # Test inference works (basic functionality check)
+        input_tensor = torch.randn(8, 64, device=device, dtype=dtype)
+        with torch.no_grad():
+            ref_output = model(input_tensor)
+            quant_output = quantized_model(input_tensor)
+
+        # Verify shapes match
+        self.assertEqual(ref_output.shape, quant_output.shape)
+
+        # Verify reasonable quantization error
+        error = compute_error(ref_output, quant_output)
+        self.assertGreater(error, 10, f"Quantization SQNR too low: {error}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    def test_power_of_2_scaling_semi_sparse_backward_compatibility(self):
+        """Test that default behavior (round_scales_to_power_of_2=False) is unchanged for semi-sparse"""
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        # Create model
+        model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
+
+        # Test default behavior (should be False)
+        config_default = Float8DynamicActivationFloat8SemiSparseWeightConfig()
+        quantized_model_default = copy.deepcopy(model)
+        quantize_(quantized_model_default, config_default)
+
+        # Test explicit False
+        config_false = Float8DynamicActivationFloat8SemiSparseWeightConfig(
+            round_scales_to_power_of_2=False
+        )
+        quantized_model_false = copy.deepcopy(model)
+        quantize_(quantized_model_false, config_false)
+
+        # Test that both produce similar results (basic sanity check)
+        input_tensor = torch.randn(8, 64, device=device, dtype=dtype)
+        with torch.no_grad():
+            output_default = quantized_model_default(input_tensor)
+            output_false = quantized_model_false(input_tensor)
+
+        # They should be very similar (same configuration)
+        self.assertTrue(torch.allclose(output_default, output_false, atol=1e-6))
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
