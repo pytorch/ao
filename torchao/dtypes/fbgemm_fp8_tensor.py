@@ -18,6 +18,7 @@ from torchao.utils import (
 
 __all__ = [
     "to_fbgemm_fp8",
+    "FbgemmFp8Tensor",
 ]
 
 aten = torch.ops.aten
@@ -74,11 +75,22 @@ class FbgemmFp8Tensor(TorchAOBaseTensor):
     def _quantization_type(self):
         return f"shape={self.shape}, activation_scale_ub={self.activation_scale_ub}, device={self.device}"
 
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        device = kwargs.pop("device")
+        return self.__class__(
+            self.float8_data.to(device),
+            self.scale.to(device),
+            self.activation_scale_ub.to(device),
+            self.dtype,
+        )
+
     @classmethod
     def from_float(
         cls,
         w: torch.Tensor,
         activation_scale_ub: Optional[float] = None,
+        transpose_input: bool = False,
     ):
         if activation_scale_ub is None:
             activation_scale_ub = 1200.0
@@ -88,6 +100,12 @@ class FbgemmFp8Tensor(TorchAOBaseTensor):
             dtype=torch.float,
             device=w.device,
         )
+        if transpose_input:
+            if w.ndim == 3:
+                w = w.transpose(-1, -2)
+            else:
+                w = w.t()
+
         wq, w_scale = torch.ops.triton.quantize_fp8_row(w)
         # wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
         dtype = w.dtype
@@ -110,11 +128,6 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    if not input_tensor.is_floating_point():
-        raise NotImplementedError(
-            f"{func} is not implemented for non floating point input"
-        )
-
     orig_act_size = input_tensor.size()
     orig_out_features = weight_tensor.shape[-2]
 
@@ -138,6 +151,33 @@ def _(func, types, args, kwargs):
     if bias is not None:
         res = res + bias
 
+    return res
+
+
+@implements(torch.bmm)
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = (
+        args[0],
+        args[1],
+    )
+    orig_act_size = input_tensor.size()
+    # not used
+    num_tokens = torch.empty([input_tensor.size(0)], device=input_tensor.device)
+    xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+        input_tensor, num_tokens, weight_tensor.activation_scale_ub
+    )
+
+    a_data = xq
+    b_data = weight_tensor.float8_data
+    orig_out_features = b_data.shape[-2]
+
+    res = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
+        a_data,
+        b_data,
+        x_scale,
+        weight_tensor.scale,
+    )
+    res = res.reshape(*orig_act_size[:-1], orig_out_features)
     return res
 
 
