@@ -388,6 +388,7 @@ class MultiTensor(torch.Tensor):
         Args:
             H: Hessian matrix approximation
             W: Weight matrix to quantize
+            execute_device: accelerator device
 
         Returns:
             Tuple containing:
@@ -938,6 +939,7 @@ def _calculate_hessian(grouped_args, spec, device=torch.device("cuda")):
     Args:
         grouped_args: Grouped arguments
         spec: Original structure specification
+        device: accelerator device
 
     Returns:
         torch.Tensor: Hessian matrix
