@@ -90,7 +90,7 @@ def test_hipblaslt_fp8():
         out_dtype=torch.bfloat16,
     )
 
-    # Verify results TODO: ROCm specificthreshold
+    # Verify results TODO: ROCm specific threshold
     sqnr = compute_sqnr(out_hp, out)
     assert sqnr > 80.0, f"SQNR {sqnr} below threshold 80.0"
 
