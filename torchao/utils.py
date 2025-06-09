@@ -568,18 +568,6 @@ class TorchAOBaseTensor(torch.Tensor):
     get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
     _get_to_kwargs = _get_to_kwargs
 
-    def __tensor_flatten__(self):
-        raise NotImplementedError("Subclasses must implement __tensor_flatten__")
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        raise NotImplementedError("Subclasses must implement __tensor_unflatten__")
-
-    def __repr__(self):
-        raise NotImplementedError("Subclasses must implement __repr__")
-
     def get_layout(self):
         if not hasattr(self, "_layout"):
             return None
