@@ -46,8 +46,8 @@ from torchao.dtypes.uintx.int4_cpu_layout import (
 from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_bf16_act_uint4_weight_float_zero_check,
     _linear_bf16_act_uint4_weight_float_zero_impl,
-    _linear_bf16_act_uint4_weight_int8_zero_check,
-    _linear_bf16_act_uint4_weight_int8_zero_impl,
+    _linear_fp_act_uint4_weight_int8_zero_check,
+    _linear_fp_act_uint4_weight_int8_zero_impl,
 )
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
@@ -90,7 +90,12 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.quantization.quant_primitives import dequantize_affine
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    dequantize_affine,
+    dequantize_affine_float_zero_point,
+    dequantize_affine_no_zero_point,
+)
 from torchao.utils import (
     fill_defaults,
 )
@@ -125,8 +130,8 @@ def deregister_aqt_quantized_linear_dispatch(dispatch_condition):
     if dispatch_condition in _AQT_QLINEAR_DISPATCH_TABLE:
         del _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition]
     else:
-        logger.warn(
-            f"Attempting to remove non-existant dispatch condition {dispatch_condition}"
+        logger.warning(
+            f"Attempting to remove non-existent dispatch condition {dispatch_condition}"
         )
 
 
@@ -235,8 +240,8 @@ def _register_aqt_quantized_linear_dispatches():
             _linear_q_dq_impl,
         ),
         (
-            _linear_bf16_act_uint4_weight_int8_zero_check,
-            _linear_bf16_act_uint4_weight_int8_zero_impl,
+            _linear_fp_act_uint4_weight_int8_zero_check,
+            _linear_fp_act_uint4_weight_int8_zero_impl,
         ),
         (
             _linear_bf16_act_uint4_weight_float_zero_check,
@@ -262,14 +267,13 @@ def _(func, types, args, kwargs):
         raise NotImplementedError(
             f"{func} is not implemented for non floating point input"
         )
-
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -313,7 +317,14 @@ def _(func, types, args, kwargs):
     # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
     # we need to increase block size to correct dim
     new_blocks = idx.dim() - 1
-    return dequantize_affine(
+    if args[1].zero_point_domain == ZeroPointDomain.FLOAT:
+        _dequantize_affine = dequantize_affine_float_zero_point
+    elif args[1].zero_point_domain == ZeroPointDomain.NONE:
+        _dequantize_affine = dequantize_affine_no_zero_point
+    else:
+        _dequantize_affine = dequantize_affine
+
+    return _dequantize_affine(
         sliced_data,
         new_blocks * [1] + list(args[1].block_size),
         sliced_scale,
@@ -321,7 +332,6 @@ def _(func, types, args, kwargs):
         sliced_data.dtype,
         args[1].quant_min,
         args[1].quant_max,
-        args[1].zero_point_domain,
         output_dtype=sliced_scale.dtype,
     )
 
@@ -352,7 +362,7 @@ def _(func, types, args, kwargs):
             input_tensor, transposed_weight_tensor, bias
         )
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -386,7 +396,7 @@ def _(func, types, args, kwargs):
             input_tensor, transposed_weight_tensor, bias
         )
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")

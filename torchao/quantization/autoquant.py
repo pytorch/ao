@@ -21,7 +21,6 @@ from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
-    to_linear_activation_quantized,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -742,11 +741,11 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
             weight = weight.to(torch.float16)
 
         bit_width = 4
-        packing_bitwidth = 32
-        contiguous = None
+        packing_bitwidth = None
         use_hqq = True
+
         aqt_kwargs = get_gemlite_aqt_kwargs(
-            weight, cls.group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+            weight, cls.group_size, bit_width, packing_bitwidth, use_hqq
         )
         weight = to_affine_quantized_intx(weight, **aqt_kwargs)
         input_quant_func = _to_float16
@@ -964,7 +963,9 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         )
 
 
-class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Tensor):
+class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
+    AQMixin, LinearActivationQuantizedTensor
+):
     """
     AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
     """
@@ -982,24 +983,15 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Ten
             return (1, x.shape[1])
 
         target_dtype = torch.float8_e4m3fn
-
-        # input settings
-        def get_per_token_block_size(x):
-            block_size = list(x.shape)
-            for i in range(len(block_size) - 1):
-                block_size[i] = 1
-            return block_size
-
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
-        # TODO: make this serializable
+        # TODO: test serializable
         input_quant_func = _input_activation_quant_func_fp8
-        input_quant_kwargs = {
+        input_quant_args = {
             "activation_granularity": cls.activation_granularity,
             "activation_dtype": input_target_dtype,
         }
         block_size = get_weight_block_size(weight)
-
         weight = to_affine_quantized_floatx(
             input_float=weight,
             block_size=block_size,
@@ -1007,15 +999,10 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Ten
             _layout=_layout,
             scale_dtype=torch.float32,
         )
-        weight = to_linear_activation_quantized(
-            weight, input_quant_func, quant_kwargs=input_quant_kwargs
-        )
-        # at inference time,
-        # we first convert the input, weight and bias to bfloat16, and then quantize activation
-        # and then dispatch to the quantized ops
-        return super(
+        weight = super(
             AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls
-        ).from_float(weight, skip_weight_conversion=True)
+        ).from_float(weight, input_quant_func, input_quant_args)
+        return weight
 
 
 class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(

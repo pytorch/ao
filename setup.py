@@ -45,15 +45,47 @@ version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
-use_cpp = os.getenv("USE_CPP")
-
 import platform
 
-build_macos_arm_auto = (
-    use_cpp == "1"
-    and platform.machine().startswith("arm64")
-    and platform.system() == "Darwin"
-)
+################################################################################
+# Build Configuration - Environment Variables and Build Options
+################################################################################
+
+# Core build toggles
+use_cpp = os.getenv("USE_CPP", "1")
+use_cpu_kernels = os.getenv("USE_CPU_KERNELS", "0") == "1"
+
+# Platform detection
+is_arm64 = platform.machine().startswith("arm64") or platform.machine() == "aarch64"
+is_macos = platform.system() == "Darwin"
+is_linux = platform.system() == "Linux"
+
+# Auto-enable experimental builds on ARM64 macOS when USE_CPP=1
+build_macos_arm_auto = use_cpp == "1" and is_arm64 and is_macos
+
+# Build configuration hierarchy and relationships:
+#
+# Level 1: USE_CPP (Primary gate)
+#   ├── "0" → Skip all C++ extensions (Python-only mode)
+#   └── "1"/None → Build C++ extensions
+#
+# Level 2: Platform-specific optimizations
+#   ├── USE_CPU_KERNELS="1" + Linux → Include optimized CPU kernels (AVX512, etc.)
+#   └── ARM64 + macOS → Auto-enable experimental builds (build_macos_arm_auto)
+#
+# Level 3: Experimental builds (cmake-based)
+#   ├── BUILD_TORCHAO_EXPERIMENTAL="1" → Force experimental builds
+#   ├── build_macos_arm_auto → Auto-enable on ARM64 macOS
+#   └── When enabled, provides access to:
+#       ├── TORCHAO_BUILD_CPU_AARCH64 → ARM64 CPU kernels
+#       ├── TORCHAO_BUILD_KLEIDIAI → Kleidi AI library integration
+#       ├── TORCHAO_BUILD_EXPERIMENTAL_MPS → MPS acceleration (macOS only)
+#       ├── TORCHAO_ENABLE_ARM_NEON_DOT → ARM NEON dot product instructions
+#       ├── TORCHAO_ENABLE_ARM_I8MM → ARM 8-bit integer matrix multiply
+#       └── TORCHAO_PARALLEL_BACKEND → Backend selection (aten_openmp, executorch, etc.)
+
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
@@ -79,8 +111,6 @@ from torch.utils.cpp_extension import (
     _get_cuda_arch_flags,
 )
 
-IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
-
 
 class BuildOptions:
     def __init__(self):
@@ -90,12 +120,10 @@ class BuildOptions:
         # can be built by explicitly setting TORCHAO_BUILD_CPU_AARCH64=1
         self.build_cpu_aarch64 = self._os_bool_var(
             "TORCHAO_BUILD_CPU_AARCH64",
-            default=(self._is_arm64() and self._is_macos()),
+            default=(is_arm64 and is_macos),
         )
         if self.build_cpu_aarch64:
-            assert self._is_arm64(), (
-                "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
-            )
+            assert is_arm64, "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
 
         # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
         # 1) It increases the build time
@@ -113,8 +141,8 @@ class BuildOptions:
             "TORCHAO_BUILD_EXPERIMENTAL_MPS", default=False
         )
         if self.build_experimental_mps:
-            assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
-            assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
+            assert is_macos, "TORCHAO_BUILD_EXPERIMENTAL_MPS requires macOS"
+            assert is_arm64, "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
             assert torch.mps.is_available(), (
                 "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
             )
@@ -127,7 +155,7 @@ class BuildOptions:
         # Enabled by default on macOS silicon
         self.enable_arm_neon_dot = self._os_bool_var(
             "TORCHAO_ENABLE_ARM_NEON_DOT",
-            default=(self._is_arm64() and self._is_macos()),
+            default=(is_arm64 and is_macos),
         )
         if self.enable_arm_neon_dot:
             assert self.build_cpu_aarch64, (
@@ -143,12 +171,6 @@ class BuildOptions:
             assert self.build_cpu_aarch64, (
                 "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
             )
-
-    def _is_arm64(self) -> bool:
-        return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
-
-    def _is_macos(self) -> bool:
-        return platform.system() == "Darwin"
 
     def _os_bool_var(self, var, default) -> bool:
         default_val = "1" if default else "0"
@@ -221,6 +243,55 @@ def check_submodules():
         )
 
 
+def get_cuda_version_from_nvcc():
+    """Get CUDA version from nvcc if available."""
+    try:
+        result = subprocess.check_output(
+            ["nvcc", "--version"], stderr=subprocess.STDOUT
+        )
+        output = result.decode("utf-8")
+        # Look for version line like "release 12.6"
+        for line in output.split("\n"):
+            if "release" in line.lower():
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part.lower() == "release" and i + 1 < len(parts):
+                        return parts[i + 1].rstrip(",")
+
+    except:
+        return None
+
+
+def get_cutlass_build_flags():
+    """Determine which CUTLASS kernels to build based on CUDA version.
+    SM90a: CUDA 12.6+, SM100a: CUDA 12.8+
+    """
+    # Try nvcc then torch version
+    cuda_version = get_cuda_version_from_nvcc() or torch.version.cuda
+
+    try:
+        if not cuda_version:
+            raise ValueError("No CUDA version found")
+
+        major, minor = map(int, cuda_version.split(".")[:2])
+        build_sm90a = major > 12 or (major == 12 and minor >= 6)
+        build_sm100a = major > 12 or (major == 12 and minor >= 8)
+
+        if build_sm90a:
+            print(f"CUDA {cuda_version}: Enabling SM90a CUTLASS kernels")
+        if build_sm100a:
+            print(f"CUDA {cuda_version}: Enabling SM100a CUTLASS kernels")
+
+        return build_sm90a, build_sm100a
+    except:
+        # Fallback to architecture flags
+        cuda_arch_flags = _get_cuda_arch_flags()
+        return (
+            "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags,
+            "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags,
+        )
+
+
 # BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
 class TorchAOBuildExt(BuildExtension):
     def __init__(self, *args, **kwargs) -> None:
@@ -272,40 +343,61 @@ class CMakeExtension(Extension):
 
 
 def get_extensions():
+    # Skip building C++ extensions if USE_CPP is set to "0"
+    if use_cpp == "0":
+        print("USE_CPP=0: Skipping compilation of C++ extensions")
+        return []
+
     debug_mode = use_debug_mode()
     if debug_mode:
         print("Compiling in debug mode")
 
-    if not torch.version.cuda:
-        print(
-            "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
-        )
-    if (CUDA_HOME is None and ROCM_HOME is None) and torch.version.cuda:
-        print(
-            "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
-        )
+    if CUDA_HOME is None and torch.version.cuda:
+        print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
+    if ROCM_HOME is None and torch.version.hip:
+        print("ROCm is not available. Skipping compilation of ROCm extensions")
+        print("If you'd like to compile ROCm extensions locally please install ROCm")
 
-    use_cuda = torch.version.cuda and (CUDA_HOME is not None or ROCM_HOME is not None)
-    extension = CUDAExtension if use_cuda else CppExtension
+    use_cuda = torch.version.cuda and CUDA_HOME is not None
+    use_rocm = torch.version.hip and ROCM_HOME is not None
+    extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
+
+    nvcc_args = [
+        "-DNDEBUG" if not debug_mode else "-DDEBUG",
+        "-O3" if not debug_mode else "-O0",
+        "-t=0",
+        "-std=c++17",
+    ]
+    rocm_args = [
+        "-DNDEBUG" if not debug_mode else "-DDEBUG",
+        "-O3" if not debug_mode else "-O0",
+        "-std=c++17",
+    ]
 
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": [
-            "-DNDEBUG" if not debug_mode else "-DDEBUG",
-            "-O3" if not debug_mode else "-O0",
-            "-t=0",
-            "-std=c++17",
-        ],
+        "nvcc": nvcc_args if use_cuda else rocm_args,
     }
 
     if not IS_WINDOWS:
         extra_compile_args["cxx"].extend(
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
+
+        if use_cpu_kernels and is_linux and TORCH_VERSION_AT_LEAST_2_7:
+            if torch._C._cpu._is_avx512_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -322,49 +414,90 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
+    rocm_sparse_marlin_supported = False
+    if use_rocm:
+        # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
+        found_col16 = False
+        found_vec_ext = False
+        print("ROCM_HOME", ROCM_HOME)
+        hipblaslt_headers = list(
+            glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h"))
+        )
+        print("hipblaslt_headers", hipblaslt_headers)
+        for header in hipblaslt_headers:
+            with open(header) as f:
+                text = f.read()
+                if "HIPBLASLT_ORDER_COL16" in text:
+                    found_col16 = True
+                if "HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER_VEC_EXT" in text:
+                    found_vec_ext = True
+        if found_col16:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_HAS_ORDER_COL16")
+            print("hipblaslt found extended col order enums")
+        else:
+            print("hipblaslt does not have extended col order enums")
+        if found_vec_ext:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_VEC_EXT")
+            print("hipblaslt found vec ext")
+        else:
+            print("hipblaslt does not have vec ext")
+
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+    if not use_cpu_kernels or not is_linux:
+        # Remove csrc/cpu/*.cpp
+        excluded_sources = list(
+            glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in excluded_sources]
 
+    # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(
         glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
     )
 
-    # Define HIP source directories
-    hip_source_dirs = [
+    # Define ROCm source directories
+    rocm_source_dirs = [
+        os.path.join(extensions_dir, "rocm", "swizzle"),
         os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
-        # TODO: Add sparse_marlin back in once we have a ROCm build for it
-        # os.path.join(extensions_dir, "cuda", "sparse_marlin")
     ]
+    if rocm_sparse_marlin_supported:
+        rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
-    # Collect all HIP sources from the defined directories
-    hip_sources = []
-    for hip_dir in hip_source_dirs:
-        hip_sources.extend(glob.glob(os.path.join(hip_dir, "*.cu"), recursive=True))
+    # Collect all ROCm sources from the defined directories
+    rocm_sources = []
+    for rocm_dir in rocm_source_dirs:
+        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.cu"), recursive=True))
+        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.hip"), recursive=True))
+        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.cpp"), recursive=True))
 
-    # Collect CUDA source files if needed
-    if not IS_ROCM and use_cuda:
+    # Add CUDA source files if needed
+    if use_cuda:
         sources += cuda_sources
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
-    if IS_ROCM and use_cuda:
+    if use_rocm:
         # Add ROCm GPU architecture check
-        gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch != "gfx942":
+        gpu_arch = None
+        if torch.cuda.is_available():
+            gpu_arch = torch.cuda.get_device_properties(0).name
+        if gpu_arch and gpu_arch != "gfx942":
             print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print(
-                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
-            )
-        else:
-            sources += hip_sources
+            print("Currently only gfx942 is supported. Compiling only for gfx942.")
+        extra_compile_args["nvcc"].append("--offload-arch=gfx942")
+        sources += rocm_sources
 
     use_cutlass = False
     cutlass_90a_sources = None
-    if use_cuda and not IS_ROCM and not IS_WINDOWS:
+    cutlass_100a_sources = None
+    build_for_sm90a = False
+    build_for_sm100a = False
+    if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
@@ -392,32 +525,46 @@ def get_extensions():
             ]
         )
 
-        cuda_arch_flags = _get_cuda_arch_flags()
-        build_for_sm90 = "-gencode=arch=compute_90,code=sm_90" in cuda_arch_flags
-        build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
-        if build_for_sm90 and not build_for_sm90a:
-            cutlass_90a_sources = [
+        build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
+        # Define sm90a sources
+        cutlass_90a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "rowwise_scaled_linear_sparse_cutlass",
+                "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
+            ),
+            os.path.join(
+                extensions_cuda_dir,
+                "to_sparse_semi_structured_cutlass_sm9x",
+                "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+            ),
+            os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
+            os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
+        ]
+        for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
+            cutlass_90a_sources.append(
                 os.path.join(
                     extensions_cuda_dir,
                     "rowwise_scaled_linear_sparse_cutlass",
-                    "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
-                ),
-                os.path.join(
-                    extensions_cuda_dir,
-                    "to_sparse_semi_structured_cutlass_sm9x",
-                    "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
-                ),
-                os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
-            ]
-            for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
-                cutlass_90a_sources.append(
-                    os.path.join(
-                        extensions_cuda_dir,
-                        "rowwise_scaled_linear_sparse_cutlass",
-                        "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
-                    )
+                    "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
-            sources = [s for s in sources if s not in cutlass_90a_sources]
+            )
+        # Always remove sm90a sources from main sources
+        sources = [s for s in sources if s not in cutlass_90a_sources]
+
+        # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
+        cutlass_100a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "mx_kernels",
+                "mx_fp_cutlass_kernels.cu",
+            ),
+        ]
+        # Remove from main sources to prevent compilation with other architectures
+        sources = [
+            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+        ]
+
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -431,6 +578,11 @@ def get_extensions():
 
     ext_modules = []
     if len(sources) > 0:
+        # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
+        sources = [
+            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+        ]
+
         ext_modules.append(
             extension(
                 "torchao._C",
@@ -441,17 +593,44 @@ def get_extensions():
             )
         )
 
-    if cutlass_90a_sources is not None and len(cutlass_90a_sources) > 0:
+    # Only build the cutlass_90a extension if sm90a is in the architecture flags
+    if (
+        cutlass_90a_sources is not None
+        and len(cutlass_90a_sources) > 0
+        and build_for_sm90a
+    ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        cutlass_90a_extra_compile_args["nvcc"].extend(
-            cuda_arch_flags + ["-gencode=arch=compute_90a,code=sm_90a"]
+        # Only use sm90a architecture for these sources, ignoring other flags
+        cutlass_90a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_90a,code=sm_90a"
         )
         ext_modules.append(
             extension(
-                "torchao._C",
+                "torchao._C_cutlass_90a",
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    # Only build the cutlass_100a extension if sm100a is in the architecture flags
+    if (
+        cutlass_100a_sources is not None
+        and len(cutlass_100a_sources) > 0
+        and build_for_sm100a
+    ):
+        cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
+        # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
+        cutlass_100a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_100a,code=sm_100a"
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C_cutlass_100a",
+                cutlass_100a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_100a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
@@ -494,7 +673,9 @@ def get_extensions():
     return ext_modules
 
 
-check_submodules()
+# Only check submodules if we're going to build C++ extensions
+if use_cpp != "0":
+    check_submodules()
 
 setup(
     name="torchao",
@@ -507,7 +688,7 @@ setup(
     ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": TorchAOBuildExt},

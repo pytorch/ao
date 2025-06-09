@@ -255,7 +255,7 @@ void register_ukernel_config_kleidi(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  check_format(format, torchao::ops::PackedWeightsType::kleidi_ai, weight_nbit);
+  check_format(format, torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_kleidi_ai, weight_nbit);
   namespace op = torchao::kernels::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
@@ -343,7 +343,7 @@ void register_ukernel_config(
       register_ukernel_config_universal<weight_nbit>(table, format, uarch);
       break;
     }
-    case torchao::ops::PackedWeightsType::kleidi_ai: {
+    case torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_kleidi_ai: {
 #ifdef TORCHAO_ENABLE_KLEIDI
       register_ukernel_config_kleidi<weight_nbit>(table, format, uarch);
 #endif // TORCHAO_ENABLE_KLEIDI
@@ -411,7 +411,7 @@ PackedWeightsFormat select_packed_weights_format(
     if (weight_nbit == 4 && (!has_weight_zeros)) {
 #if defined(TORCHAO_ENABLE_ARM_I8MM)
       return PackedWeightsFormat(
-          torchao::ops::PackedWeightsType::kleidi_ai,
+          torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_kleidi_ai,
           weight_nbit,
           has_weight_zeros,
           has_bias,
@@ -420,7 +420,7 @@ PackedWeightsFormat select_packed_weights_format(
           /*sr*/ 2);
 #elif defined(TORCHAO_ENABLE_ARM_NEON_DOT)
       return PackedWeightsFormat(
-          torchao::ops::PackedWeightsType::kleidi_ai,
+          torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_kleidi_ai,
           weight_nbit,
           has_weight_zeros,
           has_bias,

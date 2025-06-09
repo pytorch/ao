@@ -7,11 +7,20 @@
 Defines an nn module designed to be used during inference
 """
 
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional, Tuple, Union
 
 import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.types import FP8Granularity
+from torchao.quantization.granularity import (
+    PerRow,
+    PerTensor,
+)
+from torchao.utils import (
+    is_MI300,
+    is_sm_at_least_89,
+)
 
 Tensor = torch.Tensor
 
@@ -106,3 +115,61 @@ def _is_rowwise_scaled(x) -> bool:
         x: AffineQuantizedTensor tensor
     """
     return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)
+
+
+def _normalize_granularity(
+    granularity: Optional[
+        Union[
+            FP8Granularity,
+            Tuple[FP8Granularity, FP8Granularity],
+            list[FP8Granularity],
+        ]
+    ],
+) -> Tuple[FP8Granularity, FP8Granularity]:
+    processed_granularity = None
+    if granularity is None:
+        processed_granularity = (PerTensor(), PerTensor())
+    elif isinstance(granularity, (PerTensor, PerRow)):
+        processed_granularity = (granularity, granularity)
+    elif isinstance(granularity, (tuple, list)) and len(granularity) == 2:
+        if not (
+            isinstance(granularity[0], (PerTensor, PerRow))
+            and isinstance(granularity[1], (PerTensor, PerRow))
+        ):
+            raise ValueError(
+                f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported."
+            )
+        if not isinstance(granularity[0], type(granularity[1])):
+            raise ValueError(
+                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
+            )
+        processed_granularity = tuple(granularity)
+    else:
+        raise ValueError(
+            f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
+        )
+    return processed_granularity
+
+
+def _check_hardware_support(
+    granularities: Tuple[FP8Granularity, FP8Granularity],
+) -> None:
+    """
+    Validate that the hardware supports the requested granularities.
+
+    Args:
+        granularities: Tuple of (activation_granularity, weight_granularity)
+
+    Raises:
+        AssertionError: If hardware doesn't support the requested granularity
+        ValueError: If invalid granularity type is provided
+    """
+    for _granularity in granularities:
+        if not isinstance(_granularity, (PerTensor, PerRow)):
+            raise ValueError(
+                f"Invalid granularity type: {_granularity}, only PerTensor or PerRow are supported."
+            )
+
+        assert is_sm_at_least_89() or is_MI300(), (
+            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+."
+        )
