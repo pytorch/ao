@@ -3,8 +3,8 @@ from torchao.float8.config import (
     CastConfig,
     Float8GemmConfig,
     Float8LinearConfig,
-    ScalingType,
     ScalingGranularity,
+    ScalingType,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
