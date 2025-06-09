@@ -9,10 +9,10 @@
 import unittest
 
 import torch
+from parameterized import parameterized
+from torch._inductor import config
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
-from torch._inductor import config
-from parameterized import parameterized
 
 from torchao.float8.float8_utils import EPS as float8_eps
 from torchao.quantization.quant_primitives import (
@@ -988,8 +988,8 @@ class TestQuantPrimitives(unittest.TestCase):
     @config.patch({"freezing": True})
     def test_float8_quant_primitives_inductor(self, hp_dtype, float8_dtype):
         from torchao.quantization.quant_primitives import (
-            quantize_affine,
             dequantize_affine,
+            quantize_affine,
         )
 
         torch._dynamo.reset()
