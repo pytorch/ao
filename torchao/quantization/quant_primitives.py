@@ -385,7 +385,6 @@ def _quantize_affine_meta(
     output_dtype: torch.dtype,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
-    zero_point_domain: str = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
     return torch.empty(input.shape, dtype=output_dtype, device=input.device)
 
