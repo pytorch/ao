@@ -110,7 +110,9 @@ def _addmm_mx_dispatch(
             assert gemm_choice in (
                 MXGemmKernelChoice.CUBLAS,
                 MXGemmKernelChoice.HIPBLASLT,
-            ), "CUBLAS and HIPBLASLT are the only supported kernel choices for MX FP8 operations ATM"
+            ), (
+                "CUBLAS and HIPBLASLT are the only supported kernel choices for MX FP8 operations ATM"
+            )
 
             res = torch._scaled_mm(
                 a._data,
