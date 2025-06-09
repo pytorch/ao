@@ -15,10 +15,8 @@ from .autoquant import (
 )
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightLinear,
-    Int8DynActInt4WeightQuantizer,
+    MultiTensor,
+    MultiTensorInputRecorder,
 )
 from .granularity import (
     PerAxis,
@@ -34,13 +32,18 @@ from .linear_activation_quantized_tensor import (
 from .linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
 )
+from .linear_quant_modules import (
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightLinear,
+    Int8DynActInt4WeightQuantizer,
+)
 from .observer import (
     AffineQuantizedMinMaxObserver,
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    AOPerModuleConfig,
     CutlassInt4PackedLayout,
+    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
@@ -55,6 +58,7 @@ from .quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
@@ -107,6 +111,9 @@ from .utils import (
 )
 from .weight_only import WeightOnlyInt8QuantLinear
 
+# TODO: remove after migration of APIs are done
+AOPerModuleConfig = ModuleFqnToConfig
+
 __all__ = [
     # top level API - auto
     "autoquant",
@@ -148,6 +155,8 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
+    "ModuleFqnToConfig",
+    "FbgemmConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -189,9 +198,7 @@ __all__ = [
     "PerRow",
     "PerToken",
     "LinearActivationQuantizedTensor",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
     "WeightOnlyInt8QuantLinear",
@@ -202,4 +209,8 @@ __all__ = [
     "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
+    # GPTQ
+    "Int4WeightOnlyGPTQQuantizer",
+    "MultiTensor",
+    "MultiTensorInputRecorder",
 ]

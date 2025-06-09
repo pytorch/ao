@@ -135,6 +135,8 @@ def _groupwise_affine_quantize_tensor_from_qparams(
     if TORCH_VERSION_AT_LEAST_2_5:
         if (not (check_cpu_version(w.device))) and (not (check_xpu_version(w.device))):
             w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
+        if check_xpu_version(w.device):
+            w_int4x8 = (w_int4x8[::, 1::2] << 4 | w_int4x8[::, ::2]).to(torch.uint8)
 
     return w_int4x8
 
@@ -730,6 +732,8 @@ class TestQuantPrimitives(unittest.TestCase):
                     not (check_xpu_version(input.device))
                 ):
                     input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
+                if check_xpu_version(input.device):
+                    input_tmp = (input[::, 1::2] << 4 | input[::, ::2]).to(torch.uint8)
                 w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
                     input_tmp, scales, zeros, n_bit, groupsize, zero_point_domain
                 )

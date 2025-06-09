@@ -20,7 +20,7 @@ from torchao.core.config import (
     config_to_dict,
 )
 from torchao.quantization.quant_api import (
-    AOPerModuleConfig,
+    FbgemmConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -30,15 +30,18 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    ModuleFqnToConfig,
     PerRow,
     UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 # Define test configurations as fixtures
 configs = [
     Float8DynamicActivationFloat8WeightConfig(),
     Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+    Float8DynamicActivationFloat8WeightConfig(granularity=[PerRow(), PerRow()]),
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),
@@ -68,15 +71,18 @@ configs = [
     # Sparsity configs
     SemiSparseWeightConfig(),
     BlockSparseWeightConfig(blocksize=128),
-    AOPerModuleConfig({}),
-    AOPerModuleConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
-    AOPerModuleConfig(
+    ModuleFqnToConfig({}),
+    ModuleFqnToConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
+    ModuleFqnToConfig(
         {
             "linear1": Int4WeightOnlyConfig(),
             "linear2": Int8DynamicActivationInt4WeightConfig(),
         }
     ),
 ]
+
+if TORCH_VERSION_AT_LEAST_2_6:
+    configs += [FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256])]
 
 
 # Create ids for better test naming

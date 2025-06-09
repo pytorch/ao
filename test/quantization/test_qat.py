@@ -9,6 +9,7 @@
 
 import copy
 import unittest
+from typing import List
 
 import torch
 import torch.nn.functional as F
@@ -16,17 +17,25 @@ from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
-from torchao.quantization.GPTQ import _replace_linear_8da4w, _replace_linear_int4
+from torchao.float8.config import ScalingGranularity
+from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
     PerRow,
     PerToken,
 )
+from torchao.quantization.linear_quant_modules import (
+    _replace_linear_8da4w,
+    _replace_linear_int4,
+)
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
+    IntXQuantizationAwareTrainingConfig,
     from_intx_quantization_aware_training,
+    initialize_fake_quantizers,
     intx_quantization_aware_training,
 )
 from torchao.quantization.qat.embedding import (
@@ -34,16 +43,18 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.fake_quantizer import (
     FakeQuantizer,
+    _Float8RowwiseActivationFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
+    Float8ActInt4WeightQATQuantizer,
     Int4WeightOnlyQATLinear,
     Int8DynActInt4WeightQATLinear,
 )
 from torchao.quantization.qat.utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _GenericFakeQuantize,
+    _Float8RowwiseFakeQuantize,
     _get_qmin_qmax,
 )
 from torchao.quantization.quant_api import (
@@ -63,6 +74,7 @@ from torchao.quantization.unified import (
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
+    compute_error,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
@@ -98,6 +110,16 @@ class M(torch.nn.Module):
 
     def example_inputs(self):
         return (torch.randn(1, 512).to(torch.float),)
+
+    def _get_all_weight_qparams(self) -> List[torch.Tensor]:
+        return [
+            self.linear1.weight_fake_quantizer.scale,
+            self.linear1.weight_fake_quantizer.zero_point,
+            self.sub.linear.weight_fake_quantizer.scale,
+            self.sub.linear.weight_fake_quantizer.zero_point,
+            self.linear2.weight_fake_quantizer.scale,
+            self.linear2.weight_fake_quantizer.zero_point,
+        ]
 
     def forward(self, x):
         x = self.linear1(x)
@@ -569,42 +591,6 @@ class TestQAT(unittest.TestCase):
         quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=16)
         self._test_qat_quantized_gradients(quantizer)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
-    def test_qat_generic_fake_quantize(self):
-        """
-        Test that the generic fake quantize used in 8da4w QAT matches
-        the numerics of existing fake quantize ops in Pytorch in both
-        the forward and the backward passes.
-        """
-        (qmin, qmax) = _get_qmin_qmax(4)
-        py_input = torch.randn(16, 64).float().requires_grad_()
-        py_s = torch.randn(16).float()
-        py_zp = torch.randint(qmax, size=(16,), dtype=torch.int32)
-        py_out = torch.fake_quantize_per_channel_affine(
-            py_input, py_s, py_zp, 0, qmin, qmax
-        )
-        py_out.sum().backward()
-
-        ao_input = copy.deepcopy(py_input)
-        ao_input.grad.data.zero_()
-        block_size = (1, ao_input.shape[-1])
-        ao_s = copy.deepcopy(py_s)
-        ao_zp = copy.deepcopy(py_zp)
-        ao_out = _GenericFakeQuantize.apply(
-            ao_input, block_size, ao_s, ao_zp, qmin, qmax
-        )
-        ao_out.sum().backward()
-
-        torch.testing.assert_close(py_out, ao_out, atol=0, rtol=0)
-
-        # Test that gradients are close enough
-        num_grads = py_input.grad.numel()
-        num_equal_grads = torch.eq(py_input.grad, ao_input.grad).flatten().sum().item()
-        num_equal_grad_threshold = 0.8
-        self.assertGreaterEqual(num_equal_grads / num_grads, num_equal_grad_threshold)
-
     def _assert_close_4w(self, val, ref):
         # Note: for int4 weight-only quantization, we do not expect exact match
         # because torch._weight_int4pack_mm and torch.mm do not match exactly.
@@ -995,6 +981,21 @@ class TestQAT(unittest.TestCase):
         FakeQuantizeConfig(TorchAODType.INT6, "per_token")
         FakeQuantizeConfig(TorchAODType.INT7, "per_token")
         FakeQuantizeConfig(torch.int8, "per_token")
+
+    def test_fake_quantize_config_dynamic_and_range_learning(self):
+        """
+        Test that `is_dynamic` and `range_learning` cannot both be set.
+        """
+        FakeQuantizeConfig(
+            torch.int8, "per_channel", is_dynamic=True, range_learning=False
+        )
+        FakeQuantizeConfig(
+            torch.int8, "per_channel", is_dynamic=False, range_learning=True
+        )
+        with self.assertRaisesRegex(ValueError, "not compatible"):
+            FakeQuantizeConfig(
+                torch.int8, "per_channel", is_dynamic=True, range_learning=True
+            )
 
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
@@ -1450,7 +1451,7 @@ class TestQAT(unittest.TestCase):
         example_inputs = m.example_inputs()
         m(*example_inputs)
 
-    @parameterized.expand([torch.float32, torch.bfloat16, torch.float16])
+    @parameterized.expand([(torch.float32,), (torch.bfloat16,), (torch.float16,)])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
@@ -1470,7 +1471,7 @@ class TestQAT(unittest.TestCase):
         baseline_out = per_token_dynamic_quant(x)
         torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
 
-    @parameterized.expand([torch.float32, torch.bfloat16, torch.float16])
+    @parameterized.expand([(torch.float32,), (torch.bfloat16,), (torch.float16,)])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
@@ -1480,7 +1481,6 @@ class TestQAT(unittest.TestCase):
         numerics that match exactly over N trials.
         """
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
-        from torchao.quantization.utils import compute_error
 
         num_trials = 1000
         group_size = 16
@@ -1590,6 +1590,164 @@ class TestQAT(unittest.TestCase):
         )
         actual_out = converted_model.linear1(x)
         torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_fake_quantizer_range_learning(self):
+        """
+        Test that range learning requires `FakeQuantizer`s to be initialized correctly.
+        """
+        config = FakeQuantizeConfig(
+            torch.int8,
+            "per_channel",
+            is_dynamic=False,
+            range_learning=True,
+            scale_precision=torch.float32,
+            zero_point_precision=torch.float32,
+        )
+        fake_quantizer = FakeQuantizer(config)
+        example_inputs = (torch.randn(2, 3),)
+
+        # Not initialized, should fail
+        self.assertFalse(fake_quantizer._initialized)
+        self.assertIsNone(fake_quantizer.scale)
+        self.assertIsNone(fake_quantizer.zero_point)
+        with self.assertRaisesRegex(
+            ValueError,
+            "Please call `torchao.quantization.qat.initialize_fake_quantizers` "
+            "before initializing the optimizer and beginning training.",
+        ):
+            fake_quantizer(*example_inputs)
+
+        # Should pass after initializing
+        initialize_fake_quantizers(fake_quantizer, example_inputs)
+        self.assertTrue(fake_quantizer._initialized)
+        self.assertIsInstance(fake_quantizer.scale, torch.nn.Parameter)
+        self.assertIsInstance(fake_quantizer.zero_point, torch.nn.Parameter)
+        self.assertTrue(fake_quantizer.scale.requires_grad)
+        self.assertTrue(fake_quantizer.zero_point.requires_grad)
+        fake_quantizer(*example_inputs)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_range_learning(self):
+        """
+        Test end-to-end QAT flow with range learning.
+        """
+        config = FakeQuantizeConfig(
+            torch.int8,
+            "per_channel",
+            is_dynamic=False,
+            range_learning=True,
+            scale_precision=torch.float32,
+            zero_point_precision=torch.float32,
+        )
+        m = M()
+        example_inputs = m.example_inputs()
+        quantize_(m, IntXQuantizationAwareTrainingConfig(weight_config=config))
+
+        # Not initialized, should fail
+        for t in m._get_all_weight_qparams():
+            self.assertIsNone(t)
+        with self.assertRaisesRegex(
+            ValueError,
+            "Please call `torchao.quantization.qat.initialize_fake_quantizers` "
+            "before initializing the optimizer and beginning training.",
+        ):
+            m(*example_inputs)
+
+        # Should pass after initializing
+        # All scales and zero points should be in `m.parameters()`
+        initialize_fake_quantizers(m, example_inputs)
+        params = set(m.parameters())
+        for t in m._get_all_weight_qparams():
+            self.assertIsInstance(t, torch.nn.Parameter)
+            self.assertTrue(t.requires_grad)
+            self.assertTrue(t in params)
+        m(*example_inputs)
+
+        # Simulate training
+        num_steps = 10
+        optimizer = torch.optim.SGD(
+            m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5
+        )
+        loss_fn = torch.nn.CrossEntropyLoss()
+        for i in range(num_steps):
+            prev_scale = copy.deepcopy(m.linear1.weight_fake_quantizer.scale)
+            prev_weight = copy.deepcopy(m.linear1.weight)
+            optimizer.zero_grad()
+            target = torch.randn(1, 512).float()
+            out = m(*example_inputs)
+            loss = loss_fn(out, target)
+            loss.backward()
+            optimizer.step()
+            # Assert that scales have valid gradients and are being updated
+            new_scale = m.linear1.weight_fake_quantizer.scale
+            self.assertIsNotNone(new_scale.grad)
+            self.assertNotEqual(torch.count_nonzero(new_scale.grad), 0)
+            self.assertFalse(torch.equal(new_scale, prev_scale))
+            # Assert that weights have valid gradients and are being updated
+            new_weight = m.linear1.weight
+            self.assertIsNotNone(new_weight.grad)
+            self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
+            self.assertFalse(torch.equal(new_weight, prev_weight))
+
+    def test_float8_rowwise_fake_quantize(self):
+        """
+        Test that `_Float8RowwiseFakeQuantize` is numerically close to `Float8Tensor`.
+        """
+        torch.manual_seed(self.SEED)
+        dtype = torch.float8_e4m3fn
+        x = torch.randn(32, 64)
+        axiswise_dim = 0
+        out = _Float8RowwiseFakeQuantize.apply(x, dtype, axiswise_dim)
+        out_expected = hp_tensor_to_float8_dynamic(
+            x,
+            dtype,
+            LinearMMConfig(),
+            scaling_granularity=ScalingGranularity.AXISWISE,
+            axiswise_dim=axiswise_dim,
+        ).to_original_precision()
+        torch.testing.assert_close(out, out_expected, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
+    )
+    def test_qat_fp8a4w_quantizer(self):
+        """
+        Test basic model training with `Float8ActInt4WeightQATQuantizer`.
+        """
+        torch.manual_seed(self.SEED)
+        m = M()
+        qat_quantizer = Float8ActInt4WeightQATQuantizer()
+        qat_model = qat_quantizer.prepare(m)
+        for linear in [m.linear1, m.sub.linear, m.linear2]:
+            self.assertIsInstance(linear, FakeQuantizedLinear)
+            self.assertIsInstance(
+                linear.activation_fake_quantizer, _Float8RowwiseActivationFakeQuantizer
+            )
+            self.assertIsInstance(linear.weight_fake_quantizer, FakeQuantizer)
+        prev_weight = copy.deepcopy(m.linear1.weight)
+
+        # Simulate training
+        optimizer = torch.optim.SGD(
+            m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5
+        )
+        loss_fn = torch.nn.CrossEntropyLoss()
+        optimizer.zero_grad()
+        target = torch.randn(1, 512).float()
+        example_inputs = m.example_inputs()
+        out = qat_model(*example_inputs)
+        loss = loss_fn(out, target)
+        loss.backward()
+        optimizer.step()
+        # Assert that weights have valid gradients and are being updated
+        new_weight = m.linear1.weight
+        self.assertIsNotNone(new_weight.grad)
+        self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
+        self.assertFalse(torch.equal(new_weight, prev_weight))
 
 
 if __name__ == "__main__":
