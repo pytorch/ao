@@ -293,14 +293,16 @@ def string_to_config(
             granularity = PerTensor()
         return Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
     if "gemlitewo" in quantization:
-        group_size = int(quantization.split("-")[1])
+        params = quantization.split("-")
+        group_size = int(params[1]) if len(params) > 1 else 64
         assert group_size in [
             32,
             64,
             128,
             256,
         ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        return GemliteUIntXWeightOnlyConfig(group_size=group_size)
+        bit_width = int(params[2]) if len(params) > 2 else 4
+        return GemliteUIntXWeightOnlyConfig(group_size=group_size, bit_width=bit_width)
     return None
 
 
