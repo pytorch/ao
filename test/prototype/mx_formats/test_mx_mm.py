@@ -13,7 +13,6 @@ from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.testing.utils import compute_sqnr
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_ROCm_mx_supported,
@@ -91,7 +90,7 @@ def test_hipblaslt_fp8():
     )
 
     # Verify results TODO: ROCm specific threshold
-    sqnr = compute_sqnr(out_hp, out)
+    sqnr = compute_error(out_hp, out).item()
     assert sqnr > 80.0, f"SQNR {sqnr} below threshold 80.0"
 
 
