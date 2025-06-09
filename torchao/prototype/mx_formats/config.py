@@ -32,7 +32,7 @@ class MXGemmKernelChoice(Enum):
     # note: torch.compile does not work yet, see https://github.com/pytorch/pytorch/issues/147873
     CUBLAS = "cublas"
 
-    # available only on ROCm with HIPBLASLT support, reuqire gfx950 and ROCm 7.0
+    # available only on ROCm with HIPBLASLT support, require gfx950 and ROCm 7.0
     HIPBLASLT = "hipblaslt"
 
 
