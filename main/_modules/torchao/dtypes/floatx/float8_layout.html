@@ -781,10 +781,18 @@
     <span class="k">return</span> <span class="n">check_aqt</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span> <span class="ow">and</span> <span class="n">check_aqt</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">preprocess_scale</span><span class="p">(</span><span class="n">input_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">input_shape</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensures input tensor is correctly formated for _scaled_mm&quot;&quot;&quot;</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">preprocess_scale</span><span class="p">(</span><span class="n">input_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">input_shape</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensures input tensor is correctly formatted for _scaled_mm&quot;&quot;&quot;</span>
+
+    <span class="c1"># For PerTensor quantization, scale should be a scalar or have shape [1]</span>
+    <span class="k">if</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="c1"># Already a scalar, ensure it has the right shape for _scaled_mm</span>
+        <span class="k">return</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># For per-row/block quantization, we need to handle the reshaping</span>
     <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
 
+    <span class="c1"># Match: #input_data.reshape(-1, input_data.shape[-1])</span>
     <span class="k">if</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
         <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
 
@@ -799,31 +807,28 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm&quot;&quot;&quot;</span>
     <span class="n">scaled_mm_config</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="o">.</span><span class="n">mm_config</span>
     <span class="k">assert</span> <span class="n">scaled_mm_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">assert</span> <span class="ow">not</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span> <span class="s2">&quot;Weight tensor must be contiguous&quot;</span>
+
     <span class="n">out_shape</span> <span class="o">=</span> <span class="n">get_out_shape</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
-    <span class="c1"># Weight tensor preprocessing</span>
-    <span class="n">w_tensor_impl</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span>
-    <span class="k">assert</span> <span class="ow">not</span> <span class="n">w_tensor_impl</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span> <span class="s2">&quot;Weight tensor must be contiguous&quot;</span>
-    <span class="n">w_data</span> <span class="o">=</span> <span class="n">w_tensor_impl</span><span class="o">.</span><span class="n">float8_data</span>
-    <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-
-    <span class="c1"># Input tensor preprocessing</span>
-    <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">float8_data</span>
+    <span class="c1"># Extract tensor data and scales</span>
+    <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+        <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">w_data</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">float8_data</span>
     <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="c1"># Handle case where input tensor is more than 2D</span>
-    <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">inpt_data</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">inpt_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-    <span class="c1"># Handle rowwise case</span>
+    <span class="n">w_scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+
+    <span class="c1"># Handle rowwise scaling</span>
     <span class="k">if</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">),</span> <span class="p">(</span>
             <span class="s2">&quot;Input tensor must be rowwise block size&quot;</span>
         <span class="p">)</span>
-        <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_scale</span><span class="o">.</span><span class="n">T</span>
-        <span class="n">input_scale</span> <span class="o">=</span> <span class="n">preprocess_scale</span><span class="p">(</span><span class="n">input_scale</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_scale</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">2</span><span class="p">)</span>
 
-    <span class="c1"># Preprocess data</span>
+    <span class="n">input_scale</span> <span class="o">=</span> <span class="n">preprocess_scale</span><span class="p">(</span><span class="n">input_scale</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
     <span class="n">inpt_data</span><span class="p">,</span> <span class="n">w_data</span> <span class="o">=</span> <span class="n">preprocess_data</span><span class="p">(</span><span class="n">inpt_data</span><span class="p">,</span> <span class="n">w_data</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">scaled_mm_config</span><span class="p">)</span>
 
-    <span class="c1"># Perform the computation</span>
     <span class="k">return</span> <span class="n">addmm_float8_unwrapped_inference</span><span class="p">(</span>
         <span class="n">inpt_data</span><span class="p">,</span>
         <span class="n">input_scale</span><span class="p">,</span>
