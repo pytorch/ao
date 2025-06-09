@@ -720,8 +720,10 @@ def is_ROCm_mx_supported() -> bool:
     2. gfx950 GPU (MI350)
     3. ROCm 7.0
     """
-    return all([
-        is_ROCM(),
-        is_MI350(),
-        torch.version.hip is not None and torch.version.hip.startswith("7.0")
-    ])
+    return all(
+        [
+            is_ROCM(),
+            is_MI350(),
+            torch.version.hip is not None and torch.version.hip.startswith("7.0"),
+        ]
+    )
