@@ -73,6 +73,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         weight_hp_t: torch.Tensor,
         linear_mm_config: LinearMMConfig,
         config: Float8LinearConfig,
+        bias: Optional[torch.Tensor] = None,
     ):
         ctx.save_for_backward(input_hp, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
@@ -118,7 +119,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         # torch.mm
         orig_shape = input_maybe_fp8.shape
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
-        res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
+        if bias is not None:
+            res_bits = torch.addmm(bias, input_maybe_fp8_reshaped, weight_maybe_fp8_t)
+        else:
+            res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
         return res_bits
 
@@ -354,10 +358,9 @@ class Float8Linear(torch.nn.Linear):
             weight_maybe_fp8_t,
             self.linear_mm_config,
             self.config,
+            self.bias,
         )
 
-        if self.bias is not None:
-            output = output + self.bias.to(output.dtype)
         return output
 
     def extra_repr(self):
