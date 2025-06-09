@@ -377,6 +377,8 @@ def _quantize_affine(
 
 
 _register_meta_op(quant_lib)
+
+
 def _quantize_affine_meta(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
@@ -547,6 +549,8 @@ def _dequantize_affine(
 
 
 _register_meta_op(quant_lib)
+
+
 def _dequantize_affine_meta(
     input: torch.Tensor,
     block_size: List[int],

@@ -964,7 +964,6 @@ class TestQuantPrimitives(unittest.TestCase):
         torch.testing.assert_close(expected_quantized, quantized)
         torch.testing.assert_close(expected_dequantized, dequantized)
 
-
     @parameterized.expand(
         [
             (
@@ -1027,10 +1026,27 @@ class TestQuantPrimitives(unittest.TestCase):
                 zero_point=torch.tensor(0),
             )
 
-            test_q, (code_q,) = run_and_get_code(torch.compile(quantize_affine), input, input.shape, expected_scale, torch.tensor(0), float8_dtype)
+            test_q, (code_q,) = run_and_get_code(
+                torch.compile(quantize_affine),
+                input,
+                input.shape,
+                expected_scale,
+                torch.tensor(0),
+                float8_dtype,
+            )
             FileCheck().check("torch.ops.torchao.quantize_affine.default").run(code_q)
-            test_dq, (code_dq,) = run_and_get_code(torch.compile(dequantize_affine), test_q, input.shape, expected_scale, torch.tensor(0), float8_dtype, output_dtype=hp_dtype)
-            FileCheck().check("torch.ops.torchao.dequantize_affine.default").run(code_dq)
+            test_dq, (code_dq,) = run_and_get_code(
+                torch.compile(dequantize_affine),
+                test_q,
+                input.shape,
+                expected_scale,
+                torch.tensor(0),
+                float8_dtype,
+                output_dtype=hp_dtype,
+            )
+            FileCheck().check("torch.ops.torchao.dequantize_affine.default").run(
+                code_dq
+            )
 
         torch.testing.assert_close(expected_quantized, test_q)
         torch.testing.assert_close(expected_dequantized, test_dq)
