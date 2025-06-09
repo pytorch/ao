@@ -39,6 +39,8 @@ from .fake_quantize import (
     FusedMovingAvgObsFakeQuantize,
     default_dynamic_fake_quant,
     default_fake_quant,
+    disable_fake_quant,
+    disable_observer,
     enable_fake_quant,
     enable_observer,
 )
@@ -114,6 +116,8 @@ __all__ = [
     # utils
     "enable_fake_quant",
     "enable_observer",
+    "disable_fake_quant",
+    "disable_observer",
     # export_utils
     "move_exported_model_to_eval",
     "move_exported_model_to_train",
