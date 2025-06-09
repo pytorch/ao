@@ -833,7 +833,6 @@ class TestQuantPrimitives(unittest.TestCase):
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
 
-
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_5, "skipping when torch version is 2.5 or lower"
     )
@@ -863,11 +862,12 @@ class TestQuantPrimitives(unittest.TestCase):
             dequantize_affine,
             quantize_affine,
         )
+
         torch._dynamo.reset()
         input = torch.randn(10, 10)
         with torch.no_grad():
             # reference implementation using generic primitives
-            expected_scale = torch.tensor(2.)
+            expected_scale = torch.tensor(2.0)
             expected_quantized = quantize_affine(
                 input,
                 input.shape,
