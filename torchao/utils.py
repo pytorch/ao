@@ -232,57 +232,6 @@ def _register_custom_op(lib, dispatch_key="CompositeImplicitAutograd"):
     return decorator
 
 
-def _register_meta_op(lib):
-    """This decorator is used to preserve some high level operators for torch.export.export
-    while still allow them to be decomposed for inductor path
-
-    requirement: make sure `fn.__name__[1:]` is the operator name you want to register
-
-    NOTE: This should be applied at the top, after all other decorators have been applied
-    NOTE: We haven't tested the case when `fn` accepts tensor subclass instance as input,
-    e.g. uint4 tensor subclass instance, and we'll probably need to figure out what would make
-    sense for downstream system (like executorch) to accept as well
-
-    Example:
-        lib = torch.library.Library("my_namespace', "FRAGMENT")
-
-        register_custom_op = _register_custom_op(lib)
-
-        _custom_op, meta_op register_custom_op(
-            _custom_op, meta_op)
-
-        # after this, `_custom_op` will be preserved as
-        # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after
-        # torch.export.export / torch._export.export_for_training
-
-    """
-
-    def decorator(fn):
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._library.infer_schema import infer_schema
-
-            # expecting fn.__name__ starts with `_` and we want to take the rest
-            # to be the name of the custom op
-            assert fn.__name__[0] == "_", (
-                f"Expecting function name starts with `_`, got {fn.__name__}"
-            )
-            assert not any(c in fn.__name__ for c in ".<>"), (
-                f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
-            )
-            op_name = fn.__name__[1:]
-            schema = op_name + infer_schema(fn, mutates_args={})
-            lib.define(schema)
-            lib.impl(op_name, fn, "Meta")
-
-            lib_namespace = lib.ns
-            op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            return op
-        else:
-            return fn
-
-    return decorator
-
-
 def get_model_size_in_bytes(model, ignore_embeddings=False):
     """
     Returns the model size in bytes. The option to ignore embeddings

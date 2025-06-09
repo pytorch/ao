@@ -21,7 +21,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     _is_float8_type,
     _register_custom_op,
-    _register_meta_op,
 )
 
 __all__ = [
@@ -376,18 +375,16 @@ def _quantize_affine(
     ).to(output_dtype)
 
 
-_register_meta_op(quant_lib)
-
-
+@_register_custom_op(quant_lib, "Meta")
 def _quantize_affine_meta(
     input: torch.Tensor,
-    block_size: Tuple[int, ...],
+    block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    zero_point_domain: str = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
     return torch.empty(input.shape, dtype=output_dtype, device=input.device)
 
@@ -548,9 +545,7 @@ def _dequantize_affine(
     )
 
 
-_register_meta_op(quant_lib)
-
-
+@_register_custom_op(quant_lib, "Meta")
 def _dequantize_affine_meta(
     input: torch.Tensor,
     block_size: List[int],
