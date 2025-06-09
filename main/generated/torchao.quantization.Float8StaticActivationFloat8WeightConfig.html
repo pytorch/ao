@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>intx_quantization_aware_training &mdash; torchao main documentation</title>
+  <title>Float8StaticActivationFloat8WeightConfig &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="float8_weight_only" href="torchao.quantization.float8_weight_only.html" />
-    <link rel="prev" title="gemlite_uintx_weight_only" href="torchao.quantization.gemlite_uintx_weight_only.html" />
+    <link rel="next" title="Int8DynamicActivationInt4WeightConfig" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html" />
+    <link rel="prev" title="Float8WeightOnlyConfig" href="torchao.quantization.Float8WeightOnlyConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -379,13 +379,13 @@
         
           <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>intx_quantization_aware_training</li>
+      <li>Float8StaticActivationFloat8WeightConfig</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.intx_quantization_aware_training.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.Float8StaticActivationFloat8WeightConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -415,12 +415,23 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="intx-quantization-aware-training">
-<h1>intx_quantization_aware_training<a class="headerlink" href="#intx-quantization-aware-training" title="Permalink to this heading">¶</a></h1>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.intx_quantization_aware_training">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">intx_quantization_aware_training</span></span><a class="headerlink" href="#torchao.quantization.intx_quantization_aware_training" title="Permalink to this definition">¶</a></dt>
-<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">IntXQuantizationAwareTrainingConfig</span></code></p>
+  <section id="float8staticactivationfloat8weightconfig">
+<h1>Float8StaticActivationFloat8WeightConfig<a class="headerlink" href="#float8staticactivationfloat8weightconfig" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.quantization.Float8StaticActivationFloat8WeightConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Float8StaticActivationFloat8WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.7)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">activation_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">granularity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Union" title="(in Python v3.13)"><span class="pre">Union</span></a><span class="p"><span class="pre">[</span></span><span class="pre">PerTensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">PerRow</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Union" title="(in Python v3.13)"><span class="pre">Union</span></a><span class="p"><span class="pre">[</span></span><span class="pre">PerTensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">PerRow</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Union" title="(in Python v3.13)"><span class="pre">Union</span></a><span class="p"><span class="pre">[</span></span><span class="pre">PerTensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">PerRow</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mm_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Float8MMConfig</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#Float8StaticActivationFloat8WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Float8StaticActivationFloat8WeightConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Configuration for applying float8 static symmetric quantization to</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>scale</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.7)"><em>torch.Tensor</em></a>) – The scale tensor for activation quantization.</p></li>
+<li><p><strong>activation_dtype</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><em>torch.dtype</em></a>) – The target data type for activation quantization. Default is torch.float8_e4m</p></li>
+<li><p><strong>weight_dtype</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><em>torch.dtype</em></a>) – The target data type for weight quantization. Default is torch.float8_e4m</p></li>
+<li><p><strong>mm_config</strong> (<em>Float8MMConfig</em>) – Configuration for the matrix multiplication. Default uses fast accumulation.</p></li>
+<li><p><strong>set_inductor_config</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a>) – if True, adjusts <cite>torchinductor</cite> settings to recommended values.</p></li>
+</ul>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -433,10 +444,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.float8_weight_only.html" class="btn btn-neutral float-right" title="float8_weight_only" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html" class="btn btn-neutral float-right" title="Int8DynamicActivationInt4WeightConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.gemlite_uintx_weight_only.html" class="btn btn-neutral" title="gemlite_uintx_weight_only" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.Float8WeightOnlyConfig.html" class="btn btn-neutral" title="Float8WeightOnlyConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -468,7 +479,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">intx_quantization_aware_training</a></li>
+<li><a class="reference internal" href="#">Float8StaticActivationFloat8WeightConfig</a></li>
 </ul>
 
             </div>

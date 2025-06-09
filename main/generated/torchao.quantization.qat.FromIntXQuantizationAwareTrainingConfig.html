@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>int8_dynamic_activation_int8_weight &mdash; torchao main documentation</title>
+  <title>FromIntXQuantizationAwareTrainingConfig &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="uintx_weight_only" href="torchao.quantization.uintx_weight_only.html" />
-    <link rel="prev" title="int8_dynamic_activation_int4_weight" href="torchao.quantization.int8_dynamic_activation_int4_weight.html" />
+    <link rel="next" title="FakeQuantizeConfig" href="torchao.quantization.qat.FakeQuantizeConfig.html" />
+    <link rel="prev" title="IntXQuantizationAwareTrainingConfig" href="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -379,13 +379,13 @@
         
           <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>int8_dynamic_activation_int8_weight</li>
+      <li>FromIntXQuantizationAwareTrainingConfig</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.int8_dynamic_activation_int8_weight.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -415,12 +415,25 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="int8-dynamic-activation-int8-weight">
-<h1>int8_dynamic_activation_int8_weight<a class="headerlink" href="#int8-dynamic-activation-int8-weight" title="Permalink to this heading">¶</a></h1>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.int8_dynamic_activation_int8_weight">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int8_dynamic_activation_int8_weight</span></span><a class="headerlink" href="#torchao.quantization.int8_dynamic_activation_int8_weight" title="Permalink to this definition">¶</a></dt>
-<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></p>
+  <section id="fromintxquantizationawaretrainingconfig">
+<h1>FromIntXQuantizationAwareTrainingConfig<a class="headerlink" href="#fromintxquantizationawaretrainingconfig" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">FromIntXQuantizationAwareTrainingConfig</span></span><a class="reference internal" href="../_modules/torchao/quantization/qat/api.html#FromIntXQuantizationAwareTrainingConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Object that knows how to convert a model with fake quantized modules,
+such as <code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedLinear()</span></code>
+and <code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedEmbedding()</span></code>,
+back to model with the original, corresponding modules without
+fake quantization. This should be used with
+<code class="xref py py-func docutils literal notranslate"><span class="pre">quantize_()</span></code>.</p>
+<p>Example usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
+<span class="n">quantize_</span><span class="p">(</span>
+    <span class="n">model_with_fake_quantized_linears</span><span class="p">,</span>
+    <span class="n">FromIntXQuantizationAwareTrainingConfig</span><span class="p">(),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -433,10 +446,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.uintx_weight_only.html" class="btn btn-neutral float-right" title="uintx_weight_only" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.qat.FakeQuantizeConfig.html" class="btn btn-neutral float-right" title="FakeQuantizeConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.int8_dynamic_activation_int4_weight.html" class="btn btn-neutral" title="int8_dynamic_activation_int4_weight" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html" class="btn btn-neutral" title="IntXQuantizationAwareTrainingConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -468,7 +481,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">int8_dynamic_activation_int8_weight</a></li>
+<li><a class="reference internal" href="#">FromIntXQuantizationAwareTrainingConfig</a></li>
 </ul>
 
             </div>

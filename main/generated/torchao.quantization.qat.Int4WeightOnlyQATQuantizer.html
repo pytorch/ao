@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>autoquant &mdash; torchao main documentation</title>
+  <title>Int4WeightOnlyQATQuantizer &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Int4WeightOnlyConfig" href="torchao.quantization.Int4WeightOnlyConfig.html" />
-    <link rel="prev" title="quantize" href="torchao.quantization.quantize_.html" />
+    <link rel="next" title="Int8DynActInt4WeightQATQuantizer" href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html" />
+    <link rel="prev" title="FakeQuantizeConfig" href="torchao.quantization.qat.FakeQuantizeConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -379,13 +379,13 @@
         
           <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>autoquant</li>
+      <li>Int4WeightOnlyQATQuantizer</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.autoquant.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.qat.Int4WeightOnlyQATQuantizer.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -415,71 +415,13 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="autoquant">
-<h1>autoquant<a class="headerlink" href="#autoquant" title="Permalink to this heading">¶</a></h1>
-<dl class="py function">
-<dt class="sig sig-object py" id="torchao.quantization.autoquant">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">autoquant</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">model,</span> <span class="pre">example_input=None,</span> <span class="pre">qtensor_class_list=[&lt;class</span> <span class="pre">'torchao.quantization.autoquant.AQDefaultLinearWeight'&gt;,</span> <span class="pre">&lt;class</span> <span class="pre">'torchao.quantization.autoquant.AQInt8WeightOnlyQuantizedLinearWeight'&gt;,</span> <span class="pre">&lt;class</span> <span class="pre">'torchao.quantization.autoquant.AQInt8WeightOnlyQuantizedLinearWeight2'&gt;,</span> <span class="pre">&lt;class</span> <span class="pre">'torchao.quantization.autoquant.AQInt8DynamicallyQuantizedLinearWeight'&gt;],</span> <span class="pre">filter_fn=None,</span> <span class="pre">mode=['interpolate',</span> <span class="pre">0.85],</span> <span class="pre">manual=False,</span> <span class="pre">set_inductor_config=True,</span> <span class="pre">supress_autoquant_errors=True,</span> <span class="pre">min_sqnr=None,</span> <span class="pre">**aq_kwargs</span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/autoquant.html#autoquant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.autoquant" title="Permalink to this definition">¶</a></dt>
-<dd><p>Autoquantization is a process which identifies the fastest way to quantize each layer of a model over some set of potential
-qtensor subclasses.</p>
-<p>Autoquantization happens in three steps:</p>
-<p>1-Prepare Model: the model is searched for Linear layers whose weights are exchanged for AutoQuantizableLinearWeight.
-2-Shape Calibration: the user runs the model on one or more inputs, the details of the activation shape/dtype seen by</p>
-<blockquote>
-<div><p>the AutoQuantizableLinearWeight are recorded so we know what shapes/dtypes to use in order to optimize the quantized op in step 3</p>
-</div></blockquote>
-<dl class="simple">
-<dt>3-Finalize Autoquantization: for each AutoQuantizableLinearWeight, benchmarks are run for each shape/dtype on each member of the qtensor_class_list.</dt><dd><p>the fastest option is picked, resulting in a highly performant model</p>
-</dd>
-</dl>
-<p>This autoquant function performs step 1. Steps 2 and 3 can be completed by simply running the model.
-If <cite>example_input</cite> is provided, this function also runs the model (which completes steps 2 and 3).
-This autoquant api can handle models which have already had torch.compile applied to them, in which case, once the model is run and quantized,
-the torch.compile process normally proceeds as well.</p>
-<p>To optimize over a combination of input shapes/dtypes, the user can set manual=True, run the model with all desired shapes/dtypes, then
-call model.finalize_autoquant to finalize the quantization once the desired set of inputs have been logged.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>model</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.7)"><em>torch.nn.Module</em></a>) – The model to be autoquantized.</p></li>
-<li><p><strong>example_input</strong> (<em>Any</em><em>, </em><em>optional</em>) – An example input for the model. If provided, the function performs a forward pass
-on this input (which fully autoquantizes the model unless manual=True). Defaults to None.</p></li>
-<li><p><strong>qtensor_class_list</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>, </em><em>optional</em>) – A list of tensor classes to be used for quantization. Defaults to DEFAULT_AUTOQUANT_CLASS_LIST.</p></li>
-<li><p><strong>filter_fn</strong> (<em>callable</em><em>, </em><em>optional</em>) – A filter function to apply to the model parameters. Defaults to None.</p></li>
-<li><p><strong>mode</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>, </em><em>optional</em>) – A list containing mode settings for quantization. The first element is the mode type (e.g., “interpolate”),
-and the second element is the mode value (e.g., 0.85). Defaults to [“interpolate”, .85].</p></li>
-<li><p><strong>manual</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to stop shape calibration and do autoquant after a single run (default, False) or to wait for
-the user to call model.finalize_autoquant (True) so inputs with several shapes/dtypes can be logged.</p></li>
-<li><p><strong>set_inductor_config</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to automatically use recommended inductor config settings (defaults to True)</p></li>
-<li><p><strong>supress_autoquant_errors</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to suppress errors during autoquantization. (defaults to True)</p></li>
-<li><p><strong>min_sqnr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>optional</em>) – minimum acceptable signal to quantization noise ration (<a class="reference external" href="https://en.wikipedia.org/wiki/Signal-to-quantization-noise_ratio">https://en.wikipedia.org/wiki/Signal-to-quantization-noise_ratio</a>) for output of quantized layer v.s. non-quantized layer, this is used to filter</p></li>
-<li><p><strong>impact</strong> (<em>out quantization methods that causes too large numerical</em>) – </p></li>
-<li><p><strong>resaonable</strong> (<em>user can start with a</em>) – </p></li>
-<li><p><strong>result</strong> (<em>number like 40 and adjust depending on the</em>) – </p></li>
-<li><p><strong>**aq_kwargs</strong> – Additional keyword arguments for the autoquantization process.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><dl class="simple">
-<dt>The autoquantized and wrapped model. If <cite>example_input</cite> is provided, the function performs a forward pass</dt><dd><p>on the input and returns the result of the forward pass.</p>
-</dd>
-</dl>
-</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.7)">torch.nn.Module</a></p>
-</dd>
-</dl>
-<dl>
-<dt>Example usage:</dt><dd><p>torchao.autoquant(torch.compile(model))
-model(<a href="#id1"><span class="problematic" id="id2">*</span></a>example_input)</p>
-<p># multiple input shapes
-torchao.autoquant(model, manual=True)
-model(<a href="#id3"><span class="problematic" id="id4">*</span></a>example_input1)
-model(<a href="#id5"><span class="problematic" id="id6">*</span></a>example_input2)
-model.finalize_autoquant()</p>
-</dd>
-</dl>
+  <section id="int4weightonlyqatquantizer">
+<h1>Int4WeightOnlyQATQuantizer<a class="headerlink" href="#int4weightonlyqatquantizer" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.quantization.qat.Int4WeightOnlyQATQuantizer">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">Int4WeightOnlyQATQuantizer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">groupsize</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">256</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner_k_tiles</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.bfloat16</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scales_precision</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.bfloat16</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/qat/linear.html#Int4WeightOnlyQATQuantizer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.Int4WeightOnlyQATQuantizer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Quantizer for performing QAT on a model, where linear layers have
+int4 fake quantized grouped per channel weights.</p>
 </dd></dl>
 
 </section>
@@ -492,10 +434,10 @@ model.finalize_autoquant()</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.Int4WeightOnlyConfig.html" class="btn btn-neutral float-right" title="Int4WeightOnlyConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html" class="btn btn-neutral float-right" title="Int8DynActInt4WeightQATQuantizer" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.quantize_.html" class="btn btn-neutral" title="quantize" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.qat.FakeQuantizeConfig.html" class="btn btn-neutral" title="FakeQuantizeConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -527,7 +469,7 @@ model.finalize_autoquant()</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">autoquant</a></li>
+<li><a class="reference internal" href="#">Int4WeightOnlyQATQuantizer</a></li>
 </ul>
 
             </div>

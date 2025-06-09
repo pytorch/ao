@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>int8_dynamic_activation_int4_weight &mdash; torchao main documentation</title>
+  <title>Int8DynamicActivationInt8WeightConfig &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="int8_dynamic_activation_int8_weight" href="torchao.quantization.int8_dynamic_activation_int8_weight.html" />
-    <link rel="prev" title="int8_weight_only" href="torchao.quantization.int8_weight_only.html" />
+    <link rel="next" title="UIntXWeightOnlyConfig" href="torchao.quantization.UIntXWeightOnlyConfig.html" />
+    <link rel="prev" title="Int8WeightOnlyConfig" href="torchao.quantization.Int8WeightOnlyConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -379,13 +379,13 @@
         
           <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>int8_dynamic_activation_int4_weight</li>
+      <li>Int8DynamicActivationInt8WeightConfig</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.int8_dynamic_activation_int4_weight.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -415,12 +415,13 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="int8-dynamic-activation-int4-weight">
-<h1>int8_dynamic_activation_int4_weight<a class="headerlink" href="#int8-dynamic-activation-int4-weight" title="Permalink to this heading">¶</a></h1>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.int8_dynamic_activation_int4_weight">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int8_dynamic_activation_int4_weight</span></span><a class="headerlink" href="#torchao.quantization.int8_dynamic_activation_int4_weight" title="Permalink to this definition">¶</a></dt>
-<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></p>
+  <section id="int8dynamicactivationint8weightconfig">
+<h1>Int8DynamicActivationInt8WeightConfig<a class="headerlink" href="#int8dynamicactivationint8weightconfig" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.quantization.Int8DynamicActivationInt8WeightConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.dtypes.Layout.html#torchao.dtypes.Layout" title="torchao.dtypes.utils.Layout"><span class="pre">Layout</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PlainLayout()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">act_mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.quant_primitives.MappingType"><span class="pre">MappingType</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_only_decode</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#Int8DynamicActivationInt8WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
+quantization to linear layers</p>
 </dd></dl>
 
 </section>
@@ -433,10 +434,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.int8_dynamic_activation_int8_weight.html" class="btn btn-neutral float-right" title="int8_dynamic_activation_int8_weight" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.UIntXWeightOnlyConfig.html" class="btn btn-neutral float-right" title="UIntXWeightOnlyConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.int8_weight_only.html" class="btn btn-neutral" title="int8_weight_only" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.Int8WeightOnlyConfig.html" class="btn btn-neutral" title="Int8WeightOnlyConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -468,7 +469,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">int8_dynamic_activation_int4_weight</a></li>
+<li><a class="reference internal" href="#">Int8DynamicActivationInt8WeightConfig</a></li>
 </ul>
 
             </div>

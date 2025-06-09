@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-uintx_weight_only
-=================
+Int4WeightOnlyConfig
+====================
 
-.. autoclass:: uintx_weight_only
+.. autoclass:: Int4WeightOnlyConfig
     :members:

@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-gemlite_uintx_weight_only
-=========================
+GemliteUIntXWeightOnlyConfig
+============================
 
-.. autoclass:: gemlite_uintx_weight_only
+.. autoclass:: GemliteUIntXWeightOnlyConfig
     :members:

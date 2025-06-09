@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-float8_weight_only
-==================
+FPXWeightOnlyConfig
+===================
 
-.. autoclass:: float8_weight_only
+.. autoclass:: FPXWeightOnlyConfig
     :members:

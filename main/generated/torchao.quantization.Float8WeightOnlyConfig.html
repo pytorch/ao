@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>float8_dynamic_activation_float8_weight &mdash; torchao main documentation</title>
+  <title>Float8WeightOnlyConfig &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="float8_static_activation_float8_weight" href="torchao.quantization.float8_static_activation_float8_weight.html" />
-    <link rel="prev" title="float8_weight_only" href="torchao.quantization.float8_weight_only.html" />
+    <link rel="next" title="Float8StaticActivationFloat8WeightConfig" href="torchao.quantization.Float8StaticActivationFloat8WeightConfig.html" />
+    <link rel="prev" title="Float8DynamicActivationFloat8WeightConfig" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -379,13 +379,13 @@
         
           <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>float8_dynamic_activation_float8_weight</li>
+      <li>Float8WeightOnlyConfig</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.float8_dynamic_activation_float8_weight.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.Float8WeightOnlyConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -415,12 +415,24 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="float8-dynamic-activation-float8-weight">
-<h1>float8_dynamic_activation_float8_weight<a class="headerlink" href="#float8-dynamic-activation-float8-weight" title="Permalink to this heading">¶</a></h1>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.float8_dynamic_activation_float8_weight">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">float8_dynamic_activation_float8_weight</span></span><a class="headerlink" href="#torchao.quantization.float8_dynamic_activation_float8_weight" title="Permalink to this definition">¶</a></dt>
-<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></p>
+  <section id="float8weightonlyconfig">
+<h1>Float8WeightOnlyConfig<a class="headerlink" href="#float8weightonlyconfig" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.quantization.Float8WeightOnlyConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Float8WeightOnlyConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">weight_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#Float8WeightOnlyConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Float8WeightOnlyConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>weight_dtype</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><em>torch.dtype</em></a>) – The target data type for weight quantization. Default is torch.float8_e4m3fn.</p></li>
+<li><p><strong>set_inductor_config</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a>) – if True, adjusts <cite>torchinductor</cite> settings to recommended values.</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The actual matmul will be computed in original precision of the weight tensor.</p>
+</div>
 </dd></dl>
 
 </section>
@@ -433,10 +445,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.float8_static_activation_float8_weight.html" class="btn btn-neutral float-right" title="float8_static_activation_float8_weight" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.Float8StaticActivationFloat8WeightConfig.html" class="btn btn-neutral float-right" title="Float8StaticActivationFloat8WeightConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.float8_weight_only.html" class="btn btn-neutral" title="float8_weight_only" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html" class="btn btn-neutral" title="Float8DynamicActivationFloat8WeightConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -468,7 +480,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">float8_dynamic_activation_float8_weight</a></li>
+<li><a class="reference internal" href="#">Float8WeightOnlyConfig</a></li>
 </ul>
 
             </div>

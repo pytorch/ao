@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-fpx_weight_only
-===============
+UIntXWeightOnlyConfig
+=====================
 
-.. autoclass:: fpx_weight_only
+.. autoclass:: UIntXWeightOnlyConfig
     :members:

@@ -1089,7 +1089,7 @@
     <span class="p">)</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Int8DynamicActivationInt4WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear</span>
 <span class="sd">    This is used to produce a model for executorch backend, but currently executorch did not</span>
@@ -1108,7 +1108,7 @@
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">()</span>
     <span class="n">mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
     <span class="n">act_mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1386,7 +1386,7 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="GemliteUIntXWeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.GemliteUIntXWeightOnlyConfig.html#torchao.quantization.GemliteUIntXWeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">GemliteUIntXWeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.</span>
@@ -1404,7 +1404,7 @@
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">bit_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>
     <span class="n">packing_bitwidth</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1437,7 +1437,7 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Int4WeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
@@ -1467,7 +1467,7 @@
     <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">preserve_zero</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">preserve_zero</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1565,14 +1565,14 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Int8WeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1708,7 +1708,7 @@
     <span class="p">)</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Int8DynamicActivationInt8WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationInt8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight</span>
@@ -1718,7 +1718,7 @@
     <span class="n">layout</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Layout</span><span class="p">]</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">()</span>
     <span class="n">act_mapping_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MappingType</span><span class="p">]</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
     <span class="n">weight_only_decode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1806,7 +1806,7 @@
     <span class="k">return</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">())</span></div>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Float8WeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.</span>
@@ -1820,7 +1820,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1927,7 +1927,7 @@
     <span class="k">return</span> <span class="n">is_compatible</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Float8DynamicActivationFloat8WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8DynamicActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.</span>
@@ -1958,7 +1958,7 @@
         <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">[</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">[</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">]</span></div>
 
 
 <span class="c1"># for bc</span>
@@ -2073,7 +2073,7 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="Float8StaticActivationFloat8WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8StaticActivationFloat8WeightConfig.html#torchao.quantization.Float8StaticActivationFloat8WeightConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8StaticActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying float8 static symmetric quantization to</span>
@@ -2097,7 +2097,7 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="o">=</span> <span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="o">=</span> <span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
 
 
 <span class="c1"># for bc</span>
@@ -2158,7 +2158,7 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="UIntXWeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.UIntXWeightOnlyConfig.html#torchao.quantization.UIntXWeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">UIntXWeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where</span>
@@ -2177,7 +2177,7 @@
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span>
     <span class="n">pack_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -2336,7 +2336,7 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="nd">@dataclass</span>
+<div class="viewcode-block" id="FPXWeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.FPXWeightOnlyConfig.html#torchao.quantization.FPXWeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">FPXWeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits</span>
 <span class="sd">    e.g. fp6_e3_m2, fp6_e2_m3, ...</span>
@@ -2350,7 +2350,7 @@
 
     <span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span>
     <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <span class="c1"># for BC</span>
