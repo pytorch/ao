@@ -363,7 +363,13 @@ def _linear_fp8_act_fp8_weight_check(
         return (
             isinstance(aqt, AffineQuantizedTensor)
             and isinstance(aqt._layout, Float8Layout)
-            and aqt.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
+            and aqt.tensor_impl.dtype
+            in [
+                torch.float8_e4m3fn,
+                torch.float8_e4m3fnuz,
+                torch.float8_e5m2,
+                torch.float8_e5m2fnuz,
+            ]
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
 
@@ -442,7 +448,13 @@ def _linear_fp_act_fp8_weight_check(
         # weight is float8 quantized affine quantized tensor
         isinstance(weight_tensor, AffineQuantizedTensor)
         and isinstance(weight_tensor._layout, Float8Layout)
-        and weight_tensor.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
+        and weight_tensor.tensor_impl.dtype
+        in [
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fnuz,
+            torch.float8_e5m2,
+            torch.float8_e5m2fnuz,
+        ]
         and (
             weight_tensor.shape == weight_tensor.block_size
             or _is_rowwise_scaled(weight_tensor)
