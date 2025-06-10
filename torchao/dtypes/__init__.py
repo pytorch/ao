@@ -8,8 +8,8 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
-from .fbgemm_fp8_tensor import to_fbgemm_fp8
-from .fbgemm_int4_tensor import to_fbgemm_int4
+from .fbgemm_fp8_tensor import FbgemmFp8Tensor, to_fbgemm_fp8
+from .fbgemm_int4_tensor import FbgemmInt4Tensor, to_fbgemm_int4
 from .floatx import (
     CutlassSemiSparseLayout,
     Float8Layout,
@@ -64,5 +64,7 @@ __all__ = [
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "Int4XPULayout",
     "to_fbgemm_int4",
+    "FbgemmInt4Tensor",
     "to_fbgemm_fp8",
+    "FbgemmFp8Tensor",
 ]
