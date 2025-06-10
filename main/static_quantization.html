@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Serialization &mdash; torchao main documentation</title>
+  <title>Static Quantization &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Writing Your Own Quantized Tensor" href="subclass_basic.html" />
-    <link rel="prev" title="precompute_float8_dynamic_scale_for_fsdp" href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html" />
+    <link rel="next" title="Pretraining with float8" href="pretraining.html" />
+    <link rel="prev" title="Writing Your Own Quantized Tensor (advanced)" href="subclass_advanced.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -333,10 +333,10 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pretraining.html">Pretraining with float8</a></li>
 </ul>
 
@@ -378,13 +378,13 @@
       </li>
 
         
-      <li>Serialization</li>
+      <li>Static Quantization</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="_sources/serialization.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+            <a href="_sources/static_quantization.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -414,29 +414,26 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="serialization">
-<h1>Serialization<a class="headerlink" href="#serialization" title="Permalink to this heading">¶</a></h1>
-<p>Serialization and deserialization is an important question that people care about especially when we integrate torchao with other libraries. Here we want to describe how serialization and deserialization works for torchao optimized (quantized or sparsified) models.</p>
-<section id="serialization-and-deserialization-flow">
-<h2>Serialization and deserialization flow<a class="headerlink" href="#serialization-and-deserialization-flow" title="Permalink to this heading">¶</a></h2>
-<p>Here is the serialization and deserialization flow:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+  <section id="static-quantization">
+<h1>Static Quantization<a class="headerlink" href="#static-quantization" title="Permalink to this heading">¶</a></h1>
+<p>Static quantization refers to using a fixed quantization range for all inputs during inference or generation. Unlike dynamic quantization, which dynamically computes new quantization ranges for each new input batch, static quantization typically results in more efficient computation, potentially at the cost of lower quantized accuracy since we cannot adapt to changes in the input distribution on-the-fly.</p>
+<p>In static quantization, this fixed quantization range is typically calibrated on similar inputs before quantizing the model. During the calibration phase, we first insert observers into the model to “observe” the distribution of the inputs to be quantized, and use this distribution to decide what scales and zero points to ultimately use when quantizing the model.</p>
+<p>In this tutorial, we walk through an example of how to achieve this in torchao. All code can be found in this <a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py">example script</a>. Let’s start with our toy linear model:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_size_in_bytes</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">quantize_</span><span class="p">,</span>
-    <span class="n">int4_weight_only</span><span class="p">,</span>
-<span class="p">)</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">ToyLinearModel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">m</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">example_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">),)</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
+                <span class="n">batch_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
         <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
@@ -444,67 +441,219 @@
         <span class="k">return</span> <span class="n">x</span>
 
 <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;original model size: </span><span class="si">{</span><span class="n">get_model_size_in_bytes</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;max-autotune&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<section id="calibration-phase">
+<h2>Calibration Phase<a class="headerlink" href="#calibration-phase" title="Permalink to this heading">¶</a></h2>
+<p>torchao comes with a a simple observer implementation, <cite>AffineQuantizedMinMaxObserver</cite>, that records the min and max values that have flowed through the observer during the calibration phase. Users are welcome to implement their own desired, more advanced observation techniques, such as those relying on moving averages or histograms, and these may be added to torchao in the future.</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerTensor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">AffineQuantizedMinMaxObserver</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="n">MappingType</span>
 
-<span class="n">example_inputs</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">example_inputs</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">int4_weight_only</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;quantized model size: </span><span class="si">{</span><span class="n">get_model_size_in_bytes</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="c1"># per tensor input activation asymmetric quantization</span>
+<span class="n">act_obs</span> <span class="o">=</span> <span class="n">AffineQuantizedMinMaxObserver</span><span class="p">(</span>
+    <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
+    <span class="n">granularity</span><span class="o">=</span><span class="n">PerTensor</span><span class="p">(),</span>
+    <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
+    <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+    <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+<span class="p">)</span>
 
-<span class="n">ref</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
-<span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">NamedTemporaryFile</span><span class="p">()</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="n">f</span><span class="p">)</span>
-    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">state_dict</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+<span class="c1"># per channel weight asymmetric quantization</span>
+<span class="n">weight_obs</span> <span class="o">=</span> <span class="n">AffineQuantizedMinMaxObserver</span><span class="p">(</span>
+    <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
+    <span class="n">granularity</span><span class="o">=</span><span class="n">PerAxis</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+    <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
+    <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+    <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Next, we define our observed linear that we will swap our <cite>torch.nn.Linear</cite> with. This is a high precision (e.g. fp32) linear module with the above observers inserted to record the input activation and weight values during calibration:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
-<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
-    <span class="n">m_loaded</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ObservedLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">act_obs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+        <span class="n">weight_obs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">out_features</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act_obs</span> <span class="o">=</span> <span class="n">act_obs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight_obs</span> <span class="o">=</span> <span class="n">weight_obs</span>
 
-<span class="c1"># `linear.weight` is nn.Parameter, so we check the type of `linear.weight.data`</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight before loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="n">m_loaded</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">,</span> <span class="n">assign</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight after loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="n">observed_input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">act_obs</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+        <span class="n">observed_weight</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_obs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">observed_input</span><span class="p">,</span> <span class="n">observed_weight</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
 
-<span class="n">res</span> <span class="o">=</span> <span class="n">m_loaded</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
-<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">ref</span><span class="p">)</span>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">float_linear</span><span class="p">,</span> <span class="n">act_obs</span><span class="p">,</span> <span class="n">weight_obs</span><span class="p">):</span>
+        <span class="n">observed_linear</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">float_linear</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
+            <span class="n">float_linear</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
+            <span class="n">act_obs</span><span class="p">,</span>
+            <span class="n">weight_obs</span><span class="p">,</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">float_linear</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">float_linear</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">observed_linear</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">float_linear</span><span class="o">.</span><span class="n">weight</span>
+        <span class="n">observed_linear</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">float_linear</span><span class="o">.</span><span class="n">bias</span>
+        <span class="k">return</span> <span class="n">observed_linear</span>
+</pre></div>
+</div>
+<p>To actually insert these observers into our toy model:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">insert_observers_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">act_obs</span><span class="p">,</span> <span class="n">weight_obs</span><span class="p">):</span>
+    <span class="n">_is_linear</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">m</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">replacement_fn</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
+        <span class="n">copied_act_obs</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">act_obs</span><span class="p">)</span>
+        <span class="n">copied_weight_obs</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">weight_obs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ObservedLinear</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">copied_act_obs</span><span class="p">,</span> <span class="n">copied_weight_obs</span><span class="p">)</span>
+
+    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">replacement_fn</span><span class="p">,</span> <span class="n">_is_linear</span><span class="p">)</span>
+
+<span class="n">insert_observers_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">act_obs</span><span class="p">,</span> <span class="n">weight_obs</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Now we are ready to calibrate the model, which populates the observers we inserted with statistics recorded during the calibration. We can do this simply by feeding some example inputs to our “observed” model:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">example_inputs</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">example_inputs</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+    <span class="n">m</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
-<section id="what-happens-when-serializing-an-optimized-model">
-<h2>What happens when serializing an optimized model?<a class="headerlink" href="#what-happens-when-serializing-an-optimized-model" title="Permalink to this heading">¶</a></h2>
-<p>To serialize an optimized model, we just need to call <code class="docutils literal notranslate"><span class="pre">torch.save(m.state_dict(),</span> <span class="pre">f)</span></code>, because in torchao, we use tensor subclass to represent different dtypes or support different optimization techniques like quantization and sparsity. So after optimization, the only thing change is the weight Tensor is changed to an optimized weight Tensor, and the model structure is not changed at all. For example:</p>
-<p>original floating point model <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="s2">&quot;linear1.weight&quot;</span><span class="p">:</span> <span class="n">float_weight1</span><span class="p">,</span> <span class="s2">&quot;linear2.weight&quot;</span><span class="p">:</span> <span class="n">float_weight2</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>quantized model <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="s2">&quot;linear1.weight&quot;</span><span class="p">:</span> <span class="n">quantized_weight1</span><span class="p">,</span> <span class="s2">&quot;linear2.weight&quot;</span><span class="p">:</span> <span class="n">quantized_weight2</span><span class="p">,</span> <span class="o">...</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>The size of the quantized model is typically going to be smaller to the original floating point model, but it also depends on the specific techinque and implementation you are using. You can print the model size with <code class="docutils literal notranslate"><span class="pre">torchao.utils.get_model_size_in_bytes</span></code> utility function, specifically for the above example using int4_weight_only quantization, we can see the size reduction is around 4x:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">original</span> <span class="n">model</span> <span class="n">size</span><span class="p">:</span> <span class="mf">4.0</span> <span class="n">MB</span>
-<span class="n">quantized</span> <span class="n">model</span> <span class="n">size</span><span class="p">:</span> <span class="mf">1.0625</span> <span class="n">MB</span>
-</pre></div>
-</div>
-</section>
-<section id="what-happens-when-deserializing-an-optimized-model">
-<h2>What happens when deserializing an optimized model?<a class="headerlink" href="#what-happens-when-deserializing-an-optimized-model" title="Permalink to this heading">¶</a></h2>
-<p>To deserialize an optimized model, we can initialize the floating point model in <a class="reference external" href="https://pytorch.org/docs/stable/meta.html">meta</a> device and then load the optimized <code class="docutils literal notranslate"><span class="pre">state_dict</span></code> with <code class="docutils literal notranslate"><span class="pre">assign=True</span></code> using <a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.load_state_dict">model.load_state_dict</a>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
-    <span class="n">m_loaded</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+<section id="quantization-phase">
+<h2>Quantization Phase<a class="headerlink" href="#quantization-phase" title="Permalink to this heading">¶</a></h2>
+<p>There are multiple ways to actually quantize the model. Here we walk through the simpler alternative, which is to define a <cite>QuantizedLinear</cite> class that we will swap our <cite>ObservedLinear</cite> to. Defining this new class isn’t strictly necessary. For an alternative method that simply uses the existing <cite>torch.nn.Linear</cite>, please see the full <a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py">example script</a>.</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_intx_static</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight before loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="n">m_loaded</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">,</span> <span class="n">assign</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight after loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">QuantizedLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">act_obs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+        <span class="n">weight_obs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+        <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act_scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">act_zero_point</span> <span class="o">=</span> <span class="n">act_obs</span><span class="o">.</span><span class="n">calculate_qparams</span><span class="p">()</span>
+        <span class="n">weight_scale</span><span class="p">,</span> <span class="n">weight_zero_point</span> <span class="o">=</span> <span class="n">weight_obs</span><span class="o">.</span><span class="n">calculate_qparams</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
+        <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span> <span class="o">=</span> <span class="n">target_dtype</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">bias</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qweight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx_static</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span> <span class="n">weight_scale</span><span class="p">,</span> <span class="n">weight_zero_point</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="n">block_size</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx_static</span><span class="p">(</span>
+            <span class="nb">input</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">act_scale</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">act_zero_point</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">qweight</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_observed</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">observed_linear</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">):</span>
+        <span class="n">quantized_linear</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">observed_linear</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
+            <span class="n">observed_linear</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
+            <span class="n">observed_linear</span><span class="o">.</span><span class="n">act_obs</span><span class="p">,</span>
+            <span class="n">observed_linear</span><span class="o">.</span><span class="n">weight_obs</span><span class="p">,</span>
+            <span class="n">observed_linear</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="n">observed_linear</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">quantized_linear</span>
 </pre></div>
 </div>
-<p>The reason we initialize the model in <code class="docutils literal notranslate"><span class="pre">meta</span></code> device is to avoid initializing the original floating point model since original floating point model may not fit into the device that we want to use for inference.</p>
-<p>What happens in <code class="docutils literal notranslate"><span class="pre">m_loaded.load_state_dict(state_dict,</span> <span class="pre">assign=True)</span></code> is that the corresponding weights (e.g. m_loaded.linear1.weight) are updated with the Tensors in <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>, which is an optimized tensor subclass instance (e.g. int4 <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code>). No dependency on torchao is needed for this to work.</p>
-<p>We can also verify that the weight is properly loaded by checking the type of weight tensor:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>type of weight before loading: (&lt;class &#39;torch.Tensor&#39;&gt;, &lt;class &#39;torch.Tensor&#39;&gt;)
-type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor&#39;&gt;, &lt;class &#39;torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor&#39;&gt;)
+<p>This linear class computes the scales and zero points for both input activations and weights in the beginning, effectively fixing the quantization range for future forward calls. Now, to actually quantize the model using this linear class, we can define the following config and pass it to torchao’s main <cite>quantize_</cite> API:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.core.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">AOBaseConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.transform_module</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">register_quantize_module_handler</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StaticQuantConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+    <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">StaticQuantConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_apply_static_quant</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">StaticQuantConfig</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Define a transformation associated with `StaticQuantConfig`.</span>
+<span class="sd">    This is called by `quantize_`, not by the user directly.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">QuantizedLinear</span><span class="o">.</span><span class="n">from_observed</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">)</span>
+
+<span class="c1"># filter function to identify which modules to swap</span>
+<span class="n">is_observed_linear</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">m</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">ObservedLinear</span><span class="p">)</span>
+
+<span class="c1"># perform static quantization</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">StaticQuantConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">),</span> <span class="n">is_observed_linear</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Now, we will see that the linear layers in our model are swapped to our <cite>QuantizedLinear</cite> class, with a fixed input activation scale and a fixed quantized weight:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">m</span>
+<span class="go">OptimizedModule(</span>
+<span class="go">  (_orig_mod): ToyLinearModel(</span>
+<span class="go">    (linear1): QuantizedLinear()</span>
+<span class="go">    (linear2): QuantizedLinear()</span>
+<span class="go">  )</span>
+<span class="go">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">m</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">act_scale</span>
+<span class="go">tensor([0.0237], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">m</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">qweight</span>
+<span class="go">AffineQuantizedTensor(tensor_impl=PlainAQTTensorImpl(data=tensor([[142,  31,  42,  ..., 113, 157,  57],</span>
+<span class="go">        [ 59, 160,  70,  ...,  23, 150,  67],</span>
+<span class="go">        [ 44,  49, 241,  ..., 238,  69, 235],</span>
+<span class="go">        ...,</span>
+<span class="go">        [228, 255, 201,  ..., 114, 236,  73],</span>
+<span class="go">        [ 50,  88,  83,  ..., 109, 209,  92],</span>
+<span class="go">        [184, 141,  35,  ..., 224, 110,  66]], device=&#39;cuda:0&#39;,</span>
+<span class="go">       dtype=torch.uint8)... , scale=tensor([0.0009, 0.0010, 0.0009, 0.0010, 0.0009, 0.0010, 0.0010, 0.0010, 0.0010,</span>
+<span class="go">        0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010,</span>
+<span class="go">        0.0010, 0.0010, 0.0010, 0.0009, 0.0010, 0.0010, 0.0010, 0.0009, 0.0010,</span>
+<span class="go">        0.0009, 0.0010, 0.0010, 0.0010, 0.0009, 0.0009, 0.0009, 0.0010, 0.0009,</span>
+<span class="go">        0.0010, 0.0009, 0.0010, 0.0010, 0.0010, 0.0009, 0.0009, 0.0009, 0.0010,</span>
+<span class="go">        0.0009, 0.0010, 0.0009, 0.0009, 0.0009, 0.0010, 0.0010, 0.0009, 0.0009,</span>
+<span class="go">        0.0010, 0.0009, 0.0010, 0.0010, 0.0009, 0.0009, 0.0009, 0.0009, 0.0009,</span>
+<span class="go">        0.0010], device=&#39;cuda:0&#39;)... , zero_point=tensor([130., 128., 122., 130., 132., 128., 125., 130., 126., 128., 129., 126.,</span>
+<span class="go">        128., 128., 128., 128., 129., 127., 130., 125., 128., 133., 126., 126.,</span>
+<span class="go">        128., 124., 127., 128., 128., 128., 129., 124., 126., 133., 129., 127.,</span>
+<span class="go">        126., 124., 130., 126., 127., 129., 124., 125., 127., 130., 128., 132.,</span>
+<span class="go">        128., 129., 128., 129., 131., 132., 127., 135., 126., 130., 124., 136.,</span>
+<span class="go">        131., 124., 130., 129.], device=&#39;cuda:0&#39;)... , _layout=PlainLayout()), block_size=(1, 64), shape=torch.Size([64, 64]), device=cuda:0, dtype=torch.bfloat16, requires_grad=False)</span>
+</pre></div>
+</div>
+<p>In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao. We also have an example of how to perform the same static quantization in float8. Please see the full <a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py">example script</a> for more detail!</p>
 </section>
 </section>
 
@@ -516,10 +665,10 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="subclass_basic.html" class="btn btn-neutral float-right" title="Writing Your Own Quantized Tensor" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="pretraining.html" class="btn btn-neutral float-right" title="Pretraining with float8" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html" class="btn btn-neutral" title="precompute_float8_dynamic_scale_for_fsdp" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="subclass_advanced.html" class="btn btn-neutral" title="Writing Your Own Quantized Tensor (advanced)" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -551,10 +700,9 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Serialization</a><ul>
-<li><a class="reference internal" href="#serialization-and-deserialization-flow">Serialization and deserialization flow</a></li>
-<li><a class="reference internal" href="#what-happens-when-serializing-an-optimized-model">What happens when serializing an optimized model?</a></li>
-<li><a class="reference internal" href="#what-happens-when-deserializing-an-optimized-model">What happens when deserializing an optimized model?</a></li>
+<li><a class="reference internal" href="#">Static Quantization</a><ul>
+<li><a class="reference internal" href="#calibration-phase">Calibration Phase</a></li>
+<li><a class="reference internal" href="#quantization-phase">Quantization Phase</a></li>
 </ul>
 </li>
 </ul>
