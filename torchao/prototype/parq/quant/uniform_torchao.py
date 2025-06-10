@@ -14,15 +14,15 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
+    _choose_qparams_affine_dont_preserve_zero,
+    _choose_qparams_affine_tinygemm,
+    _dequantize_affine_no_zero_point,
+    _dequantize_affine_tinygemm,
+    _quantize_affine_no_zero_point,
+    _quantize_affine_tinygemm,
     choose_qparams_affine,
-    choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_tinygemm,
     dequantize_affine,
-    dequantize_affine_no_zero_point,
-    dequantize_affine_tinygemm,
     quantize_affine,
-    quantize_affine_no_zero_point,
-    quantize_affine_tinygemm,
 )
 
 from .quantizer import Quantizer
@@ -75,11 +75,11 @@ class UnifTorchaoQuantizer(Quantizer):
         block_size = (1, p.size(-1)) if dim is not None else p.size()
 
         if self.zero_point_domain == ZeroPointDomain.FLOAT and not self.preserve_zero:
-            _choose_qparams_affine = choose_qparams_affine_tinygemm
-            _quantize_affine = quantize_affine_tinygemm
-            _dequantize_affine = dequantize_affine_tinygemm
+            _choose_qparams_affine = _choose_qparams_affine_tinygemm
+            _quantize_affine = _quantize_affine_tinygemm
+            _dequantize_affine = _dequantize_affine_tinygemm
         elif self.zero_point_domain == ZeroPointDomain.INT and not self.preserve_zero:
-            _choose_qparams_affine = choose_qparams_affine_dont_preserve_zero
+            _choose_qparams_affine = _choose_qparams_affine_dont_preserve_zero
             _quantize_affine = quantize_affine
             _dequantize_affine = dequantize_affine
         else:  # Default case: zero_point_domain == ZeroPointDomain.INT/NONE and preserve_zero
@@ -88,8 +88,8 @@ class UnifTorchaoQuantizer(Quantizer):
                 _quantize_affine = quantize_affine
                 _dequantize_affine = dequantize_affine
             else:
-                _quantize_affine = quantize_affine_no_zero_point
-                _dequantize_affine = dequantize_affine_no_zero_point
+                _quantize_affine = _quantize_affine_no_zero_point
+                _dequantize_affine = _dequantize_affine_no_zero_point
 
         s, zero_point = _choose_qparams_affine(
             p,

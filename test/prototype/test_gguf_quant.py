@@ -13,7 +13,7 @@ from torchao.prototype.quantization.gguf import (
     GGUFWeightOnlyConfig,
 )
 from torchao.quantization import quantize_
-from torchao.quantization.quant_primitives import choose_qparams_gguf
+from torchao.quantization.quant_primitives import _choose_qparams_gguf
 from torchao.quantization.utils import compute_error
 
 
@@ -25,13 +25,13 @@ class TestGGUFQuantization(unittest.TestCase):
         self.block_size = (1, 32)
         self.dtype = torch.uint4
 
-    def test_choose_qparams_gguf(self):
+    def test__choose_qparams_gguf(self):
         (
             super_block_scale_scale,
             super_block_min_scale,
             quantized_block_scale,
             quantized_block_min,
-        ) = choose_qparams_gguf(self.input, self.block_size, self.dtype)
+        ) = _choose_qparams_gguf(self.input, self.block_size, self.dtype)
 
         assert super_block_scale_scale.shape, (2, 8)
         assert super_block_min_scale.shape, (2, 8)

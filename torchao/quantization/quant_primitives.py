@@ -24,32 +24,32 @@ from torchao.utils import (
 
 __all__ = [
     "choose_qparams_affine",
-    "choose_qparams_affine_tinygemm",
-    "choose_qparams_affine_dont_preserve_zero",
+    "_choose_qparams_affine_tinygemm",
+    "_choose_qparams_affine_dont_preserve_zero",
     "choose_qparams_affine_with_min_max",
-    "choose_qparams_affine_floatx",
+    "_choose_qparams_affine_floatx",
     "quantize_affine",
-    "quantize_affine_no_zero_point",
-    "quantize_affine_tinygemm",
+    "_quantize_affine_no_zero_point",
+    "_quantize_affine_tinygemm",
     "dequantize_affine",
-    "dequantize_affine_no_zero_point",
-    "dequantize_affine_tinygemm",
-    "quantize_affine_floatx",
-    "dequantize_affine_floatx",
-    "fake_quantize_affine",
-    "fake_quantize_affine_cachemask",
-    "choose_qparams_and_quantize_affine_hqq",
-    "choose_qparams_and_quantize_affine_qqq",
-    "dequantize_affine_qqq",
+    "_dequantize_affine_no_zero_point",
+    "_dequantize_affine_tinygemm",
+    "_quantize_affine_floatx",
+    "_dequantize_affine_floatx",
+    "_fake_quantize_affine",
+    "_fake_quantize_affine_cachemask",
+    "_choose_qparams_and_quantize_affine_hqq",
+    "_choose_qparams_and_quantize_affine_qqq",
+    "_dequantize_affine_qqq",
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
-    "choose_qparams_affine_float8",
-    "quantize_affine_float8",
-    "dequantize_affine_float8",
-    "choose_qparams_gguf",
-    "quantize_gguf",
-    "dequantize_gguf",
+    "_choose_qparams_affine_float8",
+    "_quantize_affine_float8",
+    "_dequantize_affine_float8",
+    "_choose_qparams_gguf",
+    "_quantize_gguf",
+    "_dequantize_gguf",
 ]
 
 
@@ -428,7 +428,7 @@ def _quantize_affine_no_dtype_cast(
     return quant
 
 
-def quantize_affine_tinygemm(
+def _quantize_affine_tinygemm(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -453,7 +453,7 @@ def quantize_affine_tinygemm(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return _quantize_affine_tinygemm_no_dtype_cast(
+    return __quantize_affine_tinygemm_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -463,7 +463,7 @@ def quantize_affine_tinygemm(
     ).to(output_dtype)
 
 
-def _quantize_affine_tinygemm_no_dtype_cast(
+def __quantize_affine_tinygemm_no_dtype_cast(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -513,7 +513,7 @@ def _quantize_affine_tinygemm_no_dtype_cast(
     return quant
 
 
-def quantize_affine_no_zero_point(
+def _quantize_affine_no_zero_point(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -539,7 +539,7 @@ def quantize_affine_no_zero_point(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return _quantize_affine_no_zero_point_no_dtype_cast(
+    return __quantize_affine_no_zero_point_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -549,7 +549,7 @@ def quantize_affine_no_zero_point(
     ).to(output_dtype)
 
 
-def _quantize_affine_no_zero_point_no_dtype_cast(
+def __quantize_affine_no_zero_point_no_dtype_cast(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -714,7 +714,7 @@ def _dequantize_affine_no_dtype_check(
     return dequant.view(original_shape).to(output_dtype)
 
 
-def _dequantize_affine_no_zero_point_no_dtype_check(
+def __dequantize_affine_no_zero_point_no_dtype_check(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -745,7 +745,7 @@ def _dequantize_affine_no_zero_point_no_dtype_check(
     scale = scale.view(shape_after_reduction)
 
     assert zero_point is None, (
-        "zero_point should be None for dequantize_affine_no_zero_point"
+        "zero_point should be None for _dequantize_affine_no_zero_point"
     )
     dequant = input.to(output_dtype)
     dequant = dequant * scale
@@ -753,7 +753,7 @@ def _dequantize_affine_no_zero_point_no_dtype_check(
     return dequant.view(original_shape).to(output_dtype)
 
 
-def dequantize_affine_no_zero_point(
+def _dequantize_affine_no_zero_point(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -792,7 +792,7 @@ def dequantize_affine_no_zero_point(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return _dequantize_affine_no_zero_point_no_dtype_check(
+    return __dequantize_affine_no_zero_point_no_dtype_check(
         input,
         block_size,
         scale,
@@ -803,7 +803,7 @@ def dequantize_affine_no_zero_point(
     )
 
 
-def _dequantize_affine_tinygemm_no_dtype_check(
+def __dequantize_affine_tinygemm_no_dtype_check(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -848,7 +848,7 @@ def _dequantize_affine_tinygemm_no_dtype_check(
     return dequant.view(original_shape).to(output_dtype)
 
 
-def dequantize_affine_tinygemm(
+def _dequantize_affine_tinygemm(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -887,7 +887,7 @@ def dequantize_affine_tinygemm(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return _dequantize_affine_tinygemm_no_dtype_check(
+    return __dequantize_affine_tinygemm_no_dtype_check(
         input,
         block_size,
         scale,
@@ -898,7 +898,7 @@ def dequantize_affine_tinygemm(
     )
 
 
-def fake_quantize_affine(
+def _fake_quantize_affine(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -933,7 +933,7 @@ def fake_quantize_affine(
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
     elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
         raise ValueError("zero_point should be None when zero_point_domain is NONE")
-    (_, fq) = _do_fake_quantize_affine(
+    (_, fq) = _do__fake_quantize_affine(
         input,
         block_size,
         scale,
@@ -946,7 +946,7 @@ def fake_quantize_affine(
     return fq
 
 
-def fake_quantize_affine_cachemask(
+def _fake_quantize_affine_cachemask(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -961,12 +961,12 @@ def fake_quantize_affine_cachemask(
     This is equivalent to calling `quantize_affine` + `dequantize_affine`
     but without the dtype casts.
 
-    Note: Compared to :func:`~torchao.quantization.quant_primitives.fake_quantize_affine`,
+    Note: Compared to :func:`~torchao.quantization.quant_primitives._fake_quantize_affine`,
     this consumes more memory and returns an additional outlier mask for
     intermediate quantized values.
 
     Args:
-      Same as :func:`~torchao.quantization.quant_primitives.fake_quantize_affine`.
+      Same as :func:`~torchao.quantization.quant_primitives._fake_quantize_affine`.
 
     Returns:
       A 2-tuple of (
@@ -979,7 +979,7 @@ def fake_quantize_affine_cachemask(
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
     elif zero_point_domain is None and zero_point is not None:
         raise ValueError("zero_point should be None when zero_point_domain is NONE")
-    (q, dq) = _do_fake_quantize_affine(
+    (q, dq) = _do__fake_quantize_affine(
         input,
         block_size,
         scale,
@@ -993,7 +993,7 @@ def fake_quantize_affine_cachemask(
     return (dq, mask)
 
 
-def _do_fake_quantize_affine(
+def _do__fake_quantize_affine(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -1004,7 +1004,7 @@ def _do_fake_quantize_affine(
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Helper function for `fake_quantize_affine` that returns both the
+    Helper function for `_fake_quantize_affine` that returns both the
     intermediate quantized values and the final dequantized values.
     """
     input_dtype = input.dtype
@@ -1013,11 +1013,11 @@ def _do_fake_quantize_affine(
         _quantize_affine = _quantize_affine_no_dtype_cast
         _dequantize_affine = _dequantize_affine_no_dtype_check
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _quantize_affine = _quantize_affine_tinygemm_no_dtype_cast
-        _dequantize_affine = _dequantize_affine_tinygemm_no_dtype_check
+        _quantize_affine = __quantize_affine_tinygemm_no_dtype_cast
+        _dequantize_affine = __dequantize_affine_tinygemm_no_dtype_check
     elif ZeroPointDomain == ZeroPointDomain.NONE:
-        _quantize_affine = _quantize_affine_no_zero_point_no_dtype_cast
-        _dequantize_affine = _dequantize_affine_no_zero_point_no_dtype_check
+        _quantize_affine = __quantize_affine_no_zero_point_no_dtype_cast
+        _dequantize_affine = __dequantize_affine_no_zero_point_no_dtype_check
     else:
         raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
     q = _quantize_affine(
@@ -1086,7 +1086,7 @@ def choose_qparams_affine(
 
 # TODO: lower this op to custom op library
 @torch.no_grad()
-def choose_qparams_affine_tinygemm(
+def _choose_qparams_affine_tinygemm(
     input: torch.Tensor,
     mapping_type: MappingType,
     block_size: Tuple[int],
@@ -1157,7 +1157,7 @@ def choose_qparams_affine_tinygemm(
 
 
 # TODO: lower this op to custom op library
-def choose_qparams_affine_dont_preserve_zero(
+def _choose_qparams_affine_dont_preserve_zero(
     input: torch.Tensor,
     mapping_type: MappingType,
     block_size: Tuple[int],
@@ -1427,7 +1427,7 @@ def _choose_qparams_affine(
     )
 
 
-def choose_qparams_and_quantize_affine_qqq(
+def _choose_qparams_and_quantize_affine_qqq(
     w: torch.Tensor,
     num_bits: int,
     group_size: int,
@@ -1497,7 +1497,7 @@ def choose_qparams_and_quantize_affine_qqq(
     return q_w, s_group, s_channel, w_ref
 
 
-def choose_qparams_gguf(
+def _choose_qparams_gguf(
     input: Optional[torch.Tensor],
     block_size: List[int],
     target_dtype: torch.dtype,
@@ -1580,7 +1580,7 @@ def choose_qparams_gguf(
     )
 
 
-def quantize_gguf(
+def _quantize_gguf(
     input: torch.Tensor,
     block_size: List[int],
     target_dtype: torch.dtype,
@@ -1642,7 +1642,7 @@ def quantize_gguf(
     return int_data
 
 
-def dequantize_gguf(
+def _dequantize_gguf(
     input: torch.Tensor,
     block_size: List[int],
     target_dtype: torch.dtype,
@@ -1705,7 +1705,7 @@ def dequantize_gguf(
     return dequant
 
 
-def dequantize_affine_qqq(
+def _dequantize_affine_qqq(
     w: torch.Tensor,
     s_group: torch.Tensor,
     s_channel: torch.Tensor,
@@ -1845,7 +1845,7 @@ def _convert_to_affinequantized_format(
 
 
 # Main hqq quantizer function
-def choose_qparams_and_quantize_affine_hqq(
+def _choose_qparams_and_quantize_affine_hqq(
     tensor: torch.Tensor,
     nbits: float = 4,
     group_size: int = 64,
@@ -1939,7 +1939,7 @@ def choose_qparams_and_quantize_affine_hqq(
     return W_q, scale, zero, shape
 
 
-def choose_qparams_affine_floatx(
+def _choose_qparams_affine_floatx(
     tensor: torch.Tensor, ebits: int, mbits: int
 ) -> torch.Tensor:
     # _n_ones() is not compatible with torch.compile() due to << operator
@@ -1959,7 +1959,7 @@ def choose_qparams_affine_floatx(
     return scale.to(dtype)
 
 
-def quantize_affine_floatx(
+def _quantize_affine_floatx(
     tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int
 ) -> torch.Tensor:
     """Quantizes the float32 high precision floating point tensor to low precision floating point number and
@@ -1970,7 +1970,7 @@ def quantize_affine_floatx(
     return tensor_floatx
 
 
-def dequantize_affine_floatx(
+def _dequantize_affine_floatx(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     ebits: int,
@@ -1983,7 +1983,7 @@ def dequantize_affine_floatx(
     return tensor
 
 
-def choose_qparams_affine_float8(
+def _choose_qparams_affine_float8(
     tensor: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
     scale_dtype: torch.dtype = torch.float32,
@@ -2075,7 +2075,7 @@ def _expand_scale_to_tensor_shape(
     return expanded_scale
 
 
-def quantize_affine_float8(
+def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -2095,7 +2095,7 @@ def quantize_affine_float8(
     return fp8_tensor
 
 
-def dequantize_affine_float8(
+def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     output_dtype: torch.dtype = torch.float32,
