@@ -3,7 +3,8 @@
 This prototype feature provides a way to use float8 rowwise training on MoE layers.
 
 Below is a simple runnable example of how to use this feature, using the MoE layer
-from the [torchtitan](https://github.com/pytorch/torchtitan) Llama4 implementation for demonstration:
+from the [torchtitan](https://github.com/pytorch/torchtitan) Llama4 implementation for demonstration.
+
 
 ```python
 import torch
@@ -75,10 +76,13 @@ for step in range(10):
 ```
 
 ## Requirements
+- torchao nightly build
+- CUDA compute capability 8.9+ (SM89+)
 
+## Modeling requirements
 This prototype is specifically designed to be used on MoE models using
 `torch._grouped_mm` to implement expert computation in token-choice routing,
-where expert weights are implemented as 3D nn.Parameters wit `num_experts` as
+where expert weights are implemented as 3D nn.Parameters with `num_experts` as
 the leading dim.
 
 The `MoETrainingConfig` has a module handler registered to it which will
