@@ -16,7 +16,7 @@ import torch
 import triton
 import triton.language as tl
 
-from torchao.prototype.scaled_grouped_mm.utils import _is_column_major
+from torchao.prototype.moe_training.utils import _is_column_major
 
 EPS = 1e-12
 
