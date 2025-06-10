@@ -441,10 +441,10 @@
     <span class="s2">&quot;choose_qparams_affine_floatx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;quantize_affine&quot;</span><span class="p">,</span>
     <span class="s2">&quot;quantize_affine_no_zero_point&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;quantize_affine_float_zero_point&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantize_affine_tinygemm&quot;</span><span class="p">,</span>
     <span class="s2">&quot;dequantize_affine&quot;</span><span class="p">,</span>
     <span class="s2">&quot;dequantize_affine_no_zero_point&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;dequantize_affine_float_zero_point&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;dequantize_affine_tinygemm&quot;</span><span class="p">,</span>
     <span class="s2">&quot;quantize_affine_floatx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;dequantize_affine_floatx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;fake_quantize_affine&quot;</span><span class="p">,</span>
@@ -839,7 +839,7 @@
     <span class="k">return</span> <span class="n">quant</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">quantize_affine_float_zero_point</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">quantize_affine_tinygemm</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -864,7 +864,7 @@
     <span class="c1"># torch.uintx dtypes yet</span>
     <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">in</span> <span class="n">_SUB_BYTE_UINT_BOUNDS</span><span class="p">:</span>
         <span class="n">output_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
-    <span class="k">return</span> <span class="n">_quantize_affine_float_zero_point_no_dtype_cast</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">_quantize_affine_tinygemm_no_dtype_cast</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">,</span>
@@ -874,7 +874,7 @@
     <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_float_zero_point_no_dtype_cast</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_tinygemm_no_dtype_cast</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1214,7 +1214,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_float_zero_point_no_dtype_check</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_tinygemm_no_dtype_check</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1259,7 +1259,7 @@
     <span class="k">return</span> <span class="n">dequant</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">original_shape</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine_float_zero_point</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine_tinygemm</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1298,7 +1298,7 @@
         <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
     <span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Unsupported output dtype: </span><span class="si">{</span><span class="n">output_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
     <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_get_and_check_qmin_qmax</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">_dequantize_affine_float_zero_point_no_dtype_check</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">_dequantize_affine_tinygemm_no_dtype_check</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">,</span>
@@ -1424,8 +1424,8 @@
         <span class="n">_quantize_affine</span> <span class="o">=</span> <span class="n">_quantize_affine_no_dtype_cast</span>
         <span class="n">_dequantize_affine</span> <span class="o">=</span> <span class="n">_dequantize_affine_no_dtype_check</span>
     <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">:</span>
-        <span class="n">_quantize_affine</span> <span class="o">=</span> <span class="n">_quantize_affine_float_zero_point_no_dtype_cast</span>
-        <span class="n">_dequantize_affine</span> <span class="o">=</span> <span class="n">_dequantize_affine_float_zero_point_no_dtype_check</span>
+        <span class="n">_quantize_affine</span> <span class="o">=</span> <span class="n">_quantize_affine_tinygemm_no_dtype_cast</span>
+        <span class="n">_dequantize_affine</span> <span class="o">=</span> <span class="n">_dequantize_affine_tinygemm_no_dtype_check</span>
     <span class="k">elif</span> <span class="n">ZeroPointDomain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
         <span class="n">_quantize_affine</span> <span class="o">=</span> <span class="n">_quantize_affine_no_zero_point_no_dtype_cast</span>
         <span class="n">_dequantize_affine</span> <span class="o">=</span> <span class="n">_dequantize_affine_no_zero_point_no_dtype_check</span>
