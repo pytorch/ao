@@ -458,7 +458,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
   using namespace torchao::test_utils::lut;
 
   // This single call replaces all the manual LUT setup logic.
-  auto [lut, weight_qval_idxs] = generate_simple_u_to_s_lut_and_indices(
+  auto [lut, weight_qval_idxs] = generate_random_int8_lut_and_indices(
     weight_nbit,
     test_case.weight_qvals);
 

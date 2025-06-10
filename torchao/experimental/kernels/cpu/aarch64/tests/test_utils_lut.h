@@ -12,7 +12,7 @@
 namespace torchao::test_utils::lut {
 
 enum class QuantizationGranularity { PER_TENSOR, PER_CHANNEL, PER_GROUP };
-enum class GroundTruthStrategy { IDEAL_DEQUANT, LUT_DEQUANT };
+enum class GroundTruthStrategy { IDEAL_DEQUANT, LUT_DEQUANT, RANDOM_LUT_DIRECT };
 
 struct TestCaseConfig {
   int rows;
@@ -27,7 +27,7 @@ struct TestCaseConfig {
 
 
 std::pair<std::vector<int8_t>, std::vector<int8_t>>
-generate_simple_u_to_s_lut_and_indices(
+generate_random_int8_lut_and_indices(
     int weight_nbit,
     const std::vector<int8_t>& weight_qvals) {
   // 1. Define the offset used to map between signed and unsigned representations.
@@ -168,6 +168,11 @@ public:
   static lut_quantization_test_case<T_in, T_zp, T_lut> generate(const TestCaseConfig& config) {
     std::mt19937 gen(config.random_seed);
 
+    // Check if the user requested the simple, direct LUT generation strategy (Unit test for LUT).
+    if (config.strategy == GroundTruthStrategy::RANDOM_LUT_DIRECT) {
+      return generate_random_lut_direct(config, gen);
+    }
+
     // 1. Generate random floating-point data
     auto input_float = generate_random_data(config.rows * config.cols, gen);
 
@@ -194,6 +199,57 @@ public:
   }
 
 private:
+
+
+  /**
+   * @brief Helper for the simple RANDOM_LUT_DIRECT strategy.
+   *
+   * Bypasses quantization simulation. It directly creates a random LUT and
+   * random indices, with the ground truth being the result of the lookup.
+   * This path always generates a PER_TENSOR style test case.
+   */
+  static lut_quantization_test_case<T_in, T_zp, T_lut>
+  generate_random_lut_direct(const TestCaseConfig& config, std::mt19937& gen) {
+    const int num_elements = config.rows * config.cols;
+    const T_in q_min = -(1 << (config.nbit - 1));
+    const T_in q_max = (1 << (config.nbit - 1)) - 1;
+    const size_t lut_size = (1 << config.nbit);
+    const int lut_idx_offset = q_min;
+
+    // 1. Generate a completely random LUT.
+    std::vector<T_lut> lut(lut_size);
+    std::uniform_real_distribution<float> lut_val_dist(-5.0f, 5.0f);
+    for (size_t i = 0; i < lut_size; ++i) {
+      lut[i] = static_cast<T_lut>(lut_val_dist(gen));
+    }
+
+    // 2. Generate random quantized values to serve as our input data.
+    std::vector<T_in> input_qvals(num_elements);
+    std::uniform_int_distribution<int> q_val_dist(q_min, q_max);
+    for (int i = 0; i < num_elements; ++i) {
+      input_qvals[i] = static_cast<T_in>(q_val_dist(gen));
+    }
+
+    // 3. The ground truth is simply the result of looking up the q_vals in the LUT.
+    std::vector<float> expected_output(num_elements);
+    for (int i = 0; i < num_elements; ++i) {
+      T_in q_val = input_qvals[i];
+      size_t lut_idx = q_val - lut_idx_offset; // Map q_val (e.g., -8..7) to index (e.g., 0..15)
+      assert(lut_idx < lut.size());
+      expected_output[i] = static_cast<float>(lut[lut_idx]);
+    }
+
+    // 4. Create dummy scale/zero to satisfy the test case struct assertions.
+    //    This strategy is inherently per-tensor.
+    std::vector<float> scales = {1.0f};
+    std::vector<T_zp> zeros = {static_cast<T_zp>(0)};
+
+    return lut_quantization_test_case<T_in, T_zp, T_lut>(
+        config.rows, config.cols, QuantizationGranularity::PER_TENSOR, /*group_size=*/-1, config.nbit,
+        std::move(input_qvals), std::move(scales), std::move(zeros),
+        std::move(lut), std::move(expected_output));
+  }
+
   // Helper to generate random float data
   static std::vector<float> generate_random_data(int size, std::mt19937& gen) {
       std::vector<float> data(size);
