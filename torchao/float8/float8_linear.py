@@ -6,11 +6,11 @@
 """
 A simple module swap UX for a float8 version of `torch.nn.Linear`.
 """
-
-from typing import Optional
+from typing import Optional, Union, Tuple
 
 import torch
 import torch.utils.checkpoint as checkpoint
+from torch.distributed._tensor import DTensor
 
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
@@ -26,7 +26,10 @@ from torchao.float8.float8_tensor import (
 )
 from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-
+from torchao.float8.float8_tensor import Float8Tensor
+from torchao.float8.float8_tensor_parallel_rowwise_scales import (
+    matmul_with_fp8_input_and_input_t,
+)
 
 def _get_weight_scale(
     weight: torch.Tensor,
@@ -55,7 +58,6 @@ def _cast_weight_to_float8_t(
         gemm_input_role=GemmInputRole.WEIGHT,
     )
     return weight_fp8.t()
-
 
 @torch._dynamo.allow_in_graph
 class matmul_with_hp_or_float8_args(torch.autograd.Function):
@@ -299,14 +301,16 @@ class Float8Linear(torch.nn.Linear):
             ),
         )
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_row_major: torch.Tensor, input_col_major: Optional[torch.Tensor] = None) -> torch.Tensor:
         # Duplicate the autocast logic for F.linear, so that the output
         # of our module has the right original precision
         if torch.is_autocast_enabled():
             # For now, hardcode to GPU's autocast dtype
             # if we need CPU support in the future, we can add it
             autocast_dtype = torch.get_autocast_gpu_dtype()
-            input = input.to(autocast_dtype)
+            input_row_major = input_row_major.to(autocast_dtype)
+            if input_col_major is not None:
+                input_col_major = input_col_major.to(autocast_dtype)
 
         has_any_axiswise_scaling = any(
             cc.scaling_granularity is ScalingGranularity.AXISWISE
@@ -349,13 +353,25 @@ class Float8Linear(torch.nn.Linear):
 
             weight_maybe_fp8_t = weight_fp8_t
 
-        output = matmul_with_hp_or_float8_args.apply(
-            input,
-            weight_maybe_fp8_t,
-            self.linear_mm_config,
-            self.config,
+        using_fp8_rowwise_all_gather = (
+           input_row_major is not None and 
+           input_col_major is not None
         )
-
+        if using_fp8_rowwise_all_gather:
+            output = matmul_with_fp8_input_and_input_t.apply(
+                input_row_major,
+                input_col_major,
+                weight_maybe_fp8_t,
+                self.linear_mm_config,
+                self.config,
+            )
+        else:
+            output = matmul_with_hp_or_float8_args.apply(
+                input_row_major,
+                weight_maybe_fp8_t,
+                self.linear_mm_config,
+                self.config,
+            )
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)
         return output
