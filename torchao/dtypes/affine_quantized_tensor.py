@@ -26,14 +26,14 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_float8,
-    dequantize_affine_float_zero_point,
     dequantize_affine_floatx,
     dequantize_affine_no_zero_point,
+    dequantize_affine_tinygemm,
     quantize_affine,
     quantize_affine_float8,
-    quantize_affine_float_zero_point,
     quantize_affine_floatx,
     quantize_affine_no_zero_point,
+    quantize_affine_tinygemm,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -155,7 +155,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         else:
             data, scale, zero_point = self.tensor_impl.get_plain()
             if self.zero_point_domain == ZeroPointDomain.FLOAT:
-                dq = dequantize_affine_float_zero_point(
+                dq = dequantize_affine_tinygemm(
                     data,
                     self.block_size,
                     scale,
@@ -339,7 +339,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                     quant_max,
                 )
             elif zero_point_domain == ZeroPointDomain.FLOAT:
-                data = quantize_affine_float_zero_point(
+                data = quantize_affine_tinygemm(
                     input_float,
                     block_size,
                     scale,
@@ -410,7 +410,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 quant_max,
             )
         elif zero_point_domain == ZeroPointDomain.FLOAT:
-            int_data = quantize_affine_float_zero_point(
+            int_data = quantize_affine_tinygemm(
                 input_float,
                 block_size,
                 scale,
