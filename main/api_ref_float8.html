@@ -438,7 +438,10 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.ScalingType.html#torchao.float8.ScalingType" title="torchao.float8.ScalingType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScalingType</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp" title="torchao.float8.precompute_float8_dynamic_scale_for_fsdp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">precompute_float8_dynamic_scale_for_fsdp</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity" title="torchao.float8.ScalingGranularity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScalingGranularity</span></code></a></p></td>
+<td><p>Defines the granularity of scaling strategies for casting to float8</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp" title="torchao.float8.precompute_float8_dynamic_scale_for_fsdp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">precompute_float8_dynamic_scale_for_fsdp</span></code></a></p></td>
 <td><p>Calculate scale dynamically for all float8 parameters. This should be run after the optimizer step. It performs a single all-reduce to compute the scales for all float8 weights. Example usage:     model(input).sum().backward()     optim.step()     precompute_float8_dynamic_scale_for_fsdp(model).</p></td>
 </tr>
 </tbody>
