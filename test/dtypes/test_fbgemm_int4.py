@@ -34,6 +34,14 @@ class TestFbgemmInt4Tensor(TestCase):
             output_dtype=torch.bfloat16,
             block_size=[1, 128],
         )
+        self.bmm_config = FbgemmConfig(
+            input_dtype=torch.bfloat16,
+            weight_dtype=torch.int4,
+            output_dtype=torch.bfloat16,
+            block_size=[1, 1, 128],
+            transpose_input=True,
+        )
+        self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
     def test_linear(self):
         dtype = torch.bfloat16
@@ -110,6 +118,39 @@ class TestFbgemmInt4Tensor(TestCase):
 
         # making sure param.data is updated
         assert param.data.packed_weight[0][0] != orig_value
+
+    def test_bmm(self):
+        class M(torch.nn.Module):
+            def __init__(self, weight):
+                super().__init__()
+                self.weight = weight
+
+            def forward(self, x):
+                return torch.bmm(x, self.weight)
+
+        dtype = torch.bfloat16
+        device = "cuda"
+        input = torch.randn(10, 32, 128, dtype=dtype, device=device)
+        weight = torch.randn(10, 128, 256, dtype=dtype, device=device)
+        m = M(weight).eval()
+        original = m(input)
+        quantize_(m, self.bmm_config, filter_fn=lambda x, fqn: True)
+        quantized = m(input)
+        self.assertTrue(compute_error(original, quantized) > 18)
+
+    def test_to_device(self):
+        for device in self.GPU_DEVICES:
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            quantize_(linear, self.config)
+            linear.to(device)
+
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            quantize_(linear, self.config)
+            linear.to(device=device)
+
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            quantize_(linear, self.config)
+            linear.to(device)
 
 
 if __name__ == "__main__":

@@ -1991,6 +1991,7 @@ class FbgemmConfig(AOBaseConfig):
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
+    transpose_input: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -2018,9 +2019,11 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_int4(
             module.weight,
             config.block_size,
+            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     elif (
         (config.input_dtype == e4m3_dtype)
         and (config.weight_dtype == e4m3_dtype)
@@ -2029,9 +2032,11 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_fp8(
             module.weight,
             config.activation_scale_ub,
+            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     else:
         raise NotImplementedError(
             f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"
