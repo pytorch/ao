@@ -575,6 +575,142 @@ struct lowbit_embedding_test_case {
   }
 };
 
+
+struct groupwise_lowbit_weight_lut_test_case {
+  //--------------------------------------------------------------------------
+  // Parameters
+  //--------------------------------------------------------------------------
+  int m, k, n;
+  int weight_group_size, weight_nbit;
+  bool has_bias, has_clamp;
+  float clamp_min, clamp_max;
+
+  //--------------------------------------------------------------------------
+  // Data Tensors
+  //--------------------------------------------------------------------------
+  std::vector<float> expected_output;
+  std::vector<float> activations;
+  std::vector<float> bias;
+  std::vector<uint8_t> weight_qvals; // Indices into the LUTs
+  std::vector<float>   weight_luts;  // The Look-Up Tables for each group
+  std::vector<float>   weight_scales; // The scale for each group's LUT
+
+  // Constructor now includes scales
+  groupwise_lowbit_weight_lut_test_case(
+      int m_, int k_, int n_, int weight_group_size_, int weight_nbit_,
+      bool has_bias_, bool has_clamp_,
+      float clamp_min_, float clamp_max_,
+      std::vector<float> expected_output_,
+      std::vector<float> activations_,
+      std::vector<float> bias_,
+      std::vector<uint8_t> weight_qvals_,
+      std::vector<float> weight_luts_,
+      std::vector<float> weight_scales_)
+      : m(m_), k(k_), n(n_),
+        weight_group_size(weight_group_size_), weight_nbit(weight_nbit_),
+        has_bias(has_bias_), has_clamp(has_clamp_),
+        clamp_min(clamp_min_), clamp_max(clamp_max_),
+        expected_output(std::move(expected_output_)),
+        activations(std::move(activations_)),
+        bias(std::move(bias_)),
+        weight_qvals(std::move(weight_qvals_)),
+        weight_luts(std::move(weight_luts_)),
+        weight_scales(std::move(weight_scales_))
+  {}
+
+  // The 'generate' function with scale-based LUT creation
+  static groupwise_lowbit_weight_lut_test_case generate(
+      int m, int k, int n,
+      int weight_group_size, int weight_nbit,
+      bool has_bias, bool has_clamp) {
+
+    // --- Pre-condition checks ---
+    assert( (n * k) % weight_group_size == 0);
+    assert( weight_nbit > 0 && weight_nbit <= 8);
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    // --- 1. Generate primary inputs ---
+    auto activations = get_random_vector(m * k, -1.0f, 1.0f);
+    std::vector<float> bias(n, 0.0f);
+    if (has_bias) {
+      bias = get_random_vector(n, -0.5f, 0.5f);
+    }
+    float clamp_min = -std::numeric_limits<float>::infinity();
+    float clamp_max = std::numeric_limits<float>::infinity();
+    if (has_clamp) {
+      auto randoms = get_random_vector(2, -5.0f, 5.0f);
+      clamp_min = std::min(randoms[0], randoms[1]);
+      clamp_max = std::max(randoms[0], randoms[1]);
+    }
+
+    // --- 2. Generate Weight Data (Indices and Scale-Modulated LUTs) ---
+    const int total_weights = n * k;
+    const int num_weight_groups = total_weights / weight_group_size;
+    const int lut_size = 1 << weight_nbit;
+
+    // Generate random quantized indices (this remains the same)
+    auto weight_qvals = std::vector<uint8_t>(total_weights);
+    std::uniform_int_distribution<int> qval_dis(0, lut_size - 1);
+    for (int i = 0; i < total_weights; ++i) {
+      weight_qvals[i] = static_cast<uint8_t>(qval_dis(gen));
+    }
+
+    // 2. --- Generate LUTs based on scales ---
+    // 2a. Generate a random scale for each group
+    auto weight_scales = get_random_vector(num_weight_groups, 0.001f, 0.1f);
+
+    // 2b. Create a base "codebook" of values. Use fix start val.
+    // This represents the unscaled quantized values.
+    std::vector<float> base_codebook(lut_size);
+    float start_val = -(static_cast<float>(lut_size) / 2.0f) + 0.5f;
+    for(int i = 0; i < lut_size; ++i) {
+        base_codebook[i] = start_val + i;
+    }
+
+    // 2c. Create the final LUTs by scaling the base codebook for each group
+    std::vector<float> weight_luts(num_weight_groups * lut_size);
+    for (int group_idx = 0; group_idx < num_weight_groups; ++group_idx) {
+        float scale = weight_scales[group_idx];
+        for (int i = 0; i < lut_size; ++i) {
+            weight_luts[group_idx * lut_size + i] = base_codebook[i] * scale;
+        }
+    }
+
+    // --- 3. Compute Expected Output ---
+    // C = A @ B + Bias
+    std::vector<float> expected_output(m * n);
+    for (int m_idx = 0; m_idx < m; ++m_idx) {
+      for (int n_idx = 0; n_idx < n; ++n_idx) {
+        float res = 0.0f;
+        for (int k_idx = 0; k_idx < k; ++k_idx) {
+          float activation_val = activations[m_idx * k + k_idx];
+          int weight_idx = n_idx * k + k_idx;
+          int group_idx = weight_idx / weight_group_size;
+          uint8_t lut_index = weight_qvals[weight_idx];
+          float weight_dequant_val = weight_luts[group_idx * lut_size + lut_index];
+          res += activation_val * weight_dequant_val;
+        }
+        res += bias[n_idx];
+        if (has_clamp) res = std::clamp(res, clamp_min, clamp_max);
+        expected_output[m_idx * n + n_idx] = res;
+      }
+    }
+
+    // --- 4. Construct and Return the Test Case ---
+    return groupwise_lowbit_weight_lut_test_case(
+        m, k, n, weight_group_size, weight_nbit, has_bias,
+        has_clamp, clamp_min, clamp_max,
+        std::move(expected_output),
+        std::move(activations),
+        std::move(bias),
+        std::move(weight_qvals),
+        std::move(weight_luts),
+        std::move(weight_scales)); // Pass the new scales vector
+  }
+};
+
+
 } // namespace torchao
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
