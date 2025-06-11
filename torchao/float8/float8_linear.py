@@ -10,7 +10,6 @@ A simple module swap UX for a float8 version of `torch.nn.Linear`.
 from typing import Optional
 
 import torch
-import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
@@ -325,29 +324,18 @@ class Float8Linear(torch.nn.Linear):
         # TODO(future PR): check for axiswise scaling for input, weight,
         # grad_output separately instead of together
         if not has_any_axiswise_scaling:
-            # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
-            # weight_scale should be saved.
+            # TODO(future PR): now that `force_recompute_fp8_weight_in_bwd` is
+            # deprecated, we can simplify the below code and unify the per-tensor
+            # and per-axis paths further.
             weight_scale = _get_weight_scale(
                 self.weight, self.scaling_type_weight, self.config
             )
-
-            if self.config.force_recompute_fp8_weight_in_bwd:
-                weight_fp8_t = checkpoint.checkpoint(
-                    _cast_weight_to_float8_t,
-                    self.weight,
-                    self.config,
-                    self.linear_mm_config,
-                    weight_scale,
-                )
-            else:
-                weight_fp8_t = _cast_weight_to_float8_t(
-                    self.weight,
-                    self.config,
-                    self.linear_mm_config,
-                    weight_scale,
-                )
-
-            weight_maybe_fp8_t = weight_fp8_t
+            weight_maybe_fp8_t = _cast_weight_to_float8_t(
+                self.weight,
+                self.config,
+                self.linear_mm_config,
+                weight_scale,
+            )
 
         output = matmul_with_hp_or_float8_args.apply(
             input,
