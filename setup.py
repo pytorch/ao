@@ -506,8 +506,10 @@ def get_extensions():
     use_cutlass = False
     cutlass_90a_sources = None
     cutlass_100a_sources = None
+    cutlass_120a_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
+    build_for_sm120a = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
