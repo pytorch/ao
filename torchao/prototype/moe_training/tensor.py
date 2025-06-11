@@ -3,7 +3,7 @@ from torch.utils._pytree import tree_map
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
 
-
+        
 class ScaledGroupedMMTensor(torch.Tensor):
     """
     ScaledGroupedMMTensor is a simple tensor subclass that wraps a regular tensor
@@ -22,7 +22,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
-        print(func.__name__)
         if func.__name__ == cls.grouped_mm_func_name:
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
@@ -38,7 +37,11 @@ class ScaledGroupedMMTensor(torch.Tensor):
             if A_is_2d and B_is_3d and has_offs:
                 return _scaled_grouped_mm(*args, **kwargs)
 
-        return super().__torch_function__(func, types, args, kwargs)
+        # Disable torch_function by hand because we don't want 
+        # the wrapping behavior of the super() impl
+        with torch._C.DisableTorchFunction():
+            return func(*args, **kwargs)
+
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
@@ -47,4 +50,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
         unwrapped_args, unwrapped_kwargs = tree_map(unwrap, (args, kwargs))
         output = super().__torch_dispatch__(func, types, unwrapped_args, unwrapped_kwargs)
         wrapped_output = tree_map(wrap, output)
+        print(func.__name__)
+        print(wrapped_output)
         return wrapped_output
