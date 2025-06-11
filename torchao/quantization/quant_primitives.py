@@ -30,10 +30,10 @@ __all__ = [
     "choose_qparams_affine_floatx",
     "quantize_affine",
     "quantize_affine_no_zero_point",
-    "quantize_affine_float_zero_point",
+    "quantize_affine_tinygemm",
     "dequantize_affine",
     "dequantize_affine_no_zero_point",
-    "dequantize_affine_float_zero_point",
+    "dequantize_affine_tinygemm",
     "quantize_affine_floatx",
     "dequantize_affine_floatx",
     "fake_quantize_affine",
@@ -428,7 +428,7 @@ def _quantize_affine_no_dtype_cast(
     return quant
 
 
-def quantize_affine_float_zero_point(
+def quantize_affine_tinygemm(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -453,7 +453,7 @@ def quantize_affine_float_zero_point(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return _quantize_affine_float_zero_point_no_dtype_cast(
+    return _quantize_affine_tinygemm_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -463,7 +463,7 @@ def quantize_affine_float_zero_point(
     ).to(output_dtype)
 
 
-def _quantize_affine_float_zero_point_no_dtype_cast(
+def _quantize_affine_tinygemm_no_dtype_cast(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -803,7 +803,7 @@ def dequantize_affine_no_zero_point(
     )
 
 
-def _dequantize_affine_float_zero_point_no_dtype_check(
+def _dequantize_affine_tinygemm_no_dtype_check(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -848,7 +848,7 @@ def _dequantize_affine_float_zero_point_no_dtype_check(
     return dequant.view(original_shape).to(output_dtype)
 
 
-def dequantize_affine_float_zero_point(
+def dequantize_affine_tinygemm(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -887,7 +887,7 @@ def dequantize_affine_float_zero_point(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return _dequantize_affine_float_zero_point_no_dtype_check(
+    return _dequantize_affine_tinygemm_no_dtype_check(
         input,
         block_size,
         scale,
@@ -1013,8 +1013,8 @@ def _do_fake_quantize_affine(
         _quantize_affine = _quantize_affine_no_dtype_cast
         _dequantize_affine = _dequantize_affine_no_dtype_check
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _quantize_affine = _quantize_affine_float_zero_point_no_dtype_cast
-        _dequantize_affine = _dequantize_affine_float_zero_point_no_dtype_check
+        _quantize_affine = _quantize_affine_tinygemm_no_dtype_cast
+        _dequantize_affine = _dequantize_affine_tinygemm_no_dtype_check
     elif ZeroPointDomain == ZeroPointDomain.NONE:
         _quantize_affine = _quantize_affine_no_zero_point_no_dtype_cast
         _dequantize_affine = _dequantize_affine_no_zero_point_no_dtype_check
@@ -1270,6 +1270,8 @@ def choose_qparams_affine_with_min_max(
     if eps is None:
         eps = torch.finfo(min_val.dtype).eps
 
+    scale_device = min_val.device
+
     if preserve_zero:
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
         max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
@@ -1316,7 +1318,9 @@ def choose_qparams_affine_with_min_max(
         scale = torch.clamp(scale, min=eps)
     else:
         assert mapping_type == MappingType.ASYMMETRIC
-        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+        scale = (max_val_pos - min_val_neg) / torch.tensor(
+            float(quant_max - quant_min), dtype=scale_dtype, device=scale_device
+        )
         scale = torch.clamp(scale, min=eps)
         if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None

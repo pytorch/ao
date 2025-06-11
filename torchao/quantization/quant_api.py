@@ -1031,8 +1031,9 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
-    group_size: Optional[int] = 64
+    group_size: Optional[int] = 128
     bit_width: int = 4
+    packing_bitwidth: Optional[int] = None
     set_inductor_config: bool = True
 
 
@@ -1046,6 +1047,7 @@ def _gemlite_uintx_weight_only_transform(
 ):
     group_size = config.group_size
     bit_width = config.bit_width
+    packing_bitwidth = config.packing_bitwidth
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1056,7 +1058,9 @@ def _gemlite_uintx_weight_only_transform(
     use_hqq = True if bit_width == 4 else False
     new_weight = to_affine_quantized_intx(
         weight,
-        **get_gemlite_aqt_kwargs(weight, group_size, bit_width, use_hqq),
+        **get_gemlite_aqt_kwargs(
+            weight, group_size, bit_width, packing_bitwidth, use_hqq
+        ),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
@@ -2028,6 +2032,7 @@ class FbgemmConfig(AOBaseConfig):
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
+    transpose_input: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -2055,9 +2060,11 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_int4(
             module.weight,
             config.block_size,
+            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     elif (
         (config.input_dtype == e4m3_dtype)
         and (config.weight_dtype == e4m3_dtype)
@@ -2066,9 +2073,11 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_fp8(
             module.weight,
             config.activation_scale_ub,
+            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     else:
         raise NotImplementedError(
             f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"

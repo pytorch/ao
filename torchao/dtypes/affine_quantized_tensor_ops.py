@@ -95,8 +95,8 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     dequantize_affine,
-    dequantize_affine_float_zero_point,
     dequantize_affine_no_zero_point,
+    dequantize_affine_tinygemm,
 )
 from torchao.utils import (
     fill_defaults,
@@ -324,7 +324,7 @@ def _(func, types, args, kwargs):
     # we need to increase block size to correct dim
     new_blocks = idx.dim() - 1
     if args[1].zero_point_domain == ZeroPointDomain.FLOAT:
-        _dequantize_affine = dequantize_affine_float_zero_point
+        _dequantize_affine = dequantize_affine_tinygemm
     elif args[1].zero_point_domain == ZeroPointDomain.NONE:
         _dequantize_affine = dequantize_affine_no_zero_point
     else:

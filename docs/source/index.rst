@@ -30,6 +30,7 @@ for an overall introduction to the library and recent highlight and updates.
    api_ref_dtypes
    api_ref_quantization
    api_ref_sparsity
+   api_ref_float8
 
 .. toctree::
    :glob:
@@ -39,3 +40,5 @@ for an overall introduction to the library and recent highlight and updates.
    serialization
    subclass_basic
    subclass_advanced
+   static_quantization
+   pretraining

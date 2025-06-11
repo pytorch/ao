@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -372,7 +378,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.quant_primitives import (
             quantize_affine,
-            quantize_affine_float_zero_point,
+            quantize_affine_tinygemm,
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
@@ -423,7 +429,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
             scale = scale.reshape(scale.shape[:-1]).contiguous()
             zero = zero.reshape(zero.shape[:-1]).contiguous()
-            int_data = quantize_affine_float_zero_point(
+            int_data = quantize_affine_tinygemm(
                 dequantized,
                 block_size,
                 scale,

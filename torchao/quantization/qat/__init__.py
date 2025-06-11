@@ -11,6 +11,7 @@ from .embedding import (
     Int4WeightOnlyEmbeddingQATQuantizer,
 )
 from .linear import (
+    Float8ActInt4WeightQATQuantizer,
     Int4WeightOnlyQATQuantizer,
     Int8DynActInt4WeightQATQuantizer,
 )
@@ -18,6 +19,7 @@ from .linear import (
 __all__ = [
     "ComposableQATQuantizer",
     "FakeQuantizeConfig",
+    "Float8ActInt4WeightQATQuantizer",
     "FromIntXQuantizationAwareTrainingConfig",
     "Int4WeightOnlyEmbeddingQATQuantizer",
     "Int4WeightOnlyQATQuantizer",
