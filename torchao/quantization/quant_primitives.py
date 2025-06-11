@@ -693,7 +693,6 @@ def _dequantize_affine_meta(
     input_dtype: torch.dtype,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
-    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     return torch.empty(input.shape, dtype=output_dtype, device=input.device)
