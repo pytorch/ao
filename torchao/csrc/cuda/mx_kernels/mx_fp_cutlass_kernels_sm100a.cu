@@ -69,7 +69,7 @@ void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
   constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;    // Memory access granularity/alignment of C matrix in units of elements (up to 16 bytes)
   // Kernel functional config
   using ElementAccumulator  = float;                                          // Element type for internal accumulation
-  using ArchTag             = cutlass::arch::Sm120;                           // Tag indicating the minimum SM that supports the intended feature
+  using ArchTag             = cutlass::arch::Sm100;                           // Tag indicating the minimum SM that supports the intended feature
   using OperatorClass       = cutlass::arch::OpClassBlockScaledTensorOp;      // Operator class tag
 
 
@@ -241,8 +241,7 @@ at::Tensor mx_fp4_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
   using ElementD = cutlass::bfloat16_t;
 
   using MmaTileShape        = Shape<_128,_128,_128>;
-  // using ClusterShape        = Shape<_2,_1,_1>;
-  using ClusterShape        = Shape<_1,_1,_1>;
+  using ClusterShape        = Shape<_2,_1,_1>;
   using PerSmTileShape_MNK  = Shape<_128,_128,_128>;
 
   run_gemm<ElementA, ElementB, ElementD, MmaTileShape, ClusterShape, PerSmTileShape_MNK>(a, b, a_scale, b_scale, out, M, K, N);
