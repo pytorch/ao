@@ -272,15 +272,18 @@ def get_cutlass_build_flags():
             raise ValueError("No CUDA version found")
 
         major, minor = map(int, cuda_version.split(".")[:2])
-        build_sm90a = major > 12 or (major == 12 and minor >= 6)
-        build_sm100a = major > 12 or (major == 12 and minor >= 8)
+        build_sm90a = (major, minor) >= (12, 6)
+        build_sm100a = (major, minor) >= (12, 8)
+        build_sm120a = (major, minor) >= (12, 8)
 
         if build_sm90a:
             print(f"CUDA {cuda_version}: Enabling SM90a CUTLASS kernels")
         if build_sm100a:
             print(f"CUDA {cuda_version}: Enabling SM100a CUTLASS kernels")
+        if build_sm120a:
+            print(f"CUDA {cuda_version}: Enabling SM120a CUTLASS kernels")
 
-        return build_sm90a, build_sm100a
+        return build_sm90a, build_sm100a, build_sm120a
     except:
         # Fallback to architecture flags
         cuda_arch_flags = _get_cuda_arch_flags()
@@ -523,7 +526,7 @@ def get_extensions():
                 "-DCUTE_USE_PACKED_TUPLE=1",
                 "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
                 "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
-                "-DCUTLASS_DEBUG_TRACE_LEVEL=1",
+                "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
                 "--ftemplate-backtrace-limit=0",
                 # "--keep",
                 # "--ptxas-options=--verbose,--register-usage-level=5,--warn-on-local-memory-usage",
@@ -533,8 +536,7 @@ def get_extensions():
             ]
         )
 
-        build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
-        build_for_sm100a = True
+        build_for_sm90a, build_for_sm100a, build_for_sm120a = get_cutlass_build_flags()
         # Define sm90a sources
         cutlass_90a_sources = [
             os.path.join(
@@ -566,12 +568,29 @@ def get_extensions():
             os.path.join(
                 extensions_cuda_dir,
                 "mx_kernels",
-                "mx_fp_cutlass_kernels.cu",
+                "mx_fp_cutlass_kernels_sm100a.cu",
             ),
         ]
         # Remove from main sources to prevent compilation with other architectures
         sources = [
-            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+            s
+            for s in sources
+            if os.path.basename(s) != "mx_fp_cutlass_kernels_sm100a.cu"
+        ]
+
+        # Always compile mx_fp_cutlass_kernels.cu ONLY with sm120a architecture
+        cutlass_120a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "mx_kernels",
+                "mx_fp_cutlass_kernels_sm120a.cu",
+            ),
+        ]
+        # Remove from main sources to prevent compilation with other architectures
+        sources = [
+            s
+            for s in sources
+            if os.path.basename(s) != "mx_fp_cutlass_kernels_sm120a.cu"
         ]
 
     else:
@@ -589,7 +608,13 @@ def get_extensions():
     if len(sources) > 0:
         # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
         sources = [
-            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+            s
+            for s in sources
+            if os.path.basename(s)
+            not in (
+                "mx_fp_cutlass_kernels_sm_100a.cu",
+                "mx_fp_cutlass_kernels_sm_120a.cu",
+            )
         ]
 
         ext_modules.append(
@@ -632,8 +657,7 @@ def get_extensions():
         cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
         cutlass_100a_extra_compile_args["nvcc"].append(
-            # "-gencode=arch=compute_100a,code=sm_100a"
-            "-gencode=arch=compute_120a,code=sm_120a",
+            "-gencode=arch=compute_100a,code=sm_100a"
         )
         ext_modules.append(
             extension(
@@ -641,6 +665,27 @@ def get_extensions():
                 cutlass_100a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_100a_extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    # Only build the cutlass_120a extension if sm120a is in the architecture flags
+    if (
+        cutlass_120a_sources is not None
+        and len(cutlass_120a_sources) > 0
+        and build_for_sm120a
+    ):
+        cutlass_120a_extra_compile_args = copy.deepcopy(extra_compile_args)
+        # Only use sm120a architecture for these sources, ignoring cuda_arch_flags
+        cutlass_120a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_120a,code=sm_120a"
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C_cutlass_120a",
+                cutlass_120a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_120a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
