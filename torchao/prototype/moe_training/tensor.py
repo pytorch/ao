@@ -25,7 +25,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         return f"ScaledGroupedMMTensor(use_triton_for_per_group_scales={self._use_triton_for_per_group_scales}, {self._data})"
 
     def __repr__(self):
-        return f"ScaledGroupedMMTensor({self._data}, dtype={self._data.dtype}, device={self._data.device})"
+        return f"ScaledGroupedMMTensor(data={self._data})"
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
@@ -59,7 +59,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        unwrap = lambda x: x._data if isinstance(x, cls) else x
         wrap = lambda x: cls(x) if isinstance(x, torch.Tensor) else x
-        output = super().__torch_dispatch__(func, types, args, kwargs)
+        unwrapped_args, unwrapped_kwargs = tree_map(unwrap, (args, kwargs))
+        output = super().__torch_dispatch__(func, types, unwrapped_args, unwrapped_kwargs)
         wrapped_output = tree_map(wrap, output)
         return wrapped_output

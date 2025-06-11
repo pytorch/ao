@@ -41,6 +41,7 @@ def _scaled_grouped_mm(
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
         use_triton_for_per_group_scales (bool): Whether to use custom triton kernels to compute per-group scales. Default is True.
     """
+    print("SCALED_GROUPED_MM")
     return _Float8GroupedMM.apply(
         A,
         B_t,
