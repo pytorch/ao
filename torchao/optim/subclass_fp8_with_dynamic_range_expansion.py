@@ -18,13 +18,11 @@ _c10d_functional = torch.ops._c10d_functional
 DTYPE = torch.float8_e4m3fn
 
 
-def quantize_fp8( input: Tensor, block_size: int):
-
+def quantize_fp8(input: Tensor, block_size: int):
     shape = input.shape
     input = input.view(-1, block_size)
     k = None
     SqrtMinMax = None
-
 
     scale = input.abs().amax(-1).clip(1e-12)
 
@@ -49,8 +47,10 @@ def quantize_fp8( input: Tensor, block_size: int):
     ).view(-1)  # calculating optimal value k dynamically
 
     scale = (MaxValue / SqrtMinMax) ** k.view(-1, 1) / torch.finfo(DTYPE).max
-    input = (input.sign() * (input.abs() / SqrtMinMax) ** k.view(-1, 1)) / scale.view(-1,1)
-    
+    input = (input.sign() * (input.abs() / SqrtMinMax) ** k.view(-1, 1)) / scale.view(
+        -1, 1
+    )
+
     k = k.view(-1)
     SqrtMinMax = SqrtMinMax.view(-1)
     codes = input.to(DTYPE).view(-1)
@@ -83,7 +83,7 @@ class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
         self.codes = codes
         self.scale = scale
         self.block_size = codes.numel() // scale.numel()
-        self.k = k 
+        self.k = k
         self.sqrt_min_max = sqrt_min_max
 
     def __tensor_flatten__(self):
@@ -94,18 +94,14 @@ class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         return cls(
-            *[
-                tensor_data_dict[name]
-                for name in cls.tensor_attrs
-            ],
+            *[tensor_data_dict[name] for name in cls.tensor_attrs],
             *tensor_attributes,
         )
 
-    
     def dequantize(self, output_dtype=None):
         float_data = self.codes.float()
         float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
-        float_data = float_data.sign() * (float_data.abs() ** (1 / self.k.view(-1, 1))) 
+        float_data = float_data.sign() * (float_data.abs() ** (1 / self.k.view(-1, 1)))
         float_data = float_data * self.sqrt_minmax_exp.view(-1, 1)
 
         if output_dtype is not None:
@@ -117,8 +113,8 @@ class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
         k = torch.ones(codes.numel() // block_size, device=device)
-        sqrt_min_max = torch.zeros(codes.numel() // block_size , device=device)
-        return cls(codes, scale, k , sqrt_min_max)
+        sqrt_min_max = torch.zeros(codes.numel() // block_size, device=device)
+        return cls(codes, scale, k, sqrt_min_max)
 
     def __repr__(self):
         return (
@@ -134,7 +130,9 @@ def _(func, types, args, kwargs):
     k = args[2]
     sqrt_minmax_exp = args[3]
 
-    if isinstance(dst, OptimStateFp8WithDynamicRangeExpansion) and isinstance(src, OptimStateFp8WithDynamicRangeExpansion):
+    if isinstance(dst, OptimStateFp8WithDynamicRangeExpansion) and isinstance(
+        src, OptimStateFp8WithDynamicRangeExpansion
+    ):
         assert dst.block_size == src.block_size
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
@@ -142,15 +140,13 @@ def _(func, types, args, kwargs):
         dst.sqrt_min_max.copy_(src.sqrt_min_max)
 
     elif isinstance(dst, OptimStateFp8WithDynamicRangeExpansion):
-        codes, scale, k, sqrt_minmax_exp= quantize_fp8(
-            src, dst.block_size
-        )
+        codes, scale, k, sqrt_minmax_exp = quantize_fp8(src, dst.block_size)
 
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
         dst.k.copy_(k)
         dst.sqrt_min_max.copy_(sqrt_minmax_exp)
-        
+
     else:
         dst.copy_(src.dequantize())
 
@@ -165,15 +161,18 @@ def _(func, types, args, kwargs):
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
         args[0].k.to(device=device),
-        args[0].sqrt_min_max.to(device=device)
+        args[0].sqrt_min_max.to(device=device),
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-#TODO: Check this computation
+# TODO: Check this computation
 @OptimStateFp8WithDynamicRangeExpansion.implements(aten.lerp.Scalar)
 def _(func, types, args, kwargs):
-    args = [x.dequantize() if isinstance(x, OptimStateFp8WithDynamicRangeExpansion) else x for x in args]
+    args = [
+        x.dequantize() if isinstance(x, OptimStateFp8WithDynamicRangeExpansion) else x
+        for x in args
+    ]
     return func(*args, **kwargs)
 
 
@@ -181,7 +180,9 @@ def _(func, types, args, kwargs):
 @OptimStateFp8WithDynamicRangeExpansion.implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-    return OptimStateFp8WithDynamicRangeExpansion(x.codes.view(shape), x.scale, x.k, x.sqrt_min_max)
+    return OptimStateFp8WithDynamicRangeExpansion(
+        x.codes.view(shape), x.scale, x.k, x.sqrt_min_max
+    )
 
 
 @OptimStateFp8WithDynamicRangeExpansion.implements(
@@ -195,7 +196,6 @@ def _(func, types, args, kwargs):
         aten.detach.default,
     ]
 )
-
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8WithDynamicRangeExpansion):
@@ -206,7 +206,7 @@ def _(func, types, args, kwargs):
         func(x.codes, *args[1:], **kwargs),
         func(x.scale, *args[1:], **kwargs),
         func(x.k, *args[1:], **kwargs),
-        func(x.sqrt_min_max, *args[1:], **kwargs)
+        func(x.sqrt_min_max, *args[1:], **kwargs),
     )
 
 
@@ -215,10 +215,15 @@ def _(func, types, args, kwargs):
 # (pin_memory argument is ignored in aten._to_copy)
 @OptimStateFp8WithDynamicRangeExpansion.implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
-    return args[0].codes.is_pinned() and args[0].scale.is_pinned() and args[0].k.is_pinned() and args[0].sqrt_min_max.is_pinned()
+    return (
+        args[0].codes.is_pinned()
+        and args[0].scale.is_pinned()
+        and args[0].k.is_pinned()
+        and args[0].sqrt_min_max.is_pinned()
+    )
 
 
-#TODO: need to check for this calculation, ideally shapes must be equal to scale dimension
+# TODO: need to check for this calculation, ideally shapes must be equal to scale dimension
 # required by torch.distributed.checkpoint.load when world size changes i.e. re-sharding
 @OptimStateFp8WithDynamicRangeExpansion.implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
