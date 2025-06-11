@@ -1,4 +1,5 @@
 import torch
+from torch.utils._pytree import tree_map
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
 
@@ -16,8 +17,12 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __init__(self, data: torch.Tensor):
         self._data = data
 
+    def __repr__(self):
+        return f"ScaledGroupedMMTensor({self._data}, dtype={self._data.dtype}, device={self._data.device})"
+
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
+        print(func.__name__)
         if func.__name__ == cls.grouped_mm_func_name:
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
@@ -32,4 +37,12 @@ class ScaledGroupedMMTensor(torch.Tensor):
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             if A_is_2d and B_is_3d and has_offs:
                 return _scaled_grouped_mm(*args, **kwargs)
+
         return super().__torch_function__(func, types, args, kwargs)
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        wrap = lambda x: cls(x) if isinstance(x, torch.Tensor) else x
+        output = super().__torch_dispatch__(func, types, args, kwargs)
+        wrapped_output = tree_map(wrap, output)
+        return wrapped_output
