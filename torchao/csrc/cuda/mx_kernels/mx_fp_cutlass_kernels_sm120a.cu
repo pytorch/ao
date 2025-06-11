@@ -38,13 +38,6 @@ namespace {
 
 using namespace cute;
 
-template<typename Element>
-constexpr int GetAlignment() {
-    if constexpr (std::is_same_v<Element, cutlass::mx_float4_t<cutlass::float_e2m1_t>>)
-        return 32;
-    return 16;
-}
-
 void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
              at::Tensor& b_scale, at::Tensor& out, int M, int K, int N) {
 
