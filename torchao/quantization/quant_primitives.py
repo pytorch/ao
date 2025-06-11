@@ -9,7 +9,7 @@ from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from torch._meta_registrations import register_meta, out_wrapper
+from torch._meta_registrations import out_wrapper, register_meta
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
@@ -650,8 +650,7 @@ def dequantize_affine(
     )
 
 
-@_register_custom_op(quant_lib, "CompositeExplicitAutograd")
-def _dequantize_affine(
+def _dequantize_affine_impl(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -682,6 +681,31 @@ def _dequantize_affine(
         quant_max,
         output_dtype,
     )
+
+
+@_register_custom_op(quant_lib, "CompositeExplicitAutograd")
+def _dequantize_affine(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """op definition that has compatible signatures with custom op library"""
+    return _dequantize_affine_impl(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        input_dtype,
+        quant_min,
+        quant_max,
+        output_dtype,
+    )
+
 
 @register_meta([torch.ops.torchao.dequantize_affine])
 @out_wrapper

@@ -14,6 +14,7 @@ from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
 from torchao.dtypes.utils import (
     Layout,
 )
+from torchao.quantization.quant_primitives import _dequantize_affine_impl
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TorchAOBaseTensor
 
 from .bitpacking import pack, unpack
@@ -205,6 +206,16 @@ def _(func, types, args, kwargs):
         args,
         kwargs,
         args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8)),
+    )
+
+
+@implements(torch.ops.torchao.dequantize_affine)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func.default,  # work around
+        args,
+        kwargs,
+        _dequantize_affine_impl(*args),
     )
 
 
