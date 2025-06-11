@@ -185,3 +185,40 @@ article.pytorch-article .sphx-glr-thumbnails .sphx-glr-thumbcontainer {
 article.pytorch-article div.section div.wy-table-responsive tbody td {
     width: 50%;
 }
+
+/* Mermaid diagram styling */
+.mermaid {
+    text-align: center;
+    margin: 1.5em 0;
+}
+
+/* Ensure mermaid diagrams are visible */
+div.mermaid {
+    display: block !important;
+    width: 100% !important;
+    min-height: 200px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    padding: 1rem;
+}
+
+/* Fix for mermaid in pytorch theme */
+.pytorch-article .mermaid {
+    overflow: visible !important;
+}
+
+/* Fix for navbar overlapping content */
+.bd-container {
+    padding-top: 1rem !important;
+}
+
+/* Add proper spacing between navbar and content */
+.bd-article-container {
+    margin-top: 1rem;
+}
+
+/* Ensure proper spacing for the main content area */
+article.bd-article {
+    padding-top: 1rem;
+}
