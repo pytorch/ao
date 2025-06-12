@@ -22,8 +22,7 @@ from torch.fx import Graph, GraphModule, Node
 from torch.fx.node import Argument
 
 from torchao.quantization.pt2e import (
-    CUSTOM_KEY,
-    NUMERIC_DEBUG_HANDLE_KEY,
+    FROM_NODE_KEY,
     DerivedObserverOrFakeQuantize,
     ObserverOrFakeQuantize,
 )
@@ -43,6 +42,7 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationSpecBase,
     SharedQuantizationSpec,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 # TODO: make pt2e folder private?
 __all__ = [
@@ -556,14 +556,10 @@ def _maybe_insert_output_observer_for_node(
         if (
             isinstance(node, Node)
             and isinstance(new_output, Node)
-            and CUSTOM_KEY in node.meta
-            and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY]
+            and FROM_NODE_KEY in node.meta
+            and TORCH_VERSION_AT_LEAST_2_6
         ):
-            if CUSTOM_KEY not in new_output.meta:
-                new_output.meta[CUSTOM_KEY] = {}
-            new_output.meta[CUSTOM_KEY][NUMERIC_DEBUG_HANDLE_KEY] = node.meta[
-                CUSTOM_KEY
-            ][NUMERIC_DEBUG_HANDLE_KEY]
+            new_output.meta[FROM_NODE_KEY] = node.meta[FROM_NODE_KEY]
         return new_output
     return None
 

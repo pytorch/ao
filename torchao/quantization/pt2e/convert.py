@@ -71,8 +71,12 @@ from torch.fx.graph import Argument, Graph, Node
 from torch.fx.graph_module import _USER_PRESERVED_ATTRIBUTES_KEY
 from torch.nn.utils.parametrize import type_before_parametrizations
 
-from torchao.quantization.pt2e import CUSTOM_KEY, NUMERIC_DEBUG_HANDLE_KEY
+from torchao.quantization.pt2e import FROM_NODE_KEY
 from torchao.quantization.pt2e.observer import _is_activation_post_process
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+
+if TORCH_VERSION_AT_LEAST_2_6:
+    from torch.fx.traceback import NodeSource, NodeSourceAction
 
 __all__ = [
     "convert",
@@ -182,6 +186,18 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
                 dequantize_op_kwargs = {"out_dtype": dq_out_dtype}
         return dequantize_op_kwargs
 
+    def add_quantize_dequantize_node_info(qdq_node, original_node):
+        # propagate from_node info from observer/fake_quant node to quantize/dequantize node
+        if not TORCH_VERSION_AT_LEAST_2_6:
+            return
+        qdq_node.meta[FROM_NODE_KEY] = [
+            NodeSource(
+                original_node,
+                "replace_observer_with_quantize_dequantize_node",
+                [NodeSourceAction.CREATE],
+            )
+        ]
+
     if dtype in SUPPORTED_QDTYPES and (not is_dynamic):
         # TODO: probably should cleanup this condition check, it's hard
         # to reason about this if and the following elif
@@ -254,6 +270,8 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
             quantized_node = graph.create_node(
                 node_type, quantize_op, tuple(quantize_op_inputs), {}
             )
+            add_quantize_dequantize_node_info(quantized_node, node)
+
             # use the same qparams from quantize op
             dq_inputs = [quantized_node] + quantize_op_inputs[1:]
             dequantized_node = graph.call_function(
@@ -263,16 +281,8 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
             )
 
             node.replace_all_uses_with(dequantized_node)
-            # propagate numeric debug handle from observer/fake_quant node to dequantize node
-            if (
-                CUSTOM_KEY in node.meta
-                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY]
-            ):
-                if CUSTOM_KEY not in dequantized_node.meta:
-                    dequantized_node.meta[CUSTOM_KEY] = {}
-                dequantized_node.meta[CUSTOM_KEY][NUMERIC_DEBUG_HANDLE_KEY] = node.meta[
-                    CUSTOM_KEY
-                ][NUMERIC_DEBUG_HANDLE_KEY]
+
+            add_quantize_dequantize_node_info(dequantized_node, node)
             graph.erase_node(node)
     elif is_dynamic:
         # uint8/int8/fp16 dynamic quantization
@@ -353,6 +363,9 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
             quantized_node = graph.create_node(
                 node_type, quantize_op, tuple(quantize_op_inputs), {}
             )
+
+            add_quantize_dequantize_node_info(quantized_node, node)
+
             # use the same qparams from quantize op
             dq_inputs = [quantized_node] + quantize_op_inputs[1:]
             # need to use the tensor variant of this op, since scale and zero_point
@@ -366,11 +379,9 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
             )
 
             node.replace_all_uses_with(dequantized_node)
-            # propagate numeric debug handle from observer/fake_quant node to dequantize node
-            if NUMERIC_DEBUG_HANDLE_KEY in node.meta:
-                dequantized_node.meta[NUMERIC_DEBUG_HANDLE_KEY] = node.meta[
-                    NUMERIC_DEBUG_HANDLE_KEY
-                ]
+
+            add_quantize_dequantize_node_info(dequantized_node, node)
+
             graph.erase_node(node)
     elif dtype == torch.float16:
         # Insert to_fp16 -> to_fp32 node
