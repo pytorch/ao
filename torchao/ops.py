@@ -842,6 +842,23 @@ def sparse24_sm90_sparsify(
         input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
     )
 
+@register_custom_op("torchao::sparse24_sm90_sparsify")
+def _(
+    input_tensor: Tensor,
+    metadata_format: str,
+    activation: str,
+    algorithm: str,
+    dtype=None,
+    scale=None,
+):
+    out_dtype = dtype if dtype is not None else input_tensor.dtype
+    return (
+        torch.empty(input_tensor[0], input_tensor[1] // 2, dtype=out_dtype),
+        torch.empty(input_tensor[0], input_tensor[1] // 8, dtype=torch.char),
+    )
+
+
+
 
 def sparse24_fp8_sm90_cutlass_gemm(
     a: Tensor,
