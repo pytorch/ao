@@ -580,8 +580,9 @@ struct groupwise_lowbit_weight_lut_test_case {
   // Parameters
   //--------------------------------------------------------------------------
   int m, k, n;
-  int weight_group_size, weight_nbit;
-  int num_scales, num_luts; // Separate counts for unique scales and LUTs
+  int weight_nbit;
+  int scale_group_size;
+  int lut_group_size;
   bool has_bias, has_clamp;
   float clamp_min, clamp_max;
 
@@ -594,32 +595,25 @@ struct groupwise_lowbit_weight_lut_test_case {
   std::vector<uint8_t> weight_qval_indices;        // Indices into a LUT for each weight
   std::vector<float>   weight_luts;         // The pool of unique LUTs
   std::vector<float>   weight_scales;       // The pool of unique scales
-  std::vector<int32_t> group_to_scale_map;  // Maps each group to a unique scale
-  std::vector<int32_t> group_to_lut_map;    // Maps each group to a unique LUT
 
   //--------------------------------------------------------------------------
   // Constructor
   //--------------------------------------------------------------------------
   groupwise_lowbit_weight_lut_test_case(
-      int m_, int k_, int n_, int weight_group_size_, int weight_nbit_,
-      int num_scales_, int num_luts_, bool has_bias_, bool has_clamp_,
+      int m_, int k_, int n_, int scale_group_size, int lut_group_size, int weight_nbit_, bool has_bias_, bool has_clamp_,
       float clamp_min_, float clamp_max_,
       std::vector<float> expected_output_, std::vector<float> activations_,
       std::vector<float> bias_, std::vector<uint8_t> weight_qval_indices_,
-      std::vector<float> weight_luts_, std::vector<float> weight_scales_,
-      std::vector<int32_t> group_to_scale_map_, std::vector<int32_t> group_to_lut_map_)
+      std::vector<float> weight_luts_, std::vector<float> weight_scales_)
       : m(m_), k(k_), n(n_),
-        weight_group_size(weight_group_size_), weight_nbit(weight_nbit_),
-        num_scales(num_scales_), num_luts(num_luts_),
+        scale_group_size(scale_group_size_), lut_group_size(lut_group_size_), weight_nbit(weight_nbit_),
         has_bias(has_bias_), has_clamp(has_clamp_), clamp_min(clamp_min_), clamp_max(clamp_max_),
         expected_output(std::move(expected_output_)),
         activations(std::move(activations_)),
         bias(std::move(bias_)),
         weight_qval_indices(std::move(weight_qval_indices_)),
         weight_luts(std::move(weight_luts_)),
-        weight_scales(std::move(weight_scales_)),
-        group_to_scale_map(std::move(group_to_scale_map_)),
-        group_to_lut_map(std::move(group_to_lut_map_))
+        weight_scales(std::move(weight_scales_))
   {}
 
   //--------------------------------------------------------------------------
@@ -635,17 +629,21 @@ private:
    * wrappers around this one.
    */
   static groupwise_lowbit_weight_lut_test_case _generate_master(
-      int m, int k, int n,
-      int weight_group_size, int weight_nbit,
-      int num_scales, int num_luts,
-      bool has_bias, bool has_clamp) {
+    int m, int k, int n,
+    int scale_group_size, // Directly controls scale change frequency
+    int lut_group_size,   // Directly controls LUT change frequency
+    int weight_nbit,
+    bool has_bias, bool has_clamp) {
 
     // --- 0. Validation and Setup ---
     const int total_weights = n * k;
-    const int num_weight_groups = total_weights / weight_group_size;
-    assert(total_weights % weight_group_size == 0);
-    assert(num_scales > 0 && num_scales <= num_weight_groups);
-    assert(num_luts > 0 && num_luts <= num_weight_groups);
+    // Frequencies are controlled by their group sizes.
+    assert(total_weights % scale_group_size == 0);
+    assert(total_weights % lut_group_size == 0);
+
+    // The number of unique scales/LUTs is derived directly from their group size.
+    const int num_scales = total_weights / scale_group_size;
+    const int num_luts = total_weights / lut_group_size;
     const int lut_size = 1 << weight_nbit;
     std::mt19937 gen(std::random_device{}());
 
@@ -664,69 +662,63 @@ private:
     auto weight_scales = get_random_vector(num_scales, 0.001f, 0.1f);
     auto weight_luts = get_random_vector(num_luts * lut_size, -0.2f, 0.2f); // Independent random LUTs
 
-    // 2b. Create random mappings from each weight group to the pools.
-    std::vector<int32_t> group_to_scale_map(num_weight_groups);
-    std::uniform_int_distribution<int32_t> scale_map_dis(0, num_scales - 1);
-    for (int i = 0; i < num_weight_groups; ++i) group_to_scale_map[i] = scale_map_dis(gen);
-
-    std::vector<int32_t> group_to_lut_map(num_weight_groups);
-    std::uniform_int_distribution<int32_t> lut_map_dis(0, num_luts - 1);
-    for (int i = 0; i < num_weight_groups; ++i) group_to_lut_map[i] = lut_map_dis(gen);
-
-    // 2c. Generate random quantized indices for each weight.
+    // 2b. Generate random quantized indices for each weight.
     auto weight_qval_indices = std::vector<uint8_t>(total_weights);
     std::uniform_int_distribution<int> qval_dis(0, lut_size - 1);
     for (int i = 0; i < total_weights; ++i) weight_qval_indices[i] = static_cast<uint8_t>(qval_dis(gen));
 
-    // --- 3. Compute Expected Output using the granular mappings ---
-    std::vector<float> expected_output(m * n);
-    for (int m_idx = 0; m_idx < m; ++m_idx) {
-      for (int n_idx = 0; n_idx < n; ++n_idx) {
-        float res = 0.0f;
-        for (int k_idx = 0; k_idx < k; ++k_idx) {
-          float activation_val = activations[m_idx * k + k_idx];
-          int weight_idx = n_idx * k + k_idx;
-          int group_idx = weight_idx / weight_group_size;
-          // Granular lookup
-          int32_t scale_idx = group_to_scale_map[group_idx];
-          int32_t lut_idx = group_to_lut_map[group_idx];
-          uint8_t qval = weight_qval_indices[weight_idx];
-          // Dequantize: scale * LUT_value
-          float scale = weight_scales[scale_idx];
-          float lut_val = weight_luts[lut_idx * lut_size + qval];
-          res += activation_val * (scale * lut_val);
-        }
-        res += bias_vec[n_idx];
-        if (has_clamp) { res = std::clamp(res, clamp_min, clamp_max); }
-        expected_output[m_idx * n + n_idx] = res;
+  // --- 3. Compute Expected Output using the IMPLICIT mappings ---
+  std::vector<float> expected_output(m * n);
+  for (int m_idx = 0; m_idx < m; ++m_idx) {
+    for (int n_idx = 0; n_idx < n; ++n_idx) {
+      float res = 0.0f;
+      for (int k_idx = 0; k_idx < k; ++k_idx) {
+        float activation_val = activations[m_idx * k + k_idx];
+        int weight_idx = n_idx * k + k_idx;
+        uint8_t qval = weight_qval_indices[weight_idx];
+
+        int32_t scale_idx = weight_idx / scale_group_size;
+        int32_t lut_idx   = weight_idx / lut_group_size;
+
+        // Dequantize: scale * LUT_value
+        float scale = weight_scales[scale_idx];
+        float lut_val = weight_luts[lut_idx * lut_size + qval];
+        res += activation_val * (scale * lut_val);
       }
+      res += bias_vec[n_idx];
+      if (has_clamp) { res = std::clamp(res, clamp_min, clamp_max); }
+      expected_output[m_idx * n + n_idx] = res;
     }
-    // --- 4. Construct and Return ---
-    return groupwise_lowbit_weight_lut_test_case(
-        m, k, n, weight_group_size, weight_nbit, num_scales, num_luts,
+  }
+
+  // --- 4. Construct and Return ---
+  return groupwise_lowbit_weight_lut_test_case(
+        m, k, n, scale_group_size, lut_group_size, weight_nbit,
         has_bias, has_clamp, clamp_min, clamp_max,
         std::move(expected_output), std::move(activations),
         std::move(bias_vec), std::move(weight_qval_indices),
-        std::move(weight_luts), std::move(weight_scales),
-        std::move(group_to_scale_map), std::move(group_to_lut_map));
+        std::move(weight_luts), std::move(weight_scales));
   }
 
 public:
   /**
    * @brief OVERLOAD 1: Simple generator where scales and LUTs share the same grouping.
+   *
+   * This is for the simplest case where a block of weights gets one scale and one LUT,
+   * and this pattern repeats.
    */
   static groupwise_lowbit_weight_lut_test_case generate_per_group(
     int m, int k, int n,
-    int group_size, int weight_nbit,
+    int group_size, // The size of the block for both scales and LUTs
+    int weight_nbit,
     bool has_bias, bool has_clamp) {
 
-    std::cout << "[Generator Info] Using 'Per-Group' model (no parameter reuse).\n"
-            << "  - Setting all group sizes to: " << group_size << std::endl;
+    std::cout << "[Generator Info] Using 'Per-Group' model.\n"
+              << "  - Both scales and LUTs will switch every " << group_size << " weights." << std::endl;
 
-    // Setting both scale and lut group sizes to be the same.
-    return generate_with_grouping(
+    // Just call the decoupled generator with the same group size for both.
+    return _generate_master(
       m, k, n,
-      group_size, /* weight_group_size */
       group_size, /* scale_group_size */
       group_size, /* lut_group_size */
       weight_nbit,
@@ -737,22 +729,21 @@ public:
   /**
    * @brief OVERLOAD 2: Advanced generator with separate grouping for scales and LUTs.
    */
-  static groupwise_lowbit_weight_lut_test_case generate_with_grouping(
-      int m, int k, int n,
-      int weight_group_size, int scale_group_size, int lut_group_size, int weight_nbit,
-      bool has_bias, bool has_clamp) {
-    const int total_weights = k * n;
-    assert(scale_group_size % weight_group_size == 0);
-    assert(lut_group_size % weight_group_size == 0);
-    assert(total_weights % scale_group_size == 0);
-    assert(total_weights % lut_group_size == 0);
-    // Calculate the number of unique scales and LUTs independently
-    const int num_scales = total_weights / scale_group_size;
-    const int num_luts = total_weights / lut_group_size;
+  static groupwise_lowbit_weight_lut_test_case generate_with_decoupled_grouping(
+    int m, int k, int n,
+    int scale_group_size, int lut_group_size, int weight_nbit,
+    bool has_bias, bool has_clamp) {
+
     std::cout << "[Generator Info] Using 'Decoupled Grouping' model.\n"
-              << "  - num_scales calculated as: " << num_scales << "\n"
-              << "  - num_luts calculated as: " << num_luts << std::endl;
-    return _generate_master(m, k, n, weight_group_size, weight_nbit, num_scales, num_luts, has_bias, has_clamp);
+              << "  - Scales will switch every " << scale_group_size << " weights.\n"
+              << "  - LUTs will switch every " << lut_group_size << " weights." << std::endl;
+
+    return _generate_master(
+        m, k, n,
+        scale_group_size, lut_group_size,
+        weight_nbit,
+        has_bias, has_clamp
+    );
   }
 };
 
