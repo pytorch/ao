@@ -12,6 +12,7 @@ from typing import NamedTuple, Optional, Tuple, Union
 import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
     PerRow,
     PerTensor,
@@ -93,9 +94,8 @@ def addmm_float8_unwrapped_inference(
             out_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
-        output += bias
-        return output
-    output = torch._scaled_mm(
+        return output + bias
+    return torch._scaled_mm(
         a_data,
         b_data,
         scale_a=a_scale,
@@ -105,7 +105,6 @@ def addmm_float8_unwrapped_inference(
         out_dtype=output_dtype,
         use_fast_accum=use_fast_accum,
     )
-    return output
 
 
 def _is_rowwise_scaled(x) -> bool:
@@ -114,9 +113,6 @@ def _is_rowwise_scaled(x) -> bool:
         x: AffineQuantizedTensor tensor
     """
     return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)
-
-
-FP8Granularity = Union[PerTensor, PerRow]
 
 
 def _normalize_granularity(

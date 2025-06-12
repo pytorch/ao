@@ -32,6 +32,7 @@ from .api import (
 from .utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
+    _Float8RowwiseFakeQuantize,
 )
 
 
@@ -186,3 +187,23 @@ class FakeQuantizer(torch.nn.Module):
         Return a human readable representation of this `FakeQuantizer` with config details.
         """
         return "FakeQuantizer(%s)" % self.config
+
+
+class _Float8RowwiseActivationFakeQuantizer(torch.nn.Module):
+    """
+    Simple fake quantizer for float8 rowwise fake quantization, intended for activations only.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.enabled = True
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.enabled:
+            return _Float8RowwiseFakeQuantize.apply(
+                x,
+                torch.float8_e4m3fn,
+                -1,
+            )
+        else:
+            return x

@@ -263,7 +263,6 @@ struct SparsifyKernelParams {
 };
 
 template <
-    bool kIsMeta,
     typename MetadataFormat,
     typename ElementIn,
     typename ElementOut,
@@ -274,10 +273,8 @@ std::tuple<at::Tensor, at::Tensor> sparse24_sm90_sparsify_specialized(
     std::string sp_selection_algo,
     std::optional<at::Tensor> scale) {
   std::optional<at::cuda::CUDAGuard> device_guard;
-  if (!kIsMeta) {
-    TORCH_CHECK(input.is_cuda(), "All tensors must be on GPU");
-    device_guard.emplace(input.device());
-  }
+  TORCH_CHECK(input.is_cuda(), "All tensors must be on GPU");
+  device_guard.emplace(input.device());
 
   TORCH_CHECK(input.dim() == 2, "Can only sparsify 2d tensors");
   TORCH_CHECK(
@@ -306,9 +303,6 @@ std::tuple<at::Tensor, at::Tensor> sparse24_sm90_sparsify_specialized(
   auto launchKernel = [&](auto algo, std::string const& algo_name) {
     if (algo_name == sp_selection_algo) {
       kernel_launched = true;
-      if (kIsMeta) {
-        return;
-      }
       using Params = SparsifyKernelParams<
           ElementIn,
           ElementOut,
@@ -347,7 +341,6 @@ struct SquaredReLU {
   }
 };
 
-template <bool kIsMeta = false>
 std::tuple<at::Tensor, at::Tensor> sparse24_sm90_sparsify(
     at::Tensor input,
     std::string metadata_fmt,
@@ -363,7 +356,6 @@ std::tuple<at::Tensor, at::Tensor> sparse24_sm90_sparsify(
         using ElementIn = decltype(in_type);
         using ElementOut = decltype(out_type);
         return sparse24_sm90_sparsify_specialized<
-            kIsMeta,
             decltype(mdatafmt),
             ElementIn,
             ElementOut>(input, act, sp_selection_algo, scale);
@@ -409,11 +401,5 @@ std::tuple<at::Tensor, at::Tensor> sparse24_sm90_sparsify(
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
-      TORCH_FN(sparse24_sm90_sparsify<false>));
-}
-
-TORCH_LIBRARY_IMPL(torchao, Meta, m) {
-  m.impl(
-      TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
-      TORCH_FN(sparse24_sm90_sparsify<true>));
+      TORCH_FN(sparse24_sm90_sparsify));
 }

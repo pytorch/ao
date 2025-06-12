@@ -18,11 +18,11 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_tinygemm,
     dequantize_affine,
-    dequantize_affine_float_zero_point,
     dequantize_affine_no_zero_point,
+    dequantize_affine_tinygemm,
     quantize_affine,
-    quantize_affine_float_zero_point,
     quantize_affine_no_zero_point,
+    quantize_affine_tinygemm,
 )
 
 from .quantizer import Quantizer
@@ -76,8 +76,8 @@ class UnifTorchaoQuantizer(Quantizer):
 
         if self.zero_point_domain == ZeroPointDomain.FLOAT and not self.preserve_zero:
             _choose_qparams_affine = choose_qparams_affine_tinygemm
-            _quantize_affine = quantize_affine_float_zero_point
-            _dequantize_affine = dequantize_affine_float_zero_point
+            _quantize_affine = quantize_affine_tinygemm
+            _dequantize_affine = dequantize_affine_tinygemm
         elif self.zero_point_domain == ZeroPointDomain.INT and not self.preserve_zero:
             _choose_qparams_affine = choose_qparams_affine_dont_preserve_zero
             _quantize_affine = quantize_affine
