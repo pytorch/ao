@@ -7,39 +7,29 @@ using native PyTorch. Please checkout torchao `README <https://github.com/pytorc
 for an overall introduction to the library and recent highlight and updates.
 
 .. toctree::
-   :glob:
    :maxdepth: 1
-   :caption: Getting Started
+   :hidden:
+   :caption: Get Started
 
    quick_start
 
 .. toctree::
-   :glob:
    :maxdepth: 1
-   :caption: Developer Notes
-
-   quantization
-   sparsity
-   contributor_guide
-
-.. toctree::
-   :glob:
-   :maxdepth: 1
-   :caption: API Reference
-
-   api_ref_dtypes
-   api_ref_quantization
-   api_ref_sparsity
-   api_ref_float8
-
-.. toctree::
-   :glob:
-   :maxdepth: 1
+   :hidden:
    :caption: Tutorials
 
-   serialization
-   subclass_basic
-   subclass_advanced
-   static_quantization
-   pretraining
-   torchao_vllm_integration
+   tutorials
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: API
+
+   api_reference
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: Developer
+
+   developer_notes

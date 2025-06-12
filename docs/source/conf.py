@@ -23,10 +23,11 @@
 import os
 import sys
 
-import pytorch_sphinx_theme
-from docutils.parsers import rst
+sys.path.insert(0, os.path.abspath("."))
+import pytorch_sphinx_theme2
 
-sys.path.append(os.path.abspath("."))
+html_theme = "pytorch_sphinx_theme2"
+html_theme_path = [pytorch_sphinx_theme2.get_html_theme_path()]
 
 # -- General configuration ------------------------------------------------
 
@@ -46,12 +47,16 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.duration",
+    "sphinx.ext.linkcode",
     "sphinx_tabs.tabs",
     "sphinx_design",
     "sphinx_gallery.gen_gallery",
     "sphinx_copybutton",
     "myst_parser",
     "sphinxcontrib.mermaid",
+    "sphinx_sitemap",
+    "pytorch_sphinx_theme2",
+    "sphinxext.opengraph",
 ]
 
 sphinx_gallery_conf = {
@@ -73,6 +78,10 @@ napoleon_numpy_docstring = False
 napoleon_google_docstring = True
 project = "torchao"
 
+# -- OpenGraph Protocol settings --
+ogp_site_url = "http://pytorch.org/ao"
+ogp_image = "https://pytorch.org/assets/images/social-share.jpg"
+
 # Get TORCHAO_VERSION_DOCS during the build.
 torchao_version_docs = os.environ.get("TORCHAO_VERSION_DOCS", None)
 print(f"torchao_version_docs: {torchao_version_docs}")
@@ -92,8 +101,18 @@ if torchao_version_docs:
 print(f"Version: {version}")
 html_title = " ".join((project, version, "documentation"))
 
+# Determine if this is a release build
+RELEASE = version != "main"
+
+# Configure version for switcher if you have multiple versions
+switcher_version = "main" if not RELEASE else version
+
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ["_templates"]
+theme_variables = pytorch_sphinx_theme2.get_theme_variables()
+templates_path = [
+    "_templates",
+    os.path.join(os.path.dirname(pytorch_sphinx_theme2.__file__), "templates"),
+]
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
@@ -102,6 +121,16 @@ source_suffix = {
     ".rst": "restructuredtext",
     ".md": "markdown",
 }
+
+# Myst-markdown configuration
+myst_enable_extensions = [
+    "colon_fence",
+    "deflist",
+    "html_image",
+]
+
+# Mermaid configuration - simplified
+mermaid_output_format = "raw"
 
 # The master toctree document.
 master_doc = "index"
@@ -134,24 +163,88 @@ todo_include_todos = True
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "pytorch_sphinx_theme"
-html_theme_path = [pytorch_sphinx_theme.get_html_theme_path()]
+# Theme configuration is set earlier in the file (lines 29-30)
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
 html_theme_options = {
-    "collapse_navigation": False,
+    "navigation_with_keys": False,
+    "analytics_id": "GTM-T8XT4PS",
+    "logo": {
+        "text": "",
+    },
+    "icon_links": [
+        {
+            "name": "X",
+            "url": "https://x.com/PyTorch",
+            "icon": "fa-brands fa-x-twitter",
+        },
+        {
+            "name": "GitHub",
+            "url": "https://github.com/pytorch/ao",
+            "icon": "fa-brands fa-github",
+        },
+        {
+            "name": "Discourse",
+            "url": "https://dev-discuss.pytorch.org/",
+            "icon": "fa-brands fa-discourse",
+        },
+        {
+            "name": "PyPi",
+            "url": "https://pypi.org/project/torchao/",
+            "icon": "fa-brands fa-python",
+        },
+    ],
+    "use_edit_page_button": True,
+    "navbar_center": "navbar-nav",
+    # Option 2: Display version in navbar (since torchao is relatively new)
+    "navbar_start": ["pytorch_version"],
     "display_version": True,
-    "logo_only": True,
-    "pytorch_project": "docs",
-    "navigation_with_keys": True,
+    # Uncomment below when you have multiple versions and a versions.json file
+    # "switcher": {
+    #     "json_url": "https://pytorch.org/ao/torchao-versions.json",
+    #     "version_match": switcher_version,
+    # },
+    # "show_version_warning_banner": True,
+    # Remove any announcement banner
+    "announcement": None,
 }
 
 html_logo = "_static/img/pytorch-logo-dark.svg"
 
 html_css_files = ["css/custom.css"]
+
+# Remove external JS that's causing loading issues
+# html_js_files = [
+#     ("https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js", {"async": "async"}),
+# ]
+
+# Base URL for sitemap generation
+html_baseurl = "https://pytorch.org/ao/"
+
+# Configure date info for "Created On | Last Updated" feature and theme variables
+html_context = {
+    "date_info": {
+        # Optional: Add paths to skip for performance optimization
+        "paths_to_skip": [
+            "gen_modules/",  # Skip auto-generated API reference modules
+            "tutorials/",  # Skip auto-generated tutorial gallery
+        ],
+    },
+    "theme_variables": theme_variables,
+    "display_github": True,
+    "github_url": "https://github.com",
+    "github_user": "pytorch",
+    "github_repo": "ao",
+    "feedback_url": "https://github.com/pytorch/ao",
+    "github_version": "main",
+    "doc_path": "docs/source",
+    "library_links": theme_variables.get("library_links", []),
+    "community_links": theme_variables.get("community_links", []),
+    "language_bindings_links": html_theme_options.get("language_bindings_links", []),
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -177,8 +270,52 @@ intersphinx_mapping = {
 # See http://stackoverflow.com/a/41184353/3343043
 
 
-from custom_directives import CustomCardEnd, CustomCardItem, CustomCardStart
+# Custom directives are now handled by pytorch_sphinx_theme2
+# No need to register them manually
 
-rst.directives.register_directive("customcardstart", CustomCardStart)
-rst.directives.register_directive("customcarditem", CustomCardItem)
-rst.directives.register_directive("customcardend", CustomCardEnd)
+
+import inspect
+
+
+def linkcode_resolve(domain, info):
+    """Link API objects to GitHub source code."""
+    if domain != "py":
+        return None
+    if not info["module"]:
+        return None
+
+    try:
+        # Import torchao module
+        import torchao
+
+        module = __import__(info["module"], fromlist=[""])
+        obj = module
+        for part in info["fullname"].split("."):
+            obj = getattr(obj, part)
+        # Get the source file and line number
+        obj = inspect.unwrap(obj)
+        fn = inspect.getsourcefile(obj)
+        _, lineno = inspect.getsourcelines(obj)
+    except Exception:
+        return None
+
+    # Get the relative path from the torchao package
+    try:
+        fn = os.path.relpath(fn, start=os.path.dirname(torchao.__file__))
+    except Exception:
+        return None
+
+    # Determine the tag/branch based on the version
+    if RELEASE and version != "main":
+        # For release versions, use the version tag
+        tag = f"v{version}"
+    else:
+        # For development versions, use main branch
+        tag = "main"
+
+    return f"https://github.com/pytorch/ao/blob/{tag}/torchao/{fn}#L{lineno}"
+
+
+def setup(app):
+    """Configure Sphinx app for pytorch_sphinx_theme2 features."""
+    app.config.add_last_updated = True
