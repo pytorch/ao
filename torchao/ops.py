@@ -842,6 +842,7 @@ def sparse24_sm90_sparsify(
         input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
     )
 
+
 @register_custom_op("torchao::sparse24_sm90_sparsify")
 def _(
     input_tensor: Tensor,
@@ -853,22 +854,28 @@ def _(
 ):
     out_dtype = dtype if dtype is not None else input_tensor.dtype
     return (
-        torch.empty(input_tensor[0], input_tensor[1] // 2, dtype=out_dtype),
-        torch.empty(input_tensor[0], input_tensor[1] // 8, dtype=torch.char),
+        torch.empty(
+            (input_tensor.shape[0], input_tensor.shape[1] // 2),
+            dtype=out_dtype,
+            device=input_tensor.device,
+        ),
+        torch.empty(
+            (input_tensor.shape[0], input_tensor.shape[1] // 8),
+            dtype=torch.uint8,
+            device=input_tensor.device,
+        ),
     )
-
-
 
 
 def sparse24_fp8_sm90_cutlass_gemm(
     a: Tensor,
     meta: Tensor,
     b: Tensor,
-    a_scale: Optional[Tensor],
-    b_scale: Optional[Tensor],
-    swizzle_size: int,
-    swizzle_axis: str,
-    sm_count: int,
+    a_scale: Optional[Tensor] = None,
+    b_scale: Optional[Tensor] = None,
+    swizzle_size: int = 8,
+    swizzle_axis: str = "n",
+    sm_count: int = 128,
 ) -> Tensor:
     return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         a,
@@ -880,6 +887,20 @@ def sparse24_fp8_sm90_cutlass_gemm(
         swizzle_axis=swizzle_axis,
         sm_count=sm_count,
     )
+
+
+@register_custom_op("torchao::sparse24_fp8_sm90_cutlass_gemm")
+def _(
+    a: Tensor,
+    meta: Tensor,
+    b: Tensor,
+    a_scale: Optional[Tensor] = None,
+    b_scale: Optional[Tensor] = None,
+    swizzle_size: int = 8,
+    swizzle_axis: str = "n",
+    sm_count: int = 128,
+):
+    return torch.empty((a.shape[0], b.shape[1]), dtype=torch.bfloat16, device=a.device)
 
 
 def swizzle_mm(
