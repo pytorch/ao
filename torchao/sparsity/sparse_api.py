@@ -23,6 +23,9 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
+from torchao.sparsity.activation.float8dynamic_24 import (
+    Float8DynamicSemiSparseActivationFloat8WeightConfig,  # noqa: F401
+)
 from torchao.sparsity.blocksparse import BlockSparseTensor
 
 

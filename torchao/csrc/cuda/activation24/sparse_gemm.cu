@@ -272,6 +272,11 @@ Tensor _sparse24_fp8_sm90_cutlass_gemm(
       {cute::get<0>(args.problem_shape), cute::get<1>(args.problem_shape)},
       at::TensorOptions().dtype(K::kElementOutAt));
 
+  // meta registration
+  if (kIsMeta) {
+    return out;
+  }
+
   args.mainloop.ptr_A =
       reinterpret_cast<K::ElementA const*>(tensor_a.data_ptr());
   args.mainloop.ptr_B = static_cast<K::ElementB const*>(tensor_b.data_ptr());

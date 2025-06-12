@@ -14,6 +14,8 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.floatx.cutlass_semi_sparse_layout import (
     _linear_fp8_act_fp8_weight_sparse_cutlass_check,
     _linear_fp8_act_fp8_weight_sparse_cutlass_impl,
+    _linear_fp8_act_sparse_fp8_weight_cutlass_check,
+    _linear_fp8_act_sparse_fp8_weight_cutlass_impl,
 )
 from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_check,
@@ -190,6 +192,10 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int8_weight_semi_structured_sparse_check,
             _linear_int8_act_int8_weight_semi_structured_sparse_impl,
+        ),
+        (
+            _linear_fp8_act_sparse_fp8_weight_cutlass_check,
+            _linear_fp8_act_sparse_fp8_weight_cutlass_impl,
         ),
         (
             _linear_int8_act_int8_weight_block_sparse_check,
