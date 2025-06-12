@@ -32,21 +32,32 @@ def quantize_fp8(input: Tensor, block_size: int):
 
     k = torch.ones(input.shape[0], device=input.device)
     expand_min = torch.tensor(16.0, device=input.device).view(-1, 1)
+
+    abs_input = input.abs()
+    MaxValue = (abs_input.amax(-1) + 1e-30).view(-1, 1)
+    # during min value we need to handle the case where input is 0 else this will lead to zero during min value calculation
+    masked_input = torch.where(
+        abs_input == 0, torch.tensor(float("inf"), device=input.device), abs_input
+    )
+    abs_min = masked_input.amin(-1)
+
+    MinValue = (torch.where(abs_min.isinf(), 0.0, abs_min) + 1e-30).view(-1, 1)
+
+    Rx = MaxValue / MinValue  # range of input max and min
+    SqrtMinMax = torch.sqrt(MaxValue) * torch.sqrt(
+        MinValue
+    )  # geomatric mean of max and min
+
     Rdtype = torch.tensor(
         torch.finfo(DTYPE).max * torch.finfo(DTYPE).max / 2, device=input.device
     ).view(-1, 1)
-
-    MaxValue = (input.abs().amax(-1) + 1e-20).view(-1, 1)
-    MinValue = (input.abs().amin(-1) + 1e-20).view(-1, 1)
-    SqrtMinMax = torch.sqrt(MaxValue * MinValue)  # geomatric mean of max and min
-
-    Rx = MaxValue / MinValue  # range of input max and min
 
     k = (
         torch.floor((torch.log2(Rdtype) / torch.log2(Rx)) * expand_min) / expand_min
     ).view(-1)  # calculating optimal value k dynamically
 
-    scale = (MaxValue / SqrtMinMax) ** k.view(-1, 1) / torch.finfo(DTYPE).max
+    scale = ((MaxValue / SqrtMinMax) ** k.view(-1, 1)) / torch.finfo(DTYPE).max
+
     input = (input.sign() * (input.abs() / SqrtMinMax) ** k.view(-1, 1)) / scale.view(
         -1, 1
     )
@@ -60,14 +71,16 @@ def quantize_fp8(input: Tensor, block_size: int):
 # NOTE: FP8 sign bit is redundant for unsigned optim state.
 # we may investigate how to use it to increase range/precision for unsigned optim state.
 # https://arxiv.org/abs/2409.12517 uses FP8 E5M2 for 2nd Adam buffer
-class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
-    tensor_attrs = ["codes", "scale", "k", "sqrt_min_max"]
+class OptimStateCoatFp8(TorchAOBaseTensor):
+    tensor_attrs = ["codes", "scale", "k", "sqrt_minmax_exp"]
 
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor, k: Tensor, sqrt_min_max: Tensor):
+    def __new__(cls, codes: Tensor, scale: Tensor, k: Tensor, sqrt_minmax_exp: Tensor):
         return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
-    def __init__(self, codes: Tensor, scale: Tensor, k: Tensor, sqrt_min_max: Tensor):
+    def __init__(
+        self, codes: Tensor, scale: Tensor, k: Tensor, sqrt_minmax_exp: Tensor
+    ):
         """Create quantized FP8 optimizer state.
 
         Args
@@ -84,7 +97,7 @@ class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
         self.scale = scale
         self.block_size = codes.numel() // scale.numel()
         self.k = k
-        self.sqrt_min_max = sqrt_min_max
+        self.sqrt_minmax_exp = sqrt_minmax_exp
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, []
@@ -113,8 +126,8 @@ class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
         k = torch.ones(codes.numel() // block_size, device=device)
-        sqrt_min_max = torch.zeros(codes.numel() // block_size, device=device)
-        return cls(codes, scale, k, sqrt_min_max)
+        sqrt_minmax_exp = torch.ones(codes.numel() // block_size, device=device)
+        return cls(codes, scale, k, sqrt_minmax_exp)
 
     def __repr__(self):
         return (
@@ -123,29 +136,25 @@ class OptimStateFp8WithDynamicRangeExpansion(TorchAOBaseTensor):
         )
 
 
-@OptimStateFp8WithDynamicRangeExpansion.implements(aten.copy_.default)
+@OptimStateCoatFp8.implements(aten.copy_.default)
 def _(func, types, args, kwargs):
     dst = args[0]
     src = args[1]
-    k = args[2]
-    sqrt_minmax_exp = args[3]
 
-    if isinstance(dst, OptimStateFp8WithDynamicRangeExpansion) and isinstance(
-        src, OptimStateFp8WithDynamicRangeExpansion
-    ):
+    if isinstance(dst, OptimStateCoatFp8) and isinstance(src, OptimStateCoatFp8):
         assert dst.block_size == src.block_size
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         dst.k.copy_(src.k)
-        dst.sqrt_min_max.copy_(src.sqrt_min_max)
+        dst.sqrt_minmax_exp.copy_(src.sqrt_minmax_exp)
 
-    elif isinstance(dst, OptimStateFp8WithDynamicRangeExpansion):
+    elif isinstance(dst, OptimStateCoatFp8):
         codes, scale, k, sqrt_minmax_exp = quantize_fp8(src, dst.block_size)
 
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
         dst.k.copy_(k)
-        dst.sqrt_min_max.copy_(sqrt_minmax_exp)
+        dst.sqrt_minmax_exp.copy_(sqrt_minmax_exp)
 
     else:
         dst.copy_(src.dequantize())
@@ -153,39 +162,34 @@ def _(func, types, args, kwargs):
     return dst
 
 
-@OptimStateFp8WithDynamicRangeExpansion.implements(aten._to_copy.default)
+@OptimStateCoatFp8.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
     # ignore dtype
     device = kwargs.get("device", None)
-    out = OptimStateFp8WithDynamicRangeExpansion(
+    out = OptimStateCoatFp8(
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
         args[0].k.to(device=device),
-        args[0].sqrt_min_max.to(device=device),
+        args[0].sqrt_minmax_exp.to(device=device),
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
 # TODO: Check this computation
-@OptimStateFp8WithDynamicRangeExpansion.implements(aten.lerp.Scalar)
+@OptimStateCoatFp8.implements(aten.lerp.Scalar)
 def _(func, types, args, kwargs):
-    args = [
-        x.dequantize() if isinstance(x, OptimStateFp8WithDynamicRangeExpansion) else x
-        for x in args
-    ]
+    args = [x.dequantize() if isinstance(x, OptimStateCoatFp8) else x for x in args]
     return func(*args, **kwargs)
 
 
 # this is needed for DTensor.from_local()
-@OptimStateFp8WithDynamicRangeExpansion.implements(aten.view.default)
+@OptimStateCoatFp8.implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-    return OptimStateFp8WithDynamicRangeExpansion(
-        x.codes.view(shape), x.scale, x.k, x.sqrt_min_max
-    )
+    return OptimStateCoatFp8(x.codes.view(shape), x.scale, x.k, x.sqrt_minmax_exp)
 
 
-@OptimStateFp8WithDynamicRangeExpansion.implements(
+@OptimStateCoatFp8.implements(
     [
         # required by DTensor.full_tensor()
         c10d_functional.all_gather_into_tensor.default,
@@ -198,34 +202,34 @@ def _(func, types, args, kwargs):
 )
 def _(func, types, args, kwargs):
     x = args[0]
-    if not isinstance(x, OptimStateFp8WithDynamicRangeExpansion):
+    if not isinstance(x, OptimStateCoatFp8):
         raise ValueError(f"expecting a OptimStateFp8 but found {type(x)}")
 
     # assume tensors from all ranks have the same signedness
-    return OptimStateFp8WithDynamicRangeExpansion(
+    return OptimStateCoatFp8(
         func(x.codes, *args[1:], **kwargs),
         func(x.scale, *args[1:], **kwargs),
         func(x.k, *args[1:], **kwargs),
-        func(x.sqrt_min_max, *args[1:], **kwargs),
+        func(x.sqrt_minmax_exp, *args[1:], **kwargs),
     )
 
 
 # required by torch.distributed.checkpoint.save
 # note that we don't actually implement pin memory for this tensor subclass
 # (pin_memory argument is ignored in aten._to_copy)
-@OptimStateFp8WithDynamicRangeExpansion.implements(aten.is_pinned.default)
+@OptimStateCoatFp8.implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
     return (
         args[0].codes.is_pinned()
         and args[0].scale.is_pinned()
         and args[0].k.is_pinned()
-        and args[0].sqrt_min_max.is_pinned()
+        and args[0].sqrt_minmax_exp.is_pinned()
     )
 
 
 # TODO: need to check for this calculation, ideally shapes must be equal to scale dimension
 # required by torch.distributed.checkpoint.load when world size changes i.e. re-sharding
-@OptimStateFp8WithDynamicRangeExpansion.implements(aten.slice.Tensor)
+@OptimStateCoatFp8.implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     x, dim, start, end = args[:4]
     step = args[4] if len(args) > 4 else 1
@@ -248,7 +252,7 @@ def _(func, types, args, kwargs):
             f"Received start={start}, end={end}."
         )
 
-    return OptimStateFp8WithDynamicRangeExpansion(
+    return OptimStateCoatFp8(
         x.codes[start:end],
         x.scale[start * stride // block_size : end * stride // block_size],
     )
@@ -257,4 +261,4 @@ def _(func, types, args, kwargs):
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.serialization import add_safe_globals
 
-    add_safe_globals([OptimStateFp8WithDynamicRangeExpansion])
+    add_safe_globals([OptimStateCoatFp8])
