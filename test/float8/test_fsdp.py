@@ -18,9 +18,13 @@ import warnings
 import fire
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_7,
+    get_device,
+    get_backend,
+)
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
@@ -53,7 +57,12 @@ def setup(rank, world_size):
     os.environ["MASTER_PORT"] = "12355"
 
     # initialize the process group
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    if torch.cuda.is_available():
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    elif torch.hpu.is_available():
+        dist.init_process_group("hccl", rank=rank, world_size=world_size)
+    else:
+        raise AssertionError("Accelerator not available")
 
 
 def cleanup():
@@ -74,7 +83,7 @@ def get_model(K, N, base_dtype=torch.float32):
 # and modified
 def fsdp_main(rank, world_size, args):
     setup(rank, world_size)
-    torch.cuda.set_device(rank)
+    torch.accelerator.set_device_index(rank)
     print("args", args)
 
     emulate, base_dtype, compile = args
@@ -104,12 +113,12 @@ def fsdp_main(rank, world_size, args):
     # populate the buffers
     # TODO(future PR): delete ^, since we deleted delayed scaling
     ref_input_global = [
-        torch.randn(B, M, K).cuda().to(base_dtype),
-        torch.randn(B, M, K).cuda().to(base_dtype),
+        torch.randn(B, M, K).to(device=get_device()).to(base_dtype),
+        torch.randn(B, M, K).to(device=get_device()).to(base_dtype),
     ]
     ref_grad_global = [
-        torch.randn(B, M, N).cuda().to(base_dtype),
-        torch.randn(B, M, N).cuda().to(base_dtype),
+        torch.randn(B, M, N).to(device=get_device()).to(base_dtype),
+        torch.randn(B, M, N).to(device=get_device()).to(base_dtype),
     ]
     ref_input_local = []
     ref_grad_local = []
@@ -139,8 +148,8 @@ def fsdp_main(rank, world_size, args):
         # After that, float8 layers go the the branches of "self.is_amax_initialized == True"
         # TODO: Need to fix compile to run wihtout this workaround.
         if i == 1 and compile:
-            model = torch.compile(model)
-            model_fp8 = torch.compile(model_fp8)
+            model = torch.compile(model,backend=get_backend())
+            model_fp8 = torch.compile(model_fp8,backend=get_backend())
         y_local = forward_backward(model, optimizer, is_fp8=False, i=i)
         y_local_fp8 = forward_backward(model_fp8, optimizer_fp8, is_fp8=True, i=i)
         local_sqnr = compute_error(y_local, y_local_fp8)  # noqa: F841
@@ -184,19 +193,20 @@ def run(compile_fsdp: bool = False):
     base_dtype = torch.bfloat16
 
     emulate = False
-    if not torch.cuda.is_available():
-        warnings.warn("CUDA not available, running in emulation_mode")
+    if not torch.accelerator.is_available():
+        warnings.warn("Accelerator not available, running in emulation_mode")
         emulate = True
-    elif torch.cuda.get_device_capability() < (8, 9):
+    elif torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 9):
         warnings.warn(
             f"CUDA capability {torch.cuda.get_device_capability()} < (8.9), running in emulation mode"
         )
         emulate = True
 
-    WORLD_SIZE = torch.cuda.device_count()
+    WORLD_SIZE = torch.accelerator.device_count()
     args = (emulate, base_dtype, compile_fsdp)
     mp.spawn(fsdp_main, args=(WORLD_SIZE, args), nprocs=WORLD_SIZE, join=True)
 
 
 if __name__ == "__main__":
     fire.Fire(run)
+

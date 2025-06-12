@@ -16,9 +16,12 @@ import os
 import pytest
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_7,
+    get_device,
+)
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 from torch.distributed._composable.fsdp import fully_shard
@@ -40,7 +43,7 @@ def setup_distributed():
 
     # https://pytorch.org/tutorials/recipes/distributed_device_mesh.html
     device_mesh = init_device_mesh(
-        "cuda",
+        get_device(),
         (world_size // 2, 2),
         mesh_dim_names=("dp", "tp"),
     )
@@ -87,7 +90,7 @@ def _test_fp8_mlp_tensor_parallelism_base(
 
     tp_out = tp_model(x_fp32_tp_input)
     tp_out.sum().backward()
-    torch.cuda.synchronize()
+    torch.accelerator.synchronize()
 
     # TODO(future PR): test numerics, and add more cases
 
@@ -119,3 +122,4 @@ if __name__ == "__main__":
             raise e
 
     torch.distributed.destroy_process_group()
+

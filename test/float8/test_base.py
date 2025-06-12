@@ -16,13 +16,13 @@ import torch.nn as nn
 
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_7,
     is_sm_at_least_89,
     is_sm_at_least_90,
     get_device,
 )
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -240,8 +240,7 @@ class TestFloat8Tensor:
             (ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE),
         ],
     )
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
-    @unittest.skipIf(not torch.hpu.is_available() and not is_sm_at_least_90(), "If CUDA, it requires CUDA capability >= 9.0")
+    @unittest.skipIf(not torch.accelerator.is_available() and not is_sm_at_least_90(), "Accelerator not available or If CUDA, it requires CUDA capability >= 9.0")
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device=get_device())
         b = torch.randn(64, 32, dtype=torch.bfloat16, device=get_device())
@@ -273,7 +272,7 @@ class TestFloat8Tensor:
         sqnr = compute_error(c_ref, c_fp8_compute)
         assert sqnr >= 25.0
 
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_fp8_dtype(
         self,
     ):
@@ -338,7 +337,7 @@ class TestFloat8Linear:
     @pytest.mark.parametrize("linear_dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("linear_bias", [False, True])
     @pytest.mark.parametrize("use_ac", [False, True])
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_linear_from_config_params(
         self,
         x_shape,
@@ -380,7 +379,7 @@ class TestFloat8Linear:
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize("linear_bias", [True, False])
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
@@ -388,7 +387,7 @@ class TestFloat8Linear:
         x_shape,
         linear_bias: bool,
     ):
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (9, 0):
+        if is_sm_at_least_90():
             warnings.warn(
                 f"CUDA capability {torch.cuda.get_device_capability()} < (9.0)"
             )
@@ -410,7 +409,7 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_autocast_outputs(
         self,
         emulate: bool,
@@ -447,7 +446,7 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "emulate", [True, False] if is_sm_at_least_89() else [True]
     )
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
         m = nn.Linear(32, 16, device=get_device(), dtype=linear_dtype)
         config = Float8LinearConfig(emulate=emulate)
@@ -484,7 +483,7 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
 
-    @unittest.skipIf(not torch.hpu.is_available() and not is_sm_at_least_89(), "If CUDA, it requires CUDA capability >= 8.9")
+    @unittest.skipIf(not torch.accelerator.is_available() and not is_sm_at_least_89(), "Accelerator not available or If CUDA, it requires CUDA capability >= 8.9")
     def test_inference_mode(self):
         x = torch.randn(32, 32, device=get_device())
         m = nn.Sequential(nn.Linear(32, 32)).to(device=get_device())
@@ -492,7 +491,7 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             m(x)
 
-    @unittest.skipIf(not torch.hpu.is_available() and not is_sm_at_least_89(), "If CUDA, it requires CUDA capability >= 8.9")
+    @unittest.skipIf(not torch.accelerator.is_available() and not is_sm_at_least_89(), "Accelerator not available or If CUDA, it requires CUDA capability >= 8.9")
     def test_quantize(self):
         x = torch.randn(32, 32, device=get_device())
         m = nn.Sequential(nn.Linear(32, 32)).to(device=get_device())
@@ -510,9 +509,9 @@ class TestFloat8Linear:
 
 class TestScaledMM:
     @unittest.skipIf(
-        not torch.hpu.is_available() and
+        not torch.accelerator.is_available() and
         not is_sm_at_least_89(),
-        "If CUDA, it requires CUDA capability >= 8.9",
+        "Accelerator not available or If CUDA, it requires CUDA capability >= 8.9",
     )
     @pytest.mark.parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
@@ -556,7 +555,7 @@ class TestScaledMM:
             atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
-    @unittest.skipIf(not torch.hpu.is_available() and not is_sm_at_least_89(), "If CUDA, it requires CUDA capability >= 8.9")
+    @unittest.skipIf(not torch.accelerator.is_available() and not is_sm_at_least_89(), "Accelerator not available or If CUDA, it requires CUDA capability >= 8.9")
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device=get_device())
         x_scale = torch.tensor(1.0, device=get_device())
@@ -592,9 +591,9 @@ class TestScaledMM:
             a @ b
 
     @unittest.skipIf(
-        not torch.hpu.is_available() and
+        not torch.accelerator.is_available() and
         not is_sm_at_least_89(),
-        "If CUDA, it requires CUDA capability >= 8.9",
+        "Accelerator not available or If CUDA, it requires CUDA capability >= 8.9",
     )
     @pytest.mark.parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
@@ -684,7 +683,7 @@ class TestNumerics:
             torch.float8_e5m2fnuz,
         ],
     )
-    @unittest.skipIf(not torch.hpu.is_available() and not torch.cuda.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_small_amax_float16(self, float8_dtype):
         # If we calculate scale naively with FP8_MAX_POS / amax,
         # the result may not be representable in fp16. Verify that
@@ -837,3 +836,4 @@ class TestFloat8LinearUtils(unittest.TestCase):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+

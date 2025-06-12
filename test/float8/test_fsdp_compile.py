@@ -14,9 +14,14 @@ import warnings
 import fire
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_7,
+    is_sm_at_least_89,
+    get_device,
+    get_backend,
+)
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
@@ -42,7 +47,12 @@ def setup(rank, world_size):
     os.environ["MASTER_PORT"] = "12355"
 
     # initialize the process group
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    if torch.cuda.is_available():
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    elif torch.hpu.is_available():
+        dist.init_process_group("hccl", rank=rank, world_size=world_size)
+    else:
+        raise AssertionError("Accelerator not available")
 
 
 def cleanup():
@@ -79,7 +89,7 @@ def get_model(K, N, is_fp8, emulate, base_dtype=torch.float32):
 # and modified
 def fsdp_main(rank, world_size, args):
     setup(rank, world_size)
-    torch.cuda.set_device(rank)
+    torch.accelerator.set_device_index(rank)
 
     (emulate,) = args
 
@@ -95,13 +105,13 @@ def fsdp_main(rank, world_size, args):
     model = FSDP(model, use_orig_params=True)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr * world_size)
-    input_local = torch.randn(B, M, K, N, device="cuda")
+    input_local = torch.randn(B, M, K, N, device=get_device())
 
-    model = torch.compile(model)
+    model = torch.compile(model,backend=get_backend())
 
     for _iter in range(N_ITER):
         optimizer.zero_grad()
-        with torch.autocast("cuda"):
+        with torch.autocast(get_device()):
             y_local = model(input_local)
         y_local.sum().backward()
         optimizer.step()
@@ -112,20 +122,21 @@ def fsdp_main(rank, world_size, args):
 
 def run():
     emulate = False
-    if not torch.cuda.is_available():
-        warnings.warn("CUDA not available, running in emulation_mode", stacklevel=2)
+    if not torch.accelerator.is_available():
+        warnings.warn("Accelerator not available, running in emulation_mode", stacklevel=2)
         emulate = True
-    elif torch.cuda.get_device_capability() < (9, 0):
+    elif torch.cuda.is_available() and torch.cuda.get_device_capability() < (9, 0):
         warnings.warn(
             f"CUDA capability {torch.cuda.get_device_capability()} < (9.0), running in emulation mode",
             stacklevel=2,
         )
         emulate = True
 
-    WORLD_SIZE = torch.cuda.device_count()
+    WORLD_SIZE = torch.accelerator.device_count()
     args = (emulate,)
     mp.spawn(fsdp_main, args=(WORLD_SIZE, args), nprocs=WORLD_SIZE, join=True)
 
 
 if __name__ == "__main__":
     fire.Fire(run)
+
