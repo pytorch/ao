@@ -129,7 +129,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
-    blocksize: int
+    blocksize: Tuple[int, int]
 
     __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values"]
 
@@ -137,7 +137,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
     def __new__(  # noqa: PYI034
         cls,
         shape: torch.Size,
-        blocksize: int,
+        blocksize: Tuple[int, int],
         bsr_crow_indices: Optional[torch.Tensor],
         bsr_col_indices: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
@@ -165,7 +165,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
 
     def __repr__(self) -> str:  # type: ignore[override]
         assert hasattr(self, "shape")
-        return f"{self.__class__.__name__}(shape={self.shape})"
+        return f"{self.__class__.__name__}(shape={self.shape}, blocksize={self.blocksize})"
 
     def __tensor_flatten__(self) -> Tuple[List[str], Tuple[torch.Size, bool, int]]:
         inner_tensors = list(
@@ -178,7 +178,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
     def __tensor_unflatten__(
         cls,
         inner_tensors,
-        tensor_meta: Tuple[torch.Size, bool, int],
+        tensor_meta: Tuple[torch.Size, bool, Tuple[int, int]],
         outer_size,
         outer_stride,
     ) -> torch.Tensor:
@@ -259,7 +259,8 @@ def block_sparse_mul(func, types, args, kwargs):
         assert t.dim() == 3
         assert not bsr.requires_grad
         assert t.size(0) == 1
-        t_blocked = t.view(t.size(0), t.size(1) // bsr.blocksize, bsr.blocksize, 1)
+        BM, BK = bsr.blocksize
+        t_blocked = t.view(t.size(0), t.size(1) //BM, BM, 1)
         masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
         new_values = bsr.values() * masked_t
         return BlockSparseTensor(
@@ -307,7 +308,6 @@ def block_sparse_linear(func, types, args, kwargs):
     x = x_orig.reshape(-1, x_orig.size(-1)).t()
     M = w.shape[0]
     K = w.shape[1]
-
     out = torch.ops.blocksparse.addmm(
         x,
         w.crow_indices(),
