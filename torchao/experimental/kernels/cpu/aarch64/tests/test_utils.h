@@ -580,10 +580,10 @@ struct groupwise_lowbit_weight_lut_test_case {
   // Parameters
   //--------------------------------------------------------------------------
   int m, k, n;
-  int weight_nbit;
   int scale_group_size;
   int lut_group_size;
-  bool has_bias, has_clamp;
+  int weight_nbit;
+  bool has_scales, has_bias, has_clamp;
   float clamp_min, clamp_max;
 
   //--------------------------------------------------------------------------
@@ -600,20 +600,21 @@ struct groupwise_lowbit_weight_lut_test_case {
   // Constructor
   //--------------------------------------------------------------------------
   groupwise_lowbit_weight_lut_test_case(
-      int m_, int k_, int n_, int scale_group_size, int lut_group_size, int weight_nbit_, bool has_bias_, bool has_clamp_,
+      int m_, int k_, int n_, int scale_group_size_, int lut_group_size_, int weight_nbit_, bool has_scales_, bool has_bias_, bool has_clamp_,
       float clamp_min_, float clamp_max_,
       std::vector<float> expected_output_, std::vector<float> activations_,
       std::vector<float> bias_, std::vector<uint8_t> weight_qval_indices_,
       std::vector<float> weight_luts_, std::vector<float> weight_scales_)
       : m(m_), k(k_), n(n_),
         scale_group_size(scale_group_size_), lut_group_size(lut_group_size_), weight_nbit(weight_nbit_),
+        has_scales(has_scales_),
         has_bias(has_bias_), has_clamp(has_clamp_), clamp_min(clamp_min_), clamp_max(clamp_max_),
-        expected_output(std::move(expected_output_)),
-        activations(std::move(activations_)),
-        bias(std::move(bias_)),
-        weight_qval_indices(std::move(weight_qval_indices_)),
-        weight_luts(std::move(weight_luts_)),
-        weight_scales(std::move(weight_scales_))
+        expected_output(expected_output_),
+        activations(activations_),
+        bias(bias_),
+        weight_qval_indices(weight_qval_indices_),
+        weight_luts(weight_luts_),
+        weight_scales(weight_scales_)
   {}
 
   //--------------------------------------------------------------------------
@@ -632,7 +633,7 @@ private:
     int m, int k, int n,
     int scale_group_size, // Directly controls scale change frequency
     int lut_group_size,   // Directly controls LUT change frequency
-    int weight_nbit,
+    int weight_nbit, bool has_scales,
     bool has_bias, bool has_clamp) {
 
     // --- 0. Validation and Setup ---
@@ -659,7 +660,15 @@ private:
 
     // --- 2. Generate Quantization Data ---
     // 2a. Generate the pools of unique scales and LUTs.
-    auto weight_scales = get_random_vector(num_scales, 0.001f, 0.1f);
+    std::vector<float> weight_scales;
+    if (has_scales) {
+        // Normal case: generate random scales.
+        weight_scales = get_random_vector(num_scales, 0.001f, 0.1f);
+    } else {
+        // LUT-only case: create a vector where every scale is 1.0f.
+        weight_scales.assign(num_scales, 1.0f);
+    }
+
     auto weight_luts = get_random_vector(num_luts * lut_size, -0.2f, 0.2f); // Independent random LUTs
 
     // 2b. Generate random quantized indices for each weight.
@@ -675,14 +684,14 @@ private:
       for (int k_idx = 0; k_idx < k; ++k_idx) {
         float activation_val = activations[m_idx * k + k_idx];
         int weight_idx = n_idx * k + k_idx;
-        uint8_t qval = weight_qval_indices[weight_idx];
+        uint8_t qval_idx = weight_qval_indices[weight_idx];
 
         int32_t scale_idx = weight_idx / scale_group_size;
         int32_t lut_idx   = weight_idx / lut_group_size;
 
         // Dequantize: scale * LUT_value
         float scale = weight_scales[scale_idx];
-        float lut_val = weight_luts[lut_idx * lut_size + qval];
+        float lut_val = weight_luts[lut_idx * lut_size + qval_idx];
         res += activation_val * (scale * lut_val);
       }
       res += bias_vec[n_idx];
@@ -693,11 +702,15 @@ private:
 
   // --- 4. Construct and Return ---
   return groupwise_lowbit_weight_lut_test_case(
-        m, k, n, scale_group_size, lut_group_size, weight_nbit,
-        has_bias, has_clamp, clamp_min, clamp_max,
-        std::move(expected_output), std::move(activations),
-        std::move(bias_vec), std::move(weight_qval_indices),
-        std::move(weight_luts), std::move(weight_scales));
+    m, k, n, scale_group_size, lut_group_size, weight_nbit, has_scales,
+    has_bias, has_clamp, clamp_min, clamp_max,
+    expected_output,
+    activations,
+    bias_vec,
+    weight_qval_indices,
+    weight_luts,
+    weight_scales);
+
   }
 
 public:
@@ -710,7 +723,7 @@ public:
   static groupwise_lowbit_weight_lut_test_case generate_per_group(
     int m, int k, int n,
     int group_size, // The size of the block for both scales and LUTs
-    int weight_nbit,
+    int weight_nbit, bool has_scales,
     bool has_bias, bool has_clamp) {
 
     std::cout << "[Generator Info] Using 'Per-Group' model.\n"
@@ -722,6 +735,7 @@ public:
       group_size, /* scale_group_size */
       group_size, /* lut_group_size */
       weight_nbit,
+      has_scales,
       has_bias, has_clamp
     );
   }
@@ -731,7 +745,7 @@ public:
    */
   static groupwise_lowbit_weight_lut_test_case generate_with_decoupled_grouping(
     int m, int k, int n,
-    int scale_group_size, int lut_group_size, int weight_nbit,
+    int scale_group_size, int lut_group_size, int weight_nbit, bool has_scales,
     bool has_bias, bool has_clamp) {
 
     std::cout << "[Generator Info] Using 'Decoupled Grouping' model.\n"
@@ -741,7 +755,7 @@ public:
     return _generate_master(
         m, k, n,
         scale_group_size, lut_group_size,
-        weight_nbit,
+        weight_nbit, has_scales,
         has_bias, has_clamp
     );
   }
