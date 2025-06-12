@@ -562,8 +562,6 @@ def get_extensions():
                     "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
             )
-        # Always remove sm90a sources from main sources
-        sources = [s for s in sources if s not in cutlass_90a_sources]
 
         # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
         cutlass_100a_sources = [
@@ -572,12 +570,6 @@ def get_extensions():
                 "mx_kernels",
                 "mx_fp_cutlass_kernels_sm100a.cu",
             ),
-        ]
-        # Remove from main sources to prevent compilation with other architectures
-        sources = [
-            s
-            for s in sources
-            if os.path.basename(s) != "mx_fp_cutlass_kernels_sm100a.cu"
         ]
 
         # Always compile mx_fp_cutlass_kernels.cu ONLY with sm120a architecture
@@ -588,37 +580,16 @@ def get_extensions():
                 "mx_fp_cutlass_kernels_sm120a.cu",
             ),
         ]
-        # Remove from main sources to prevent compilation with other architectures
-        sources = [
-            s
-            for s in sources
-            if os.path.basename(s) != "mx_fp_cutlass_kernels_sm120a.cu"
-        ]
 
-    else:
-        # Remove CUTLASS-based kernels from the sources list.  An
-        # assumption is that these files will have "cutlass" in its
-        # name.
-        cutlass_sources = list(
-            glob.glob(
-                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
-            )
-        )
-        sources = [s for s in sources if s not in cutlass_sources]
+    # Remove CUTLASS-based kernels from the sources list.  An assumption is that
+    # these files will have "cutlass" in its name.
+    cutlass_sources = list(
+        glob.glob(os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True)
+    )
+    sources = [s for s in sources if s not in cutlass_sources]
 
     ext_modules = []
     if len(sources) > 0:
-        # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
-        sources = [
-            s
-            for s in sources
-            if os.path.basename(s)
-            not in (
-                "mx_fp_cutlass_kernels_sm_100a.cu",
-                "mx_fp_cutlass_kernels_sm_120a.cu",
-            )
-        ]
-
         ext_modules.append(
             extension(
                 "torchao._C",
