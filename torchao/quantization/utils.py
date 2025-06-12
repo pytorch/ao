@@ -54,6 +54,9 @@ __all__ = [
 
 _lm_eval_available = importlib.util.find_spec("lm_eval") is not None
 
+_torchtitan_available = importlib.util.find_spec("torchtitan") is not None
+
+_fbgemm_available = importlib.util.find_spec("fbgemm_gpu") is not None
 
 # basic SQNR
 def compute_error(x, y):
