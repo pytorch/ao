@@ -776,7 +776,7 @@
         <span class="k">return</span> <span class="p">(</span>
             <span class="nb">isinstance</span><span class="p">(</span><span class="n">aqt</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
             <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">Float8Layout</span><span class="p">)</span>
-            <span class="ow">and</span> <span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">]</span>
+            <span class="ow">and</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
             <span class="ow">and</span> <span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">aqt</span><span class="o">.</span><span class="n">block_size</span> <span class="ow">or</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">aqt</span><span class="p">))</span>
         <span class="p">)</span>
 
@@ -855,7 +855,7 @@
         <span class="c1"># weight is float8 quantized affine quantized tensor</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
         <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">Float8Layout</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">]</span>
+        <span class="ow">and</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="ow">and</span> <span class="p">(</span>
             <span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">block_size</span>
             <span class="ow">or</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span>
