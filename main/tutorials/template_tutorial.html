@@ -336,6 +336,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../pretraining.html">Pretraining with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
 </ul>
 
             
@@ -446,11 +447,11 @@ to download the full example code.</p>
 <span class="nb">print</span><span class="p">(</span><a href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="torch.Tensor" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">x</span></a><span class="p">)</span>
 </pre></div>
 </div>
-<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.1690, 0.6002, 0.2691],
-        [0.1297, 0.9005, 0.0698],
-        [0.5046, 0.2353, 0.2469],
-        [0.7600, 0.8012, 0.1836],
-        [0.1111, 0.4855, 0.6960]])
+<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.4133, 0.1225, 0.3624],
+        [0.7381, 0.1344, 0.3964],
+        [0.3568, 0.6217, 0.8783],
+        [0.1467, 0.0576, 0.0772],
+        [0.9436, 0.8579, 0.7669]])
 </pre></div>
 </div>
 </section>
