@@ -24,7 +24,7 @@ __all__ = [
 aten = torch.ops.aten
 
 
-try: 
+try:
     from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
 except:
     int4_row_quantize_zp = None
