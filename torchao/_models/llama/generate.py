@@ -244,7 +244,7 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
 
 def _load_model(checkpoint_path, device, precision):
     checkpoint = torch.load(
-        str(checkpoint_path), mmap=True, weights_only=True, map_location=device
+        str(checkpoint_path), mmap=True, weights_only=True, map_location="cpu"
     )
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
@@ -366,34 +366,24 @@ def main(
             import os
             import pwd
 
-            from gemlite.core import GemLiteLinearTriton
+            import gemlite
+
+            gemlite.set_autotune("max")
+            config_file = f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
 
             _quant_args = quantization.split("-")
-            bit_width = int(_quant_args[-2])
-            group_size = None if _quant_args[-1] == "None" else int(_quant_args[-1])
-            try:
-                packing_bitwidth = int(_quant_args[-3])
-            except:
-                # if only 2 inputs found, use default value
-                packing_bitwidth = 32
+            bit_width = int(_quant_args[1])
+            group_size = None if _quant_args[2] == "None" else int(_quant_args[2])
+            mode = "dynamic" if _quant_args[3] == "dq" else "weight_only"
 
             quantize_(
                 model,
-                gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth),
+                gemlite_uintx_weight_only(
+                    bit_width=bit_width, group_size=group_size, mode=mode
+                ),
             )
 
-            # try to load gemlite kernel config
-            try:
-                GemLiteLinearTriton.load_config(
-                    f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-                )
-                print(
-                    f"loaded gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-                )
-            except:
-                print(
-                    f"unable to load gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-                )
+            gemlite.load_config(config_file)
 
             print("running gemlite warmup")
             generate(
@@ -405,9 +395,8 @@ def main(
                 temperature=temperature,
                 top_k=top_k,
             )
-            GemLiteLinearTriton.cache_config(
-                f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-            )
+            gemlite.cache_config(config_file)
+
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
