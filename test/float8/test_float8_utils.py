@@ -10,15 +10,18 @@ import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_7,
+    get_device,
+)
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 # source for notable single-precision cases:
 # https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+@unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -42,8 +45,8 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
 ):
     test_case_name, input, expected_result = test_case
     input_tensor, expected_tensor = (
-        torch.tensor(input, dtype=torch.float32).cuda(),
-        torch.tensor(expected_result, dtype=torch.float32).cuda(),
+        torch.tensor(input, dtype=torch.float32).to(device=get_device()),
+        torch.tensor(expected_result, dtype=torch.float32).to(device=get_device()),
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
 
@@ -71,3 +74,4 @@ def test_non_float32_input(invalid_dtype: torch.dtype):
     non_float32_tensor = torch.tensor([3.0], dtype=invalid_dtype)
     with pytest.raises(AssertionError, match="scale must be float32 tensor"):
         _round_scale_down_to_power_of_2(non_float32_tensor)
+

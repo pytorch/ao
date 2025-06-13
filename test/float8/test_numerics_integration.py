@@ -12,12 +12,13 @@ from typing import Optional
 import pytest
 
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_7,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    get_device,
 )
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
@@ -94,7 +95,7 @@ class TestFloat8NumericsIntegrationTest:
                 multiple_of=1024,
                 ffn_dim_multiplier=1.3,
             )
-            .cuda()
+            .to(device=get_device())
             .to(data_dtype)
         )
 
@@ -115,8 +116,8 @@ class TestFloat8NumericsIntegrationTest:
         # logic of delayed scaling behaves as dynamic scaling
         # TODO(future PR): delete ^, since we deleted delayed scaling
         shape = (1, 8192, 4096)
-        data1 = torch.randn(*shape, device="cuda", dtype=data_dtype)
-        data2 = torch.randn(*shape, device="cuda", dtype=data_dtype)
+        data1 = torch.randn(*shape, device=get_device(), dtype=data_dtype)
+        data2 = torch.randn(*shape, device=get_device(), dtype=data_dtype)
 
         model_ref(data1).sum().backward()
         # zero out grads without stepping, since we just want to compare grads
@@ -160,7 +161,8 @@ class TestFloat8NumericsIntegrationTest:
         [ScalingType.DYNAMIC],
     )
     @pytest.mark.skipif(
-        not is_sm_at_least_89(), reason="requires SM89 compatible machine"
+        not torch.accelerator.is_available() and
+        not is_sm_at_least_89(), reason="Accelrator not available or If CUDA, requires SM89 compatible machine"
     )
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_config_params(
@@ -185,7 +187,8 @@ class TestFloat8NumericsIntegrationTest:
         ],
     )
     @pytest.mark.skipif(
-        not is_sm_at_least_90(), reason="requires SM90 compatible machine"
+        not torch.accelerator.is_available() and
+        not is_sm_at_least_90(), reason="Accelrator not available or If CUDA, it requires CUDA capability >= 9.0"
     )
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(
@@ -198,3 +201,4 @@ class TestFloat8NumericsIntegrationTest:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+

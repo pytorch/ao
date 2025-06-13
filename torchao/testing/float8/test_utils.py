@@ -3,6 +3,8 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+import torch
 from torchao.float8.config import (
     CastConfig,
     Float8LinearConfig,
@@ -23,6 +25,7 @@ def get_test_float8_linear_config(
     )
     cast_config_grad_output = CastConfig(
         scaling_type=scaling_type_grad_output,
+        target_dtype=torch.float8_e4m3fn if torch.hpu.is_available() else torch.float8_e5m2,
     )
 
     config = Float8LinearConfig(
