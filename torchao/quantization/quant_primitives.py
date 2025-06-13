@@ -386,7 +386,7 @@ def _quantize_affine_meta(
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
 ) -> torch.Tensor:
-    return torch.empty(input.shape, dtype=output_dtype, device=input.device)
+    return torch.empty_like(input, dtype=output_dtype)
 
 
 def _quantize_affine_no_dtype_cast(
@@ -716,7 +716,7 @@ def _dequantize_affine_meta(
     quant_max: Optional[Union[int, float, bool]] = None,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    return torch.empty(input.shape, dtype=output_dtype, device=input.device)
+    return torch.empty_like(input, dtype=output_dtype)
 
 
 def _dequantize_affine_no_dtype_check(
