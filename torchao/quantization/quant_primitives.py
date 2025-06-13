@@ -9,7 +9,6 @@ from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from torch._meta_registrations import out_wrapper, register_meta
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
@@ -377,8 +376,7 @@ def _quantize_affine(
     ).to(output_dtype)
 
 
-@register_meta([torch.ops.torchao.quantize_affine])
-@out_wrapper
+@torch.library.impl(quant_lib, "quantize_affine", "Meta")
 def _quantize_affine_meta(
     input: torch.Tensor,
     block_size: List[int],
@@ -707,8 +705,7 @@ def _dequantize_affine(
     )
 
 
-@register_meta([torch.ops.torchao.dequantize_affine])
-@out_wrapper
+@torch.library.impl(quant_lib, "dequantize_affine", "Meta")
 def _dequantize_affine_meta(
     input: torch.Tensor,
     block_size: List[int],
