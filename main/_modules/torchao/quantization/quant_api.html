@@ -1399,13 +1399,14 @@
 <span class="sd">         size is more fine grained</span>
 <span class="sd">        `bit_width`: bit width of the quantized weight.</span>
 <span class="sd">        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.</span>
-<span class="sd">        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.</span>
+<span class="sd">        `mode`: if set to &quot;dynamic&quot;, activations are quantized at runtime; default is &quot;weight_only&quot; (weight-only quantization).</span>
 <span class="sd">        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">bit_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>
     <span class="n">packing_bitwidth</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;weight_only&quot;</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
@@ -1420,6 +1421,7 @@
     <span class="n">group_size</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">group_size</span>
     <span class="n">bit_width</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">bit_width</span>
     <span class="n">packing_bitwidth</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_bitwidth</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">mode</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
@@ -1431,7 +1433,12 @@
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
         <span class="n">weight</span><span class="p">,</span>
         <span class="o">**</span><span class="n">get_gemlite_aqt_kwargs</span><span class="p">(</span>
-            <span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="p">,</span> <span class="n">bit_width</span><span class="p">,</span> <span class="n">packing_bitwidth</span><span class="p">,</span> <span class="n">use_hqq</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
+            <span class="n">bit_width</span><span class="o">=</span><span class="n">bit_width</span><span class="p">,</span>
+            <span class="n">packing_bitwidth</span><span class="o">=</span><span class="n">packing_bitwidth</span><span class="p">,</span>
+            <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
+            <span class="n">use_hqq</span><span class="o">=</span><span class="n">use_hqq</span><span class="p">,</span>
         <span class="p">),</span>
     <span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
