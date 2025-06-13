@@ -369,7 +369,6 @@ def main(
             import gemlite
 
             gemlite.set_autotune("max")
-            gemlite.set_packing_bitwidth(32)
             config_file = f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
 
             _quant_args = quantization.split("-")
