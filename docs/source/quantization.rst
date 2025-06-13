@@ -12,7 +12,7 @@ First we want to lay out the torchao stack::
               Basic dtypes: uint1-uint7, int1-int8, float3-float8
 
 
-Any quantization algorithm will be using some components from the above stack, for example int4_weight_only quantization uses:
+Any quantization algorithm will be using some components from the above stack, for example int4 weight-only quantization uses:
 (1) weight only quantization flow
 (2) `tinygemm bf16 activation + int4 weight kernel <https://github.com/pytorch/pytorch/blob/136e28f616140fdc9fb78bb0390aeba16791f1e3/aten/src/ATen/native/native_functions.yaml#L4148>`__ and `quant primitive ops <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py>`__
 (3) `AffineQuantizedTensor <https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py>`__ tensor subclass with `TensorCoreTiledLayout <https://github.com/pytorch/ao/blob/e41ca4ee41f5f1fe16c59e00cffb4dd33d25e56d/torchao/dtypes/affine_quantized_tensor.py#L573>`__
@@ -201,7 +201,7 @@ Case Study: How int4 weight only quantization works in torchao?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To connect everything together, here is a more detailed walk through for how int4 weight only quantization is implemented in torchao.
 
-Quantization Flow: quantize_(model, int4_weight_only())
+Quantization Flow: quantize_(model, Int4WeightOnlyConfig())
     * What happens: linear.weight = torch.nn.Parameter(to_affine_quantized_intx(linear.weight), requires_grad=False)
     * quantization primitive ops: choose_qparams and quantize_affine are called to quantize the Tensor
     * quantized Tensor will be `AffineQuantizedTensor`, a quantized tensor with derived dtype (e.g. int4 with scale and zero_point)
@@ -212,10 +212,10 @@ During Model Execution: model(input)
 
 During Quantization
 ###################
-First we start with the API call: ``quantize_(model, int4_weight_only())`` what this does is it converts the weights of nn.Linear modules in the model to int4 quantized tensor (``AffineQuantizedTensor`` that is int4 dtype, asymmetric, per group quantized), using the layout for tinygemm kernel: ``tensor_core_tiled`` layout.
+First we start with the API call: ``quantize_(model, Int4WeightOnlyConfig())`` what this does is it converts the weights of nn.Linear modules in the model to int4 quantized tensor (``AffineQuantizedTensor`` that is int4 dtype, asymmetric, per group quantized), using the layout for tinygemm kernel: ``tensor_core_tiled`` layout.
 
-* `quantize_ <https://github.com/pytorch/ao/blob/4865ee61340cc63a1469f437388067b853c9289e/torchao/quantization/quant_api.py#L403>`__: the model level API that quantizes the weight of linear by applying the conversion function from user (second argument)
-* `int4_weight_only <https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/quantization/quant_api.py#L522>`__: the function that returns a function that converts weight of linear to int4 weight only quantized weight
+* `quantize_ <https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__: the model level API that quantizes the weight of linear by applying the conversion function from user (second argument)
+* `Int4WeightOnlyConfig <https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig>`__: the function that returns a function that converts weight of linear to int4 weight only quantized weight
   * Calls quantization primitives ops like choose_qparams_affine and quantize_affine to quantize the Tensor
 * `TensorCoreTiledLayout <https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L573>`__: the tensor core tiled layout type, storing parameters for the packing format
 * `TensorCoreTiledAQTTensorImpl <https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L1376>`__: the tensor core tiled TensorImpl, stores the packed weight for efficient int4 weight only kernel (tinygemm kernel)
