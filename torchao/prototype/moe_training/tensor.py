@@ -1,8 +1,9 @@
 import torch
+from torch.utils._pytree import tree_map
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
 
-
+        
 class ScaledGroupedMMTensor(torch.Tensor):
     """
     ScaledGroupedMMTensor is a simple tensor subclass that wraps a regular tensor
@@ -15,6 +16,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     def __init__(self, data: torch.Tensor):
         self._data = data
+
+    def __repr__(self):
+        return f"ScaledGroupedMMTensor(data={self._data})"
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
@@ -32,4 +36,20 @@ class ScaledGroupedMMTensor(torch.Tensor):
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             if A_is_2d and B_is_3d and has_offs:
                 return _scaled_grouped_mm(*args, **kwargs)
-        return super().__torch_function__(func, types, args, kwargs)
+
+        # Disable torch_function by hand because we don't want 
+        # the wrapping behavior of the super() impl
+        with torch._C.DisableTorchFunction():
+            return func(*args, **kwargs)
+
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        unwrap = lambda x: x._data if isinstance(x, cls) else x
+        wrap = lambda x: cls(x) if isinstance(x, torch.Tensor) else x
+        unwrapped_args, unwrapped_kwargs = tree_map(unwrap, (args, kwargs))
+        output = super().__torch_dispatch__(func, types, unwrapped_args, unwrapped_kwargs)
+        wrapped_output = tree_map(wrap, output)
+        print(func.__name__)
+        print(wrapped_output)
+        return wrapped_output
