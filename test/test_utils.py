@@ -49,6 +49,14 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "arg_types"):
             l.weight = torch.nn.Parameter(MyTensor(l.weight))
 
+    def test_apply_fn_to_data(self):
+        self.assertTrue(hasattr(TorchAOBaseTensor, "_apply_fn_to_data"))
+        self.assertTrue(callable(getattr(TorchAOBaseTensor, "_apply_fn_to_data")))
+
+        method = getattr(TorchAOBaseTensor, "_apply_fn_to_data")
+        self.assertFalse(isinstance(method, classmethod))
+        self.assertFalse(isinstance(method, staticmethod))
+
 
 if __name__ == "__main__":
     unittest.main()
