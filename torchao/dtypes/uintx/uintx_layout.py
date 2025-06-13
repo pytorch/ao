@@ -215,7 +215,7 @@ def _(func, types, args, kwargs):
         func.default,  # work around
         args,
         kwargs,
-        _dequantize_affine_impl(*args),
+        _dequantize_affine_impl(*args, **kwargs),
     )
 
 
