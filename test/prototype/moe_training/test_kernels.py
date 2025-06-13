@@ -19,11 +19,11 @@ if not (
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
-from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
+from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
-from torchao.prototype.scaled_grouped_mm.utils import (
+from torchao.prototype.moe_training.utils import (
     _is_column_major,
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,

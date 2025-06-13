@@ -132,7 +132,9 @@ on using `torchao.float8` in a distributed setting.
 
 # Performance
 
-A common question about float8 training is "when is float8 linear faster vs bfloat16?".  Given the M, K, N of the forward pass through your linear, you can reference the table below for a microbenchmark based speedup estimate on NVIDIA H100:
+A common question about float8 training is "when is float8 linear faster vs bfloat16?".  Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100:
+
+### Tensorwise scaling
 
 <img width="805" alt="float8_speedup" src="https://github.com/user-attachments/assets/5c5f2817-7eb7-4cab-bd03-49fe70cd31a8">
 
@@ -151,6 +153,11 @@ To reproduce the raw data for table above, you can run the following script
 ```lang=shell
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
 ```
+
+### Rowwise scaling
+
+<img width="805" alt="float8_rowwise_speedup" src="../../docs/static/fp8-rowwise-perf.png" />
+
 
 ## Derivation
 

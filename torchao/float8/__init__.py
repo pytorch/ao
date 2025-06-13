@@ -3,11 +3,10 @@ from torchao.float8.config import (
     CastConfig,
     Float8GemmConfig,
     Float8LinearConfig,
+    ScalingGranularity,
     ScalingType,
 )
-from torchao.float8.float8_linear_utils import (
-    convert_to_float8_training,
-)
+from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
@@ -30,15 +29,18 @@ if TORCH_VERSION_AT_LEAST_2_5:
             GemmInputRole,
             LinearMMConfig,
             Float8MMConfig,
+            ScalingGranularity,
         ]
     )
 
 __all__ = [
     # configuration
     "ScalingType",
+    "ScalingGranularity",
     "Float8GemmConfig",
     "Float8LinearConfig",
     "CastConfig",
+    "ScalingGranularity",
     # top level UX
     "convert_to_float8_training",
     "precompute_float8_dynamic_scale_for_fsdp",

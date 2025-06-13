@@ -40,4 +40,6 @@ for an overall introduction to the library and recent highlight and updates.
    serialization
    subclass_basic
    subclass_advanced
+   static_quantization
    pretraining
+   torchao_vllm_integration
