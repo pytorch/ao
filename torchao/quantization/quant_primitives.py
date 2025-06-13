@@ -54,22 +54,39 @@ __all__ = [
 
 
 class MappingType(Enum):
-    """How floating point number is mapped to integer number
+    """Defines how floating point values are mapped to quantized integer values.
 
-    symmetric mapping means floating point range is symmetrically mapped to integer range
-    let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
-    we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
-    e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
+    This enum specifies the quantization mapping strategy used to convert high-precision
+    floating point numbers to low-precision integer representations.
 
-    SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin
-    and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating
-    smin and smax individually, there can be less round error on negative values, and no out-of-range
-    of all floating point values.
+    Attributes:
+        SYMMETRIC: Symmetric mapping where the floating point range is symmetrically
+            mapped to the integer range. The scale is calculated as:
+            ``scale = max(|min_val|, |max_val|) / (quant_max - quant_min) * 2``
 
-    asymmetric mapping means we just directly map the floating point range to integer range,
-    for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
-    based on this mapping
-    e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
+            Example:
+                - Float range: (-3.5, 10.2), int4 range: (-8, 7)
+                - Symmetric range: (-10.2, 10.2) mapped to (-8, 7)
+                - Scale: (10.2 - (-10.2)) / (7 - (-8)) = 1.36
+
+        SYMMETRIC_NO_CLIPPING_ERR: Variant of symmetric mapping that reduces clipping
+            errors by calculating separate scales for positive and negative values:
+            ``smin = min_val_neg / quant_min``, ``smax = max_val_pos / quant_max``
+            ``scale = max(smin, smax)``
+            This approach provides better coverage and less rounding error.
+
+        ASYMMETRIC: Asymmetric mapping where the floating point range is directly
+            mapped to the integer range without symmetry constraints:
+            ``scale = (max_val - min_val) / (quant_max - quant_min)``
+
+            Example:
+                - Float range: (-3.5, 10.2) directly mapped to int4 range: (-8, 7)
+                - Scale: (10.2 - (-3.5)) / (7 - (-8)) = 0.913
+
+    Note:
+        Symmetric quantization typically preserves zero exactly but may waste quantization
+        levels for asymmetric data. Asymmetric quantization uses the full quantization
+        range but may not preserve zero exactly.
     """
 
     SYMMETRIC = auto()
@@ -78,11 +95,37 @@ class MappingType(Enum):
 
 
 class ZeroPointDomain(Enum):
-    """Enum that indicate whether zero_point is in integer domain or floating point domain
+    """Specifies the domain (integer or float) in which the zero_point is represented.
 
-    integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
-    float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
-    none domain: quantized_val = (float_val / scale)
+    This enum determines how the zero_point parameter is interpreted during quantization
+    and dequantization operations, affecting the mathematical formulation used.
+
+    Attributes:
+        INT: Zero point is in the integer domain. The quantization formula is:
+            ``quantized_val = round(float_val / scale) + zero_point``
+            where both quantized_val and zero_point are integers.
+
+            Dequantization formula:
+            ``float_val = (quantized_val - zero_point) * scale``
+
+        FLOAT: Zero point is in the floating point domain. Used by specialized kernels
+            like TinyGemm. The quantization formula is:
+            ``quantized_val = round((float_val - zero_point_offset) / scale)``
+            where ``zero_point_offset = zero_point - scale * mid_point``
+
+            Dequantization formula:
+            ``float_val = quantized_val * scale + zero_point_offset``
+
+        NONE: No zero point is used (symmetric quantization). The formula is:
+            ``quantized_val = round(float_val / scale)``
+
+            Dequantization formula:
+            ``float_val = quantized_val * scale``
+
+    Note:
+        INT domain is most common and straightforward. FLOAT domain is used for
+        specialized CUDA kernels that expect the zero point in floating point form.
+        NONE is used for symmetric quantization schemes.
     """
 
     INT = auto()
@@ -91,8 +134,27 @@ class ZeroPointDomain(Enum):
 
 
 class TorchAODType(Enum):
-    """
-    Placeholder for dtypes that do not exist in PyTorch core yet.
+    """Placeholder dtypes for sub-byte integer types not yet available in PyTorch core.
+
+    This enum provides integer data types with bit widths from 1 to 7 bits, which are
+    commonly used in quantization but may not be natively supported in all PyTorch
+    versions. These are used internally for quantization parameter calculations and
+    bound checking.
+
+    Attributes:
+        INT1: 1-bit signed integer, range: [-1, 0]
+        INT2: 2-bit signed integer, range: [-2, 1]
+        INT3: 3-bit signed integer, range: [-4, 3]
+        INT4: 4-bit signed integer, range: [-8, 7]
+        INT5: 5-bit signed integer, range: [-16, 15]
+        INT6: 6-bit signed integer, range: [-32, 31]
+        INT7: 7-bit signed integer, range: [-64, 63]
+
+    Note:
+        Starting from PyTorch 2.6, torch.int1 to torch.int7 are natively supported.
+        These TorchAODType enums will remain for backward compatibility with older
+        PyTorch versions. The actual quantized tensors are typically stored using
+        standard PyTorch dtypes like torch.uint8 with appropriate packing.
     """
 
     # torch.int1 to torch.int7 will be added to PyTorch 2.6
@@ -213,24 +275,74 @@ register_custom_op = _register_custom_op(quant_lib)
 
 
 class _Round(torch.autograd.Function):
-    """
-    Implementation of generic round operation with backward STE.
+    """Differentiable rounding operation using Straight-Through Estimator (STE).
+
+    This class implements a custom autograd function that performs rounding in the
+    forward pass while using the straight-through estimator for the backward pass.
+    The STE assumes the derivative of the rounding function is the identity function,
+    allowing gradients to flow through quantization operations during training.
+
+    The forward pass computes: ``output = round(input)``
+    The backward pass uses STE: ``grad_input = grad_output`` (identity)
+
+    This is commonly used in quantization-aware training where we need gradients
+    to flow through the quantization process despite the non-differentiable
+    rounding operation.
     """
 
     @staticmethod
     def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass: apply rounding operation.
+
+        Args:
+            ctx: Context object for storing information for backward pass
+            x: Input tensor to be rounded
+
+        Returns:
+            Rounded tensor with same shape and device as input
+        """
         return torch.round(x)
 
     @staticmethod
     def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        """Backward pass: apply straight-through estimator.
+
+        Args:
+            ctx: Context object (not used in this implementation)
+            gy: Gradient of the output
+
+        Returns:
+            Gradient with respect to input (same as output gradient)
+        """
         return gy
 
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
-    """Get quant_min and quant_max args based on dtype and also
-    verify that they are within the range of possible quant_min/quant_max
-    for dtype
+    """Get and validate quantization bounds based on dtype.
+
+    This function determines the valid quantization range for a given dtype and
+    validates that user-provided quant_min/quant_max values are within acceptable
+    bounds. If quant_min or quant_max are None, they are set to the dtype's
+    natural bounds.
+
+    Args:
+        dtype: Target quantization dtype (e.g., torch.int8, torch.uint4, TorchAODType.INT4)
+        quant_min: Optional minimum quantization value. If None, uses dtype minimum.
+        quant_max: Optional maximum quantization value. If None, uses dtype maximum.
+
+    Returns:
+        tuple: (validated_quant_min, validated_quant_max)
+
+    Raises:
+        ValueError: If dtype is not supported
+        AssertionError: If provided quant_min/quant_max are outside valid bounds
+
+    Example:
+        >>> _get_and_check_qmin_qmax(torch.int8, None, None)
+        (-128, 127)
+        >>> _get_and_check_qmin_qmax(TorchAODType.INT4, -7, 7)
+        (-7, 7)
     """
     if dtype in FP8_TYPES:
         quant_min_lower_bound, quant_max_upper_bound = (
@@ -259,20 +371,39 @@ def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
 
 
 def _get_reduction_params(block_size, input_size):
-    """Given block_size and input size find the parameters for reduction:
+    """Calculate tensor reshaping parameters for block-wise quantization operations.
 
-    Output:
-        shape_for_reduction: the shape we use to `view` input to prepare it for reduction
-        reduction_dims: the dims we'll do reduction over
+    This function determines how to reshape a tensor to enable block-wise operations
+    (like computing min/max values within blocks) and which dimensions to reduce over.
+    It's used internally by quantization functions to support different granularities.
 
-    Example::
-        Input:
-          block_size: (3, 3, 2, 10)
-          input_size: (3, 3, 10, 10)
+    The function splits dimensions where block_size < input_size into two dimensions:
+    one for the number of blocks and one for the block size itself.
 
-        Output:
-          shape_for_reduction: (3, 3, 5, 2, 10)
-          reduction_dim: [0, 1, 3, 4]
+    Args:
+        block_size: Tuple specifying the granularity of quantization blocks
+        input_size: Tuple specifying the input tensor dimensions
+
+    Returns:
+        tuple: (shape_for_reduction, reduction_dims) where:
+            - shape_for_reduction: New shape for tensor.view() to enable block operations
+            - reduction_dims: List of dimension indices to reduce over
+
+    Example:
+        For per-group quantization with group_size=2 along the last dimension:
+
+        >>> _get_reduction_params((3, 3, 2, 10), (3, 3, 10, 10))
+        ([3, 3, 5, 2, 10], [1, 3])
+
+        This reshapes a (3,3,10,10) tensor to (3,3,5,2,10) where:
+        - Dimension 2: 10 -> (5,2) for 5 blocks of size 2
+        - Dimensions [1,3] will be reduced (corresponding to the block dimensions)
+
+    Note:
+        This function is essential for implementing various quantization granularities:
+        - Per-tensor: block_size equals input_size
+        - Per-channel: block_size has 1 in the channel dimension
+        - Per-group: block_size specifies group size in relevant dimensions
     """
     assert len(block_size) == len(input_size)
     shape_for_reduction = []
@@ -309,32 +440,61 @@ def quantize_affine(
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
 ) -> torch.Tensor:
-    """
+    """Quantize a floating point tensor using affine quantization.
+
+    This function performs affine (linear) quantization, converting high-precision
+    floating point values to low-precision integer values using the formula:
+    ``quantized_val = clamp(round(input / scale) + zero_point, quant_min, quant_max)``
+
+    The quantization can be applied at different granularities (per-tensor, per-channel,
+    or per-group) as specified by the block_size parameter.
+
     Args:
-      input (torch.Tensor): original float32, float16 or bfloat16 Tensor
-      block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
-           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
-      scale (float): quantization parameter for affine quantization
-      zero_point (int): quantization parameter for affine quantization
-      output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
-      quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
-      quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
+        input: Input tensor to quantize. Must be float32, float16, or bfloat16.
+        block_size: Granularity of quantization. Specifies the size of tensor elements
+            that share the same quantization parameters (scale and zero_point).
+        scale: Scaling factor for quantization. Shape must be compatible with block_size.
+        zero_point: Zero point offset for quantization. If None, assumes zero offset.
+            Shape must be compatible with block_size when provided.
+        output_dtype: Target quantization dtype (e.g., torch.int8, torch.uint4).
+        quant_min: Minimum allowed quantized value. If None, derived from output_dtype.
+        quant_max: Maximum allowed quantized value. If None, derived from output_dtype.
+
+    Returns:
+        Quantized tensor with the specified output_dtype and same shape as input.
+
+    Example:
+        >>> # Per-tensor quantization of a 2D tensor
+        >>> input = torch.randn(4, 8, dtype=torch.float32)
+        >>> scale = torch.tensor(0.1)
+        >>> zero_point = torch.tensor(128)
+        >>> quantized = quantize_affine(
+        ...     input, (4, 8), scale, zero_point, torch.uint8
+        ... )
+
+        >>> # Per-channel quantization along axis 0
+        >>> scale = torch.randn(4) * 0.1
+        >>> zero_point = torch.full((4,), 128)
+        >>> quantized = quantize_affine(
+        ...     input, (1, 8), scale, zero_point, torch.uint8
+        ... )
 
     Note:
-      How can block_size represent different granularities?
-      let's say we have a Tensor of size: (3, 3, 10, 10), here is the table showing how block_size represents different
-      granularities:
+        **Block Size Granularity Examples:**
+        For a tensor of size (3, 3, 10, 10), block_size represents different granularities:
 
-       granularity type       |     block_size
-         per_tensor           |    (3, 3, 10, 10)
-         per_axis (axis=0)    |    (1, 3, 10, 10)
-         per_axis (axis=1)    |    (3, 1, 10, 10)
-     per_group (groupsize=2)  |    (3, 3, 10, 2)
-     per_group (groupsize=2) for axis = 3 | (3, 3, 2, 10)
+        =====================================  ==================
+        Granularity Type                       block_size
+        =====================================  ==================
+        per_tensor                            (3, 3, 10, 10)
+        per_axis (axis=0)                     (1, 3, 10, 10)
+        per_axis (axis=1)                     (3, 1, 10, 10)
+        per_group (groupsize=2) on axis=2     (3, 3, 2, 10)
+        per_group (groupsize=2) on axis=3     (3, 3, 10, 2)
+        =====================================  ==================
 
-
-    Output:
-      quantized tensor with requested dtype
+        This function uses integer domain zero points (ZeroPointDomain.INT).
+        For floating point domain zero points, use :func:`quantize_affine_tinygemm`.
     """
     return _quantize_affine(
         input,
@@ -437,16 +597,37 @@ def quantize_affine_tinygemm(
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
 ) -> torch.Tensor:
-    """
-    The op does the following:
-    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
-       the shape after reduction
-    2. quantize the input based on the quantization parameters scale and zero_point and zero_point_domain = FLOAT
-    3. reshape the quantized result to origianl shape
+    """Quantize tensor using TinyGemm-compatible affine quantization with float zero points.
+
+    This function performs affine quantization optimized for TinyGemm CUDA kernels.
+    Unlike standard affine quantization, it uses floating point domain zero points,
+    which is required by certain optimized matrix multiplication kernels.
+
+    The quantization formula is:
+    ``quantized_val = clamp(round((input - zero_point_offset) / scale), quant_min, quant_max)``
+    where ``zero_point_offset = zero_point - scale * mid_point``
+    and ``mid_point = (quant_max + quant_min + 1) / 2``
+
+    Args:
+        input: Input tensor to quantize. Must be float32, float16, or bfloat16.
+        block_size: Granularity of quantization block sizes.
+        scale: Scaling factor for quantization. Shape must be compatible with block_size.
+        zero_point: Zero point in floating point domain. If None, assumes zero offset.
+        output_dtype: Target quantization dtype (e.g., torch.int4, torch.uint8).
+        quant_min: Minimum allowed quantized value. If None, derived from output_dtype.
+        quant_max: Maximum allowed quantized value. If None, derived from output_dtype.
+
+    Returns:
+        Quantized tensor with specified output_dtype and same shape as input.
 
     Note:
-        zero_point_domain is pre-defined specifies how we quantize the floating point to quantized data:
-        FLOAT: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
+        This function uses floating point domain zero points (ZeroPointDomain.FLOAT),
+        which differs from the standard integer domain used in :func:`quantize_affine`.
+        This format is specifically designed for compatibility with optimized CUDA
+        kernels like TinyGemm that expect zero points in floating point format.
+
+        The zero point transformation accounts for the mid-point offset to ensure
+        proper quantization behavior compatible with tensor core operations.
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
     # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
@@ -522,17 +703,37 @@ def quantize_affine_no_zero_point(
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
 ) -> torch.Tensor:
-    """
-    The op does the following:
-    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
-       the shape after reduction
-    2. quantize the input based on the quantization parameters scale and zero_point and zero_point_domain = NONE
-    3. reshape the quantized result to origianl shape
+    """Quantize tensor using symmetric (zero point-free) affine quantization.
+
+    This function performs symmetric quantization without zero points, suitable for
+    cases where the data distribution is symmetric around zero or when zero point
+    adjustment is not needed. This is commonly used for floating point quantization
+    formats where exact integer representation is not required.
+
+    The quantization formula is:
+    ``quantized_val = clamp(round(input / scale), quant_min, quant_max)``
+
+    Args:
+        input: Input tensor to quantize. Must be float32, float16, or bfloat16.
+        block_size: Granularity of quantization block sizes.
+        scale: Scaling factor for quantization. Shape must be compatible with block_size.
+        zero_point: Ignored parameter (maintained for API compatibility). Should be None.
+        output_dtype: Target quantization dtype (e.g., torch.int8, custom float formats).
+        quant_min: Minimum allowed quantized value. If None, derived from output_dtype.
+        quant_max: Maximum allowed quantized value. If None, derived from output_dtype.
+
+    Returns:
+        Quantized tensor with specified output_dtype and same shape as input.
 
     Note:
-        zero_point_domain is pre-defined specifies how we quantize the floating point to quantized data:
-        None: quantized_val = (float_val / scale) | this is primarily used for floatx quantization
-            Where we do not want to round values to nearest integer and instead scale and cast.
+        This function uses ZeroPointDomain.NONE, meaning no zero point adjustment
+        is applied. This is primarily used for:
+        - Symmetric quantization where data is centered around zero
+        - Custom floating point formats (floatx) where exact integer mapping isn't needed
+        - Cases where computational simplicity is preferred over quantization accuracy
+
+        For asymmetric data that requires zero point adjustment, use :func:`quantize_affine`
+        or :func:`quantize_affine_tinygemm` instead.
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
     # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
@@ -608,22 +809,50 @@ def dequantize_affine(
     *,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    """
+    """Dequantize a quantized tensor back to floating point using affine dequantization.
+
+    This function performs the inverse of :func:`quantize_affine`, converting low-precision
+    quantized values back to high-precision floating point values using the formula:
+    ``dequantized_val = (quantized_val - zero_point) * scale``
+
     Args:
-      input (torch.Tensor): quantized tensor, should match the dtype `dtype` argument
-      block_size: (List[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
-                               e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
-      scale (Tensor): quantization parameter for affine quantization
-      zero_point (Tensor): quantization parameter for affine quantization
-      input_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
-      quant_min (Optional[int]): minimum quantized value for input Tensor
-      quant_max (Optional[int]): maximum quantized value for input Tensor
-      output_dtype (torch.dtype): dtype for output Tensor, default is fp32
+        input: Quantized input tensor to dequantize. Should match input_dtype.
+        block_size: Granularity of quantization that was used during quantization.
+            Specifies the size of tensor elements that share the same quantization parameters.
+        scale: Scaling factor used during quantization. Shape must be compatible with block_size.
+        zero_point: Zero point offset used during quantization. If None, assumes zero offset.
+            Shape must be compatible with block_size when provided.
+        input_dtype: Original quantized dtype (e.g., torch.int8, torch.uint4) for validation.
+        quant_min: Minimum quantized value that was used. If None, derived from input_dtype.
+        quant_max: Maximum quantized value that was used. If None, derived from input_dtype.
+        output_dtype: Target floating point dtype for output. Defaults to torch.float32.
 
-      Default value for zero_point is in integer domain, zero point is added to the quantized integer value during quantization
+    Returns:
+        Dequantized tensor with specified output_dtype and same shape as input.
 
-    Output:
-      dequantized Tensor, with requested dtype or fp32
+    Example:
+        >>> # Dequantize a per-tensor quantized tensor
+        >>> quantized = torch.randint(0, 255, (4, 8), dtype=torch.uint8)
+        >>> scale = torch.tensor(0.1)
+        >>> zero_point = torch.tensor(128)
+        >>> dequantized = dequantize_affine(
+        ...     quantized, (4, 8), scale, zero_point, torch.uint8
+        ... )
+
+        >>> # Dequantize per-channel quantized tensor
+        >>> scale = torch.randn(4) * 0.1
+        >>> zero_point = torch.full((4,), 128)
+        >>> dequantized = dequantize_affine(
+        ...     quantized, (1, 8), scale, zero_point, torch.uint8
+        ... )
+
+    Note:
+        This function assumes integer domain zero points (ZeroPointDomain.INT).
+        For floating point domain zero points, use :func:`dequantize_affine_tinygemm`.
+        For symmetric quantization without zero points, use :func:`dequantize_affine_no_zero_point`.
+
+        The block_size must match the granularity used during the original quantization
+        for correct dequantization results.
     """
     return _dequantize_affine(
         input,
@@ -908,26 +1137,51 @@ def fake_quantize_affine(
     quant_max: Optional[Union[int, float]] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> torch.Tensor:
-    """
-    General fake quantize op for quantization-aware training (QAT).
-    This is equivalent to calling `quantize_affine` + `dequantize_affine`
-    but without the dtype casts.
+    """Simulate quantization for Quantization-Aware Training (QAT) without dtype conversion.
+
+    This function performs "fake quantization" by applying quantization and dequantization
+    operations while maintaining the original floating point dtype. This is essential for
+    QAT where gradients must flow through the quantization process during training.
+
+    The operation is equivalent to:
+    ``dequantize_affine(quantize_affine(input, ...), ...)``
+    but keeps the tensor in floating point format throughout.
 
     Args:
-      input (torch.Tensor): original float32, float16 or bfloat16 Tensor
-      block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
-           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
-      scale (float): quantization parameter for affine quantization
-      zero_point (int): quantization parameter for affine quantization
-      quant_dtype (torch.dtype): desired quantized dtype for determining and validating quant_min and quant_max values.
-      quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
-      quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
-        if zero_point is in integer domain, zero point is added to the quantized integer value during
-        quantization
-        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
-        value during quantization
-        default is ZeroPointDomain.INT
+        input: Input tensor to fake quantize. Must be float32, float16, or bfloat16.
+        block_size: Granularity of quantization. Specifies the size of tensor elements
+            that share the same quantization parameters.
+        scale: Scaling factor for quantization. Shape must be compatible with block_size.
+        zero_point: Zero point offset for quantization. If None when zero_point_domain
+            is not NONE, assumes zero offset.
+        quant_dtype: Quantization dtype used for determining valid quantization bounds.
+        quant_min: Minimum allowed quantized value. If None, derived from quant_dtype.
+        quant_max: Maximum allowed quantized value. If None, derived from quant_dtype.
+        zero_point_domain: Domain of the zero point (INT, FLOAT, or NONE).
+            - INT: Standard integer domain zero points
+            - FLOAT: Floating point domain (TinyGemm compatible)
+            - NONE: No zero point (symmetric quantization)
+
+    Returns:
+        Fake quantized tensor with same dtype and shape as input.
+
+    Example:
+        >>> # Basic fake quantization for QAT
+        >>> input = torch.randn(4, 8, requires_grad=True)
+        >>> scale = torch.tensor(0.1, requires_grad=True)
+        >>> zero_point = torch.tensor(128.0)
+        >>> fake_quant = fake_quantiza_affine(
+        ...     input, (4, 8), scale, zero_point, torch.uint8
+        ... )
+        >>> # Gradients can flow through fake_quant for training
+
+    Note:
+        This function is primarily used during quantization-aware training to simulate
+        the effects of quantization while allowing gradient flow. The output maintains
+        the same dtype as the input, enabling standard backpropagation.
+
+        For actual quantization (dtype conversion), use :func:`quantize_affine`.
+        For outlier detection during QAT, use :func:`fake_quantize_affine_cachemask`.
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
@@ -1052,24 +1306,54 @@ def choose_qparams_affine(
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = torch.int32,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Args:
-        input (torch.Tensor): fp32, bf16, fp16 input Tensor
-        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
-        block_size: (Tuple[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
-          e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
-        target_dtype (torch.dtype): dtype for target quantized Tensor
-        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
-        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
-        eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
-        scale_dtype (torch.dtype): dtype for scale Tensor
-        zero_point_dtype (torch.dtype): dtype for zero_point Tensor, defaults to torch.int32
-        Now removed params:
-            zero_point_domain (ZeroPointDomain): the domain that zero_point is in, defaults to Integer or None
-            preserve_zero (bool): whether to preserve zero in the quantized Tensor, defaults to True
+    """Calculate quantization parameters (scale and zero_point) for affine quantization.
 
-    Output:
-        Tuple of scales and zero_points Tensor with requested dtype
+    This function analyzes input tensor statistics and computes optimal scale and zero_point
+    values for quantization. The calculation method depends on the mapping_type:
+
+    - **SYMMETRIC**: ``scale = max(|min_val|, |max_val|) / (quant_max - quant_min) * 2``
+    - **ASYMMETRIC**: ``scale = (max_val - min_val) / (quant_max - quant_min)``
+    - **SYMMETRIC_NO_CLIPPING_ERR**: Uses separate scales for positive/negative values
+
+    Args:
+        input: Input tensor for which to calculate quantization parameters.
+            Must be float32, float16, or bfloat16.
+        mapping_type: Strategy for mapping floating point values to quantized values.
+            Determines whether to use symmetric or asymmetric quantization.
+        block_size: Granularity of quantization. Specifies the size of tensor elements
+            that share the same quantization parameters.
+        target_dtype: Target quantization dtype (e.g., torch.int8, torch.uint4).
+        quant_min: Minimum allowed quantized value. If None, derived from target_dtype.
+        quant_max: Maximum allowed quantized value. If None, derived from target_dtype.
+        eps: Minimum scale value to prevent division by zero. If None, uses input.dtype eps.
+        scale_dtype: Desired dtype for scale tensor. If None, uses input.dtype.
+        zero_point_dtype: Desired dtype for zero_point tensor. Defaults to torch.int32.
+
+    Returns:
+        tuple: (scale, zero_point) tensors with specified dtypes and shapes compatible
+        with the block_size granularity.
+
+    Example:
+        >>> # Per-tensor quantization parameters
+        >>> input = torch.randn(4, 8)
+        >>> scale, zero_point = choose_qparams_affine(
+        ...     input, MappingType.ASYMMETRIC, (4, 8), torch.int8
+        ... )
+
+        >>> # Per-channel quantization parameters
+        >>> scale, zero_point = choose_qparams_affine(
+        ...     input, MappingType.SYMMETRIC, (1, 8), torch.int8
+        ... )
+
+    Note:
+        This function preserves zero in the quantized representation by default,
+        ensuring that zero in the input maps exactly to an integer in the quantized range.
+        The calculated parameters can be used with :func:`quantize_affine` and
+        :func:`dequantize_affine` for the quantization process.
+
+        For specialized quantization schemes, see:
+        - :func:`choose_qparams_affine_tinygemm` for TinyGemm compatibility
+        - :func:`choose_qparams_affine_with_min_max` for custom min/max values
     """
     return _choose_qparams_affine(
         input,
@@ -1857,6 +2141,46 @@ def choose_qparams_and_quantize_affine_hqq(
     raw_output: bool = False,  # If True, it will return the quant params in hqq lib format
     optimize_weights: Callable = optimize_weights_proximal_legacy,  # weights proximal optimizer function
 ) -> tuple:
+    """HQQ (Half-Quadratic Quantization) - advanced quantization with optimization.
+
+    This function implements HQQ quantization, which uses proximal optimization to
+    minimize quantization error through iterative refinement of quantization parameters.
+    HQQ typically achieves better accuracy than standard quantization methods by
+    optimizing the trade-off between quantization error and sparsity.
+
+    The method alternates between:
+    1. Quantizing weights with current parameters
+    2. Optimizing scale and zero point to minimize reconstruction error
+    3. Applying proximal operator for regularization
+
+    Args:
+        tensor: Input tensor to quantize (typically neural network weights).
+        nbits: Number of bits for quantization (typically 4).
+        group_size: Size of groups for block-wise quantization. None for per-channel.
+        optimize: Whether to apply proximal optimization for better accuracy.
+        axis: Axis along which to apply quantization (0 or 1).
+        compute_dtype: Working precision for computations (torch.float16/float32).
+        device: Device for computation ("cuda" or "cpu").
+        verbose: Whether to print optimization progress.
+        raw_output: If True, returns parameters in HQQ library format.
+        optimize_weights: Optimization function to use (defaults to proximal method).
+
+    Returns:
+        tuple: (quantized_weights, scale, zero_point, original_shape)
+        - quantized_weights: Quantized tensor in uint8 format
+        - scale: Optimized scaling factors
+        - zero_point: Optimized zero points
+        - original_shape: Original tensor shape for reconstruction
+
+    Note:
+        HQQ quantization provides superior accuracy compared to standard methods by:
+        - Using iterative optimization to refine quantization parameters
+        - Applying proximal operators for regularization
+        - Supporting both grouped and per-channel quantization
+
+        This method is particularly effective for weight quantization in large language
+        models where maintaining accuracy is critical.
+    """
     assert axis in [0, 1], "axis should be either 0 or 1"
     if group_size is not None:
         assert _is_divisible(tensor.numel(), group_size), (
@@ -2080,8 +2404,43 @@ def quantize_affine_float8(
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
 ) -> torch.Tensor:
-    """
-    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
+    """Quantize a high-precision tensor to float8 format.
+
+    This function converts float32/float16/bfloat16 tensors to float8 format using
+    the provided scaling factor. Float8 quantization offers a good balance between
+    model size reduction and accuracy preservation, especially for transformer models.
+
+    The quantization formula is:
+    ``float8_val = clamp(tensor / scale, -max_val, max_val).to(float8_dtype)``
+
+    Args:
+        tensor: Input high-precision tensor to quantize.
+        scale: Scaling factor(s) for quantization. Can be scalar or tensor with
+            shape compatible for broadcasting with input tensor.
+        float8_dtype: Target float8 dtype. Common options:
+            - torch.float8_e4m3fn: 4-bit exponent, 3-bit mantissa (default)
+            - torch.float8_e5m2: 5-bit exponent, 2-bit mantissa
+
+    Returns:
+        Quantized tensor in the specified float8 format with same shape as input.
+
+    Example:
+        >>> tensor = torch.randn(4, 8, dtype=torch.float32)
+        >>> scale = torch.tensor(0.1)  # Per-tensor scaling
+        >>> quantized = quantize_affine_float8(tensor, scale)
+
+        >>> # Per-channel scaling
+        >>> scale = torch.randn(4) * 0.1
+        >>> quantized = quantize_affine_float8(tensor, scale)
+
+    Note:
+        Float8 quantization is particularly effective for:
+        - Large language model inference and training
+        - Maintaining numerical stability in transformer attention
+        - GPU acceleration with tensor core operations
+
+        The scale tensor is automatically expanded to match input dimensions
+        for block-wise quantization support.
     """
     tensor_fp32 = tensor.to(torch.float32)
 
@@ -2100,8 +2459,42 @@ def dequantize_affine_float8(
     scale: torch.Tensor,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    """
-    Dequantizes the float8 tensor to high precision tensor.
+    """Dequantize a float8 tensor back to high-precision format.
+
+    This function converts float8 tensors back to higher precision formats
+    (float32/float16/bfloat16) using the provided scaling factor. This is the
+    inverse operation of :func:`quantize_affine_float8`.
+
+    The dequantization formula is:
+    ``dequantized_val = tensor.to(float32) * scale``
+
+    Args:
+        tensor: Float8 tensor to dequantize.
+        scale: Scaling factor(s) used during quantization. Must be compatible
+            for broadcasting with tensor dimensions.
+        output_dtype: Target high precision dtype for output. Defaults to float32.
+
+    Returns:
+        Dequantized tensor in specified high precision format with same shape as input.
+
+    Example:
+        >>> # Dequantize float8 tensor back to float32
+        >>> float8_tensor = torch.tensor([[1.0, 2.0]], dtype=torch.float8_e4m3fn)
+        >>> scale = torch.tensor(0.1)
+        >>> dequantized = dequantize_affine_float8(float8_tensor, scale)
+
+        >>> # Dequantize to float16 with per-channel scale
+        >>> scale = torch.tensor([0.1, 0.2])
+        >>> dequantized = dequantize_affine_float8(
+        ...     float8_tensor, scale, output_dtype=torch.float16
+        ... )
+
+    Note:
+        This function is typically used in conjunction with :func:`quantize_affine_float8`
+        to restore quantized weights or activations during inference or training.
+
+        The scale parameter must match the scaling used during the original
+        quantization for accurate reconstruction of the original values.
     """
     fp8_tensor = tensor.to(torch.float32)
 
