@@ -24,32 +24,32 @@ from torchao.utils import (
 
 __all__ = [
     "choose_qparams_affine",
-    "_choose_qparams_affine_tinygemm",
-    "_choose_qparams_affine_dont_preserve_zero",
     "choose_qparams_affine_with_min_max",
-    "_choose_qparams_affine_floatx",
     "quantize_affine",
-    "_quantize_affine_no_zero_point",
-    "_quantize_affine_tinygemm",
     "dequantize_affine",
-    "_dequantize_affine_no_zero_point",
-    "_dequantize_affine_tinygemm",
-    "_quantize_affine_floatx",
-    "_dequantize_affine_floatx",
-    "_fake_quantize_affine",
-    "_fake_quantize_affine_cachemask",
-    "_choose_qparams_and_quantize_affine_hqq",
-    "_choose_qparams_and_quantize_affine_qqq",
-    "_dequantize_affine_qqq",
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "_choose_qparams_affine_tinygemm",
+    "_choose_qparams_affine_dont_preserve_zero",
+    "_choose_qparams_affine_floatx",
+    "_choose_qparams_and_quantize_affine_hqq",
+    "_choose_qparams_and_quantize_affine_qqq",
     "_choose_qparams_affine_float8",
-    "_quantize_affine_float8",
-    "_dequantize_affine_float8",
     "_choose_qparams_gguf",
+    "_quantize_affine_no_zero_point",
+    "_quantize_affine_tinygemm",
+    "_quantize_affine_floatx",
+    "_quantize_affine_float8",
     "_quantize_gguf",
+    "_dequantize_affine_no_zero_point",
+    "_dequantize_affine_tinygemm",
+    "_dequantize_affine_floatx",
+    "_dequantize_affine_qqq",
+    "_dequantize_affine_float8",
     "_dequantize_gguf",
+    "_fake_quantize_affine",
+    "_fake_quantize_affine_cachemask",
 ]
 
 
@@ -453,7 +453,7 @@ def _quantize_affine_tinygemm(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return __quantize_affine_tinygemm_no_dtype_cast(
+    return _quantize_affine_tinygemm_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -463,7 +463,7 @@ def _quantize_affine_tinygemm(
     ).to(output_dtype)
 
 
-def __quantize_affine_tinygemm_no_dtype_cast(
+def _quantize_affine_tinygemm_no_dtype_cast(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -539,7 +539,7 @@ def _quantize_affine_no_zero_point(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return __quantize_affine_no_zero_point_no_dtype_cast(
+    return _quantize_affine_no_zero_point_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -549,7 +549,7 @@ def _quantize_affine_no_zero_point(
     ).to(output_dtype)
 
 
-def __quantize_affine_no_zero_point_no_dtype_cast(
+def _quantize_affine_no_zero_point_no_dtype_cast(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -714,7 +714,7 @@ def _dequantize_affine_no_dtype_check(
     return dequant.view(original_shape).to(output_dtype)
 
 
-def __dequantize_affine_no_zero_point_no_dtype_check(
+def _dequantize_affine_no_zero_point_no_dtype_check(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -792,7 +792,7 @@ def _dequantize_affine_no_zero_point(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return __dequantize_affine_no_zero_point_no_dtype_check(
+    return _dequantize_affine_no_zero_point_no_dtype_check(
         input,
         block_size,
         scale,
@@ -803,7 +803,7 @@ def _dequantize_affine_no_zero_point(
     )
 
 
-def __dequantize_affine_tinygemm_no_dtype_check(
+def _dequantize_affine_tinygemm_no_dtype_check(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -887,7 +887,7 @@ def _dequantize_affine_tinygemm(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return __dequantize_affine_tinygemm_no_dtype_check(
+    return _dequantize_affine_tinygemm_no_dtype_check(
         input,
         block_size,
         scale,
@@ -933,7 +933,7 @@ def _fake_quantize_affine(
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
     elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
         raise ValueError("zero_point should be None when zero_point_domain is NONE")
-    (_, fq) = _do__fake_quantize_affine(
+    (_, fq) = _do_fake_quantize_affine(
         input,
         block_size,
         scale,
@@ -979,7 +979,7 @@ def _fake_quantize_affine_cachemask(
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
     elif zero_point_domain is None and zero_point is not None:
         raise ValueError("zero_point should be None when zero_point_domain is NONE")
-    (q, dq) = _do__fake_quantize_affine(
+    (q, dq) = _do_fake_quantize_affine(
         input,
         block_size,
         scale,
@@ -993,7 +993,7 @@ def _fake_quantize_affine_cachemask(
     return (dq, mask)
 
 
-def _do__fake_quantize_affine(
+def _do_fake_quantize_affine(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -1013,11 +1013,11 @@ def _do__fake_quantize_affine(
         _quantize_affine = _quantize_affine_no_dtype_cast
         _dequantize_affine = _dequantize_affine_no_dtype_check
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _quantize_affine = __quantize_affine_tinygemm_no_dtype_cast
-        _dequantize_affine = __dequantize_affine_tinygemm_no_dtype_check
+        _quantize_affine = _quantize_affine_tinygemm_no_dtype_cast
+        _dequantize_affine = _dequantize_affine_tinygemm_no_dtype_check
     elif ZeroPointDomain == ZeroPointDomain.NONE:
-        _quantize_affine = __quantize_affine_no_zero_point_no_dtype_cast
-        _dequantize_affine = __dequantize_affine_no_zero_point_no_dtype_check
+        _quantize_affine = _quantize_affine_no_zero_point_no_dtype_cast
+        _dequantize_affine = _dequantize_affine_no_zero_point_no_dtype_check
     else:
         raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
     q = _quantize_affine(

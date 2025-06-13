@@ -357,7 +357,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [None, (1, 32), (2, 16), (4, 8)])
-    def test__dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
+    def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
 
         device = "cuda"
@@ -387,7 +387,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
-    def test__dequantize_affine_float8_scale_broadcasting(self):
+    def test_dequantize_affine_float8_scale_broadcasting(self):
         """Test that scale broadcasting works correctly for block-wise quantization"""
         device = "cuda"
         # Create input tensor with known block structure

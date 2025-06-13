@@ -25,7 +25,7 @@ class TestGGUFQuantization(unittest.TestCase):
         self.block_size = (1, 32)
         self.dtype = torch.uint4
 
-    def test__choose_qparams_gguf(self):
+    def test_choose_qparams_gguf(self):
         (
             super_block_scale_scale,
             super_block_min_scale,

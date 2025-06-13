@@ -752,7 +752,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test__fake_quantize_affine(self):
+    def test_fake_quantize_affine(self):
         input = torch.randn(10, 10)
 
         mapping_type = MappingType.SYMMETRIC
@@ -788,7 +788,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test__fake_quantize_affine_cachemask(self):
+    def test_fake_quantize_affine_cachemask(self):
         input = torch.randn(10, 10)
 
         mapping_type = MappingType.SYMMETRIC

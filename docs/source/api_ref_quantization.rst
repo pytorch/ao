@@ -63,14 +63,8 @@ Quantization Primitives
 
     choose_qparams_affine
     choose_qparams_affine_with_min_max
-    _choose_qparams_affine_floatx
     quantize_affine
-    _quantize_affine_floatx
     dequantize_affine
-    _dequantize_affine_floatx
-    _choose_qparams_and_quantize_affine_hqq
-    _fake_quantize_affine
-    _fake_quantize_affine_cachemask
     safe_int_mm
     int_scaled_matmul
     MappingType
