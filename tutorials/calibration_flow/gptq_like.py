@@ -48,7 +48,7 @@ from torchao.quantization import (
     LinearActivationQuantizedTensor,
     MappingType,
     PerTensor,
-    fake_quantize_affine,
+    _fake_quantize_affine,
     quantize_,
     to_linear_activation_quantized,
 )
@@ -237,7 +237,9 @@ def prepare_model_for_optimization_(model):
         new_input = []
         for inp in args[0]:
             new_input.append(
-                fake_quantize_affine(inp, inp.shape, input_scale, input_zp, torch.uint8)
+                _fake_quantize_affine(
+                    inp, inp.shape, input_scale, input_zp, torch.uint8
+                )
             )
 
         mt = MultiTensor(new_input)

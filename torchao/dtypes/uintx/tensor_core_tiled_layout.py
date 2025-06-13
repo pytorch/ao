@@ -21,7 +21,7 @@ from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _get_reduction_params,
-    quantize_affine_tinygemm,
+    _quantize_affine_tinygemm,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -511,7 +511,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        int_data = quantize_affine_tinygemm(
+        int_data = _quantize_affine_tinygemm(
             dequantized,
             self.block_size,
             scale,

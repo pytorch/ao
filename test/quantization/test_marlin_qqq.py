@@ -21,7 +21,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
-    choose_qparams_and_quantize_affine_qqq,
+    _choose_qparams_and_quantize_affine_qqq,
 )
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
@@ -102,7 +102,7 @@ class TestMarlinQQQ(TestCase):
 
         for group_size in [-1, 128]:
             # Quantize weights
-            q_w, s_group, s_channel, _ = choose_qparams_and_quantize_affine_qqq(
+            q_w, s_group, s_channel, _ = _choose_qparams_and_quantize_affine_qqq(
                 w, num_bits, group_size
             )
 

@@ -10,9 +10,9 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
-    choose_qparams_gguf,
-    dequantize_gguf,
-    quantize_gguf,
+    _choose_qparams_gguf,
+    _dequantize_gguf,
+    _quantize_gguf,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -130,7 +130,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         block_size = tuple(
             [1] * (self.int_data.ndim - 1) + [_QK_K // self.n_blocks_per_superblock]
         )
-        return dequantize_gguf(
+        return _dequantize_gguf(
             self.int_data,
             block_size,
             self.dtype,
@@ -198,9 +198,9 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             super_block_min_scale,
             quantized_block_scale,
             quantized_block_min,
-        ) = choose_qparams_gguf(input_float, block_size, target_dtype)
+        ) = _choose_qparams_gguf(input_float, block_size, target_dtype)
 
-        int_data = quantize_gguf(
+        int_data = _quantize_gguf(
             input_float,
             block_size,
             target_dtype,

@@ -42,10 +42,10 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    _choose_qparams_affine_float8,
+    _dequantize_affine_float8,
+    _quantize_affine_float8,
     choose_qparams_affine,
-    choose_qparams_affine_float8,
-    dequantize_affine_float8,
-    quantize_affine_float8,
 )
 from torchao.utils import (
     is_sm_at_least_89,
@@ -358,21 +358,21 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [None, (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
-        """Test dequantize_affine_float8 with various configurations"""
+        """Test _dequantize_affine_float8 with various configurations"""
 
         device = "cuda"
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
 
         # Choose quantization parameters
-        scale = choose_qparams_affine_float8(
+        scale = _choose_qparams_affine_float8(
             input_tensor, float8_dtype=float8_dtype, block_size=block_size
         )
 
         # Quantize
-        quantized = quantize_affine_float8(input_tensor, scale, float8_dtype)
+        quantized = _quantize_affine_float8(input_tensor, scale, float8_dtype)
 
         # Dequantize
-        dequantized = dequantize_affine_float8(quantized, scale, output_dtype)
+        dequantized = _dequantize_affine_float8(quantized, scale, output_dtype)
 
         # Verify output properties
         self.assertEqual(dequantized.dtype, output_dtype)
@@ -395,7 +395,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         block_size = (2, 16)  # 2x2 blocks in first dim, 2x16 blocks in second dim
 
         # Choose quantization parameters
-        scale = choose_qparams_affine_float8(
+        scale = _choose_qparams_affine_float8(
             input_tensor, float8_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
@@ -407,10 +407,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self.assertEqual(scale.shape, expected_scale_shape)
 
         # Quantize
-        quantized = quantize_affine_float8(input_tensor, scale, torch.float8_e4m3fn)
+        quantized = _quantize_affine_float8(input_tensor, scale, torch.float8_e4m3fn)
 
         # Dequantize
-        dequantized = dequantize_affine_float8(quantized, scale, torch.float32)
+        dequantized = _dequantize_affine_float8(quantized, scale, torch.float32)
 
         # Verify shapes match
         self.assertEqual(dequantized.shape, input_tensor.shape)

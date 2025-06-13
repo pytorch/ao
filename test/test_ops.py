@@ -23,7 +23,9 @@ from torchao.quantization.marlin_qqq import (
     marlin_qqq_workspace,
     pack_to_marlin_qqq,
 )
-from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
+from torchao.quantization.quant_primitives import (
+    _choose_qparams_and_quantize_affine_qqq,
+)
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -713,7 +715,7 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
     )
 
     # Quantize weights
-    q_w, s_group, s_channel, w_ref = choose_qparams_and_quantize_affine_qqq(
+    q_w, s_group, s_channel, w_ref = _choose_qparams_and_quantize_affine_qqq(
         b_weight, num_bits, group_size
     )
     q_w = q_w.t()

@@ -64,9 +64,9 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     TorchAODType,
     ZeroPointDomain,
+    _fake_quantize_affine,
     choose_qparams_affine,
     dequantize_affine,
-    fake_quantize_affine,
     quantize_affine,
 )
 from torchao.quantization.unified import (
@@ -637,7 +637,7 @@ class TestQAT(unittest.TestCase):
             group_size,
             scales_precision,
         )
-        w_fq = fake_quantize_affine(
+        w_fq = _fake_quantize_affine(
             weight,
             block_size,
             scales,
