@@ -13,6 +13,7 @@ From the team that brought you the fast series
 * 9.5x inference speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
 * 10x inference speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
 * 3x inference speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
+* 2.7x inference speedup for FAIR’s Seamless M4T-v2 model with [seamlessv2-fast](https://pytorch.org/blog/accelerating-generative-ai-4/)
 
 `torchao` isn't just for inference - it delivers substantial speedups at scale, from [up to 1.5x speedups](https://pytorch.org/blog/training-using-float8-fsdp2/) on 512 GPU clusters, to [1.34-1.43x speedups](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/) on 2K H200 clusters with the latest `torchao.float8` rowwise
 

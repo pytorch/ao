@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import importlib.util
 from typing import List
 
 import torch
@@ -25,11 +24,11 @@ __all__ = [
 aten = torch.ops.aten
 
 
-if importlib.util.find_spec("fbgemm_gpu") is None:
+try:
+    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
+except:
     int4_row_quantize_zp = None
     pack_int4 = None
-else:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
 
 
 class FbgemmInt4Tensor(TorchAOBaseTensor):

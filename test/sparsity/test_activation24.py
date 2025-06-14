@@ -171,7 +171,7 @@ def test_sparse24_fp8_sm90_cutlass_gemm_eye(
     # Check MM with scale
     b_scale = torch.randn([1, A.shape[1]], device=eye.device, dtype=torch.float32)
     a_scale = torch.randn([A.shape[0], 1], device=eye.device, dtype=torch.float32)
-    A_reconstructed = torch.ops.torchao._sparse24_fp8_sm90_cutlass_gemm(
+    A_reconstructed = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         A_packed, A_mdata, eye, a_scale=a_scale, b_scale=b_scale
     )
     assert torch.allclose(
