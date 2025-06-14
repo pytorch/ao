@@ -60,7 +60,7 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not (is_sm_version(10, 0) or is_sm_version(12, 0)),
-    reason="CUDA capability >= 10.0 required for mxfloat8",
+    reason="CUDA capability 10.0 or 12.0 is required for mxfloat8",
 )
 @pytest.mark.parametrize(
     "size",
