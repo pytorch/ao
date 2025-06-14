@@ -35,6 +35,7 @@ def get_mx_matmul(A: torch.Tensor, B: torch.Tensor, format: Format):
 
     a_scale, A_lp = to_mx(A, dtype, 32)
     b_scale, B_lp_t = to_mx(B.T, dtype, 32)
+    assert B_lp_t.is_contiguous()
     B_lp = B_lp_t.T
 
     a_scale = to_blocked(a_scale.view(A.shape[0], A.shape[1] // 32))
