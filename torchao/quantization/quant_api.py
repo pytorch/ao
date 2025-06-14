@@ -788,6 +788,16 @@ def _int8_dynamic_activation_int4_weight_transform(
         )
     elif isinstance(layout, CutlassInt4PackedLayout):
         weight = _int4_symm_cutlass_quant(weight)
+    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype=torch.uint8,
+            quant_min=0,
+            quant_max=15,
+            _layout=layout,
+        )
     else:
         weight = to_affine_quantized_intx(
             weight,

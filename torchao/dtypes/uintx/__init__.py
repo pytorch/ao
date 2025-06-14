@@ -4,9 +4,11 @@ from .block_sparse_layout import (
 from .cutlass_int4_packed_layout import (
     CutlassInt4PackedLayout,
 )
+from .dyn_int8_act_int4_wei_cpu_layout import (
+    Int8DynamicActInt4WeightCPULayout,
+)
 from .int4_cpu_layout import (
     Int4CPULayout,
-    Int8DynamicActInt4WeightCPULayout,
 )
 from .int4_xpu_layout import (
     Int4XPULayout,

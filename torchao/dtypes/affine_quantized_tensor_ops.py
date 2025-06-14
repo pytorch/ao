@@ -35,6 +35,10 @@ from torchao.dtypes.uintx.cutlass_int4_packed_layout import (
     _linear_int8_act_int4_weight_cutlass_check,
     _linear_int8_act_int4_weight_cutlass_impl,
 )
+from torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
+    _linear_int8_act_int4_weight_cpu_check,
+    _linear_int8_act_int4_weight_cpu_impl,
+)
 from torchao.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
@@ -42,8 +46,6 @@ from torchao.dtypes.uintx.gemlite_layout import (
 from torchao.dtypes.uintx.int4_cpu_layout import (
     _linear_fp_act_uint4_weight_cpu_check,
     _linear_fp_act_uint4_weight_cpu_impl,
-    _linear_int8_act_int4_weight_cpu_check,
-    _linear_int8_act_int4_weight_cpu_impl,
 )
 from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_bf16_act_uint4_weight_float_zero_check,
