@@ -34,7 +34,9 @@ else:
     dtypes = ()
 
 group_sizes = [32, 64, 128]
-devices = ["cpu", "cuda"]
+devices = ["cpu"]
+if torch.cuda.is_available():
+    devices.append("cuda")
 
 
 @pytest.fixture(autouse=True)
@@ -85,7 +87,6 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
 )
@@ -102,7 +103,6 @@ def test_uintx_weight_only_model_quant(dtype, group_size, device):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
 )
