@@ -1624,6 +1624,9 @@ class TestAutoQuant(unittest.TestCase):
         # Skip certain shapes on older PyTorch versions
         if (m1 == 1 or m2 == 1) and not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
+        # TODO remove this once https://github.com/pytorch/pytorch/issues/155838 is resolved
+        if m1 == 1 or m2 == 1:
+            self.skipTest(f"Shape {(m1, m2, k, n)} is flaky, skipping")
         model = (
             torch.nn.Sequential(
                 torch.nn.ReLU(),
