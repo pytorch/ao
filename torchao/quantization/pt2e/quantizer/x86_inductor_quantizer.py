@@ -49,7 +49,7 @@ FilterFn: TypeAlias = Callable[[list[Node]], bool]
 
 
 if TYPE_CHECKING:
-    from torchao.quantization.pt2e import _ObserverOrFakeQuantizeConstructor
+    from torchao.quantization.pt2e import ObserverOrFakeQuantizeConstructor
 
 __all__ = [
     "X86InductorQuantizer",
@@ -314,7 +314,7 @@ def get_default_x86_inductor_quantization_config(
         ),
     )
 
-    weight_observer_or_fake_quant_ctr: _ObserverOrFakeQuantizeConstructor = (
+    weight_observer_or_fake_quant_ctr: ObserverOrFakeQuantizeConstructor = (
         FusedMovingAvgObsFakeQuantize if is_qat else PerChannelMinMaxObserver
     )
 
