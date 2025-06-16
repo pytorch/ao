@@ -414,37 +414,6 @@ an example can be found in `torchao/_models/llama/eval.py`.
 
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
 
-
-## Developer Notes
-
-### Quantization Primitives
-The quantization primitives are implemented in `torchao/quantization/quant_primitives.py` and can be re-used while adding new quant techniques:
-- Public APIs:
-    - `choose_qparams_affine`
-    - `quantize_affine`
-    - `dequantize_affine`
-- Private APIs:
-    - `_choose_qparams_affine_tinygemm`
-    - `_choose_qparams_affine_dont_preserve_zero`
-    - `_choose_qparams_affine_floatx`
-    - `_choose_qparams_and_quantize_affine_hqq`
-    - `_choose_qparams_and_quantize_affine_qqq`
-    - `_choose_qparams_affine_float8`
-    - `_choose_qparams_gguf`
-    - `_quantize_affine_no_zero_point`
-    - `_quantize_affine_tinygemm`
-    - `_quantize_affine_floatx`
-    - `_quantize_affine_float8`
-    - `_quantize_gguf`
-    - `_dequantize_affine_no_zero_point`
-    - `_dequantize_affine_tinygemm`
-    - `_dequantize_affine_floatx`
-    - `_dequantize_affine_qqq`
-    - `_dequantize_affine_float8`
-    - `_dequantize_gguf`
-    - `_fake_quantize_affine`
-    - `_fake_quantize_affine_cachemask`
-
 ## Notes
 
 1. APIs have been hardware tested on A100 and T4(colab)
