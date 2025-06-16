@@ -41,3 +41,4 @@ for an overall introduction to the library and recent highlight and updates.
    subclass_basic
    subclass_advanced
    pretraining
+   inference
