@@ -427,7 +427,7 @@
             <span class="n">Basic</span> <span class="n">dtypes</span><span class="p">:</span> <span class="n">uint1</span><span class="o">-</span><span class="n">uint7</span><span class="p">,</span> <span class="n">int1</span><span class="o">-</span><span class="n">int8</span><span class="p">,</span> <span class="n">float3</span><span class="o">-</span><span class="n">float8</span>
 </pre></div>
 </div>
-<p>Any quantization algorithm will be using some components from the above stack, for example int4_weight_only quantization uses:
+<p>Any quantization algorithm will be using some components from the above stack, for example int4 weight-only quantization uses:
 (1) weight only quantization flow
 (2) <a class="reference external" href="https://github.com/pytorch/pytorch/blob/136e28f616140fdc9fb78bb0390aeba16791f1e3/aten/src/ATen/native/native_functions.yaml#L4148">tinygemm bf16 activation + int4 weight kernel</a> and <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py">quant primitive ops</a>
 (3) <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py">AffineQuantizedTensor</a> tensor subclass with <a class="reference external" href="https://github.com/pytorch/ao/blob/e41ca4ee41f5f1fe16c59e00cffb4dd33d25e56d/torchao/dtypes/affine_quantized_tensor.py#L573">TensorCoreTiledLayout</a>
@@ -593,7 +593,7 @@ Alternatively, you could also define and <a class="reference external" href="htt
 <h2>Case Study: How int4 weight only quantization works in torchao?<a class="headerlink" href="#case-study-how-int4-weight-only-quantization-works-in-torchao" title="Permalink to this heading">¶</a></h2>
 <p>To connect everything together, here is a more detailed walk through for how int4 weight only quantization is implemented in torchao.</p>
 <dl class="simple">
-<dt>Quantization Flow: quantize_(model, int4_weight_only())</dt><dd><ul class="simple">
+<dt>Quantization Flow: quantize_(model, Int4WeightOnlyConfig())</dt><dd><ul class="simple">
 <li><p>What happens: linear.weight = torch.nn.Parameter(to_affine_quantized_intx(linear.weight), requires_grad=False)</p></li>
 <li><p>quantization primitive ops: choose_qparams and quantize_affine are called to quantize the Tensor</p></li>
 <li><p>quantized Tensor will be <cite>AffineQuantizedTensor</cite>, a quantized tensor with derived dtype (e.g. int4 with scale and zero_point)</p></li>
@@ -607,10 +607,10 @@ Alternatively, you could also define and <a class="reference external" href="htt
 </dl>
 <section id="during-quantization">
 <h3>During Quantization<a class="headerlink" href="#during-quantization" title="Permalink to this heading">¶</a></h3>
-<p>First we start with the API call: <code class="docutils literal notranslate"><span class="pre">quantize_(model,</span> <span class="pre">int4_weight_only())</span></code> what this does is it converts the weights of nn.Linear modules in the model to int4 quantized tensor (<code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> that is int4 dtype, asymmetric, per group quantized), using the layout for tinygemm kernel: <code class="docutils literal notranslate"><span class="pre">tensor_core_tiled</span></code> layout.</p>
+<p>First we start with the API call: <code class="docutils literal notranslate"><span class="pre">quantize_(model,</span> <span class="pre">Int4WeightOnlyConfig())</span></code> what this does is it converts the weights of nn.Linear modules in the model to int4 quantized tensor (<code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> that is int4 dtype, asymmetric, per group quantized), using the layout for tinygemm kernel: <code class="docutils literal notranslate"><span class="pre">tensor_core_tiled</span></code> layout.</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/4865ee61340cc63a1469f437388067b853c9289e/torchao/quantization/quant_api.py#L403">quantize_</a>: the model level API that quantizes the weight of linear by applying the conversion function from user (second argument)</p></li>
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/quantization/quant_api.py#L522">int4_weight_only</a>: the function that returns a function that converts weight of linear to int4 weight only quantized weight
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">quantize_</a>: the model level API that quantizes the weight of linear by applying the conversion function from user (second argument)</p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig">Int4WeightOnlyConfig</a>: the function that returns a function that converts weight of linear to int4 weight only quantized weight
 * Calls quantization primitives ops like choose_qparams_affine and quantize_affine to quantize the Tensor</p></li>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L573">TensorCoreTiledLayout</a>: the tensor core tiled layout type, storing parameters for the packing format</p></li>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L1376">TensorCoreTiledAQTTensorImpl</a>: the tensor core tiled TensorImpl, stores the packed weight for efficient int4 weight only kernel (tinygemm kernel)</p></li>
