@@ -35,7 +35,7 @@ class TransformerEvalWrapper(eval_wrapper):
         self, model, tokenizer, max_seq_length, input_prep_func=None, device="cuda"
     ):
         try:
-            super().__init__()
+            super().__init__(device=device)
         except TypeError:
             # lm_eval 0.4.2 removed the default init
             super().__init__("gpt2", device="cpu")
