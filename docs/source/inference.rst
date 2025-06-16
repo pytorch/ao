@@ -1,4 +1,4 @@
-Inference Tutorial: From Quantization to Deployment
+Inference Tutorial: From Quantization to Serving
 ===================================================
 
 This tutorial demonstrates how to perform post-training quantization and deploy models for inference using torchao's integration with popular frameworks. All quantization techniques shown here use torchao as the underlying optimization engine, seamlessly integrated through HuggingFace Transformers, vLLM, and ExecuTorch.
