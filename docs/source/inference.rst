@@ -69,52 +69,6 @@ Float8 dynamic quantization shows 36% reduction in model size with minimal accur
     output = pipe(messages, **generation_args)
     print(output[0]['generated_text'])
 
-
-Advanced: Per-Layer Quantization Control
-----------------------------------------
-
-For models where you need different quantization strategies for different layers:
-
-.. code-block:: python
-
-    from torchao.quantization import (
-        IntxWeightOnlyConfig,
-        Int8DynamicActivationIntxWeightConfig,
-        ModuleFqnToConfig
-    )
-    from torchao.quantization.granularity import PerAxis, PerGroup
-
-    # Different configs for different layer types
-    embedding_config = IntxWeightOnlyConfig(
-        weight_dtype=torch.int8,
-        granularity=PerAxis(0)
-    )
-
-    linear_config = Int8DynamicActivationIntxWeightConfig(
-        weight_dtype=torch.int4,
-        weight_granularity=PerGroup(32),
-        weight_scale_dtype=torch.bfloat16
-    )
-
-    # Map specific layers to configs - torchao applies optimizations per layer
-    quant_config = ModuleFqnToConfig({
-        "_default": linear_config,
-        "model.embed_tokens": embedding_config,
-        "lm_head": embedding_config
-    })
-
-    quantization_config = TorchAoConfig(
-        quant_type=quant_config,
-        include_embedding=True
-    )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
-        device_map="auto"
-    )
-
 Sparsity Integration
 ####################
 
@@ -232,60 +186,122 @@ ExecuTorch enables on-device inference using torchao's mobile-optimized quantiza
 Preparing Models for Mobile
 ----------------------------
 
-**Step 1: Create Mobile-Optimized Quantization**
+**Step 1: Untie Embedding Weights**
 
+We want to quantize the embedding and lm_head differently. Since those layers are tied, we first need to untie the model:
 .. code-block:: python
 
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-    from torchao.quantization import (
-        IntxWeightOnlyConfig,
-        Int8DynamicActivationIntxWeightConfig,
-        ModuleFqnToConfig
+    from transformers import (
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoTokenizer,
     )
-    from torchao.quantization.granularity import PerAxis, PerGroup
+    import torch
 
     model_id = "microsoft/Phi-4-mini-instruct"
+    untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Mobile-optimized quantization scheme using torchao
+    print(untied_model)
+    from transformers.modeling_utils import find_tied_parameters
+    print("tied weights:", find_tied_parameters(untied_model))
+    if getattr(untied_model.config.get_text_config(decoder=True), "tie_word_embeddings"):
+        setattr(untied_model.config.get_text_config(decoder=True), "tie_word_embeddings", False)
+
+    untied_model._tied_weights_keys = []
+    untied_model.lm_head.weight = torch.nn.Parameter(untied_model.lm_head.weight.clone())
+
+    print("tied weights:", find_tied_parameters(untied_model))
+
+    USER_ID = "YOUR_USER_ID"
+    MODEL_NAME = model_id.split("/")[-1]
+    save_to = f"{USER_ID}/{MODEL_NAME}-untied-weights"
+
+    untied_model.push_to_hub(save_to)
+    tokenizer.push_to_hub(save_to)
+
+    # or save locally
+    save_to_local_path = f"{MODEL_NAME}-untied-weights"
+    untied_model.save_pretrained(save_to_local_path)
+    tokenizer.save_pretrained(save_to)
+
+**Step 2: Create Mobile-Optimized Quantization**
+
+Quantizing the model for mobile deployment using torchao's Int8DynamicActivationIntxWeightConfig configuration:
+.. code-block:: python
+
+    from transformers import (
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoTokenizer,
+    TorchAoConfig,
+    )
+    from torchao.quantization.quant_api import (
+        IntxWeightOnlyConfig,
+        Int8DynamicActivationIntxWeightConfig,
+        ModuleFqnToConfig,
+        quantize_,
+    )
+    from torchao.quantization.granularity import PerGroup, PerAxis
+    import torch
+
+    # we start from the model with untied weights
+    model_id = "microsoft/Phi-4-mini-instruct"
+    USER_ID = "YOUR_USER_ID"
+    MODEL_NAME = model_id.split("/")[-1]
+    untied_model_id = f"{USER_ID}/{MODEL_NAME}-untied-weights"
+    untied_model_local_path = f"{MODEL_NAME}-untied-weights"
+
     embedding_config = IntxWeightOnlyConfig(
         weight_dtype=torch.int8,
-        granularity=PerAxis(0)
+        granularity=PerAxis(0),
     )
-
     linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
         weight_granularity=PerGroup(32),
-        weight_scale_dtype=torch.bfloat16
+        weight_scale_dtype=torch.bfloat16,
     )
+    quant_config = ModuleFqnToConfig({"_default": linear_config, "model.embed_tokens": embedding_config})
+    quantization_config = TorchAoConfig(quant_type=quant_config, include_embedding=True, untie_embedding_weights=True, modules_to_not_convert=[])
 
-    # 8da4w configuration optimized by torchao for mobile
-    quant_config = ModuleFqnToConfig({
-        "_default": linear_config,
-        "model.embed_tokens": embedding_config
-    })
-
-    quantization_config = TorchAoConfig(
-        quant_type=quant_config,
-        include_embedding=True,
-        untie_embedding_weights=True
-    )
-
-    # Load with mobile-optimized settings
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype=torch.float32,  # Required for mobile export
-        quantization_config=quantization_config,
-        device_map="cpu"  # Export from CPU
-    )
-
+    # either use `untied_model_id` or `untied_model_local_path`
+    quantized_model = AutoModelForCausalLM.from_pretrained(untied_model_id, torch_dtype=torch.float32, device_map="auto", quantization_config=quantization_config)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Save quantized model
-    model.save_pretrained("./phi4-mini-8da4w-mobile")
-    tokenizer.save_pretrained("./phi4-mini-8da4w-mobile")
+    # Push to hub
+    MODEL_NAME = model_id.split("/")[-1]
+    save_to = f"{USER_ID}/{MODEL_NAME}-8da4w"
+    quantized_model.push_to_hub(save_to, safe_serialization=False)
+    tokenizer.push_to_hub(save_to)
 
-**Step 2: Export to ExecuTorch**
+    # Manual testing
+    prompt = "Hey, are you conscious? Can you talk to me?"
+    messages = [
+        {
+            "role": "system",
+            "content": "",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    templated_prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    print("Prompt:", prompt)
+    print("Templated prompt:", templated_prompt)
+    inputs = tokenizer(
+        templated_prompt,
+        return_tensors="pt",
+    ).to("cuda")
+    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
+    output_text = tokenizer.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    print("Response:", output_text[0][len(prompt):])
+
+
+**Step 3: Export to ExecuTorch**
 
 .. code-block:: bash
 
@@ -295,20 +311,22 @@ Preparing Models for Mobile
     ./install_requirements.sh
 
     # Convert checkpoint format for ExecuTorch
-    .. Add code here..
+    python -m executorch.examples.models.phi_4_mini.convert_weights pytorch_model.bin pytorch_model_converted.bin
 
     # Export to PTE format with torchao optimizations preserved
+    PARAMS="executorch/examples/models/phi_4_mini/config.json"
     python -m executorch.examples.models.llama.export_llama \
         --model "phi_4_mini" \
-        --checkpoint "./phi4-mini-8da4w-mobile/pytorch_model_converted.bin" \
-        --params "./phi4-mini-8da4w-mobile/config.json" \
+        --checkpoint "pytorch_model_converted.bin" \
+        --params "$PARAMS" \
         -kv \
         --use_sdpa_with_kv_cache \
         -X \
         --metadata '{"get_bos_id":199999, "get_eos_ids":[200020,199999]}' \
-        --max_seq_length 512 \
-        --max_context_length 512 \
-        --output_name="phi4-mini-8da4w-mobile.pte"
+        --max_seq_length 128 \
+        --max_context_length 128 \
+        --output_name="phi4-mini-8da4w.pte"
+
 
 Mobile Performance Characteristics
 ----------------------------------
@@ -343,19 +361,14 @@ Evaluate quantized models using lm-evaluation-harness:
 .. code-block:: bash
 
     # Install evaluation framework
-    pip install lm-eval[all]
+    # Need to install lm-eval from source: https://github.com/EleutherAI/lm-evaluation-harness#install
 
     # Evaluate baseline model
-    lm_eval --model hf \
-            --model_args pretrained=meta-llama/Llama-3.1-8B-Instruct \
-            --tasks mmlu,arc_challenge,hellaswag,winogrande \
-            --batch_size 8
+    lm_eval --model hf --model_args pretrained=microsoft/Phi-4-mini-instruct --tasks hellaswag --device cuda:0 --batch_size 8
 
-    # Evaluate torchao-quantized model
-    lm_eval --model hf \
-            --model_args pretrained=nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128 \
-            --tasks mmlu,arc_challenge,hellaswag,winogrande \
-            --batch_size 8
+    # Evaluate torchao-quantized model (float8dq)
+    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
+
 
 Performance Benchmarking
 ------------------------
@@ -365,81 +378,91 @@ Performance Benchmarking
 .. code-block:: python
 
     import torch
-    from transformers import AutoModelForCausalLM
-    import psutil
-    import os
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
-    def measure_memory_usage(model_id, quantization_config=None):
-        process = psutil.Process(os.getpid())
-        mem_before = process.memory_info().rss / 1024 / 1024 / 1024  # GB
+    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
+    model_id = "pytorch/Phi-4-mini-instruct-float8dq"
+    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            quantization_config=quantization_config,
-            torch_dtype=torch.bfloat16,
-            device_map="auto"
-        )
+    torch.cuda.reset_peak_memory_stats()
 
-        mem_after = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-        model_memory = mem_after - mem_before
+    prompt = "Hey, are you conscious? Can you talk to me?"
+    messages = [
+        {
+            "role": "system",
+            "content": "",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    templated_prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    print("Prompt:", prompt)
+    print("Templated prompt:", templated_prompt)
+    inputs = tokenizer(
+        templated_prompt,
+        return_tensors="pt",
+    ).to("cuda")
+    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
+    output_text = tokenizer.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    print("Response:", output_text[0][len(prompt):])
 
-        return model_memory
+    mem = torch.cuda.max_memory_reserved() / 1e9
+    print(f"Peak Memory Usage: {mem:.02f} GB")
 
-    # Compare memory usage
-    baseline_memory = measure_memory_usage("meta-llama/Llama-3.1-8B-Instruct")
 
-    from transformers import TorchAoConfig
-    from torchao.quantization import Int4WeightOnlyConfig
-    quant_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig())
-    quantized_memory = measure_memory_usage("meta-llama/Llama-3.1-8B-Instruct", quant_config)
+| Benchmark | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
+|-----------|----------------|------------------------------|
+| Peak Memory (GB) | 8.91 |	5.70 (36% reduction) |
 
-    print(f"Baseline model: {baseline_memory:.2f} GB")
-    print(f"Int4 quantized: {quantized_memory:.2f} GB")
-    print(f"Memory reduction: {(1 - quantized_memory/baseline_memory)*100:.1f}%")
 
 **Latency Benchmarking**:
 
-.. code-block:: python
+.. code-block:: bash
 
-    import time
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    # baseline
+    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
 
-    def benchmark_latency(model, tokenizer, prompt, num_runs=10):
-        messages = [{"role": "user", "content": prompt}]
-        inputs = tokenizer.apply_chat_template(messages, return_tensors="pt").to("cuda")
+    # float8dq
+    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
 
-        # Warmup
-        for _ in range(3):
-            with torch.no_grad():
-                _ = model.generate(inputs, max_new_tokens=100, do_sample=False)
+**Serving Benchmarking**:
 
-        # Benchmark
-        torch.cuda.synchronize()
-        start_time = time.time()
+We benchmarked the throughput in a serving environment.
 
-        for _ in range(num_runs):
-            with torch.no_grad():
-                outputs = model.generate(inputs, max_new_tokens=100, do_sample=False)
+.. code-block:: bash
+    # Download sharegpt dataset:
+    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
 
-        torch.cuda.synchronize()
-        end_time = time.time()
+    # Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
+    # Note: you can change the number of prompts to be benchmarked with --num-prompts argument for benchmark_serving script.
 
-        avg_latency = (end_time - start_time) / num_runs
-        tokens_generated = outputs.shape[1] - inputs.shape[1]
-        throughput = tokens_generated / avg_latency
+    # For baseline
+    # Server:
+    vllm serve microsoft/Phi-4-mini-instruct --tokenizer microsoft/Phi-4-mini-instruct -O3
+    # Client:
+    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
 
-        return avg_latency, throughput
+    # For float8dq
+    # Server:
+    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+    # Client:
+    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
 
-    # Benchmark both models
-    prompt = "Explain the theory of relativity in simple terms."
 
-    baseline_latency, baseline_throughput = benchmark_latency(baseline_model, tokenizer, prompt)
-    quantized_latency, quantized_throughput = benchmark_latency(quantized_model, tokenizer, prompt)
+**Results (H100 machine)**
 
-    print(f"Baseline: {baseline_latency:.3f}s ({baseline_throughput:.1f} tok/s)")
-    print(f"Quantized: {quantized_latency:.3f}s ({quantized_throughput:.1f} tok/s)")
-    print(f"Speedup: {baseline_latency/quantized_latency:.2f}x")
+| Benchmark | Phi-4 mini-Ins |	Phi-4-mini-instruct-float8dq |
+|-----------|----------------|------------------------------|
+| latency (batch_size=1) |	1.64s	| 1.41s (1.16x speedup) |
+| latency (batch_size=128) |	3.1s	| 2.72s (1.14x speedup) |
+| serving (num_prompts=1) |	1.35 req/s |	1.57 req/s (1.16x speedup) |
+| serving (num_prompts=1000) |	66.68 req/s |	80.53 req/s (1.21x speedup) |
 
 
 Conclusion
