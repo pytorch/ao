@@ -56,8 +56,8 @@ for efficient mixed dtype matrix multiplication:
 .. code:: py
 
   # torch 2.4+ only
-  from torchao.quantization import int4_weight_only, quantize_
-  quantize_(model, int4_weight_only(group_size=32))
+  from torchao.quantization import Int4WeightOnlyConfig, quantize_
+  quantize_(model, Int4WeightOnlyConfig(group_size=32))
 
 The quantized model is now ready to use! Note that the quantization
 logic is inserted through tensor subclasses, so there is no change
