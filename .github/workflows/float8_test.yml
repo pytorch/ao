@@ -53,6 +53,4 @@ jobs:
         uv pip install -r dev-requirements.txt
         uv pip install vllm
         pip install .
-        pytest test/float8 --verbose -s
-        pytest test/integration --verbose -s
-        pytest test/dtypes/test_affine_quantized_float.py --verbose -s
+        pytest test/ --verbose -s
