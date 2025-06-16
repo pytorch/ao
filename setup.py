@@ -495,9 +495,7 @@ def get_extensions():
         # Remove ROCm-based sources from the sources list.
         extensions_rocm_dir = os.path.join(extensions_dir, "rocm")
         rocm_sources = list(
-            glob.glob(
-                os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True
-            )
+            glob.glob(os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True)
         )
         sources = [s for s in sources if s not in rocm_sources]
 
