@@ -5,6 +5,8 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/groupwise_lowbit_weight_with_lut/utils.h>
+
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -13,18 +15,9 @@
 #include <vector>
 
 namespace torchao::kernels::cpu::aarch64::linear::
-    groupwise_lowbit_weight::weight_packing {
+    groupwise_lowbit_weight_with_lut::weight_packing {
 
 namespace internal {
-
-constexpr int gcd(int a, int b) {
-    while (b) {
-        a %= b;
-        std::swap(a, b);
-    }
-    return a;
-}
-
 /**
  * @brief Promotes a low-bit LUT to a 16-byte format and copies it to the destination.
  *
@@ -129,168 +122,184 @@ map_values(int8_t* dst, const uint8_t* src, int8x16_t lut, int size) {
   }
 }
 
-} // namespace internal
 
+
+void pack_region(uint8_t* dst, const uint8_t* src, size_t count, int nbit) {
+  using namespace torchao::bitpacking;
+  if (nbit == 4) {
+      assert(count % 32 == 0 && "For NEON 4-bit packing, count should be a multiple of 32");
+      for (size_t i = 0; i < count; i += 32) {
+          // Load and de-interleave 32 source bytes into two 16-byte vectors.
+          // in.val[0] will get src[i], src[i+2], ... (low nibbles)
+          // in.val[1] will get src[i+1], src[i+3], ... (high nibbles)
+          uint8x16x2_t in = vld2q_u8(src + i);
+
+          // Call the highly-optimized packing routine.
+          vec_pack_32_lowbit_values<nbit>(dst, in.val[0], in.val[1]);
+
+          // Advance the destination pointer by the number of bytes written.
+          dst += 16;
+      }
+      return;
+  }
+}
+
+// Use the shared layout definition from the common header
+using torchao::kernels::cpu::aarch64::common::layouts::FusedLutPackedWeightGroup;
 
 /**
- * @brief Calculates the total size in bytes required for the packed weight buffer.
+ * @brief A temporary, packer-side structure for holding a group's metadata
+ *        before it is transposed into its final, hardware-friendly format.
  *
- * The caller should use this function to allocate a sufficiently large buffer
- * before calling pack_weights_granular.
+ * This struct is designed to be easy to populate with the fused LUT and bias.
  */
-template<int weight_nbit, int NR>
-size_t packed_weights_size(
-    int N,
-    int K,
-    bool has_bias,
-    int scale_group_size,
-    int lut_group_size,
-    int packing_group_size) {
+template <int NR>
+struct PlainMetadataGroup {
+    static_assert(NR > 0 && NR % 4 == 0, "NR must be a positive multiple of 4");
+    // The LUT is always 16 floats (promoted and fused with scale)
+    alignas(16 * sizeof(float)) float fused_lut[16];
+    // Bias is a simple array of NR floats.
+    float bias[NR];
+};
 
-  constexpr int lut_size_per_entry = (1 << weight_nbit);
-  constexpr int lut_buffer_size = 16;
+/**
+ * @brief (UPDATED) Transposes the easy-to-populate PlainMetadataGroup into the
+ *        final FusedLutPackedWeightGroup format for the packed buffer.
+ *
+ * @param out Pointer to the destination in the packed buffer (the header).
+ * @param in Pointer to the temporary, populated metadata group.
+ * @param has_bias Flag to indicate if the bias data should be packed.
+ */
+template <int NR>
+inline void transpose_metadata_to_packed_format(
+    FusedLutPackedWeightGroup<NR>* out,
+    const PlainMetadataGroup<NR>* in,
+    bool has_bias)
+{
+    // 1. Transpose the 16-entry fused LUT.
+    // This uses a 4x4 transpose operation on the 16 floats.
+    float32x4x4_t loaded_lut = vld4q_f32(in->fused_lut);
+    out->transposed_lut[0] = loaded_lut.val[0];
+    out->transposed_lut[1] = loaded_lut.val[1];
+    out->transposed_lut[2] = loaded_lut.val[2];
+    out->transposed_lut[3] = loaded_lut.val[3];
 
-  int N_padded = ((N + NR - 1) / NR) * NR;
-  int num_scale_groups_per_col = (K + scale_group_size - 1) / scale_group_size;
-  int num_lut_groups_per_col = (K + lut_group_size - 1) / lut_group_size;
-  int num_packing_groups_per_col = K / packing_group_size;
+    // 2. Block the bias into NEON vectors.
+    if (has_bias) {
+        for (int i = 0; i < (NR / 4); ++i) {
+            out->bias[i] = vld1q_f32(&in->bias[i * 4]);
+        }
+    }
+}
 
-  size_t packed_qvals_bytes = (size_t)N_padded * K * weight_nbit / 8;
-  size_t luts_bytes = (size_t)N_padded * num_lut_groups_per_col * lut_buffer_size;
-  size_t scales_bytes = (size_t)N_padded * num_scale_groups_per_col * sizeof(float);
-  size_t qvals_sum_bytes = (size_t)N_padded * num_packing_groups_per_col * sizeof(int32_t);
-  size_t biases_bytes = has_bias ? (size_t)N_padded * sizeof(float) : 0;
+} // namespace internal
 
-  return packed_qvals_bytes + luts_bytes + scales_bytes + qvals_sum_bytes + biases_bytes;
+/**
+ * @brief Calculates the total size by delegating to the shared layout factory.
+ */
+ template<int NR>
+ size_t packed_weights_size_for_fused_lut_kernel(
+     int N, int K, bool has_bias, int scale_group_size, int lut_group_size,
+     int weight_nbit,
+     bool promote_to_4bit_layout) {
+
+     // The sizer's only job is to create the layout and return the total size.
+     FusedLutPackedLayout layout = internal::create_fused_lut_layout<NR>(
+         N, K, scale_group_size, lut_group_size, weight_nbit, promote_to_4bit_layout
+     );
+
+     return layout.total_buffer_size;
 }
 
 
-template <int weight_nbit, int NR, int kr, int sr>
-void pack_weights_flexible(
-    // Output
+
+/**
+* @brief Packs weights by pre-fusing the scale into the LUT,
+*        using a shared layout definition for all size calculations.
+*/
+/**
+* @brief (Final Corrected) Packs weights by pre-fusing the scale into the LUT.
+*/
+template <int weight_nbit, int NR>
+void pack_weights_with_fused_lut(
     void* packed_weights_ptr,
-    // Inputs
-    const uint8_t* B_qvals, // Shape (K, N)
+    const uint8_t* B_qvals,
     const std::vector<float>& weight_scales,
     const std::vector<float>& weight_luts,
-    const std::vector<std::array<float, NR>>& biases,
+    const std::vector<float>& biases,
     bool has_bias,
-    int N,
-    int K,
-    int scale_group_size,
-    int lut_group_size) {
+    int N, int K, int scale_group_size, int lut_group_size,
+    bool promote_to_4bit_layout) {
 
-  // --- 1. Define Fundamental Granularity and Validate Parameters ---
-  const int fundamental_group_size = internal::gcd(scale_group_size, lut_group_size);
+    namespace packing_internal = torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight::weight_packing::internal;
 
-  static_assert(weight_nbit >= 1 && weight_nbit <= 4, "weight_nbit must be between 1 and 4.");
-  assert(K > 0 && N > 0 && packed_weights_ptr != nullptr);
-  assert(K % fundamental_group_size == 0 && "K must be a multiple of the fundamental group size (GCD).");
-  assert(fundamental_group_size % kr == 0 && "Fundamental group size must be a multiple of kr.");
-  assert(scale_group_size % fundamental_group_size == 0 && "Scale group size must be a multiple of the fundamental size.");
-  assert(lut_group_size % fundamental_group_size == 0 && "LUT group size must be a multiple of the fundamental size.");
+    // --- 1. Get the single source of truth for the layout ---
+    FusedLutPackedLayout layout = create_fused_lut_layout<NR>(
+        N, K, scale_group_size, lut_group_size, weight_nbit, promote_to_4bit_layout);
 
-  constexpr int lut_size_per_entry = (1 << weight_nbit);
-  constexpr int lut_buffer_size = 16;
+    // --- 2. Define Packing Granularity and Constants ---
+    const int packing_group_size = std::gcd(scale_group_size, lut_group_size);
+    assert(K % packing_group_size == 0);
 
-  // --- 2. Calculate Memory Layout ---
-  int N_padded = ((N + NR - 1) / NR) * NR;
-  int num_scale_groups_per_col = K / scale_group_size;
-  int num_lut_groups_per_col = K / lut_group_size;
-  int num_packing_groups_per_col = K / fundamental_group_size;
+    // This is the number of entries in the SOURCE LUT. It's always based on the original weight_nbit.
+    constexpr int src_lut_size_per_entry = (1 << weight_nbit);
 
-  size_t packed_qvals_bytes = (size_t)N_padded * K * weight_nbit / 8;
-  size_t luts_bytes = (size_t)N_padded * num_lut_groups_per_col * lut_buffer_size;
-  size_t scales_bytes = (size_t)N_padded * num_scale_groups_per_col * sizeof(float);
-  size_t qvals_sum_bytes = (size_t)N_padded * num_packing_groups_per_col * sizeof(int32_t);
+    // --- 3. Allocate Temporary Buffers ---
+    packing_internal::PlainMetadataGroup<NR> temp_group = {}; // Reusable temporary group
+    std::vector<uint8_t> B_block_col_major(K * NR);
+    std::vector<uint8_t> indices_to_pack(packing_group_size * NR);
 
-  // --- 3. Set Up Output Pointers ---
-  auto base_ptr = static_cast<char*>(packed_weights_ptr);
-  auto packed_qvals_out_ptr = reinterpret_cast<uint8_t*>(base_ptr);
-  auto luts_out_ptr = reinterpret_cast<int8_t*>(base_ptr + packed_qvals_bytes);
-  auto scales_out_ptr = reinterpret_cast<float*>(base_ptr + packed_qvals_bytes + luts_bytes);
-  auto qvals_sum_out_ptr = reinterpret_cast<int32_t*>(base_ptr + packed_qvals_bytes + luts_bytes + scales_bytes);
-  float* biases_out_ptr = has_bias ? reinterpret_cast<float*>(base_ptr + packed_qvals_bytes + luts_bytes + scales_bytes + qvals_sum_bytes) : nullptr;
+    // --- 4. Main Packing Loop ---
+    char* out_ptr = static_cast<char*>(packed_weights_ptr);
+    const int N_padded = ((N + NR - 1) / NR) * NR;
 
-  // --- 4. Allocate Temporary Buffers ---
-  std::vector<uint8_t> B_block_col_major(K * NR);
-  std::array<int8_t, kr * NR> buffer;
-  int8_t packed_values_interleaved[buffer.size()];
-  std::array<int8_t, kr> mapped_val_buffer;
-
-  // --- 5. Main Packing Loop ---
-  for (int n_start = 0; n_start < N_padded; n_start += NR) {
-    // 5.1. Transpose a KxNR block for cache efficiency
-    for (int k_idx = 0; k_idx < K; ++k_idx) {
-        for (int j = 0; j < NR; ++j) {
-            B_block_col_major[j * K + k_idx] = (n_start + j < N) ? B_qvals[k_idx * N + (n_start + j)] : 0;
-        }
-    }
-
-    // 5.2. Pre-pack all metadata for the KxNR block
-    for (int k_meta = 0; k_meta < K; k_meta += kr) { // Iterate at finest grain to be safe
-        if (k_meta % scale_group_size == 0) {
+    for (int n_start = 0; n_start < N_padded; n_start += NR) {
+        // 4.1. Transpose a KxNR block for cache efficiency
+        for (int k_idx = 0; k_idx < K; ++k_idx) {
             for (int j = 0; j < NR; ++j) {
-                if (n_start + j < N) {
-                    int scale_group_idx = k_meta / scale_group_size;
-                    scales_out_ptr[(n_start + j) * num_scale_groups_per_col + scale_group_idx] = weight_scales[(n_start + j) * num_scale_groups_per_col + scale_group_idx];
-                }
+                B_block_col_major[j * K + k_idx] = (n_start + j < N) ? B_qvals[k_idx * N + (n_start + j)] : 0;
             }
         }
-        if (k_meta % lut_group_size == 0) {
-            for (int j = 0; j < NR; ++j) {
-                if (n_start + j < N) {
-                    int lut_group_idx = k_meta / lut_group_size;
-                    int8_t* lut_dst = luts_out_ptr + ((n_start + j) * num_lut_groups_per_col + lut_group_idx) * lut_buffer_size;
-                    const float* lut_src = &weight_luts[((n_start + j) * num_lut_groups_per_col + lut_group_idx) * lut_size_per_entry];
-                    internal::promote_and_pack_lut<weight_nbit>(lut_dst, lut_src);
+
+        // 4.2. Process the block in packing_group_size chunks
+        for (int k_group_start = 0; k_group_start < K; k_group_start += packing_group_size) {
+            // --- Fusing Logic ---
+            int weight_1d_idx = n_start * K + k_group_start;
+            int scale_idx = weight_1d_idx / scale_group_size;
+            int lut_idx = weight_1d_idx / lut_group_size;
+            float scale = weight_scales.empty() ? 1.0f : weight_scales[scale_idx];
+            // The source LUT pointer calculation correctly uses the original bit width.
+            const float* lut_src = weight_luts.data() + lut_idx * src_lut_size_per_entry;
+
+            // Populate the temporary metadata group
+            std::fill(std::begin(temp_group.fused_lut), std::end(temp_group.fused_lut), 0.0f);
+            for (int i = 0; i < src_lut_size_per_entry; ++i) {
+                temp_group.fused_lut[i] = scale * lut_src[i];
+            }
+            if (has_bias) {
+                std::copy(&biases[n_start], &biases[n_start + NR], temp_group.bias);
+            }
+
+            // A. Pack the header
+            auto* header_dst = reinterpret_cast<FusedLutPackedWeightGroup<NR>*>(out_ptr);
+            packing_internal::transpose_metadata_to_packed_format<NR>(header_dst, &temp_group, has_bias);
+
+            // B. Gather indices for this group
+            auto* indices_dst = out_ptr + layout.header_bytes_per_group;
+            for (int k_offset = 0; k_offset < packing_group_size; ++k_offset) {
+                for (int nr_idx = 0; nr_idx < NR; ++nr_idx) {
+                    indices_to_pack[k_offset * NR + nr_idx] =
+                        B_block_col_major[(nr_idx * K) + (k_group_start + k_offset)];
                 }
             }
+
+            // C. Call the bitpacking routine with the correct effective bit width
+            int effective_bit_width = promote_to_4bit_layout ? 4 : weight_nbit;
+            pack_region_scalar(indices_dst, indices_to_pack.data(), packing_group_size * NR, effective_bit_width)
+            // D. Advance the main output pointer
+            out_ptr += layout.size_of_one_physical_group;
         }
     }
-
-    // 5.3. Process weights and calculate sums group by group
-    for (int k_outer = 0; k_outer < K; k_outer += fundamental_group_size) {
-
-      std::array<int32_t, NR> current_qvals_sum;
-      current_qvals_sum.fill(0);
-
-      // This inner loop processes one fundamental group
-      for (int k_inner = 0; k_inner < fundamental_group_size; k_inner += kr) {
-        int k_current = k_outer + k_inner;
-
-        // Select the correct LUT for this kr-sized micro-block. This is robust.
-        int lut_group_idx = k_current / lut_group_size;
-        int8x16_t lut_for_mapping = vld1q_s8(luts_out_ptr + ((n_start * num_lut_groups_per_col) + lut_group_idx) * lut_buffer_size);
-
-        for (int j = 0; j < NR; j++) {
-            std::memcpy(buffer.data() + kr * j, B_block_col_major.data() + j * K + k_current, kr);
-            internal::map_values(mapped_val_buffer.data(), (const uint8_t*)(buffer.data() + kr * j), lut_for_mapping, kr);
-            current_qvals_sum[j] += reduction::compute_sum(mapped_val_buffer.data(), kr);
-        }
-
-        internal::pack_values(packed_values_interleaved, buffer.data(), NR, kr, sr);
-        size_t qvals_write_offset = ((size_t)n_start * K + (size_t)k_current * NR) * weight_nbit / 8;
-        internal::pack_buffer_for_lut<weight_nbit, kr, NR>(packed_qvals_out_ptr + qvals_write_offset, packed_values_interleaved);
-      }
-
-      // Store the final accumulated sum for the fundamental group.
-      int packing_group_idx = k_outer / fundamental_group_size;
-      for (int j = 0; j < NR; j++) {
-        qvals_sum_out_ptr[((n_start + j) * num_packing_groups_per_col) + packing_group_idx] = current_qvals_sum[j];
-      }
-    }
-  }
-
-  if (has_bias) {
-    for (int n_block = 0; n_block < N_padded / NR; ++n_block) {
-      if (n_block < biases.size()) {
-        std::memcpy(biases_out_ptr + n_block * NR, biases[n_block].data(), NR * sizeof(float));
-      } else {
-        std::memset(biases_out_ptr + n_block * NR, 0, NR * sizeof(float));
-      }
-    }
-  }
 }
 
 } // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight::weight_packing
