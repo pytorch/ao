@@ -491,6 +491,13 @@ def get_extensions():
             print("Currently only gfx942 is supported. Compiling only for gfx942.")
         extra_compile_args["nvcc"].append("--offload-arch=gfx942")
         sources += rocm_sources
+    else:
+        # Remove ROCm-based sources from the sources list.
+        extensions_rocm_dir = os.path.join(extensions_dir, "rocm")
+        rocm_sources = list(
+            glob.glob(os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in rocm_sources]
 
     use_cutlass = False
     cutlass_90a_sources = None
