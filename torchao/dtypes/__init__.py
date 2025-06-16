@@ -20,6 +20,7 @@ from .uintx import (
     CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
     MarlinSparseLayout,
@@ -67,4 +68,5 @@ __all__ = [
     "FbgemmInt4Tensor",
     "to_fbgemm_fp8",
     "FbgemmFp8Tensor",
+    "Int8DynamicActInt4WeightCPULayout",
 ]
