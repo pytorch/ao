@@ -26,7 +26,7 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
+from torchao.prototype.moe_training.scaled_grouped_mm import (
     _scaled_grouped_mm,
 )
 from torchao.testing.utils import skip_if_rocm
