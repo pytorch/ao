@@ -165,7 +165,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             # compare to AffineQuantizedTensor instance
             q = q.view(original_shape)
             ref = getattr(m_ref, n).weight.dequantize()
-            self.assertTrue(q.equal(ref))
+            torch.testing.assert_close(q, ref, atol=0, rtol=0)
 
     def compare_parq_convert(
         self,
@@ -193,8 +193,8 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             p = module.weight.dequantize()  # PARQ weight after quantize_
             p_ref = getattr(m_ref, n).weight.dequantize()  # native quantize_
 
-            self.assertTrue(p_orig.equal(p_ref))
-            self.assertTrue(p.equal(p_ref))
+            torch.testing.assert_true(p_orig, p_ref, atol=0, rtol=0)
+            torch.testing.assert_true(p, p_ref, atol=0, rtol=0)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @common_utils.parametrize("group_size", [32, 256])
@@ -326,7 +326,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
             filter_fn=filter_fn,
         )
         out = model(x)
-        self.assertTrue(out.equal(ref_out))
+        torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
         # equivalent to torchao's convert step
         model.eval()
@@ -334,7 +334,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         quantize_(model, FromIntXQuantizationAwareTrainingConfig(), filter_fn=filter_fn)
         quantize_(model, config, filter_fn=filter_fn)
         converted_out = model(x)
-        self.assertTrue(converted_out.equal(ref_out))
+        torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)
 
 
 common_utils.instantiate_parametrized_tests(TestPARQuantization)
