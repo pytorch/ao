@@ -179,7 +179,7 @@ def find_multiple(n: int, *args: int) -> int:
     return n + k - (n % k)
 
 
-def _register_custom_op(lib):
+def _register_custom_op(lib, implicit=True):
     """This decorator is used to preserve some high level operators for torch.export.export
     while still allow them to be decomposed for inductor path
 
@@ -206,6 +206,10 @@ def _register_custom_op(lib):
     """
     from torch._inductor.decomposition import register_decomposition
 
+    dispatch_key = (
+        "CompositeImplicitAutograd" if implicit else "CompositeExplicitAutograd"
+    )
+
     def decorator(fn):
         if TORCH_VERSION_AT_LEAST_2_5:
             from torch._library.infer_schema import infer_schema
@@ -221,11 +225,12 @@ def _register_custom_op(lib):
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
-            lib.impl(op_name, fn, "CompositeImplicitAutograd")
+            lib.impl(op_name, fn, dispatch_key)
 
             lib_namespace = lib.ns
             op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            register_decomposition([op])(fn)
+            if implicit:
+                register_decomposition([op])(fn)
             return op
         else:
             return fn

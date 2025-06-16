@@ -37,6 +37,10 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
+from torchao.quantization.quant_primitives import (
+    dequantize_affine_float8,
+    quantize_affine_float8,
+)
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 
@@ -390,6 +394,61 @@ def test_dynamic_scale_numeric_parity(
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)
+
+
+@pytest.mark.parametrize(
+    "float8_dtype",
+    [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ],
+)
+@pytest.mark.parametrize(
+    "hp_dtype",
+    [
+        torch.float32,
+        torch.float16,
+        torch.bfloat16,
+    ],
+)
+@unittest.skipIf(
+    not TORCH_VERSION_AT_LEAST_2_5, "skipping when torch version is 2.5 or lower"
+)
+def test_quantize_dequantize_fp8_inductor(float8_dtype, hp_dtype):
+    input = torch.randn(10, 10)
+    with torch.no_grad():
+        torch._dynamo.reset()
+        expected_scale = torch.tensor(2.0)
+        expected_quantized = quantize_affine_float8(
+            input,
+            expected_scale,
+            float8_dtype,
+        )
+        expected_dequantized = dequantize_affine_float8(
+            expected_quantized,
+            expected_scale,
+            output_dtype=hp_dtype,
+        )
+        test_q, (code_q,) = torch._inductor.utils.run_and_get_code(
+            torch.compile(quantize_affine_float8),
+            input,
+            expected_scale,
+            float8_dtype,
+        )
+        torch.testing.FileCheck().check(
+            "torch.ops.torchao.quantize_affine_float8.default"
+        ).run(code_q)
+        test_dq, (code_dq,) = torch._inductor.utils.run_and_get_code(
+            torch.compile(dequantize_affine_float8),
+            test_q,
+            expected_scale,
+            hp_dtype,
+        )
+        torch.testing.FileCheck().check(
+            "torch.ops.torchao.dequantize_affine_float8.default"
+        ).run(code_dq)
+        torch.testing.assert_close(expected_quantized, test_q)
+        torch.testing.assert_close(expected_dequantized, test_dq)
 
 
 if __name__ == "__main__":
