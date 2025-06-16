@@ -12,7 +12,7 @@ Overview
 
 This tutorial covers the complete inference pipeline:
 
-1. **Post-training Quantization**: Using int4/int8 quantization with HuggingFace integration
+1. **Post-training Quantization**: Using float8 dynamic quantization with HuggingFace integration
 2. **Sparsity**: Combining sparsity with quantization for additional speedups
 3. **High-throughput Serving**: Deploying quantized models with vLLM
 4. **Mobile Deployment**: Lowering to ExecuTorch for on-device inference
@@ -24,65 +24,51 @@ Post-training Quantization with HuggingFace
 
 HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading.
 
-Int4 Weight-Only Quantization
+Float8 Dynamic Quantization
 ------------------------------
 
-Int4 weight-only quantization reduces model size by 4x with minimal accuracy loss:
+Float8 dynamic quantization shows 36% reduction in model size with minimal accuracy loss:
 
 .. code-block:: python
 
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-    from torchao.quantization import Int4WeightOnlyConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
-    model_id = "meta-llama/Llama-3.1-8B-Instruct"
+    torch.random.manual_seed(0)
 
-    # Configure int4 weight-only quantization (torchao under the hood)
-    quant_config = Int4WeightOnlyConfig()
-    quantization_config = TorchAoConfig(quant_type=quant_config)
+    model_path = "pytorch/Phi-4-mini-instruct-float8dq"
 
-    # Load and quantize model - torchao handles the optimization
     model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype="auto",
+        model_path,
         device_map="auto",
-        quantization_config=quantization_config
+        torch_dtype="auto",
+        trust_remote_code=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+    messages = [
+        {"role": "system", "content": "You are a helpful AI assistant."},
+        {"role": "user", "content": "Can you provide ways to eat combinations of bananas and dragonfruits?"},
+        {"role": "assistant", "content": "Sure! Here are some ways to eat bananas and dragonfruits together: 1. Banana and dragonfruit smoothie: Blend bananas and dragonfruits together with some milk and honey. 2. Banana and dragonfruit salad: Mix sliced bananas and dragonfruits together with some lemon juice and honey."},
+        {"role": "user", "content": "What about solving an 2x + 3 = 7 equation?"},
+    ]
+
+    pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    generation_args = {
+        "max_new_tokens": 500,
+        "return_full_text": False,
+        "temperature": 0.0,
+        "do_sample": False,
+    }
 
-    # Test inference
-    messages = [{"role": "user", "content": "Explain quantum computing in simple terms."}]
-    inputs = tokenizer.apply_chat_template(messages, return_tensors="pt").to("cuda")
+    output = pipe(messages, **generation_args)
+    print(output[0]['generated_text'])
 
-    with torch.no_grad():
-        outputs = model.generate(inputs, max_new_tokens=100, do_sample=False)
-
-    response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-    print(response)
-
-Int8 Dynamic Quantization
---------------------------
-
-Int8 dynamic quantization provides a balance between compression and accuracy:
-
-.. code-block:: python
-
-    from torchao.quantization import Int8DynamicActivationIntxWeightConfig
-
-    # Configure int8 dynamic quantization with int4 weights
-    quant_config = Int8DynamicActivationIntxWeightConfig(
-        weight_dtype=torch.int4,
-        weight_granularity=torchao.quantization.granularity.PerGroup(32)
-    )
-    quantization_config = TorchAoConfig(quant_type=quant_config)
-
-    model = AutoModelForCausalLM.from_pretrained(
-        "microsoft/Phi-4-mini-instruct",
-        quantization_config=quantization_config,
-        torch_dtype=torch.bfloat16,
-        device_map="auto"
-    )
 
 Advanced: Per-Layer Quantization Control
 ----------------------------------------
@@ -182,90 +168,61 @@ First, install vLLM with torchao support:
 
 .. code-block:: bash
 
-    pip install vllm
+    pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
     pip install torchao
 
-Serving Int4 Quantized Models
------------------------------
+Inference with vLLM
+-------------------
 
 .. code-block:: python
 
     from vllm import LLM, SamplingParams
 
-    # vLLM automatically uses torchao's optimized int4 kernels
-    llm = LLM(
-        model="nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128",
-        quantization="int4_weight_only",  # Uses torchao int4 implementation
-        max_model_len=4096,
-        gpu_memory_utilization=0.8
-    )
-
-    sampling_params = SamplingParams(
-        temperature=0.7,
-        top_p=0.9,
-        max_tokens=200
-    )
-
+    # Sample prompts.
     prompts = [
-        "Explain the concept of machine learning to a 10-year-old.",
-        "What are the main differences between supervised and unsupervised learning?",
-        "How does a neural network learn from data?"
+        "Hello, my name is",
+        "The president of the United States is",
+        "The capital of France is",
+        "The future of AI is",
     ]
+    # Create a sampling params object.
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
-    # Generate responses - torchao kernels handle the optimized inference
-    outputs = llm.generate(prompts, sampling_params)
 
-    for output in outputs:
-        print(f"Prompt: {output.prompt}")
-        print(f"Generated text: {output.outputs[0].text}")
-        print("-" * 50)
+    if __name__ == '__main__':
+        # Create an LLM.
+        llm = LLM(model="pytorch/Phi-4-mini-instruct-float8dq")
+        # Generate texts from the prompts.
+        # The output is a list of RequestOutput objects
+        # that contain the prompt, generated text, and other information.
+        outputs = llm.generate(prompts, sampling_params)
+        # Print the outputs.
+        print("\nGenerated Outputs:\n" + "-" * 60)
+        for output in outputs:
+            prompt = output.prompt
+            generated_text = output.outputs[0].text
+            print(f"Prompt:    {prompt!r}")
+            print(f"Output:    {generated_text!r}")
+            print("-" * 60)
 
-Serving with OpenAI-Compatible API
-----------------------------------
 
-Launch a server that uses torchao optimizations:
+Serving Quantized Models
+-----------------------------
 
 .. code-block:: bash
 
-    # Start vLLM server with torchao-optimized quantization
-    python -m vllm.entrypoints.openai.api_server \
-        --model nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128 \
-        --quantization int4_weight_only \
-        --max-model-len 4096 \
-        --host 0.0.0.0 \
-        --port 8000
+    vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
 
-Client usage:
-
-.. code-block:: python
-
-    import openai
-
-    client = openai.OpenAI(
-        base_url="http://localhost:8000/v1",
-        api_key="token-abc123"  # Dummy key for local server
-    )
-
-    completion = client.chat.completions.create(
-        model="nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128",
-        messages=[
-            {"role": "user", "content": "Write a Python function to calculate Fibonacci numbers."}
-        ],
-        max_tokens=300,
-        temperature=0.7
-    )
-
-    print(completion.choices[0].message.content)
 
 Performance Optimization Notes
 ------------------------------
 
 When using vLLM with torchao:
 
-- **Int4 quantization**: Provides 3-4x memory reduction with torchao's optimized kernels
-- **Sparse models**: Additional 1.5-2x speedup when combined with quantization
-- **Static KV cache**: Use ``--kv-cache-dtype fp8`` for additional memory savings
-- **Compile optimizations**: Set ``VLLM_DISABLE_COMPILE_CACHE=1`` if encountering issues
+- **Float8 dynamic quantization**: Provides 36% memory reduction with torchao's optimized kernels
+- **Sparse models**: Additional ---- speedup speedup when combined with quantization
+- **KV cache**:
+- **Compile optimizations**:
 
 Mobile Deployment with ExecuTorch
 ##################################
@@ -338,9 +295,7 @@ Preparing Models for Mobile
     ./install_requirements.sh
 
     # Convert checkpoint format for ExecuTorch
-    python -m executorch.examples.models.phi_4_mini.convert_weights \
-        ./phi4-mini-8da4w-mobile/pytorch_model.bin \
-        ./phi4-mini-8da4w-mobile/pytorch_model_converted.bin
+    .. Add code here..
 
     # Export to PTE format with torchao optimizations preserved
     python -m executorch.examples.models.llama.export_llama \
@@ -486,52 +441,6 @@ Performance Benchmarking
     print(f"Quantized: {quantized_latency:.3f}s ({quantized_throughput:.1f} tok/s)")
     print(f"Speedup: {baseline_latency/quantized_latency:.2f}x")
 
-Best Practices and Tips
-#######################
-
-Choosing Quantization Strategies
----------------------------------
-
-**For Server Deployment**:
-- Use Int4 weight-only for maximum throughput with vLLM
-- Consider sparse models for additional speedup if available
-- Int8 dynamic activation provides better accuracy if needed
-
-**For Mobile Deployment**:
-- Use 8da4w (8-bit dynamic activation, 4-bit weights) configuration
-- Ensure proper weight untying for models with tied embeddings
-- Test on target hardware early in the process
-
-**For Edge Devices**:
-- ExecuTorch with XNNPACK delegate provides best performance
-- Consider using smaller base models (7B → 3B → 1B) if accuracy allows
-- Profile memory usage on target device constraints
-
-Common Optimizations
---------------------
-
-1. **Static KV Cache**: Use ``cache_implementation="static"`` for consistent performance
-2. **Compilation**: Enable ``torch.compile`` for additional speedups (disable cache if issues arise)
-3. **Mixed Precision**: Use bfloat16 when possible for better performance
-4. **Batch Processing**: Group inference requests when serving multiple users
-
-Troubleshooting
----------------
-
-**Memory Issues**:
-- Reduce ``max_model_len`` in vLLM
-- Use ``device_map="auto"`` for automatic GPU/CPU offloading
-- Consider gradient checkpointing for training scenarios
-
-**Performance Issues**:
-- Verify torchao kernels are being used (check for CUDA kernel launches)
-- Ensure proper tensor shapes for optimal kernel dispatch
-- Profile with ``torch.profiler`` to identify bottlenecks
-
-**Accuracy Issues**:
-- Compare against baseline model on representative evaluation sets
-- Consider higher precision for sensitive layers (embeddings, final layer)
-- Use calibration datasets for better quantization if available
 
 Conclusion
 ##########
