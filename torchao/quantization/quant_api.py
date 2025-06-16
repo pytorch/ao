@@ -48,6 +48,7 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_fbgemm_fp8,
     to_fbgemm_int4,
+    to_int4_groupwise_preshuffle,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -1545,7 +1546,11 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
+    activation_scale_ub: Optional[float] = None
+    kernel: str = "aten"
     set_inductor_config: bool = True
+
+    _SUPPORTED_KERNELS = ["aten", "fbgemm"]
 
     def __post_init__(self):
         if self.mm_config is None:
@@ -1555,6 +1560,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
             self.granularity
         )
         self.granularity = [activation_granularity, weight_granularity]
+        assert self.kernel in self._SUPPORTED_KERNELS
 
 
 # for bc
@@ -1566,6 +1572,8 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mm_config = config.mm_config
+    kernel = config.kernel
+    activation_scale_ub = config.activation_scale_ub
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1583,23 +1591,37 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     block_size = get_block_size(weight.shape[-2:], weight_granularity)
     if weight.dim() == 3:
         block_size = tuple([1] + list(block_size))
-    quantized_weight = to_affine_quantized_floatx(
-        input_float=weight,
-        block_size=block_size,
-        target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
-        _layout=Float8Layout(mm_config=mm_config),
-    )
 
-    input_quant_func = _input_activation_quant_func_fp8
-    input_quant_kwargs = {
-        "activation_granularity": activation_granularity,
-        "activation_dtype": activation_dtype,
-    }
+    if isinstance(activation_granularity, PerRow) and isinstance(
+        weight_granularity, PerRow
+    ):
+        quantized_weight = to_fbgemm_fp8(
+            weight,
+            activation_dtype,
+            weight_dtype,
+            activation_scale_ub,
+            mm_config,
+            kernel,
+        )
+    else:
+        # Note: kernel is not used for non per row quantization case yet
+        quantized_weight = to_affine_quantized_floatx(
+            input_float=weight,
+            block_size=block_size,
+            target_dtype=weight_dtype,
+            scale_dtype=torch.float32,
+            _layout=Float8Layout(mm_config=mm_config),
+        )
 
-    quantized_weight = to_linear_activation_quantized(
-        quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
-    )
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_kwargs = {
+            "activation_granularity": activation_granularity,
+            "activation_dtype": activation_dtype,
+        }
+
+        quantized_weight = to_linear_activation_quantized(
+            quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
+        )
     return quantized_weight
 
 
@@ -1998,7 +2020,9 @@ class FbgemmConfig(AOBaseConfig):
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
-    transpose_input: bool = False
+    preshuffle: bool = False
+    mm_config = Float8MMConfig(use_fast_accum=True)
+    kernel: str = "fbgemm"
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -2018,28 +2042,36 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         (e4m3_dtype, e4m3_dtype, torch.bfloat16),
     }
 
+    _FP8_DTYPES = {
+        # CUDA
+        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16),
+        # AMD
+        (torch.float8_e4m3fnuz, torch.float8_e4m3fnuz, torch.bfloat16),
+    }
+
     if (
         (config.input_dtype == torch.bfloat16)
         and (config.weight_dtype == torch.int4)
         and (config.output_dtype == torch.bfloat16)
     ):
-        weight = to_fbgemm_int4(
-            module.weight,
-            config.block_size,
-            config.transpose_input,
-        )
+        if config.preshuffle:
+            weight = to_int4_groupwise_preshuffle(module.weight, config.block_size)
+        else:
+            weight = to_fbgemm_int4(
+                module.weight,
+                config.block_size,
+            )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
         return module
-    elif (
-        (config.input_dtype == e4m3_dtype)
-        and (config.weight_dtype == e4m3_dtype)
-        and (config.output_dtype == torch.bfloat16)
-    ):
+    elif (config.input_dtype, config.weight_dtype, config.output_dtype) in _FP8_DTYPES:
         weight = to_fbgemm_fp8(
             module.weight,
+            config.input_dtype,
+            config.weight_dtype,
             config.activation_scale_ub,
-            config.transpose_input,
+            config.mm_config,
+            config.kernel,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
