@@ -7,7 +7,7 @@ import copy
 
 import torch
 
-from torchao.quantization import int4_weight_only, quantize_
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     benchmark_model,
@@ -43,7 +43,7 @@ model_bf16 = copy.deepcopy(model)
 # ========================
 
 # torch 2.4+ only
-quantize_(model, int4_weight_only(group_size=32))
+quantize_(model, Int4WeightOnlyConfig(group_size=32))
 
 
 # =============

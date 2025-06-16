@@ -381,7 +381,7 @@ We're trying to develop kernels for low bit quantization for intx quantization f
 
 You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
 
-### int8_dynamic_activation_intx_weight Quantization
+### Int8DynamicActivationIntxWeightConfig Quantization
 We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
 
 | Model         | Technique                                        | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
@@ -390,7 +390,7 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 |               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
 |               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
 
-You can try out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
+You can try out these apis with the `quantize_` api as above alongside the config `Int8DynamicActivationIntxWeightConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
 
 ### Codebook Quantization
 The benchmarks below were run on a single NVIDIA-A6000 GPU.
@@ -402,7 +402,7 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 | Llama-3.1-8B| Base (bfloat16)         |  7.713              |  32.16        |  482.70                 | 16.35            | 15.01           |
 |             | codebook-4-64           |  10.095             |  1.73         |  8.63                   | 23.11            |  4.98           |
 
-You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
+You try can out these apis with the `quantize_` api as above alongside the config `CodebookWeightOnlyConfig` an example can be found in  in `torchao/_models/llama/generate.py`.
 
 ### GPTQ Quantization
 We have a GPTQ quantization workflow that can be used to quantize a model to int4. More details can be found in [GPTQ](./GPTQ/README.md),
