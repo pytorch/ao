@@ -14,7 +14,7 @@ Here is the serialization and deserialization flow::
   from torchao.utils import get_model_size_in_bytes
   from torchao.quantization.quant_api import (
       quantize_,
-      int4_weight_only,
+      Int4WeightOnlyConfig,
   )
 
   class ToyLinearModel(torch.nn.Module):
@@ -36,7 +36,7 @@ Here is the serialization and deserialization flow::
   print(f"original model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB")
 
   example_inputs = m.example_inputs(dtype=dtype, device="cuda")
-  quantize_(m, int4_weight_only())
+  quantize_(m, Int4WeightOnlyConfig())
   print(f"quantized model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB")
 
   ref = m(*example_inputs)
@@ -70,7 +70,7 @@ quantized model ``state_dict``::
   {"linear1.weight": quantized_weight1, "linear2.weight": quantized_weight2, ...}
 
 
-The size of the quantized model is typically going to be smaller to the original floating point model, but it also depends on the specific techinque and implementation you are using. You can print the model size with ``torchao.utils.get_model_size_in_bytes`` utility function, specifically for the above example using int4_weight_only quantization, we can see the size reduction is around 4x::
+The size of the quantized model is typically going to be smaller to the original floating point model, but it also depends on the specific techinque and implementation you are using. You can print the model size with ``torchao.utils.get_model_size_in_bytes`` utility function, specifically for the above example using Int4WeightOnlyConfig quantization, we can see the size reduction is around 4x::
 
   original model size: 4.0 MB
   quantized model size: 1.0625 MB
