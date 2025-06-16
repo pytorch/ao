@@ -92,6 +92,24 @@ class ConstantFolder(torch.fx.Interpreter):
         self.lifted_constant_names = lifted_constant_names
         self.deferred_value = object()
         self.skip_folding_node_fn = skip_folding_node_fn
+        
+        # Identify mutable buffers by finding copy_ operations
+        self.mutable_buffers = self._find_mutable_buffers()
+
+    def _find_mutable_buffers(self) -> set[torch.fx.Node]:
+        """Find mutable buffers by identifying copy_ operations.
+        The first argument of copy_ op is the mutable buffer."""
+        mutable_buffers = set()
+        for node in self.module.graph.nodes:
+            if (
+                node.op == "call_function"
+                and hasattr(node.target, "_schema")
+                and "copy_" in str(node.target)
+            ):
+                # The first argument of copy_ is the mutable buffer
+                if len(node.args) > 0 and isinstance(node.args[0], torch.fx.Node):
+                    mutable_buffers.add(node.args[0])
+        return mutable_buffers
 
     def _support_dynamic_shape(self) -> bool:
         # ConstantFolder not support dynamic shape now
@@ -156,6 +174,13 @@ class ConstantFolder(torch.fx.Interpreter):
             # We only folding fp32_weight -> q
             # int8_weight and leave dq in graph to be fused
             return True
+
+        # Check if any input to this node is a mutable buffer
+        # If so, prevent constant folding to avoid issues with quantize_per_tensor_default
+        for arg in node.args:
+            if isinstance(arg, torch.fx.Node) and arg in self.mutable_buffers:
+                return True
+
         return False
 
     def node_to_last_non_output_use(self) -> dict[torch.fx.Node, list[torch.fx.Node]]:
@@ -261,7 +286,6 @@ class ConstantFolder(torch.fx.Interpreter):
 
             if self.is_impure(node):
                 return self.unknown_value
-
             self.add_node_replacement(node, out)
 
             flattened_node_inps = pytree.arg_tree_leaves(*node.args, **node.kwargs)
