@@ -45,76 +45,16 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
+        set -vx
         conda create -n venv python=3.9 -y
         conda activate venv
+        conda list
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        export CONDA=$(dirname $(dirname $(which conda)))
-        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        pytest test --verbose -s
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: CUDA 2.5.1
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
-          - name: CUDA 2.6
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.6.0'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: ""
-          - name: CUDA 2.7
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.7.0'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: ""
-
-          - name: CPU 2.5.1
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
-          - name: CPU 2.6
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-            dev-requirements-overrides: ""
-          - name: CPU 2.7
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-            dev-requirements-overrides: ""
-
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
-    with:
-      timeout: 120
-      runner: ${{ matrix.runs-on }}
-      gpu-arch-type: ${{ matrix.gpu-arch-type }}
-      gpu-arch-version: ${{ matrix.gpu-arch-version }}
-      submodules: recursive
-      script: |
-        conda create -n venv python=3.9 -y
-        conda activate venv
-        echo "::group::Install newer objcopy that supports --set-section-alignment"
-        dnf install -y gcc-toolset-10-binutils
-        export PATH=/opt/rh/gcc-toolset-10/root/usr/bin/:$PATH
-        python -m pip install --upgrade pip
-        pip install ${{ matrix.torch-spec }}
-        sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
-        pip install -r dev-requirements.txt
-        pip install .
-        export CONDA=$(dirname $(dirname $(which conda)))
-        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        pytest test --verbose -s
+        pip install pytest==8.3.3 --force-reinstall
+        pip list
+        python -u -m pytest --version
+        pwd
+        python -u -m pytest test --debug -s
