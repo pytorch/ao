@@ -411,9 +411,6 @@ def test_dynamic_scale_numeric_parity(
         torch.bfloat16,
     ],
 )
-@unittest.skipIf(
-    not TORCH_VERSION_AT_LEAST_2_5, "skipping when torch version is 2.5 or lower"
-)
 def test_quantize_dequantize_fp8_inductor(float8_dtype, hp_dtype):
     input = torch.randn(10, 10)
     with torch.no_grad():
