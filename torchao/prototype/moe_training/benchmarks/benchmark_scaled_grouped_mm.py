@@ -14,7 +14,7 @@ import torch
 from tabulate import tabulate
 from tqdm import tqdm
 
-from torchao.prototype.scaled_grouped_mm import _scaled_grouped_mm
+from torchao.prototype.moe_training import _scaled_grouped_mm
 
 device = torch.device("cuda")
 

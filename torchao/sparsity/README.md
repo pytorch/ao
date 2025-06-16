@@ -52,12 +52,12 @@ These benchmarks were also ran on a NVIDIA-A100-80GB.
 Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity, improving performance in matrix multiplication and accumulation. Full documentation can be found [here](https://github.com/IST-DASLab/Sparse-Marlin).
 
 ```py
-from torchao.quantization.quant_api import quantize_, int4_weight_only
+from torchao.quantization.quant_api import quantize_, Int4WeightOnlyConfig
 from torchao.dtypes import MarlinSparseLayout
 
 # Your FP16 model
 model = model.cuda().half()
-quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+quantize_(model, Int4WeightOnlyConfig(layout=MarlinSparseLayout()))
 ```
 
 Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
@@ -68,11 +68,11 @@ the necessary supporting flows in torchao.
 We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of the scalar dequant multiplications into our cuSPARSELt sparse mm in order to remain performant.
 
 ```py
-from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
+from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
 from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
-quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
+quantize_(model, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 ```
 
 ### 2:4 sparsity

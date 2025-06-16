@@ -19,11 +19,11 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_tinygemm,
     dequantize_affine,
-    dequantize_affine_float_zero_point,
     dequantize_affine_no_zero_point,
+    dequantize_affine_tinygemm,
     quantize_affine,
-    quantize_affine_float_zero_point,
     quantize_affine_no_zero_point,
+    quantize_affine_tinygemm,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -439,7 +439,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     if zero_point_domain == ZeroPointDomain.INT:
         _quantize_affine = quantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _quantize_affine = quantize_affine_float_zero_point
+        _quantize_affine = quantize_affine_tinygemm
     elif ZeroPointDomain == ZeroPointDomain.NONE:
         _quantize_affine = quantize_affine_no_zero_point
     else:
@@ -508,7 +508,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     if zero_point_domain == ZeroPointDomain.INT:
         _dequantize_affine = dequantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _dequantize_affine = dequantize_affine_float_zero_point
+        _dequantize_affine = dequantize_affine_tinygemm
     else:
         _dequantize_affine = dequantize_affine_no_zero_point
     return _dequantize_affine(

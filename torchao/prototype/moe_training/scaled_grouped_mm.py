@@ -10,11 +10,11 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.scaled_grouped_mm.kernels import (
+from torchao.prototype.moe_training.kernels import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
-from torchao.prototype.scaled_grouped_mm.utils import _is_column_major
+from torchao.prototype.moe_training.utils import _is_column_major
 
 
 def _scaled_grouped_mm(
@@ -83,7 +83,10 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert not _is_column_major(A), "A must be row-major"
 
         # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
-        assert _is_column_major(B_t), "B must be column-major"
+        if not _is_column_major(B_t):
+            # FSDP will complain if B_t (weights) is not contiguous, we can't require B_t to be column-major.
+            # TODO: figure out better solution than transposing for each forward pass.
+            B_t = B_t.transpose(-2, -1).contiguous().transpose(-2, -1)
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K)

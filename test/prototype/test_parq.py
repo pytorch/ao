@@ -27,8 +27,15 @@ from torchao.prototype.parq.quant import (
 )
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
+from torchao.quantization.qat import (
+    FakeQuantizeConfig,
+    FromIntXQuantizationAwareTrainingConfig,
+    IntXQuantizationAwareTrainingConfig,
+)
 from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
+    MappingType,
     _is_linear,
     int4_weight_only,
     quantize_,
@@ -68,9 +75,9 @@ def build_param_groups(model, b: int = 2, group_size: Optional[int] = None):
 
 
 class M(nn.Module):
-    def __init__(self, m=256, n=128, k=16, bias=False):
+    def __init__(self, m=256, n=128, k=16, bias=False, embedding=True):
         super().__init__()
-        self.embedding = nn.Embedding(10, m)
+        self.embedding = nn.Embedding(10, m) if embedding else nn.Identity()
         self.linear1 = nn.Linear(m, n, bias=bias)
         self.linear2 = nn.Linear(n, k, bias=bias)
         self.relu = nn.ReLU()
@@ -83,7 +90,11 @@ class M(nn.Module):
                 nn.init.zeros_(module.bias)
 
     def example_inputs(self, device=None):
-        return torch.randint(1, 10, (1, 256), device=device)
+        return (
+            torch.randint(1, 10, (1, self.linear1.in_features), device=device)
+            if isinstance(self.embedding, nn.Embedding)
+            else torch.randn(1, self.linear1.in_features, device=device)
+        )
 
     def forward(self, x):
         x = self.embedding(x)
@@ -150,11 +161,11 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             p = p.view(-1, group_size)
 
             q, Q = quantizer.quantize(p, b=b, dim=-1)
-            q = q.view(original_shape)
 
             # compare to AffineQuantizedTensor instance
+            q = q.view(original_shape)
             ref = getattr(m_ref, n).weight.dequantize()
-            self.assertTrue(q.equal(ref))
+            torch.testing.assert_close(q, ref, atol=0, rtol=0)
 
     def compare_parq_convert(
         self,
@@ -182,13 +193,13 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             p = module.weight.dequantize()  # PARQ weight after quantize_
             p_ref = getattr(m_ref, n).weight.dequantize()  # native quantize_
 
-            self.assertTrue(p_orig.equal(p_ref))
-            self.assertTrue(p.equal(p_ref))
+            torch.testing.assert_true(p_orig, p_ref, atol=0, rtol=0)
+            torch.testing.assert_true(p, p_ref, atol=0, rtol=0)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
-        model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
+        model = M(m=512, n=512).to(_DEVICE, dtype=torch.bfloat16)
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
@@ -265,8 +276,70 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         self.compare_parq_convert(model, m_ref, optimizer, config)
 
 
+class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
+    def setUp(self):
+        torch.manual_seed(123)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
+    @common_utils.parametrize("b", [2, 3, 4, 8])
+    @common_utils.parametrize("model_dtype", [torch.float16, torch.float32])
+    @common_utils.parametrize("group_size", [32, 128])
+    def test_int8_dynamic_activation_intx_e2e(
+        self,
+        b: int = 2,
+        model_dtype: torch.dtype = torch.float32,
+        group_size: int = 32,
+    ):
+        model = M(embedding=False).to(_DEVICE, dtype=model_dtype)
+        x = model.example_inputs(device=_DEVICE).to(model_dtype)
+
+        # reference model using native quantization
+        m_ref = copy.deepcopy(model).eval().to(_DEVICE)
+        quantizer = UnifTorchaoQuantizer()
+        config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=_BIT_WIDTH_TO_DTYPE[b],
+            weight_granularity=PerGroup(group_size),
+            weight_mapping_type=quantizer.mapping_type,
+            act_mapping_type=MappingType.ASYMMETRIC,
+        )
+        quantize_(m_ref, config)
+        ref_out = m_ref(x)
+
+        # quantize weights with PARQ
+        base_optimizer = torch.optim.SGD(build_param_groups(model, b, group_size))
+        optimizer = QuantOptimizer(
+            base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
+        )
+        optimizer.zero_grad()
+        optimizer.step()
+
+        # apply torchao quantized activations on top
+        activation_config = FakeQuantizeConfig(
+            torch.int8,
+            granularity="per_token",
+            mapping_type=config.act_mapping_type,
+        )
+        filter_fn = optimizer.get_filter_fn(model)
+        quantize_(
+            model,
+            IntXQuantizationAwareTrainingConfig(activation_config=activation_config),
+            filter_fn=filter_fn,
+        )
+        out = model(x)
+        torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
+
+        # equivalent to torchao's convert step
+        model.eval()
+        optimizer.restore_latent_params()
+        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), filter_fn=filter_fn)
+        quantize_(model, config, filter_fn=filter_fn)
+        converted_out = model(x)
+        torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)
+
+
 common_utils.instantiate_parametrized_tests(TestPARQuantization)
 common_utils.instantiate_parametrized_tests(TestUnifTorchaoQuantizer)
+common_utils.instantiate_parametrized_tests(TestInt8DynamicActivationTorchaoQuantizer)
 
 
 if __name__ == "__main__":
