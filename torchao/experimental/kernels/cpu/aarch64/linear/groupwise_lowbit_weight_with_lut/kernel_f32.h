@@ -9,12 +9,14 @@
 #if defined(__aarch64__) || defined(__ARM_NEON)
 
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/groupwise_lowbit_weight_with_lut/utils.h>
 #include <cassert>
 #include <arm_neon.h>
 #include <array>
 
 namespace torchao::kernels::cpu::aarch64::linear::
   groupwise_lowbit_weight_with_lut::kernel {
+
 
 namespace internal {
 
@@ -27,8 +29,9 @@ inline void micro_kernel_lut(
 )
 {
     assert(K > 0 && "K must be positive");
+    namespace utils = torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::utils;
 
-    const auto* grp = reinterpret_cast<const TransposedWeightGroup_4bit<NR>*>(W);
+    const auto* grp = reinterpret_cast<const utils::FusedLutPackedWeightGroup<NR>*>(W);
     uint8x16x4_t tbl = {
         vreinterpretq_u8_f32(grp->transposed_lut[0]),
         vreinterpretq_u8_f32(grp->transposed_lut[1]),
@@ -57,8 +60,7 @@ inline void micro_kernel_lut(
         uint8x8_t even_indices = vshr_n_u8(packed, 4);
         uint8x8_t odd_indices  = vand_u8(packed, vdup_n_u8(0x0F));
 
-        // **FIX 1: De-interleave indices to restore sequential order.**
-        // This is the key step to fix the logical error.
+        // De-interleave indices to restore sequential order.**
         uint8x8x2_t deinterleaved = vuzp_u8(even_indices, odd_indices);
 
         // Now combine them into a single 16-byte vector of sequential indices.
@@ -73,8 +75,7 @@ inline void micro_kernel_lut(
         uint8x16_t b2 = vqtbl4q_u8(tbl, vaddq_u8(idx_bytes, TWO));
         uint8x16_t b3 = vqtbl4q_u8(tbl, vaddq_u8(idx_bytes, THREE));
 
-        // **FIX 2: In-register transpose to avoid stack spill.**
-        // This is the key step to fix the performance bottleneck.
+        // In-register transpose to avoid stack spill.**
         // Stage 1: Interleave 8-bit elements within 16-byte registers.
         uint8x16x2_t uzp_b01 = vuzpq_u8(b0, b1); // uzp_b01.val[0] has even bytes, .val[1] has odd bytes
         uint8x16x2_t uzp_b23 = vuzpq_u8(b2, b3);
@@ -89,7 +90,6 @@ inline void micro_kernel_lut(
         float32x4_t w8_11 = vreinterpretq_f32_u32(vtrnq_u32(vreinterpretq_u32_u16(trn_16_0.val[0]), vreinterpretq_u32_u16(trn_16_1.val[0])).val[1]);
         float32x4_t w12_15= vreinterpretq_f32_u32(vtrnq_u32(vreinterpretq_u32_u16(trn_16_0.val[1]), vreinterpretq_u32_u16(trn_16_1.val[1])).val[1]);
 
-        // (4) Fused multiply-add. This part remains the same and is now correct.
         accum[0][0] = vfmaq_f32(accum[0][0], w0_3 , a0);
         accum[0][1] = vfmaq_f32(accum[0][1], w4_7 , a0);
         accum[0][2] = vfmaq_f32(accum[0][2], w8_11, a0);
@@ -117,7 +117,7 @@ inline void post_process_and_store(
     float* __restrict__ output,
     int ldc,
     float32x4_t accum[MR][NR / 4],
-    const TransposedWeightGroup_4bit<NR>* __restrict__ grp,
+    const utils::FusedLutPackedWeightGroup<NR>* __restrict__ grp,
     bool has_bias,
     bool has_clamp,
     float32x4_t clamp_min_vec,
@@ -144,7 +144,7 @@ inline void post_process_and_store(
 
 
 template <int MR, int NR>
-void groupwise_lowbit_lut_kernel_T(
+void groupwise_lowbit_lut_kernel(
     float* output,
     int output_m_stride,
     int m, int n, int k,
@@ -161,8 +161,7 @@ void groupwise_lowbit_lut_kernel_T(
     constexpr bool promote_to_4bit_layout = true;
     constexpr int weight_nbit = 4; // The effective bit-width the kernel sees
 
-    // Determine the fundamental packing group size from the logical group sizes.
-    const int packing_group_size = torchao::kernels::cpu::aarch64::common::math::gcd(scale_group_size, lut_group_size);
+    const int packing_group_size = std::gcd(scale_group_size, lut_group_size);
 
     assert(n % NR == 0 && "N must be divisible by tile width NR");
     assert(m % MR == 0 && "M must be divisible by tile height MR");
@@ -170,8 +169,8 @@ void groupwise_lowbit_lut_kernel_T(
 
     // --- 2. Get the Memory Layout from the Shared Utility ---
     // This is the single source of truth for all strides.
-    auto layout = torchao::kernels::cpu::aarch64::common::layouts::create_fused_lut_layout<NR>(
-        k, n, packing_group_size, weight_nbit, promote_to_4bit_layout
+    auto layout = utils::create_fused_lut_layout<NR>(
+        k, n, packing_group_size,packing_group_size, weight_nbit, promote_to_4bit_layout
     );
 
     // --- 3. Pre-computation and Main Loops ---
@@ -193,7 +192,7 @@ void groupwise_lowbit_lut_kernel_T(
             for (int k_group_idx = 0; k_group_idx < num_groups_per_k_tile; ++k_group_idx) {
                 // The micro-kernel is called with a pointer to the start of the current group.
                 // The stride is obtained from the layout object.
-                micro_kernel_lut<MR, NR>(
+                internal::micro_kernel_lut<MR, NR>(
                     accumulators,
                     current_packed_activations + k_group_idx * packing_group_size * MR,
                     weights_for_tile_n + k_group_idx * layout.group_stride_bytes,
@@ -202,12 +201,12 @@ void groupwise_lowbit_lut_kernel_T(
             }
 
             // Post-Process and Store the tile
-            post_process_and_store<MR, NR>(
+            internal::post_process_and_store<MR, NR>(
                 output + m_tile_start * output_m_stride + n_tile_start,
                 output_m_stride,
                 accumulators,
                 // The header for bias is always at the start of the N-tile's weight data.
-                reinterpret_cast<const torchao::kernels::cpu::aarch64::common::layouts::FusedLutPackedWeightGroup<NR>*>(weights_for_tile_n),
+                reinterpret_cast<const utils::FusedLutPackedWeightGroup<NR>*>(weights_for_tile_n),
                 has_bias,
                 has_clamp,
                 clamp_min_vec,

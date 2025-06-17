@@ -56,12 +56,14 @@ struct FusedLutPackedLayout {
 // The factory function now also calculates strides
 template<int NR>
 inline FusedLutPackedLayout create_fused_lut_layout(
-    int K, int N, int packing_group_size,
+    int N, int K, int scale_group_size, int lut_group_size,
     int weight_nbit, bool promote_to_4bit_layout) {
 
     FusedLutPackedLayout layout;
 
-    // ... (logic for header_bytes_per_group and packed_indices_bytes_per_group) ...
+    // Use the minimum of scale_group_size and lut_group_size as the packing_group_size
+    int packing_group_size = std::gcd(scale_group_size, lut_group_size);
+
     if (promote_to_4bit_layout) {
         layout.packed_indices_bytes_per_group = (size_t)packing_group_size * NR / 2;
     } else {
@@ -86,3 +88,4 @@ inline FusedLutPackedLayout create_fused_lut_layout(
 
 
 }
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

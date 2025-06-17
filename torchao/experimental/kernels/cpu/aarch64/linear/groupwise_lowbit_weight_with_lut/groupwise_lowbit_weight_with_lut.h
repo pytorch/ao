@@ -1,5 +1,3 @@
-// Filename: torchao/experimental/kernels/cpu/aarch64/linear/groupwise_lowbit_weight_with_lut.h
-
 #pragma once
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
@@ -92,17 +90,21 @@ inline void pack_activations(
 
     // This dispatcher calls the correct templated implementation.
     // The user doesn't need to know about the internal templates.
-    switch (weight_nbit) {
-        case 1:
-            return weight_packing::packed_weights_size_for_fused_lut_kernel<1, NR>(n, k, has_bias, scale_group_size, lut_group_size, weight_nbit, promote_to_4bit_layout);
-        case 2:
-            return weight_packing::packed_weights_size_for_fused_lut_kernel<2, NR>(n, k, has_bias, scale_group_size, lut_group_size, weight_nbit, promote_to_4bit_layout);
-        case 3:
-            return weight_packing::packed_weights_size_for_fused_lut_kernel<3, NR>(n, k, has_bias, scale_group_size, lut_group_size, weight_nbit, promote_to_4bit_layout)
-        case 4:
-            return weight_packing::packed_weights_size_for_fused_lut_kernel<4, NR>(n, k, has_bias, scale_group_size, lut_group_size, weight_nbit, promote_to_4bit_layout);
-        default:
-            throw std::invalid_argument("Unsupported weight_nbit. Must be 1, 2, 3, or 4.");
+    if (NR == 16) {
+        switch (weight_nbit) {
+            case 1:
+                return torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::weight_packing::packed_weights_size_for_fused_lut_kernel<1, 16>(n, k, has_bias, scale_group_size, lut_group_size, promote_to_4bit_layout);
+            case 2:
+                return torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::weight_packing::packed_weights_size_for_fused_lut_kernel<2, 16>(n, k, has_bias, scale_group_size, lut_group_size, promote_to_4bit_layout);
+            case 3:
+                return torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::weight_packing::packed_weights_size_for_fused_lut_kernel<3, 16>(n, k, has_bias, scale_group_size, lut_group_size, promote_to_4bit_layout);
+            case 4:
+                return torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::weight_packing::packed_weights_size_for_fused_lut_kernel<4, 16>(n, k, has_bias, scale_group_size, lut_group_size, promote_to_4bit_layout);
+            default:
+                throw std::invalid_argument("Unsupported weight_nbit. Must be 1, 2, 3, or 4.");
+        }
+    } else {
+        throw std::invalid_argument("Unsupported NR value for weight packing. Supported values: [16].");
     }
 }
 
@@ -151,10 +153,10 @@ inline void pack_weights(
     // Dispatcher to call the correct templated implementation.
     if (NR == 16 && kr == 16 && sr == 2) {
         switch(weight_nbit) {
-            case 1: weight_packing::pack_weights<1, 16, 16, 2>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size); break;
-            case 2: weight_packing::pack_weights<2, 16, 16, 2>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size); break;
-            case 3: weight_packing::pack_weights<3, 16, 16, 2>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size); break;
-            case 4: weight_packing::pack_weights<4, 16, 16, 2>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size); break;
+            case 1: weight_packing::pack_weights_with_fused_lut<1, 16>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size, false); break;
+            case 2: weight_packing::pack_weights_with_fused_lut<2, 16>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size, false); break;
+            case 3: weight_packing::pack_weights_with_fused_lut<3, 16>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size, false); break;
+            case 4: weight_packing::pack_weights_with_fused_lut<4, 16>(packed_weights_ptr, B_qvals, weight_scales, weight_luts, biases, has_bias, N, K, scale_group_size, lut_group_size, false); break;
             default: throw std::invalid_argument("Unsupported weight_nbit.");
         }
     } else {
@@ -187,8 +189,8 @@ inline void groupwise_lowbit_lut_kernel(
         int m,
         int n,
         int k,
-        int scale_group, // Note: This kernel's packer fuses scale into the LUT.
-        int lut_group,   // This is the packing_group_size for the kernel.
+        int scale_group,
+        int lut_group,
         const void* packed_weights,
         const void* packed_activations,
         float clamp_min,
@@ -200,7 +202,6 @@ inline void groupwise_lowbit_lut_kernel(
     constexpr int MR = 4;
     constexpr int NR = 16;
 
-    // The public API can perform checks before calling the specialized kernel.
     assert(m % MR == 0);
     assert(n % NR == 0);
 
@@ -209,6 +210,7 @@ inline void groupwise_lowbit_lut_kernel(
         output,
         output_m_stride,
         m, n, k,
+        scale_group,
         lut_group,
         packed_weights,
         packed_activations,
