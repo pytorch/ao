@@ -1,23 +1,15 @@
+##################################################
 Inference Tutorial: From Quantization to Serving
-===================================================
+##################################################
 
-This tutorial demonstrates how to perform post-training quantization and deploy models for inference using torchao's integration with popular frameworks. All quantization techniques shown here use torchao as the underlying optimization engine, seamlessly integrated through HuggingFace Transformers, vLLM, and ExecuTorch.
+This tutorial demonstrates how to perform post-training quantization and deploy models for inference:
 
-.. contents::
-   :local:
-   :depth: 2
+1. :ref:`Post-training Quantization with HuggingFace`: Using float8 dynamic quantization with HuggingFace integration
+2. :ref:`Sparsity Integration`: Combining sparsity with quantization for additional speedups
+3. :ref:`High-throughput Serving with vLLM`: Deploying quantized models with vLLM
+4. :ref:`Mobile Deployment with Executorch`: Lowering to ExecuTorch for on-device inference
 
-Overview
---------
-
-This tutorial covers the complete inference pipeline:
-
-1. **Post-training Quantization**: Using float8 dynamic quantization with HuggingFace integration
-2. **Sparsity**: Combining sparsity with quantization for additional speedups
-3. **High-throughput Serving**: Deploying quantized models with vLLM
-4. **Mobile Deployment**: Lowering to ExecuTorch for on-device inference
-
-All these workflows leverage torchao's optimized kernels and quantization algorithms under the hood.
+All techniques shown here use torchao as the underlying optimization engine, seamlessly integrated through HuggingFace Transformers, vLLM, and ExecuTorch.
 
 Post-training Quantization with HuggingFace
 ############################################
@@ -68,6 +60,126 @@ Float8 dynamic quantization shows 36% reduction in model size with minimal accur
 
     output = pipe(messages, **generation_args)
     print(output[0]['generated_text'])
+
+Model Quality Assessment
+------------------------
+
+Evaluate quantized models using lm-evaluation-harness:
+
+.. code-block:: bash
+
+    # Install evaluation framework
+    # Need to install lm-eval from source: https://github.com/EleutherAI/lm-evaluation-harness#install
+
+    # Evaluate baseline model
+    lm_eval --model hf --model_args pretrained=microsoft/Phi-4-mini-instruct --tasks hellaswag --device cuda:0 --batch_size 8
+
+    # Evaluate torchao-quantized model (float8dq)
+    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
+
+
+Performance Benchmarking
+------------------------
+
+**Memory Usage Comparison**:
+
+.. code-block:: python
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+
+    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
+    model_id = "pytorch/Phi-4-mini-instruct-float8dq"
+    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    torch.cuda.reset_peak_memory_stats()
+
+    prompt = "Hey, are you conscious? Can you talk to me?"
+    messages = [
+        {
+            "role": "system",
+            "content": "",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    templated_prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    print("Prompt:", prompt)
+    print("Templated prompt:", templated_prompt)
+    inputs = tokenizer(
+        templated_prompt,
+        return_tensors="pt",
+    ).to("cuda")
+    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
+    output_text = tokenizer.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    print("Response:", output_text[0][len(prompt):])
+
+    mem = torch.cuda.max_memory_reserved() / 1e9
+    print(f"Peak Memory Usage: {mem:.02f} GB")
+
+
++-------------------+----------------+------------------------------+
+| Benchmark         | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
++===================+================+==============================+
+| Peak Memory (GB)  | 8.91           | 5.70 (36% reduction)         |
++-------------------+----------------+------------------------------+
+
+
+**Latency Benchmarking**:
+
+.. code-block:: bash
+
+    # baseline
+    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
+
+    # float8dq
+    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
+
+**Serving Benchmarking**:
+
+We benchmarked the throughput in a serving environment.
+
+.. code-block:: bash
+
+    # Download sharegpt dataset:
+    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
+
+    # Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
+    # Note: you can change the number of prompts to be benchmarked with --num-prompts argument for benchmark_serving script.
+
+    # For baseline
+    # Server:
+    vllm serve microsoft/Phi-4-mini-instruct --tokenizer microsoft/Phi-4-mini-instruct -O3
+    # Client:
+    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
+
+    # For float8dq
+    # Server:
+    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+    # Client:
+    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
+
+
+**Results (H100 machine)**
+
++----------------------------+----------------+------------------------------+
+| Benchmark                  | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
++============================+================+==============================+
+| latency (batch_size=1)     | 1.64s          | 1.41s (1.16x speedup)        |
++----------------------------+----------------+------------------------------+
+| latency (batch_size=128)   | 3.1s           | 2.72s (1.14x speedup)        |
++----------------------------+----------------+------------------------------+
+| serving (num_prompts=1)    | 1.35 req/s     | 1.57 req/s (1.16x speedup)   |
++----------------------------+----------------+------------------------------+
+| serving (num_prompts=1000) | 66.68 req/s    | 80.53 req/s (1.21x speedup)  |
++----------------------------+----------------+------------------------------+
+
 
 Sparsity Integration
 ####################
@@ -182,9 +294,6 @@ Mobile Deployment with ExecuTorch
 ##################################
 
 ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment.
-
-Preparing Models for Mobile
-----------------------------
 
 **Step 1: Untie Embedding Weights**
 
@@ -338,128 +447,6 @@ The torchao-optimized 8da4w model provides:
 - **Memory**: ~3.2GB on iPhone 15 Pro (vs ~12GB unquantized)
 - **Speed**: ~17 tokens/sec on iPhone 15 Pro
 - **Accuracy**: Maintained within 5-10% of original model on most benchmarks
-
-Evaluation and Benchmarking
-############################
-
-Model Quality Assessment
-------------------------
-
-Evaluate quantized models using lm-evaluation-harness:
-
-.. code-block:: bash
-
-    # Install evaluation framework
-    # Need to install lm-eval from source: https://github.com/EleutherAI/lm-evaluation-harness#install
-
-    # Evaluate baseline model
-    lm_eval --model hf --model_args pretrained=microsoft/Phi-4-mini-instruct --tasks hellaswag --device cuda:0 --batch_size 8
-
-    # Evaluate torchao-quantized model (float8dq)
-    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
-
-
-Performance Benchmarking
-------------------------
-
-**Memory Usage Comparison**:
-
-.. code-block:: python
-
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-
-    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
-    model_id = "pytorch/Phi-4-mini-instruct-float8dq"
-    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-    torch.cuda.reset_peak_memory_stats()
-
-    prompt = "Hey, are you conscious? Can you talk to me?"
-    messages = [
-        {
-            "role": "system",
-            "content": "",
-        },
-        {"role": "user", "content": prompt},
-    ]
-    templated_prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    print("Prompt:", prompt)
-    print("Templated prompt:", templated_prompt)
-    inputs = tokenizer(
-        templated_prompt,
-        return_tensors="pt",
-    ).to("cuda")
-    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
-    output_text = tokenizer.batch_decode(
-        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-    )
-    print("Response:", output_text[0][len(prompt):])
-
-    mem = torch.cuda.max_memory_reserved() / 1e9
-    print(f"Peak Memory Usage: {mem:.02f} GB")
-
-
-+-------------------+----------------+------------------------------+
-| Benchmark         | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
-+===================+================+==============================+
-| Peak Memory (GB)  | 8.91           | 5.70 (36% reduction)         |
-+-------------------+----------------+------------------------------+
-
-
-**Latency Benchmarking**:
-
-.. code-block:: bash
-
-    # baseline
-    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
-
-    # float8dq
-    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
-
-**Serving Benchmarking**:
-
-We benchmarked the throughput in a serving environment.
-
-.. code-block:: bash
-
-    # Download sharegpt dataset:
-    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
-
-    # Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
-    # Note: you can change the number of prompts to be benchmarked with --num-prompts argument for benchmark_serving script.
-
-    # For baseline
-    # Server:
-    vllm serve microsoft/Phi-4-mini-instruct --tokenizer microsoft/Phi-4-mini-instruct -O3
-    # Client:
-    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
-
-    # For float8dq
-    # Server:
-    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
-    # Client:
-    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
-
-
-**Results (H100 machine)**
-
-+----------------------------+----------------+------------------------------+
-| Benchmark                  | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
-+============================+================+==============================+
-| latency (batch_size=1)     | 1.64s          | 1.41s (1.16x speedup)        |
-+----------------------------+----------------+------------------------------+
-| latency (batch_size=128)   | 3.1s           | 2.72s (1.14x speedup)        |
-+----------------------------+----------------+------------------------------+
-| serving (num_prompts=1)    | 1.35 req/s     | 1.57 req/s (1.16x speedup)   |
-+----------------------------+----------------+------------------------------+
-| serving (num_prompts=1000) | 66.68 req/s    | 80.53 req/s (1.21x speedup)  |
-+----------------------------+----------------+------------------------------+
 
 
 Conclusion
