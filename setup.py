@@ -343,6 +343,11 @@ class CMakeExtension(Extension):
         self.cmake_args = cmake_args
 
 
+def remove_items(a: list, b: list) -> list:
+    """Remove items in list b from list a"""
+    return [x for x in a if x not in b]
+
+
 def get_extensions():
     # Skip building C++ extensions if USE_CPP is set to "0"
     if use_cpp == "0":
@@ -457,7 +462,7 @@ def get_extensions():
         excluded_sources = list(
             glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
         )
-        sources = [s for s in sources if s not in excluded_sources]
+        sources = remove_items(sources, excluded_sources)
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -501,24 +506,24 @@ def get_extensions():
         rocm_sources = list(
             glob.glob(os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True)
         )
-        sources = [s for s in sources if s not in rocm_sources]
+        sources = remove_items(sources, rocm_sources)
 
-    use_cutlass = False
+    use_cutlass = use_cuda and not IS_WINDOWS
     cutlass_90a_sources = None
     cutlass_100a_sources = None
     cutlass_120a_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
     build_for_sm120a = False
-    if use_cuda and not IS_WINDOWS:
-        use_cutlass = True
+
+    if use_cutlass:
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
         cutlass_tools_include_dir = os.path.join(
             cutlass_dir, "tools", "util", "include"
         )
         cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
-    if use_cutlass:
+
         extra_compile_args["nvcc"].extend(
             [
                 "-DTORCHAO_USE_CUTLASS",
@@ -562,6 +567,7 @@ def get_extensions():
                     "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
             )
+        sources = remove_items(sources, cutlass_90a_sources)
 
         # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
         cutlass_100a_sources = [
@@ -571,6 +577,7 @@ def get_extensions():
                 "mx_fp_cutlass_kernels_sm100a.cu",
             ),
         ]
+        sources = remove_items(sources, cutlass_100a_sources)
 
         # Always compile mx_fp_cutlass_kernels.cu ONLY with sm120a architecture
         cutlass_120a_sources = [
@@ -580,13 +587,17 @@ def get_extensions():
                 "mx_fp_cutlass_kernels_sm120a.cu",
             ),
         ]
+        sources = remove_items(sources, cutlass_120a_sources)
 
-    # Remove CUTLASS-based kernels from the sources list.  An assumption is that
-    # these files will have "cutlass" in its name.
-    cutlass_sources = list(
-        glob.glob(os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True)
-    )
-    sources = [s for s in sources if s not in cutlass_sources]
+    else:
+        # Remove CUTLASS-based kernels from the sources list.  An assumption is that
+        # these files will have "cutlass" in its name.
+        cutlass_sources = list(
+            glob.glob(
+                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
+            )
+        )
+        sources = remove_items(sources, cutlass_sources)
 
     ext_modules = []
     if len(sources) > 0:
