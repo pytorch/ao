@@ -16,6 +16,7 @@ from utils import (
     get_name_to_shapes_iter,
 )
 
+from torchao.ops import mx_fp4_bf16
 from torchao.testing.float8.roofline_utils import get_specs
 
 
@@ -62,13 +63,19 @@ def run(
 ):
     device = "cuda"
     # TODO(future PR): this is ugly
-    assert recipe in ("tensorwise", "rowwise", "mxfp8_cublas"), "unsupported"
+    assert recipe in ("tensorwise", "rowwise", "mxfp8_cublas", "mxfp4_cutlass"), (
+        "unsupported"
+    )
+    use_fp4 = recipe == "mxfp4_cutlass"
 
     specs = get_specs()
     bf16_peak_tops = specs["bf16_peak_tops"]
     fp8_peak_tops = specs["fp8_peak_tops"]
+    fp4_peak_tops = specs["fp4_peak_tops"]
     print(f"gpu_name: {torch.cuda.get_device_name(0)}")
-    print(f"peak tops: bf16 {bf16_peak_tops:.2e}, fp8 {fp8_peak_tops:.2e}")
+    print(
+        f"peak tops: bf16 {bf16_peak_tops:.2e}, fp8 {fp8_peak_tops:.2e}, fp4 {fp4_peak_tops:.2e}"
+    )
 
     headers = (
         "fast_accum",
@@ -77,14 +84,14 @@ def run(
         "K",
         "N",
         "ref_time_s",
-        "fp8_time_s",
-        "fp8_speedup",
+        "time_s",
+        "speedup",
     )
     results = []
 
     dtype = torch.bfloat16
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
-    fast_accum_vals = [True, False]
+    fast_accum_vals = [False] if use_fp4 else [True, False]
 
     for idx, (fast_accum, (name, (M, K, N))) in enumerate(
         itertools.product(fast_accum_vals, name_to_shapes)
@@ -107,35 +114,55 @@ def run(
 
         del A
 
-        # raw float8 matmul (upper bound for what we can achive in eager mode)
-        # TODO(future): add e5m2
-        d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
-        A = torch.zeros(M, K, device=device, dtype=d1)
-        B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+        if use_fp4:
+            A = torch.zeros(M, K // 2, device=device, dtype=torch.int8).view(
+                torch.float4_e2m1fn_x2
+            )
+            B = (
+                torch.zeros(N, K // 2, device=device, dtype=torch.int8)
+                .view(torch.float4_e2m1fn_x2)
+                .T
+            )
+            peak_tops = fp4_peak_tops
+        else:
+            # raw float8 matmul (upper bound for what we can achive in eager mode)
+            # TODO(future): add e5m2
+            d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
+            A = torch.zeros(M, K, device=device, dtype=d1)
+            B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+            peak_tops = fp8_peak_tops
+
         if recipe == "tensorwise":
             scale_a = torch.tensor([1.0], device=device)
             scale_b = torch.tensor([1.0], device=device)
         elif recipe == "rowwise":
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
-        elif recipe == "mxfp8_cublas":
+        elif recipe in ("mxfp8_cublas", "mxfp4_cutlass"):
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         else:
             assert False, f"unknown recipe {recipe}"
 
-        def do_matmul(A, B):
+        def do_matmul_fp8(A, B):
             nonlocal scale_a
             nonlocal scale_b
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
             )
 
-        fp8_time_sec, fp8_tops_sec, fp8_pct_top_peak = do_benchmarks(
-            tops, fp8_peak_tops, use_gpu_kernel_time, do_matmul, A, B
+        def do_matmul_mxfp4(A, B):
+            nonlocal scale_a
+            nonlocal scale_b
+            return mx_fp4_bf16(A, B, scale_a, scale_b)
+
+        do_matmul = do_matmul_mxfp4 if use_fp4 else do_matmul_fp8
+
+        time_sec, tops_sec, pct_top_peak = do_benchmarks(
+            tops, peak_tops, use_gpu_kernel_time, do_matmul, A, B
         )
         print(
-            f"fp8 time_sec {fp8_time_sec:.2E}, tops/sec {fp8_tops_sec:.2E}, pct_peak {fp8_pct_top_peak:.3f}"
+            f"time_sec {time_sec:.2E}, tops/sec {tops_sec:.2E}, pct_peak {pct_top_peak:.3f}"
         )
 
         del A, B, scale_a, scale_b
@@ -148,8 +175,8 @@ def run(
                 K,
                 N,
                 ref_time_sec,
-                fp8_time_sec,
-                ref_time_sec / fp8_time_sec,
+                time_sec,
+                ref_time_sec / time_sec,
             ]
         )
 
