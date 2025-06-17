@@ -174,9 +174,9 @@ Performance Optimization Notes
 When using vLLM with torchao:
 
 - **Float8 dynamic quantization**: Provides 36% memory reduction with torchao's optimized kernels
-- **Sparse models**: Additional ---- speedup speedup when combined with quantization
-- **KV cache**:
-- **Compile optimizations**:
+- **Sparse models**: Additional [x%] speedup when combined with quantization
+- **KV cache**: Add text here
+- **Compile optimizations**: Add text here
 
 Mobile Deployment with ExecuTorch
 ##################################
@@ -189,6 +189,7 @@ Preparing Models for Mobile
 **Step 1: Untie Embedding Weights**
 
 We want to quantize the embedding and lm_head differently. Since those layers are tied, we first need to untie the model:
+
 .. code-block:: python
 
     from transformers import (
@@ -228,6 +229,7 @@ We want to quantize the embedding and lm_head differently. Since those layers ar
 **Step 2: Create Mobile-Optimized Quantization**
 
 Quantizing the model for mobile deployment using torchao's Int8DynamicActivationIntxWeightConfig configuration:
+
 .. code-block:: python
 
     from transformers import (
@@ -337,19 +339,6 @@ The torchao-optimized 8da4w model provides:
 - **Speed**: ~17 tokens/sec on iPhone 15 Pro
 - **Accuracy**: Maintained within 5-10% of original model on most benchmarks
 
-**iOS Integration Example**:
-
-.. code-block:: objective-c
-
-    // Load the torchao-optimized PTE file
-    NSString *modelPath = [[NSBundle mainBundle] pathForResource:@"phi4-mini-8da4w-mobile" ofType:@"pte"];
-
-    // ExecuTorch runtime automatically uses torchao's optimized kernels
-    torch::executor::Result<torch::executor::Module> module_result =
-        torch::executor::Module::load(modelPath.UTF8String);
-
-Android integration follows similar patterns using the ExecuTorch Android API.
-
 Evaluation and Benchmarking
 ############################
 
@@ -416,9 +405,11 @@ Performance Benchmarking
     print(f"Peak Memory Usage: {mem:.02f} GB")
 
 
-| Benchmark | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
-|-----------|----------------|------------------------------|
-| Peak Memory (GB) | 8.91 |	5.70 (36% reduction) |
++-------------------+----------------+------------------------------+
+| Benchmark         | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
++===================+================+==============================+
+| Peak Memory (GB)  | 8.91           | 5.70 (36% reduction)         |
++-------------------+----------------+------------------------------+
 
 
 **Latency Benchmarking**:
@@ -436,6 +427,7 @@ Performance Benchmarking
 We benchmarked the throughput in a serving environment.
 
 .. code-block:: bash
+
     # Download sharegpt dataset:
     wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
 
@@ -457,12 +449,17 @@ We benchmarked the throughput in a serving environment.
 
 **Results (H100 machine)**
 
-| Benchmark | Phi-4 mini-Ins |	Phi-4-mini-instruct-float8dq |
-|-----------|----------------|------------------------------|
-| latency (batch_size=1) |	1.64s	| 1.41s (1.16x speedup) |
-| latency (batch_size=128) |	3.1s	| 2.72s (1.14x speedup) |
-| serving (num_prompts=1) |	1.35 req/s |	1.57 req/s (1.16x speedup) |
-| serving (num_prompts=1000) |	66.68 req/s |	80.53 req/s (1.21x speedup) |
++----------------------------+----------------+------------------------------+
+| Benchmark                  | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
++============================+================+==============================+
+| latency (batch_size=1)     | 1.64s          | 1.41s (1.16x speedup)        |
++----------------------------+----------------+------------------------------+
+| latency (batch_size=128)   | 3.1s           | 2.72s (1.14x speedup)        |
++----------------------------+----------------+------------------------------+
+| serving (num_prompts=1)    | 1.35 req/s     | 1.57 req/s (1.16x speedup)   |
++----------------------------+----------------+------------------------------+
+| serving (num_prompts=1000) | 66.68 req/s    | 80.53 req/s (1.21x speedup)  |
++----------------------------+----------------+------------------------------+
 
 
 Conclusion
