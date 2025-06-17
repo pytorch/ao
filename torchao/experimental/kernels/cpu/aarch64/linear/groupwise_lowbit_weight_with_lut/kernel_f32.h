@@ -32,46 +32,45 @@ inline void micro_kernel_lut(
     const auto* grp = reinterpret_cast<const utils::FusedLutPackedWeightGroup<NR>*>(W);
     const uint8_t* idx_ptr = reinterpret_cast<const uint8_t*>(grp + 1);
 
-    alignas(16) uint8_t soa_table_bytes[64];
-    memcpy(soa_table_bytes, grp->lut_soa_planes, 64);
     uint8x16x4_t tbl;
     memcpy(tbl.val, grp->lut_soa_planes, 64);
-
-    // (A) Advanced unpack indices
-    uint8x8_t packed_neon = vld1_u8(idx_ptr);
-    uint8x8_t low_nibbles  = vand_u8(packed_neon, vdup_n_u8(0x0F));
-    uint8x8_t high_nibbles = vshr_n_u8(packed_neon, 4);
-    uint8x8x2_t interleaved = vzip_u8(low_nibbles, high_nibbles);
-    uint8x16_t unpacked_indices_neon = vcombine_u8(interleaved.val[0], interleaved.val[1]);
-
-    const uint8x16_t SIXTEEN = vdupq_n_u8(16);
-    const uint8x16_t THIRTY_TWO = vdupq_n_u8(32);
-    const uint8x16_t FORTY_EIGHT = vdupq_n_u8(48);
-    uint8x16_t idx_plane0 = unpacked_indices_neon;
-    uint8x16_t idx_plane1 = vaddq_u8(unpacked_indices_neon, SIXTEEN);
-    uint8x16_t idx_plane2 = vaddq_u8(unpacked_indices_neon, THIRTY_TWO);
-    uint8x16_t idx_plane3 = vaddq_u8(unpacked_indices_neon, FORTY_EIGHT);
-
-    uint8x16_t b0 = vqtbl4q_u8(tbl, idx_plane0);
-    uint8x16_t b1 = vqtbl4q_u8(tbl, idx_plane1);
-    uint8x16_t b2 = vqtbl4q_u8(tbl, idx_plane2);
-    uint8x16_t b3 = vqtbl4q_u8(tbl, idx_plane3);
-
-    uint8x16x2_t zip_b01 = vzipq_u8(b0, b1);
-    uint8x16x2_t zip_b23 = vzipq_u8(b2, b3);
-    uint16x8x2_t trn_16_0 = vtrnq_u16(vreinterpretq_u16_u8(zip_b01.val[0]), vreinterpretq_u16_u8(zip_b23.val[0]));
-    uint16x8x2_t trn_16_1 = vtrnq_u16(vreinterpretq_u16_u8(zip_b01.val[1]), vreinterpretq_u16_u8(zip_b23.val[1]));
-    float32x4x2_t final_zip_0 = vzipq_f32(vreinterpretq_f32_u16(trn_16_0.val[0]), vreinterpretq_f32_u16(trn_16_0.val[1]));
-    float32x4x2_t final_zip_1 = vzipq_f32(vreinterpretq_f32_u16(trn_16_1.val[0]), vreinterpretq_f32_u16(trn_16_1.val[1]));
-
-    float32x4_t w0_3   = final_zip_0.val[0];
-    float32x4_t w4_7   = final_zip_0.val[1];
-    float32x4_t w8_11  = final_zip_1.val[0];
-    float32x4_t w12_15 = final_zip_1.val[1];
 
     const float* a_ptr = A; // A pointer to the start of the (K x MR) tile for this group
 
     for (int k_idx = 0; k_idx < K; ++k_idx) {
+
+
+        uint8x8_t packed_neon = vld1_u8(idx_ptr);
+        uint8x8_t low_nibbles  = vand_u8(packed_neon, vdup_n_u8(0x0F));
+        uint8x8_t high_nibbles = vshr_n_u8(packed_neon, 4);
+        uint8x8x2_t interleaved = vzip_u8(low_nibbles, high_nibbles);
+        uint8x16_t unpacked_indices_neon = vcombine_u8(interleaved.val[0], interleaved.val[1]);
+
+        const uint8x16_t SIXTEEN = vdupq_n_u8(16);
+        const uint8x16_t THIRTY_TWO = vdupq_n_u8(32);
+        const uint8x16_t FORTY_EIGHT = vdupq_n_u8(48);
+        uint8x16_t idx_plane0 = unpacked_indices_neon;
+        uint8x16_t idx_plane1 = vaddq_u8(unpacked_indices_neon, SIXTEEN);
+        uint8x16_t idx_plane2 = vaddq_u8(unpacked_indices_neon, THIRTY_TWO);
+        uint8x16_t idx_plane3 = vaddq_u8(unpacked_indices_neon, FORTY_EIGHT);
+
+        uint8x16_t b0 = vqtbl4q_u8(tbl, idx_plane0);
+        uint8x16_t b1 = vqtbl4q_u8(tbl, idx_plane1);
+        uint8x16_t b2 = vqtbl4q_u8(tbl, idx_plane2);
+        uint8x16_t b3 = vqtbl4q_u8(tbl, idx_plane3);
+
+        uint8x16x2_t zip_b01 = vzipq_u8(b0, b1);
+        uint8x16x2_t zip_b23 = vzipq_u8(b2, b3);
+        uint16x8x2_t trn_16_0 = vtrnq_u16(vreinterpretq_u16_u8(zip_b01.val[0]), vreinterpretq_u16_u8(zip_b23.val[0]));
+        uint16x8x2_t trn_16_1 = vtrnq_u16(vreinterpretq_u16_u8(zip_b01.val[1]), vreinterpretq_u16_u8(zip_b23.val[1]));
+        float32x4x2_t final_zip_0 = vzipq_f32(vreinterpretq_f32_u16(trn_16_0.val[0]), vreinterpretq_f32_u16(trn_16_0.val[1]));
+        float32x4x2_t final_zip_1 = vzipq_f32(vreinterpretq_f32_u16(trn_16_1.val[0]), vreinterpretq_f32_u16(trn_16_1.val[1]));
+
+        float32x4_t w0_3   = final_zip_0.val[0];
+        float32x4_t w4_7   = final_zip_0.val[1];
+        float32x4_t w8_11  = final_zip_1.val[0];
+        float32x4_t w12_15 = final_zip_1.val[1];
+
         float32x4_t a_col = vld1q_f32(a_ptr);
 
         float32x4_t a0 = vdupq_laneq_f32(a_col, 0);
@@ -100,6 +99,7 @@ inline void micro_kernel_lut(
         accum[3][3] = vfmaq_f32(accum[3][3], w12_15, a3);
 
         a_ptr += MR;
+        idx_ptr += (NR / 2);
     }
 }
 
