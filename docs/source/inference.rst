@@ -5,9 +5,8 @@ Inference Tutorial: From Quantization to Serving
 This tutorial demonstrates how to perform post-training quantization and deploy models for inference:
 
 1. :ref:`Post-training Quantization with HuggingFace`: Using float8 dynamic quantization with HuggingFace integration
-2. :ref:`Sparsity Integration`: Combining sparsity with quantization for additional speedups
-3. :ref:`High-throughput Serving with vLLM`: Deploying quantized models with vLLM
-4. :ref:`Mobile Deployment with Executorch`: Lowering to ExecuTorch for on-device inference
+2. :ref:`High-throughput Serving with vLLM`: Deploying quantized models with vLLM
+3. :ref:`Mobile Deployment with Executorch`: Lowering to ExecuTorch for on-device inference
 
 All techniques shown here use torchao as the underlying optimization engine, seamlessly integrated through HuggingFace Transformers, vLLM, and ExecuTorch.
 
@@ -20,6 +19,102 @@ Float8 Dynamic Quantization
 ------------------------------
 
 Float8 dynamic quantization shows 36% reduction in model size with minimal accuracy loss:
+
+.. code-block:: python
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+
+    model_id = "microsoft/Phi-4-mini-instruct"
+
+    from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
+    quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+    quantization_config = TorchAoConfig(quant_type=quant_config)
+    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    # Push to hub
+    USER_ID = "YOUR_USER_ID"
+    MODEL_NAME = model_id.split("/")[-1]
+    save_to = f"{USER_ID}/{MODEL_NAME}-float8dq"
+    quantized_model.push_to_hub(save_to, safe_serialization=False)
+    tokenizer.push_to_hub(save_to)
+
+    # Manual Testing
+    prompt = "Hey, are you conscious? Can you talk to me?"
+    messages = [
+        {
+            "role": "system",
+            "content": "",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    templated_prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    print("Prompt:", prompt)
+    print("Templated prompt:", templated_prompt)
+    inputs = tokenizer(
+        templated_prompt,
+        return_tensors="pt",
+    ).to("cuda")
+    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
+    output_text = tokenizer.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    print("Response:", output_text[0][len(prompt):])
+
+
+[Optional] Float8 Dynamic Quantization + Semi-structured (2:4) sparsity
+--------------------------------------------------------------------------
+
+Torchao's sparsity support can be combined with quantization for additional performance gains. The Marlin sparse layout provides optimized kernels for 2:4 structured sparsity.
+
+.. code-block:: python
+
+    from torchao.quantization import Float8DynamicActivationFloat8SemiSparseWeightConfig
+
+    # Combine sparsity with int4 quantization - both optimized by torchao
+    quant_config = Float8DynamicActivationFloat8SemiSparseWeightConfig()
+    quantization_config = TorchAoConfig(quant_type=quant_config)
+
+    # Load a pre-sparsified checkpoint
+    model = AutoModelForCausalLM.from_pretrained(
+        "nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128-2of4",  # 2:4 sparse model
+        torch_dtype=torch.float16,
+        device_map="cuda",
+        quantization_config=quantization_config
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
+
+    # Use static KV cache for best performance with torchao optimizations
+    messages = [{"role": "user", "content": "What are the benefits of sparse neural networks?"}]
+    inputs = tokenizer.apply_chat_template(messages, return_tensors="pt", add_generation_prompt=True).to("cuda")
+
+    outputs = model.generate(
+        inputs,
+        max_new_tokens=150,
+        cache_implementation="static",  # Optimized for torchao
+        do_sample=False
+    )
+
+    response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+    print(response)
+
+For more information on supported quantization and sparsity configurations, see https://huggingface.co/docs/transformers/main/en/quantization/torchao.
+
+Inference with Transformers
+---------------------------
+
+Install the required packages:
+.. code-block:: bash
+    pip install git+https://github.com/huggingface/transformers@main
+    pip install torchao
+    pip install torch
+    pip install accelerate
 
 .. code-block:: python
 
@@ -79,7 +174,31 @@ Evaluate quantized models using lm-evaluation-harness:
 
 
 Performance Benchmarking
-------------------------
+------------------------------
+
+**Latency Benchmarking**:
+
+.. code-block:: bash
+
+    # baseline
+    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
+
+    # float8dq
+    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
+
+**Results (H100 machine)**
+
++----------------------------+----------------+------------------------------+
+| Benchmark                  | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
++============================+================+==============================+
+| latency (batch_size=1)     | 1.64s          | 1.41s (1.16x speedup)        |
++----------------------------+----------------+------------------------------+
+| latency (batch_size=128)   | 3.1s           | 2.72s (1.14x speedup)        |
++----------------------------+----------------+------------------------------+
+
+
+Memory Benchmarking
+--------------------
 
 **Memory Usage Comparison**:
 
@@ -130,22 +249,53 @@ Performance Benchmarking
 | Peak Memory (GB)  | 8.91           | 5.70 (36% reduction)         |
 +-------------------+----------------+------------------------------+
 
+Performance Breakdown
+------------------------------
+When using vLLM with torchao:
 
-**Latency Benchmarking**:
+- **Float8 dynamic quantization**: Provides 36% VRAM reduction, 1.15x-1.2x speedup and little to no accuracy impact on H100
+- **Sparsity Support**: Semi-structured (2:4) sparsity for faster inference (see [Accelerating Neural Network Training with Semi-Structured (2:4) Sparsity](https://pytorch.org/blog/accelerating-neural-network-training/) blog post)
+- **KV Cache Quantization**: Enables long context inference with lower memory (see [KV Cache Quantization](https://github.com/pytorch/ao/blob/main/torchao/_models/llama/README.md))
+
+High-throughput Serving with vLLM
+##################################
+
+vLLM automatically leverages torchao's optimized kernels when serving quantized models, providing significant throughput improvements.
+
+Setting up vLLM with Quantized Models
+--------------------------------------
+
+First, install vLLM with torchao support:
 
 .. code-block:: bash
 
-    # baseline
-    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
+    pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
+    pip install torchao
 
-    # float8dq
-    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
+Serving Quantized Models
+-----------------------------
+
+.. code-block:: bash
+
+    vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+
+
+Serving Performance Benchmarking
+--------------------------------
 
 **Serving Benchmarking**:
 
 We benchmarked the throughput in a serving environment.
 
 .. code-block:: bash
+
+    # Setup: Get vllm source code
+    git clone git@github.com:vllm-project/vllm.git
+
+    # Install vllm
+    VLLM_USE_PRECOMPILED=1 pip install --editable .
+
+    # Run the benchmarks under vllm root folder:
 
     # Download sharegpt dataset:
     wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
@@ -165,77 +315,15 @@ We benchmarked the throughput in a serving environment.
     # Client:
     python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
 
-
 **Results (H100 machine)**
 
 +----------------------------+----------------+------------------------------+
 | Benchmark                  | Phi-4 mini-Ins | Phi-4-mini-instruct-float8dq |
 +============================+================+==============================+
-| latency (batch_size=1)     | 1.64s          | 1.41s (1.16x speedup)        |
-+----------------------------+----------------+------------------------------+
-| latency (batch_size=128)   | 3.1s           | 2.72s (1.14x speedup)        |
-+----------------------------+----------------+------------------------------+
 | serving (num_prompts=1)    | 1.35 req/s     | 1.57 req/s (1.16x speedup)   |
 +----------------------------+----------------+------------------------------+
 | serving (num_prompts=1000) | 66.68 req/s    | 80.53 req/s (1.21x speedup)  |
 +----------------------------+----------------+------------------------------+
-
-
-Sparsity Integration
-####################
-
-Torchao's sparsity support can be combined with quantization for additional performance gains. The Marlin sparse layout provides optimized kernels for 2:4 structured sparsity.
-
-Sparse + Quantized Models
--------------------------
-
-.. code-block:: python
-
-    from torchao.quantization import Int4WeightOnlyConfig
-    from torchao.dtypes import MarlinSparseLayout
-
-    # Combine sparsity with int4 quantization - both optimized by torchao
-    quant_config = Int4WeightOnlyConfig(layout=MarlinSparseLayout())
-    quantization_config = TorchAoConfig(quant_type=quant_config)
-
-    # Load a pre-sparsified checkpoint
-    model = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128-2of4",  # 2:4 sparse model
-        torch_dtype=torch.float16,
-        device_map="cuda",
-        quantization_config=quantization_config
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-
-    # Use static KV cache for best performance with torchao optimizations
-    messages = [{"role": "user", "content": "What are the benefits of sparse neural networks?"}]
-    inputs = tokenizer.apply_chat_template(messages, return_tensors="pt", add_generation_prompt=True).to("cuda")
-
-    outputs = model.generate(
-        inputs,
-        max_new_tokens=150,
-        cache_implementation="static",  # Optimized for torchao
-        do_sample=False
-    )
-
-    response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-    print(response)
-
-High-throughput Serving with vLLM
-##################################
-
-vLLM automatically leverages torchao's optimized kernels when serving quantized models, providing significant throughput improvements.
-
-Setting up vLLM with Quantized Models
---------------------------------------
-
-First, install vLLM with torchao support:
-
-.. code-block:: bash
-
-    pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
-    pip install torchao
 
 Inference with vLLM
 -------------------
@@ -270,25 +358,6 @@ Inference with vLLM
             print(f"Prompt:    {prompt!r}")
             print(f"Output:    {generated_text!r}")
             print("-" * 60)
-
-
-Serving Quantized Models
------------------------------
-
-.. code-block:: bash
-
-    vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
-
-
-Performance Optimization Notes
-------------------------------
-
-When using vLLM with torchao:
-
-- **Float8 dynamic quantization**: Provides 36% memory reduction with torchao's optimized kernels
-- **Sparse models**: Additional [x%] speedup when combined with quantization
-- **KV cache**: Add text here
-- **Compile optimizations**: Add text here
 
 Mobile Deployment with ExecuTorch
 ##################################
@@ -444,10 +513,11 @@ Mobile Performance Characteristics
 
 The torchao-optimized 8da4w model provides:
 
-- **Memory**: ~3.2GB on iPhone 15 Pro (vs ~12GB unquantized)
+- **Memory**: ~3.2GB on iPhone 15 Pro
 - **Speed**: ~17 tokens/sec on iPhone 15 Pro
 - **Accuracy**: Maintained within 5-10% of original model on most benchmarks
 
+For detailed instructions on testing the executorch model and reproducing benchmarks please refer to the [HF Phi-4-mini-instruct-8da4w model](https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w).
 
 Conclusion
 ##########
@@ -457,6 +527,7 @@ This tutorial demonstrated how torchao's quantization and sparsity techniques in
 - **HuggingFace Transformers** provides easy model loading with torchao quantization
 - **vLLM** leverages torchao's optimized kernels for high-throughput serving
 - **ExecuTorch** enables mobile deployment with torchao's mobile-optimized schemes
+- **lm-evaluation-harness** provides model quality assessment
 
 All these frameworks use torchao as the underlying optimization engine, ensuring consistent performance gains and ease of integration. The quantization techniques shown provide significant memory reduction (3-4x) and performance improvements (1.5-2x) while maintaining model quality within acceptable bounds for most applications.
 
