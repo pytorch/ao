@@ -8,7 +8,6 @@
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
 
-#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/groupwise_lowbit_weight_with_lut/utils.h>
 #include <cassert>
 #include <arm_neon.h>
@@ -22,95 +21,88 @@ namespace internal {
 
 template <int MR, int NR>
 inline void micro_kernel_lut(
-    float32x4_t accum[MR][NR / 4],        // accumulators (C‑tile)
-    const float* __restrict__ A,          // activations, size MR×K
-    const uint8_t* __restrict__ W,        // packed weights & indices
-    int K                                  // depth to iterate over
-)
+    float32x4_t accum[MR][NR / 4],
+    const float* __restrict__ A,
+    const uint8_t* __restrict__ W,
+    int K)
 {
     assert(K > 0 && "K must be positive");
     namespace utils = torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::utils;
 
     const auto* grp = reinterpret_cast<const utils::FusedLutPackedWeightGroup<NR>*>(W);
-    uint8x16x4_t tbl = {
-        vreinterpretq_u8_f32(grp->transposed_lut[0]),
-        vreinterpretq_u8_f32(grp->transposed_lut[1]),
-        vreinterpretq_u8_f32(grp->transposed_lut[2]),
-        vreinterpretq_u8_f32(grp->transposed_lut[3])
-    };
     const uint8_t* idx_ptr = reinterpret_cast<const uint8_t*>(grp + 1);
 
-    const uint8x16_t ONE   = vdupq_n_u8(1);
-    const uint8x16_t TWO   = vdupq_n_u8(2);
-    const uint8x16_t THREE = vdupq_n_u8(3);
+    alignas(16) uint8_t soa_table_bytes[64];
+    memcpy(soa_table_bytes, grp->lut_soa_planes, 64);
+    uint8x16x4_t tbl;
+    memcpy(tbl.val, grp->lut_soa_planes, 64);
 
-    for (int k = 0; k < K; ++k)
-    {
-        // (1) Load activations and broadcast per row.
-        float32x4_t a_vec = vld1q_f32(A + k * MR);
-        float32x4_t a0 = vdupq_laneq_f32(a_vec, 0);
-        float32x4_t a1 = vdupq_laneq_f32(a_vec, 1);
-        float32x4_t a2 = vdupq_laneq_f32(a_vec, 2);
-        float32x4_t a3 = vdupq_laneq_f32(a_vec, 3);
+    // (A) Advanced unpack indices
+    uint8x8_t packed_neon = vld1_u8(idx_ptr);
+    uint8x8_t low_nibbles  = vand_u8(packed_neon, vdup_n_u8(0x0F));
+    uint8x8_t high_nibbles = vshr_n_u8(packed_neon, 4);
+    uint8x8x2_t interleaved = vzip_u8(low_nibbles, high_nibbles);
+    uint8x16_t unpacked_indices_neon = vcombine_u8(interleaved.val[0], interleaved.val[1]);
 
-        // (2) Load and unpack indices, CORRECTING THE ORDER.
-        uint8x8_t packed = vld1_u8(idx_ptr);
-        idx_ptr += NR / 2;
+    const uint8x16_t SIXTEEN = vdupq_n_u8(16);
+    const uint8x16_t THIRTY_TWO = vdupq_n_u8(32);
+    const uint8x16_t FORTY_EIGHT = vdupq_n_u8(48);
+    uint8x16_t idx_plane0 = unpacked_indices_neon;
+    uint8x16_t idx_plane1 = vaddq_u8(unpacked_indices_neon, SIXTEEN);
+    uint8x16_t idx_plane2 = vaddq_u8(unpacked_indices_neon, THIRTY_TWO);
+    uint8x16_t idx_plane3 = vaddq_u8(unpacked_indices_neon, FORTY_EIGHT);
 
-        uint8x8_t even_indices = vshr_n_u8(packed, 4);
-        uint8x8_t odd_indices  = vand_u8(packed, vdup_n_u8(0x0F));
+    uint8x16_t b0 = vqtbl4q_u8(tbl, idx_plane0);
+    uint8x16_t b1 = vqtbl4q_u8(tbl, idx_plane1);
+    uint8x16_t b2 = vqtbl4q_u8(tbl, idx_plane2);
+    uint8x16_t b3 = vqtbl4q_u8(tbl, idx_plane3);
 
-        // De-interleave indices to restore sequential order.**
-        uint8x8x2_t deinterleaved = vuzp_u8(even_indices, odd_indices);
+    uint8x16x2_t zip_b01 = vzipq_u8(b0, b1);
+    uint8x16x2_t zip_b23 = vzipq_u8(b2, b3);
+    uint16x8x2_t trn_16_0 = vtrnq_u16(vreinterpretq_u16_u8(zip_b01.val[0]), vreinterpretq_u16_u8(zip_b23.val[0]));
+    uint16x8x2_t trn_16_1 = vtrnq_u16(vreinterpretq_u16_u8(zip_b01.val[1]), vreinterpretq_u16_u8(zip_b23.val[1]));
+    float32x4x2_t final_zip_0 = vzipq_f32(vreinterpretq_f32_u16(trn_16_0.val[0]), vreinterpretq_f32_u16(trn_16_0.val[1]));
+    float32x4x2_t final_zip_1 = vzipq_f32(vreinterpretq_f32_u16(trn_16_1.val[0]), vreinterpretq_f32_u16(trn_16_1.val[1]));
 
-        // Now combine them into a single 16-byte vector of sequential indices.
-        uint8x16_t idx_seq = vcombine_u8(deinterleaved.val[0], deinterleaved.val[1]);
+    float32x4_t w0_3   = final_zip_0.val[0];
+    float32x4_t w4_7   = final_zip_0.val[1];
+    float32x4_t w8_11  = final_zip_1.val[0];
+    float32x4_t w12_15 = final_zip_1.val[1];
 
-        // Scale to byte addresses inside the LUT.
-        uint8x16_t idx_bytes = vshlq_n_u8(idx_seq, 2);
+    const float* a_ptr = A; // A pointer to the start of the (K x MR) tile for this group
 
-        // (3) Gather 4 byte-planes using the corrected sequential indices.
-        uint8x16_t b0 = vqtbl4q_u8(tbl, idx_bytes);
-        uint8x16_t b1 = vqtbl4q_u8(tbl, vaddq_u8(idx_bytes, ONE));
-        uint8x16_t b2 = vqtbl4q_u8(tbl, vaddq_u8(idx_bytes, TWO));
-        uint8x16_t b3 = vqtbl4q_u8(tbl, vaddq_u8(idx_bytes, THREE));
+    for (int k_idx = 0; k_idx < K; ++k_idx) {
+        float32x4_t a_col = vld1q_f32(a_ptr);
 
-        // In-register transpose to avoid stack spill.**
-        // Stage 1: Interleave 8-bit elements within 16-byte registers.
-        uint8x16x2_t uzp_b01 = vuzpq_u8(b0, b1); // uzp_b01.val[0] has even bytes, .val[1] has odd bytes
-        uint8x16x2_t uzp_b23 = vuzpq_u8(b2, b3);
+        float32x4_t a0 = vdupq_laneq_f32(a_col, 0);
+        float32x4_t a1 = vdupq_laneq_f32(a_col, 1);
+        float32x4_t a2 = vdupq_laneq_f32(a_col, 2);
+        float32x4_t a3 = vdupq_laneq_f32(a_col, 3);
 
-        // Stage 2: Interleave 16-bit elements.
-        uint16x8x2_t trn_16_0 = vtrnq_u16(vreinterpretq_u16_u8(uzp_b01.val[0]), vreinterpretq_u16_u8(uzp_b23.val[0]));
-        uint16x8x2_t trn_16_1 = vtrnq_u16(vreinterpretq_u16_u8(uzp_b01.val[1]), vreinterpretq_u16_u8(uzp_b23.val[1]));
-
-        // Stage 3: Interleave 32-bit elements to get the final float vectors.
-        float32x4_t w0_3  = vreinterpretq_f32_u32(vtrnq_u32(vreinterpretq_u32_u16(trn_16_0.val[0]), vreinterpretq_u32_u16(trn_16_1.val[0])).val[0]);
-        float32x4_t w4_7  = vreinterpretq_f32_u32(vtrnq_u32(vreinterpretq_u32_u16(trn_16_0.val[1]), vreinterpretq_u32_u16(trn_16_1.val[1])).val[0]);
-        float32x4_t w8_11 = vreinterpretq_f32_u32(vtrnq_u32(vreinterpretq_u32_u16(trn_16_0.val[0]), vreinterpretq_u32_u16(trn_16_1.val[0])).val[1]);
-        float32x4_t w12_15= vreinterpretq_f32_u32(vtrnq_u32(vreinterpretq_u32_u16(trn_16_0.val[1]), vreinterpretq_u32_u16(trn_16_1.val[1])).val[1]);
-
-        accum[0][0] = vfmaq_f32(accum[0][0], w0_3 , a0);
-        accum[0][1] = vfmaq_f32(accum[0][1], w4_7 , a0);
-        accum[0][2] = vfmaq_f32(accum[0][2], w8_11, a0);
+        accum[0][0] = vfmaq_f32(accum[0][0], w0_3,   a0);
+        accum[0][1] = vfmaq_f32(accum[0][1], w4_7,   a0);
+        accum[0][2] = vfmaq_f32(accum[0][2], w8_11,  a0);
         accum[0][3] = vfmaq_f32(accum[0][3], w12_15, a0);
 
-        accum[1][0] = vfmaq_f32(accum[1][0], w0_3 , a1);
-        accum[1][1] = vfmaq_f32(accum[1][1], w4_7 , a1);
-        accum[1][2] = vfmaq_f32(accum[1][2], w8_11, a1);
+        accum[1][0] = vfmaq_f32(accum[1][0], w0_3,   a1);
+        accum[1][1] = vfmaq_f32(accum[1][1], w4_7,   a1);
+        accum[1][2] = vfmaq_f32(accum[1][2], w8_11,  a1);
         accum[1][3] = vfmaq_f32(accum[1][3], w12_15, a1);
 
-        accum[2][0] = vfmaq_f32(accum[2][0], w0_3 , a2);
-        accum[2][1] = vfmaq_f32(accum[2][1], w4_7 , a2);
-        accum[2][2] = vfmaq_f32(accum[2][2], w8_11, a2);
+        accum[2][0] = vfmaq_f32(accum[2][0], w0_3,   a2);
+        accum[2][1] = vfmaq_f32(accum[2][1], w4_7,   a2);
+        accum[2][2] = vfmaq_f32(accum[2][2], w8_11,  a2);
         accum[2][3] = vfmaq_f32(accum[2][3], w12_15, a2);
 
-        accum[3][0] = vfmaq_f32(accum[3][0], w0_3 , a3);
-        accum[3][1] = vfmaq_f32(accum[3][1], w4_7 , a3);
-        accum[3][2] = vfmaq_f32(accum[3][2], w8_11, a3);
+        accum[3][0] = vfmaq_f32(accum[3][0], w0_3,   a3);
+        accum[3][1] = vfmaq_f32(accum[3][1], w4_7,   a3);
+        accum[3][2] = vfmaq_f32(accum[3][2], w8_11,  a3);
         accum[3][3] = vfmaq_f32(accum[3][3], w12_15, a3);
+
+        a_ptr += MR;
     }
 }
+
 
 template <int MR, int NR>
 inline void post_process_and_store(
@@ -159,7 +151,7 @@ void groupwise_lowbit_lut_kernel(
     // --- 1. Define Kernel Parameters and Validate ---
     // This kernel uses the "promote to 4-bit" strategy for simplicity and speed.
     constexpr bool promote_to_4bit_layout = true;
-    constexpr int weight_nbit = 4; // The effective bit-width the kernel sees
+    constexpr int weight_nbit = 4;
 
     const int packing_group_size = std::gcd(scale_group_size, lut_group_size);
 
@@ -170,7 +162,7 @@ void groupwise_lowbit_lut_kernel(
     // --- 2. Get the Memory Layout from the Shared Utility ---
     // This is the single source of truth for all strides.
     auto layout = utils::create_fused_lut_layout<NR>(
-        k, n, packing_group_size,packing_group_size, weight_nbit, promote_to_4bit_layout
+        n, k, packing_group_size,packing_group_size, weight_nbit, promote_to_4bit_layout
     );
 
     // --- 3. Pre-computation and Main Loops ---
@@ -194,18 +186,16 @@ void groupwise_lowbit_lut_kernel(
                 // The stride is obtained from the layout object.
                 internal::micro_kernel_lut<MR, NR>(
                     accumulators,
-                    current_packed_activations + k_group_idx * packing_group_size * MR,
+                    current_packed_activations + k_group_idx * packing_group_size,
                     weights_for_tile_n + k_group_idx * layout.group_stride_bytes,
                     packing_group_size
                 );
             }
 
-            // Post-Process and Store the tile
             internal::post_process_and_store<MR, NR>(
                 output + m_tile_start * output_m_stride + n_tile_start,
                 output_m_stride,
                 accumulators,
-                // The header for bias is always at the start of the N-tile's weight data.
                 reinterpret_cast<const utils::FusedLutPackedWeightGroup<NR>*>(weights_for_tile_n),
                 has_bias,
                 has_clamp,
@@ -217,6 +207,6 @@ void groupwise_lowbit_lut_kernel(
 }
 
 
-} // torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::kernel
+} // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_with_lut::kernel
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

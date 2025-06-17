@@ -13,32 +13,15 @@ namespace torchao::kernels::cpu::aarch64::linear::
     groupwise_lowbit_weight_with_lut::utils {
 
 
-/**
- * @brief Defines the memory layout for a block of group-wise quantized
- *        weights with a pre-fused, transposed Look-Up Table (LUT).
- *
- * This structure is designed for consumption by high-performance NEON kernels.
- * The LUT is transposed to enable efficient loading with `vld4q_f32`, and the
- * bias is blocked to align with the kernel's `4xNR` processing tiles.
- *
- * @tparam NR The column-tiling factor of the kernel (e.g., 16).
- */
- template <int NR>
- struct FusedLutPackedWeightGroup {
-     static_assert(NR > 0 && NR % 4 == 0, "NR must be a positive multiple of 4");
-     constexpr static int NR_VEC = NR / 4;
+template <int NR>
+struct FusedLutPackedWeightGroup {
+    static_assert(NR > 0 && NR % 4 == 0, "NR must be a positive multiple of 4");
+    constexpr static int NR_VEC = NR / 4;
 
-     // Transposed LUT for 4-bit indices.
-     // L0 = [lut[0], lut[4], lut[8],  lut[12]]
-     // L1 = [lut[1], lut[5], lut[9],  lut[13]]
-     // etc.
-     float32x4_t transposed_lut[4];
+    uint8x16_t lut_soa_planes[4];
 
-     // Bias blocked into 4-element vectors.
-     float32x4_t bias[NR_VEC];
- };
-
-
+    float32x4_t bias[NR_VEC];
+};
 
 struct FusedLutPackedLayout {
     // --- Per-group sizes (Strides within a physical group) ---
@@ -53,7 +36,6 @@ struct FusedLutPackedLayout {
     size_t total_buffer_size;
 };
 
-// The factory function now also calculates strides
 template<int NR>
 inline FusedLutPackedLayout create_fused_lut_layout(
     int N, int K, int scale_group_size, int lut_group_size,
@@ -61,7 +43,6 @@ inline FusedLutPackedLayout create_fused_lut_layout(
 
     FusedLutPackedLayout layout;
 
-    // Use the minimum of scale_group_size and lut_group_size as the packing_group_size
     int packing_group_size = std::gcd(scale_group_size, lut_group_size);
 
     if (promote_to_4bit_layout) {
@@ -84,8 +65,6 @@ inline FusedLutPackedLayout create_fused_lut_layout(
 
     return layout;
 }
-
-
 
 }
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
