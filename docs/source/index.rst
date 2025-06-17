@@ -12,7 +12,6 @@ for an overall introduction to the library and recent highlight and updates.
    :caption: Getting Started
 
    quick_start
-   pt2e_quant
 
 .. toctree::
    :glob:
