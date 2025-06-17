@@ -2826,6 +2826,97 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             if node.name == "mul":
                 check_nn_module(node)
 
+    def test_quantize_in_place_ops(self):
+        class TestQuantizer(Quantizer):
+            example_inputs = None
+
+            def set_example_inputs(self, example_inputs):
+                self.example_inputs = example_inputs
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                # Make a copy of the graph to ensure that we are using the
+                # return value of this function.
+                ep = torch.export.export(model, self.example_inputs)
+                ep = ep.run_decompositions({})
+                return ep.module()
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                for node in model.graph.nodes:
+                    if (
+                        node.op == "call_function"
+                        and node.target == torch.ops.aten.add.Tensor
+                    ):
+                        input_act0 = node.args[0]
+                        assert isinstance(input_act0, torch.fx.Node)
+                        input_act1 = node.args[1]
+                        assert isinstance(input_act1, torch.fx.Node)
+                        print("input_act1 is a node")
+                        node.meta["quantization_annotation"] = QuantizationAnnotation(
+                            input_qspec_map={
+                                input_act0: act_qspec,
+                                input_act1: act_qspec,
+                            },
+                            output_qspec=act_qspec,
+                            _annotated=True,
+                        )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("buf", torch.randn(1, 2, 3, 3))
+
+            def forward(self, x):
+                self.buf.add_(x)
+                return self.buf
+
+        def has_inplace_ops(graph_module: torch.fx.GraphModule) -> bool:
+            return (
+                len(
+                    [
+                        n
+                        for n in graph_module.graph.nodes
+                        if n.op == "call_function"
+                        and n.name.endswith("_")
+                        and n.name != "copy_"
+                    ]
+                )
+                > 0
+            )
+
+        m = M().eval()
+        quantizer = TestQuantizer()
+        example_inputs = (torch.randn(1, 2, 3, 3),)
+        quantizer.set_example_inputs(example_inputs)
+        m = export_for_training(m, example_inputs, strict=True).module()
+        # Check that the model has in-place ops
+        self.assertTrue(has_inplace_ops(m))
+        m = prepare_pt2e(m, quantizer)
+        # Check that the model no longer has in-place ops because the graph is funtionalized during annotate_to_tranform
+        self.assertFalse(has_inplace_ops(m))
+        m(*example_inputs)
+        m = convert_pt2e(m, fold_quantize=True)
+        for node in m.graph.nodes:
+            if node.name == "quantize_per_tensor_default":
+                # Ensure the quant node is not fused with the mutable buffer
+                self.assertTrue(node.op == "call_function")
+
+        # Verify the quantized model works
+        result = m(*example_inputs)
+        self.assertIsNotNone(result)
+
 
 @skipIfNoQNNPACK
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
