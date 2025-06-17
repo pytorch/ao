@@ -34,6 +34,9 @@ inline void micro_kernel_lut(
 
     uint8x16x4_t tbl;
     memcpy(tbl.val, grp->lut_soa_planes, 64);
+    const uint8x16_t SIXTEEN = vdupq_n_u8(16);
+    const uint8x16_t THIRTY_TWO = vdupq_n_u8(32);
+    const uint8x16_t FORTY_EIGHT = vdupq_n_u8(48);
 
     const float* a_ptr = A; // A pointer to the start of the (K x MR) tile for this group
 
@@ -46,9 +49,6 @@ inline void micro_kernel_lut(
         uint8x8x2_t interleaved = vzip_u8(low_nibbles, high_nibbles);
         uint8x16_t unpacked_indices_neon = vcombine_u8(interleaved.val[0], interleaved.val[1]);
 
-        const uint8x16_t SIXTEEN = vdupq_n_u8(16);
-        const uint8x16_t THIRTY_TWO = vdupq_n_u8(32);
-        const uint8x16_t FORTY_EIGHT = vdupq_n_u8(48);
         uint8x16_t idx_plane0 = unpacked_indices_neon;
         uint8x16_t idx_plane1 = vaddq_u8(unpacked_indices_neon, SIXTEEN);
         uint8x16_t idx_plane2 = vaddq_u8(unpacked_indices_neon, THIRTY_TWO);
