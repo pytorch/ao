@@ -1,0 +1,1171 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta name="robots" content="noindex">
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>How to Write a Quantizer for PyTorch 2 Export Quantization &mdash; torchao main documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="PyTorch 2 Export Quantization with Intel GPU Backend through Inductor" href="pt2e_quant_xpu_inductor.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Learn
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started">
+                  <span class=dropdown-title>Get Started</span>
+                  <p>Run PyTorch locally or get started quickly with one of the supported cloud platforms</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                  <p>Whats new in PyTorch tutorials</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                  <p>Familiarize yourself with PyTorch concepts and modules</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                  <p>Bite-size, ready-to-deploy PyTorch code examples</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                  <p>Master PyTorch basics with our engaging YouTube tutorial series</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Ecosystem
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem">
+                  <span class="dropdown-title">Tools</span>
+                  <p>Learn about the tools and frameworks in the PyTorch Ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class=dropdown-title>Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class=dropdown-title>Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2024">
+                  <span class="dropdown-title">Contributor Awards - 2024</span>
+                  <p>Award winners announced at this year's PyTorch Conference</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                  <p>Build innovative and privacy-aware AI experiences for edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch-overview">
+                  <span class="dropdown-title">ExecuTorch</span>
+                  <p>End-to-end solution for enabling on-device inference capabilities across mobile and edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch/stable/index.html">
+                  <span class="dropdown-title">ExecuTorch Docs</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p>Explore the documentation for comprehensive guidance on how to use PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/pytorch-domains">
+                  <span class="dropdown-title">PyTorch Domains</span>
+                  <p>Read the PyTorch Domains documentation to learn more about domain-specific libraries</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Blogs & News 
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">PyTorch Blog</span>
+                  <p>Catch up on the latest technical news and happenings</p>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/community-blog">
+                  <span class="dropdown-title">Community Blog</span>
+                  <p>Stories from the PyTorch ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/videos">
+                  <span class="dropdown-title">Videos</span>
+                  <p>Learn about the latest PyTorch tutorials, new, and more </p>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                  <p>Stay up-to-date with the latest updates</p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                About
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn more about the PyTorch Foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact-us">
+                  <span class="dropdown-title">Contact Us</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown">
+              <a href="https://pytorch.org/join" data-cta="join">
+                Become a Member
+              </a>
+            </div>
+          </li>
+          <li>
+           <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="github-icon">
+             </a>
+           </div>
+          </li>
+          <!--- TODO: This block adds the search icon to the nav bar. We will enable it later. 
+          <li>
+            <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="search-icon">
+             </a>
+            </div>
+          </li>
+          --->
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+    <div class="version">
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
+    </div>
+    
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pretraining.html">Pretraining with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/tutorials_source/pt2e_quantizer.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id="
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="how-to-write-a-quantizer-for-pytorch-2-export-quantization">
+<h1>How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization<a class="headerlink" href="#how-to-write-a-quantizer-for-pytorch-2-export-quantization" title="Permalink to this heading">¶</a></h1>
+<p><strong>Author</strong>: <a class="reference external" href="https://github.com/leslie-fang-intel">Leslie Fang</a>, <a class="reference external" href="https://github.com/Xia-Weiwen">Weiwen Xia</a>, <a class="reference external" href="https://github.com/jgong5">Jiong Gong</a>, <a class="reference external" href="https://github.com/kimishpatel">Kimish Patel</a>, <a class="reference external" href="https://github.com/jerryzh168">Jerry Zhang</a></p>
+<section id="prerequisites">
+<h2>Prerequisites:<a class="headerlink" href="#prerequisites" title="Permalink to this heading">¶</a></h2>
+<p>Required:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://pytorch.org/docs/stable/torch.compiler_dynamo_overview.html">Torchdynamo concepts in PyTorch</a></p></li>
+<li><p><a class="reference external" href="https://pytorch.org/docs/master/quantization.html#quantization-api-summary">Quantization concepts in PyTorch</a></p></li>
+<li><p><a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html">(prototype) PyTorch 2 Export Post Training Quantization</a></p></li>
+</ul>
+<p>Optional:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://pytorch.org/tutorials/prototype/fx_graph_mode_ptq_static.html">FX Graph Mode post training static quantization</a></p></li>
+<li><p><a class="reference external" href="https://pytorch.org/tutorials/prototype/backend_config_tutorial.html?highlight=backend">BackendConfig in PyTorch Quantization FX Graph Mode</a></p></li>
+<li><p><a class="reference external" href="https://pytorch.org/tutorials/prototype/backend_config_tutorial.html#set-up-qconfigmapping-that-satisfies-the-backend-constraints">QConfig and QConfigMapping in PyTorch Quantization FX Graph Mode</a></p></li>
+</ul>
+</section>
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this heading">¶</a></h2>
+<p><a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html">(prototype) PyTorch 2 Export Post Training Quantization</a> introduced the overall API for pytorch 2 export quantization, main difference from fx graph mode quantization in terms of API is that we made it explicit that quantiation is targeting a specific backend. So to use the new flow, backend need to implement a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> class that encodes:
+(1). What is supported quantized operator or patterns in the backend
+(2). How can users express the way they want their floating point model to be quantized, for example, quantized the whole model to be int8 symmetric quantization, or quantize only linear layers etc.</p>
+<p>Please see <a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html#motivation-of-pytorch-2-export-quantization">here</a> For motivations for the new API and <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>.</p>
+<p>An existing quantizer object defined for <code class="docutils literal notranslate"><span class="pre">XNNPACK</span></code> is in
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/pt2e/quantizer/xnnpack_quantizer.py">QNNPackQuantizer</a></p>
+</section>
+<section id="annotation-api">
+<h2>Annotation API<a class="headerlink" href="#annotation-api" title="Permalink to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> uses annotation API to convey quantization intent for different operators/patterns.
+Annotation API mainly consists of
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L38">QuantizationSpec</a>
+and
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L144">QuantizationAnnotation</a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> is used to convey intent of how a tensor will be quantized,
+e.g. dtype, bitwidth, min, max values, symmetric vs. asymmetric etc.
+Furthermore, <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> also allows quantizer to specify how a
+tensor value should be observed, e.g. <code class="docutils literal notranslate"><span class="pre">MinMaxObserver</span></code>, or <code class="docutils literal notranslate"><span class="pre">HistogramObserver</span></code>
+, or some customized observer.</p>
+<p><code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span></code> composed of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> objects is used to annotate input tensors
+and output tensor of a pattern. Annotating input tensors is equivalent of annotating input edges,
+while annotating output tensor is equivalent of annotating node. <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span></code> is a <code class="docutils literal notranslate"><span class="pre">dataclass</span></code>
+with several fields:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">input_qspec_map</span></code> field is of class <code class="docutils literal notranslate"><span class="pre">Dict</span></code> to map each input tensor (as input edge) to a <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">output_qspec</span></code> field expresses the <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> used to annotate the output tensor;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">_annotated</span></code> field indicates if this node has already been annotated by quantizer.</p></li>
+</ul>
+<p>To conclude, annotation API requires quantizer to annotate edges (input tensors) or
+nodes (output tensor) of the graph. Now, we will have a step-by-step tutorial for
+how to use the annotation API with different types of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>.</p>
+<section id="annotate-common-operator-patterns">
+<h3>1. Annotate Common Operator Patterns<a class="headerlink" href="#annotate-common-operator-patterns" title="Permalink to this heading">¶</a></h3>
+<p>In order to use the quantized pattern/operators, e.g. <code class="docutils literal notranslate"><span class="pre">quantized</span> <span class="pre">add</span></code>,
+backend developers will have intent to quantize (as expressed by <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>)
+inputs, output of the pattern. Following is an example flow (take <code class="docutils literal notranslate"><span class="pre">add</span></code> operator as example)
+of how this intent is conveyed in the quantization workflow with annotation API.</p>
+<ul class="simple">
+<li><p>Step 1: Identify the original floating point pattern in the FX graph. There are
+several ways to identify this pattern: Quantizer may use a pattern matcher
+to match the operator pattern; Quantizer may go through the nodes from start to the end and compare
+the node’s target type to match the operator pattern. In this example, we can use the
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/fx/passes/utils/source_matcher_utils.py#L51">get_source_partitions</a>
+to match this pattern. The original floating point <code class="docutils literal notranslate"><span class="pre">add</span></code> pattern only contain a single <code class="docutils literal notranslate"><span class="pre">add</span></code> node.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">add_partitions</span> <span class="o">=</span> <span class="n">get_source_partitions</span><span class="p">(</span><span class="n">gm</span><span class="o">.</span><span class="n">graph</span><span class="p">,</span> <span class="p">[</span><span class="n">operator</span><span class="o">.</span><span class="n">add</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">add</span><span class="p">])</span>
+<span class="n">add_partitions</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="o">*</span><span class="n">add_partitions</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span>
+<span class="k">for</span> <span class="n">add_partition</span> <span class="ow">in</span> <span class="n">add_partitions</span><span class="p">:</span>
+    <span class="n">add_node</span> <span class="o">=</span> <span class="n">add_partition</span><span class="o">.</span><span class="n">output_nodes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Step 2: Define the <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> for inputs and output of the pattern. <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>
+defines the <code class="docutils literal notranslate"><span class="pre">data</span> <span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">qscheme</span></code>, and other quantization parameters about users’ intent of
+how to observe or fake quantize a tensor.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">act_quantization_spec</span> <span class="o">=</span> <span class="n">QuantizationSpec</span><span class="p">(</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+    <span class="n">quant_min</span><span class="o">=-</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">quant_max</span><span class="o">=</span><span class="mi">127</span><span class="p">,</span>
+    <span class="n">qscheme</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">per_tensor_affine</span><span class="p">,</span>
+    <span class="n">is_dynamic</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">observer_or_fake_quant_ctr</span><span class="o">=</span><span class="n">HistogramObserver</span><span class="o">.</span><span class="n">with_args</span><span class="p">(</span><span class="n">eps</span><span class="o">=</span><span class="mi">2</span><span class="o">**-</span><span class="mi">12</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">input_act_qspec</span> <span class="o">=</span> <span class="n">act_quantization_spec</span>
+<span class="n">output_act_qspec</span> <span class="o">=</span> <span class="n">act_quantization_spec</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Step 3: Annotate the inputs and output of the pattern with <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span></code>.
+In this example, we will create the <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span></code> object with the <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>
+created in above step 2 for two inputs and one output of the <code class="docutils literal notranslate"><span class="pre">add</span></code> node.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">input_qspec_map</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">input_act0</span> <span class="o">=</span> <span class="n">add_node</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">input_qspec_map</span><span class="p">[</span><span class="n">input_act0</span><span class="p">]</span> <span class="o">=</span> <span class="n">input_act_qspec</span>
+
+<span class="n">input_act1</span> <span class="o">=</span> <span class="n">add_node</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">input_qspec_map</span><span class="p">[</span><span class="n">input_act1</span><span class="p">]</span> <span class="o">=</span> <span class="n">input_act_qspec</span>
+
+<span class="n">add_node</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">QuantizationAnnotation</span><span class="p">(</span>
+    <span class="n">input_qspec_map</span><span class="o">=</span><span class="n">input_qspec_map</span><span class="p">,</span>
+    <span class="n">output_qspec</span><span class="o">=</span><span class="n">output_act_qspec</span><span class="p">,</span>
+    <span class="n">_annotated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>After we annotate the <code class="docutils literal notranslate"><span class="pre">add</span></code> node like this, in the following up quantization flow, <code class="docutils literal notranslate"><span class="pre">HistogramObserver</span></code> will
+be inserted at its two input nodes and one output node in prepare phase. And <code class="docutils literal notranslate"><span class="pre">HistogramObserver</span></code> will be substituted with
+<code class="docutils literal notranslate"><span class="pre">quantize</span></code> node and <code class="docutils literal notranslate"><span class="pre">dequantize</span></code> node in the convert phase.</p>
+</section>
+<section id="annotate-operators-that-shares-quantization-params">
+<h3>2. Annotate Operators that Shares Quantization Params<a class="headerlink" href="#annotate-operators-that-shares-quantization-params" title="Permalink to this heading">¶</a></h3>
+<p>It is natural that users want to annotate a quantized model where quantization
+parameters can be shared among some tensors explicitly. Two typical use cases are:</p>
+<ul class="simple">
+<li><p>Example 1: One example is for <code class="docutils literal notranslate"><span class="pre">add</span></code> where having both inputs sharing quantization
+parameters makes operator implementation much easier. Without using of
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L90">SharedQuantizationSpec</a>,
+we must annotate <code class="docutils literal notranslate"><span class="pre">add</span></code> as example in above section 1, in which two inputs of <code class="docutils literal notranslate"><span class="pre">add</span></code>
+has different quantization parameters.</p></li>
+<li><p>Example 2: Another example is that of sharing quantization parameters between inputs and output.
+This typically results from operators such as <code class="docutils literal notranslate"><span class="pre">maxpool</span></code>, <code class="docutils literal notranslate"><span class="pre">average_pool</span></code>, <code class="docutils literal notranslate"><span class="pre">concat</span></code> etc.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code> is designed for this use case to annotate tensors whose quantization
+parameters are shared with other tensors. Input of <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code> is an <code class="docutils literal notranslate"><span class="pre">EdgeOrNode</span></code> object which
+can be an input edge or an output value.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<ul>
+<li><p>Sharing is transitive</p>
+<p>Some tensors might be effectively using shared quantization spec due to:</p>
+<ul class="simple">
+<li><p>Two nodes/edges are configured to use <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code>.</p></li>
+<li><p>There is existing sharing of some nodes.</p></li>
+</ul>
+<p>For example, let’s say we have two <code class="docutils literal notranslate"><span class="pre">conv</span></code> nodes <code class="docutils literal notranslate"><span class="pre">conv1</span></code> and <code class="docutils literal notranslate"><span class="pre">conv2</span></code>, and both of them are fed into a <code class="docutils literal notranslate"><span class="pre">cat</span></code>
+node: <code class="docutils literal notranslate"><span class="pre">cat([conv1_out,</span> <span class="pre">conv2_out],</span> <span class="pre">...)</span></code>. Let’s say the output of <code class="docutils literal notranslate"><span class="pre">conv1</span></code>, <code class="docutils literal notranslate"><span class="pre">conv2</span></code>, and the first input of <code class="docutils literal notranslate"><span class="pre">cat</span></code> are configured
+with the same configurations of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>. The second input of <code class="docutils literal notranslate"><span class="pre">cat</span></code> is configured to use <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code>
+with the first input.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conv1_out</span><span class="p">:</span> <span class="n">qspec1</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<span class="n">conv2_out</span><span class="p">:</span> <span class="n">qspec1</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<span class="n">cat_input0</span><span class="p">:</span> <span class="n">qspec1</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<span class="n">cat_input1</span><span class="p">:</span> <span class="n">SharedQuantizationSpec</span><span class="p">((</span><span class="n">conv1</span><span class="p">,</span> <span class="n">cat</span><span class="p">))</span>  <span class="c1"># conv1 node is the first input of cat</span>
+</pre></div>
+</div>
+<p>First of all, the output of <code class="docutils literal notranslate"><span class="pre">conv1</span></code> is implicitly sharing quantization parameters (and observer object)
+with the first input of <code class="docutils literal notranslate"><span class="pre">cat</span></code>, and the same is true for the output of <code class="docutils literal notranslate"><span class="pre">conv2</span></code> and the second input of <code class="docutils literal notranslate"><span class="pre">cat</span></code>.
+Therefore, since the user configures the two inputs of <code class="docutils literal notranslate"><span class="pre">cat</span></code> to share quantization parameters, by transitivity,
+<code class="docutils literal notranslate"><span class="pre">conv2_out</span></code> and <code class="docutils literal notranslate"><span class="pre">conv1_out</span></code> will also be sharing quantization parameters. In the observed graph, you
+will see the following:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conv1</span> <span class="o">-&gt;</span> <span class="n">obs</span> <span class="o">-&gt;</span> <span class="n">cat</span>
+<span class="n">conv2</span> <span class="o">-&gt;</span> <span class="n">obs</span>   <span class="o">/</span>
+</pre></div>
+</div>
+<p>and both <code class="docutils literal notranslate"><span class="pre">obs</span></code> will be the same observer instance.</p>
+</li>
+</ul>
+</div>
+<ul class="simple">
+<li><p>Input edge is the connection between input node and the node consuming the input,
+so it’s a <code class="docutils literal notranslate"><span class="pre">Tuple[Node,</span> <span class="pre">Node]</span></code>.</p></li>
+<li><p>Output value is an FX <code class="docutils literal notranslate"><span class="pre">Node</span></code>.</p></li>
+</ul>
+<p>Now, if we want to rewrite <code class="docutils literal notranslate"><span class="pre">add</span></code> annotation example with <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code> to indicate
+two input tensors as sharing quantization parameters. We can define its <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span></code>
+as this:</p>
+<ul class="simple">
+<li><p>Step 1: Identify the original floating point pattern in the FX graph. We can use the same
+methods introduced in <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> example to identify the <code class="docutils literal notranslate"><span class="pre">add</span></code> pattern.</p></li>
+<li><p>Step 2: Annotate input_act0 of <code class="docutils literal notranslate"><span class="pre">add</span></code> with <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>.</p></li>
+<li><p>Step 3: Create a <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code> object with input edge defined as <code class="docutils literal notranslate"><span class="pre">(input_act0,</span> <span class="pre">add_node)</span></code> which means to
+share the observer used for this edge. Then, user can annotate input_act1 with this <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code>
+object.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">input_qspec_map</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">share_qparams_with_input_act0_qspec</span> <span class="o">=</span> <span class="n">SharedQuantizationSpec</span><span class="p">((</span><span class="n">input_act0</span><span class="p">,</span> <span class="n">add_node</span><span class="p">))</span>
+<span class="n">input_qspec_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">input_act0</span><span class="p">:</span> <span class="n">act_quantization_spec</span><span class="p">,</span> <span class="n">input_act1</span><span class="p">:</span> <span class="n">share_qparams_with_input_act0_qspec</span><span class="p">}</span>
+
+<span class="n">add_node</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">QuantizationAnnotation</span><span class="p">(</span>
+    <span class="n">input_qspec_map</span><span class="o">=</span><span class="n">input_qspec_map</span><span class="p">,</span>
+    <span class="n">output_qspec</span><span class="o">=</span><span class="n">act_quantization_spec</span><span class="p">,</span>
+    <span class="n">_annotated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="annotate-operators-with-fixed-quantization-parameters">
+<h3>3. Annotate Operators with Fixed Quantization Parameters<a class="headerlink" href="#annotate-operators-with-fixed-quantization-parameters" title="Permalink to this heading">¶</a></h3>
+<p>Another typical use case to annotate a quantized model is for tensors whose
+quantization parameters are known beforehand. For example, operator like <code class="docutils literal notranslate"><span class="pre">sigmoid</span></code>, which has
+predefined and fixed scale/zero_point at input and output tensors.
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L90">FixedQParamsQuantizationSpec</a>
+is designed for this use case. To use <code class="docutils literal notranslate"><span class="pre">FixedQParamsQuantizationSpec</span></code>, users need to pass in parameters
+of <code class="docutils literal notranslate"><span class="pre">scale</span></code> and <code class="docutils literal notranslate"><span class="pre">zero_point</span></code> explicitly.</p>
+<ul class="simple">
+<li><p>Step 1: Identify the original floating point pattern in the FX graph. We can use the same
+methods introduced in <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> example to identify the <code class="docutils literal notranslate"><span class="pre">sigmoid</span></code> pattern.</p></li>
+<li><p>Step 2: Create <code class="docutils literal notranslate"><span class="pre">FixedQParamsQuantizationSpec</span></code> object with inputs of fixed <code class="docutils literal notranslate"><span class="pre">scale</span></code>, <code class="docutils literal notranslate"><span class="pre">zero_point</span></code> value.
+These values will be used to create the <code class="docutils literal notranslate"><span class="pre">quantize</span></code> node and <code class="docutils literal notranslate"><span class="pre">dequantize</span></code> node in the convert phase.</p></li>
+<li><p>Step 3: Annotate inputs and output to use this <code class="docutils literal notranslate"><span class="pre">FixedQParamsQuantizationSpec</span></code> object.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">act_qspec</span> <span class="o">=</span> <span class="n">FixedQParamsQuantizationSpec</span><span class="p">(</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
+    <span class="n">quant_min</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">quant_max</span><span class="o">=</span><span class="mi">255</span><span class="p">,</span>
+    <span class="n">qscheme</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">per_tensor_affine</span><span class="p">,</span>
+    <span class="n">scale</span><span class="o">=</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">256.0</span><span class="p">,</span>
+    <span class="n">zero_point</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">sigmoid_node</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">QuantizationAnnotation</span><span class="p">(</span>
+    <span class="n">input_qspec_map</span><span class="o">=</span><span class="p">{</span><span class="n">input_act</span><span class="p">:</span> <span class="n">act_qspec</span><span class="p">},</span>
+    <span class="n">output_qspec</span><span class="o">=</span><span class="n">act_qspec</span><span class="p">,</span>
+    <span class="n">_annotated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="annotate-tensors-with-derived-quantization-parameters">
+<h3>4. Annotate Tensors with Derived Quantization Parameters<a class="headerlink" href="#annotate-tensors-with-derived-quantization-parameters" title="Permalink to this heading">¶</a></h3>
+<p>Another use case is to define the constraint for tensors whose quantization parameters are derived from other tensors.
+For example, if we want to annotate a convolution node, and define the <code class="docutils literal notranslate"><span class="pre">scale</span></code> of its bias input tensor
+as product of the activation tensor’s <code class="docutils literal notranslate"><span class="pre">scale</span></code> and weight tensor’s <code class="docutils literal notranslate"><span class="pre">scale</span></code>. We can use
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L102">DerivedQuantizationSpec</a>
+to annotate this conv node.</p>
+<ul class="simple">
+<li><p>Step 1: Identify the original floating point pattern in the FX graph. We can use the same
+methods introduced in <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> example to identify the <code class="docutils literal notranslate"><span class="pre">convolution</span></code> pattern.</p></li>
+<li><p>Step 2: Define <code class="docutils literal notranslate"><span class="pre">derive_qparams_fn</span></code> function, it accepts list of <code class="docutils literal notranslate"><span class="pre">ObserverOrFakeQuantize</span></code> (
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/observer.py#L124">ObserverBase</a>
+or <a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/fake_quantize.py#L60">FakeQuantizeBase</a>)
+as input. From each <code class="docutils literal notranslate"><span class="pre">ObserverOrFakeQuantize</span></code> object, user can get the <code class="docutils literal notranslate"><span class="pre">scale</span></code>, <code class="docutils literal notranslate"><span class="pre">zero</span> <span class="pre">point</span></code> value.
+User can define its heuristic about how to derive new <code class="docutils literal notranslate"><span class="pre">scale</span></code>, <code class="docutils literal notranslate"><span class="pre">zero</span> <span class="pre">point</span></code> value based on the
+quantization parameters calculated from the observer or fake quant instances.</p></li>
+<li><p>Step 3: Define <code class="docutils literal notranslate"><span class="pre">DerivedQuantizationSpec</span></code> obejct, it accepts inputs of: list of <code class="docutils literal notranslate"><span class="pre">EdgeOrNode</span></code> objects.
+The observer corresponding to each <code class="docutils literal notranslate"><span class="pre">EdgeOrNode</span></code> object will be passed into the <code class="docutils literal notranslate"><span class="pre">derive_qparams_fn</span></code> function;
+<code class="docutils literal notranslate"><span class="pre">derive_qparams_fn</span></code> function; several other quantization parameters such as <code class="docutils literal notranslate"><span class="pre">dtype</span></code>, <code class="docutils literal notranslate"><span class="pre">qscheme</span></code>.</p></li>
+<li><p>Step 4: Annotate the inputs and output of this conv node with <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span></code>.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">derive_qparams_fn</span><span class="p">(</span><span class="n">obs_or_fqs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">ObserverOrFakeQuantize</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">obs_or_fqs</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> \
+        <span class="s2">&quot;Expecting two obs/fqs, one for activation and one for weight, got: </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">obs_or_fq</span><span class="p">))</span>
+    <span class="n">act_obs_or_fq</span> <span class="o">=</span> <span class="n">obs_or_fqs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">weight_obs_or_fq</span> <span class="o">=</span> <span class="n">obs_or_fqs</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">act_scale</span><span class="p">,</span> <span class="n">act_zp</span> <span class="o">=</span> <span class="n">act_obs_or_fq</span><span class="o">.</span><span class="n">calculate_qparams</span><span class="p">()</span>
+    <span class="n">weight_scale</span><span class="p">,</span> <span class="n">weight_zp</span> <span class="o">=</span> <span class="n">weight_obs_or_fq</span><span class="o">.</span><span class="n">calculate_qparams</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">act_scale</span> <span class="o">*</span> <span class="n">weight_scale</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+
+<span class="n">bias_qspec</span> <span class="o">=</span> <span class="n">DerivedQuantizationSpec</span><span class="p">(</span>
+    <span class="n">derived_from</span><span class="o">=</span><span class="p">[(</span><span class="n">input_act</span><span class="p">,</span> <span class="n">node</span><span class="p">),</span> <span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">node</span><span class="p">)],</span>
+    <span class="n">derive_qparams_fn</span><span class="o">=</span><span class="n">derive_qparams_fn</span><span class="p">,</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
+    <span class="n">quant_min</span><span class="o">=-</span><span class="mi">2</span><span class="o">**</span><span class="mi">31</span><span class="p">,</span>
+    <span class="n">quant_max</span><span class="o">=</span><span class="mi">2</span><span class="o">**</span><span class="mi">31</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">qscheme</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">per_tensor_symmetric</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">input_qspec_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">input_act</span><span class="p">:</span> <span class="n">act_quantization_spec</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">weight_quantization_spec</span><span class="p">,</span> <span class="n">bias</span><span class="p">:</span> <span class="n">bias_qspec</span><span class="p">}</span>
+<span class="n">node</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">QuantizationAnnotation</span><span class="p">(</span>
+    <span class="n">input_qspec_map</span><span class="o">=</span><span class="n">input_qspec_map</span><span class="p">,</span>
+    <span class="n">output_qspec</span><span class="o">=</span><span class="n">act_quantization_spec</span><span class="p">,</span>
+    <span class="n">_annotated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="a-toy-example-with-resnet18">
+<h3>5. A Toy Example with Resnet18<a class="headerlink" href="#a-toy-example-with-resnet18" title="Permalink to this heading">¶</a></h3>
+<p>After above annotation methods defined with <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span> <span class="pre">API</span></code>, we can now put them together to construct a <code class="docutils literal notranslate"><span class="pre">BackendQuantizer</span></code>
+and run a <a class="reference external" href="https://gist.github.com/leslie-fang-intel/b78ed682aa9b54d2608285c5a4897cfc">toy example</a>
+with <code class="docutils literal notranslate"><span class="pre">Torchvision</span> <span class="pre">Resnet18</span></code>. To better understand the final example, here are the classes and utility
+functions that are used in the example:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/pytorch/blob/73fd7235ad25ff061c087fa4bafc6e8df4d9c299/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L103-L109">QuantizationConfig</a>
+consists of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> for activation, weight, and bias separately.</p></li>
+<li><p>When annotating the model,
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L10">get_input_act_qspec</a>,
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L23">get_output_act_qspec</a>,
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L36">get_weight_qspec</a>, and
+<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L53">get_bias_qspec</a>
+can be used to get the <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> from <code class="docutils literal notranslate"><span class="pre">QuantizationConfig</span></code> for a specific pattern.</p></li>
+</ul>
+</section>
+</section>
+<section id="a-note-on-ir-for-pt2e-quantization-flow">
+<h2>A Note on IR for PT2E Quantization Flow<a class="headerlink" href="#a-note-on-ir-for-pt2e-quantization-flow" title="Permalink to this heading">¶</a></h2>
+<p>IR means the intermediate representation of the model, for example, <code class="docutils literal notranslate"><span class="pre">torch</span></code> IR (<code class="docutils literal notranslate"><span class="pre">torch.nn</span></code> modules, <code class="docutils literal notranslate"><span class="pre">torch.nn.functional</span></code> ops) or <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR (<code class="docutils literal notranslate"><span class="pre">torch.ops.aten.linear</span></code>, …). PT2E Quantization Flow is using pre autograd aten IR (the output of <cite>torch.export</cite> API) so that we support training. As is shown before, we need to match the operator or operator patterns before we can attach annotations on them, So the question is how do we match the pattern?</p>
+<section id="motivation-problem-of-matching-aten-ir-directly">
+<h3>Motivation: Problem of Matching <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR directly<a class="headerlink" href="#motivation-problem-of-matching-aten-ir-directly" title="Permalink to this heading">¶</a></h3>
+<p>The most straightforward way might be matching <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR directly.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">gm</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">n</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="s2">&quot;call_function&quot;</span> <span class="ow">or</span> <span class="n">n</span><span class="o">.</span><span class="n">target</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span>
+          <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">relu</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+          <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">relu_</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+      <span class="p">]:</span>
+          <span class="k">continue</span>
+      <span class="n">relu_node</span> <span class="o">=</span> <span class="n">n</span>
+      <span class="n">maybe_conv_node</span> <span class="o">=</span> <span class="n">n</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+      <span class="k">if</span> <span class="p">(</span>
+          <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">maybe_conv_node</span><span class="p">,</span> <span class="n">Node</span><span class="p">)</span>
+          <span class="ow">or</span> <span class="n">maybe_conv_node</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="s2">&quot;call_function&quot;</span>
+          <span class="ow">or</span> <span class="n">maybe_conv_node</span><span class="o">.</span><span class="n">target</span>
+          <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span>
+              <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">conv1d</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+              <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">conv2d</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+          <span class="p">]</span>
+      <span class="p">):</span>
+          <span class="k">continue</span>
+
+      <span class="c1"># annotate conv and relu nodes</span>
+      <span class="o">...</span>
+</pre></div>
+</div>
+<p>However one problem for using this IR is that the representation might change if the PyTorch implementation for modules or functional ops changed. But this could be unexpected since modeling users typically assume that when the eager mode model code doesn’t change, they should get the same model representation after program capture as well. One concrete effect for this problem is that if a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> do annotations based on recognizing <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR patterns, then it may fail to recognzing the pattern after PyTorch version update, and the same eager mode floating point may be left unquantized.</p>
+</section>
+<section id="recommendation-use-subgraphmatcherwithnamenodemap-for-pattern-matching">
+<h3>Recommendation: Use <code class="docutils literal notranslate"><span class="pre">SubgraphMatcherWithNameNodeMap</span></code> for pattern matching<a class="headerlink" href="#recommendation-use-subgraphmatcherwithnamenodemap-for-pattern-matching" title="Permalink to this heading">¶</a></h3>
+<p>Because of this, we recommend people to recognize the pattern through <code class="docutils literal notranslate"><span class="pre">SubgraphMatcherWithNameNodeMap</span></code> (an improved version of <code class="docutils literal notranslate"><span class="pre">SubgraphMatcher</span></code> that makes it easier to query the nodes that people want to annotate), through capturing a <code class="docutils literal notranslate"><span class="pre">torch</span></code> IR pattern (with the same program capture used for capturing the floating point model), instead of using the <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR pattern directly.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">conv_relu_pattern</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="n">conv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">conv2d</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="n">conv</span><span class="p">)</span>
+    <span class="c1"># returns an additional dict that includes a map from name to node that we want to annotate</span>
+    <span class="k">return</span> <span class="n">relu</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;input&quot;</span><span class="p">:</span> <span class="nb">input</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">:</span> <span class="n">weight</span><span class="p">,</span> <span class="s2">&quot;bias&quot;</span><span class="p">:</span> <span class="n">bias</span><span class="p">,</span> <span class="s2">&quot;output&quot;</span><span class="p">:</span> <span class="n">output</span><span class="p">}</span>
+
+<span class="n">matcher</span> <span class="o">=</span> <span class="n">SubgraphMatcherWithNameNodeMap</span><span class="p">(</span><span class="n">conv_relu_pattern</span><span class="p">)</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">matcher</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">match</span> <span class="ow">in</span> <span class="n">matches</span><span class="p">:</span>
+    <span class="c1"># find input and output of the pattern</span>
+    <span class="c1"># annotate the nodes</span>
+    <span class="n">name_node_map</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">name_node_map</span>
+    <span class="n">input_node</span> <span class="o">=</span> <span class="n">name_node_map</span><span class="p">[</span><span class="s2">&quot;input&quot;</span><span class="p">]</span>
+    <span class="n">weight_node</span> <span class="o">=</span> <span class="n">name_node_map</span><span class="p">[</span><span class="s2">&quot;weight&quot;</span><span class="p">]</span>
+    <span class="n">bias_node</span> <span class="o">=</span> <span class="n">name_node_map</span><span class="p">[</span><span class="s2">&quot;bias&quot;</span><span class="p">]</span>
+    <span class="n">output_node</span> <span class="o">=</span> <span class="n">name_node_map</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">]</span>
+    <span class="n">input_node</span><span class="o">.</span><span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="n">weight_node</span><span class="o">.</span><span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="n">bias_node</span><span class="o">.</span><span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="n">output_node</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_annotation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="o">...</span>
+</pre></div>
+</div>
+<p>With this, the <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> will still be valid even when the implementation for nn modules and functionals changes, the <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR for floating point model will change, but since we capture the pattern again instead of hardcoding the <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR for the pattern, we’ll get the updated <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR as well and will still be able to match the pattern.</p>
+<p>One caveat is that if inputs of the pattern has multiple users, we don’t have a good way to identify which user node we want to annotate except for checking the aten op target.</p>
+<p>Another caveat is that we need to make sure we have an exhaustive list of examples (e.g. 2D, 3D, 4D inputs, real v.s. symbolic inputs, training=True v.s. training=False etc.) for the pattern to make sure cover different possible <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR outcomes captured from the <code class="docutils literal notranslate"><span class="pre">torch</span></code> IR pattern.</p>
+<p>Note: We may provide some (pattern, list of example_inputs) or some pre-generated matcher object so people can just use them directly in the future.</p>
+</section>
+</section>
+<section id="conclusion">
+<h2>Conclusion<a class="headerlink" href="#conclusion" title="Permalink to this heading">¶</a></h2>
+<p>With this tutorial, we introduce the new quantization path in PyTorch 2. Users can learn about
+how to define a <code class="docutils literal notranslate"><span class="pre">BackendQuantizer</span></code> with the <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span> <span class="pre">API</span></code> and integrate it into the PyTorch 2 Export Quantization flow.
+Examples of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>, <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code>, <code class="docutils literal notranslate"><span class="pre">FixedQParamsQuantizationSpec</span></code>, and <code class="docutils literal notranslate"><span class="pre">DerivedQuantizationSpec</span></code>
+are given for specific annotation use case. You can use <a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/quantizer/xnnpack_quantizer.py">XNNPACKQuantizer</a> as an example to start implementing your own <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>. After that please follow <a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html">this tutorial</a> to actually quantize your model.</p>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="pt2e_quant_xpu_inductor.html" class="btn btn-neutral" title="PyTorch 2 Export Quantization with Intel GPU Backend through Inductor" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2024-present, torchao Contributors.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a><ul>
+<li><a class="reference internal" href="#prerequisites">Prerequisites:</a></li>
+<li><a class="reference internal" href="#introduction">Introduction</a></li>
+<li><a class="reference internal" href="#annotation-api">Annotation API</a><ul>
+<li><a class="reference internal" href="#annotate-common-operator-patterns">1. Annotate Common Operator Patterns</a></li>
+<li><a class="reference internal" href="#annotate-operators-that-shares-quantization-params">2. Annotate Operators that Shares Quantization Params</a></li>
+<li><a class="reference internal" href="#annotate-operators-with-fixed-quantization-parameters">3. Annotate Operators with Fixed Quantization Parameters</a></li>
+<li><a class="reference internal" href="#annotate-tensors-with-derived-quantization-parameters">4. Annotate Tensors with Derived Quantization Parameters</a></li>
+<li><a class="reference internal" href="#a-toy-example-with-resnet18">5. A Toy Example with Resnet18</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#a-note-on-ir-for-pt2e-quantization-flow">A Note on IR for PT2E Quantization Flow</a><ul>
+<li><a class="reference internal" href="#motivation-problem-of-matching-aten-ir-directly">Motivation: Problem of Matching <code class="docutils literal notranslate"><span class="pre">aten</span></code> IR directly</a></li>
+<li><a class="reference internal" href="#recommendation-use-subgraphmatcherwithnamenodemap-for-pattern-matching">Recommendation: Use <code class="docutils literal notranslate"><span class="pre">SubgraphMatcherWithNameNodeMap</span></code> for pattern matching</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#conclusion">Conclusion</a></li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+         <script src="../_static/jquery.js"></script>
+         <script src="../_static/underscore.js"></script>
+         <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/clipboard.min.js"></script>
+         <script src="../_static/copybutton.js"></script>
+         <script src="../_static/design-tabs.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+<!-- Disabling "auto-collapsing" of sections on the left side bar. Replace script with commented out sections to reenable. -->
+<!--  -->
+<script script type="text/javascript">
+    var collapsedSections = []
+</script>
+
+ 
+<script type="text/javascript">
+  $(document).ready(function () {
+    // Patch the "GitHub" link at the top of the page
+    // to point to the torchao repo.
+    var overwrite = function (_) {
+      if ($(this).length > 0) {
+        $(this)[0].href = "https://github.com/pytorch/ao"
+      }
+    }
+    // PC
+    $(".main-menu a:contains('GitHub')").each(overwrite);
+    // Mobile
+    e$(".mobile-menu a:contains('Github')").each(overwrite);
+  });
+</script>
+
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+           <li class="resources-mobile-menu-title">
+             <a>Learn</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/get-started">Get Started</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials">Tutorials</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+             </li>
+           </ul>
+           <li class="resources-mobile-menu-title">
+             <a>Ecosystem</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/ecosystem">Tools</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/#community-module">Community</a>
+             </li>
+             <li>
+               <a href="https://discuss.pytorch.org/">Forums</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/resources">Developer Resources</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2024</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Edge</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/edge">About PyTorch Edge</a>
+             </li>
+             
+             <li>
+               <a href="https://pytorch.org/executorch-overview">ExecuTorch</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/executorch/stable/index.html">ExecuTorch Documentation</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Docs</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/pytorch-domains">PyTorch Domains</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            <a>Blog & News</a>
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/blog/">PyTorch Blog</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/community-blog">Community Blog</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/videos">Videos</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/newsletter">Newsletter</a>
+             </li>
+          </ul>
+          
+          <li class="resources-mobile-menu-title">
+            <a>About</a>
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/governing-board">Governing Board</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/staff">Staff</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/contact-us">Contact Us</a>
+            </li>
+          </ul>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

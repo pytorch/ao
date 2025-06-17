@@ -331,7 +331,7 @@
 <li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
+<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
@@ -339,6 +339,14 @@
 <li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pretraining.html">Pretraining with float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
 </ul>
 
             
@@ -526,6 +534,83 @@ it is also much faster!</p>
 </pre></div>
 </div>
 </section>
+<section id="pytorch-2-export-quantization">
+<h2>PyTorch 2 Export Quantization<a class="headerlink" href="#pytorch-2-export-quantization" title="Permalink to this heading">¶</a></h2>
+<p>PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that requires both input and output activation and weight to be quantized and relies of recognizing an operator pattern to make quantization decisions (such as linear - relu). PT2E quantization produces a pattern with quantize and dequantize ops inserted around the operators and during lowering quantized operator patterns will be fused into real quantized ops. Currently there are two typical lowering paths, 1. torch.compile through inductor lowering 2. ExecuTorch through delegation</p>
+<p>Here we show an example with X86InductorQuantizer</p>
+<p>API Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantize_pt2e</span><span class="w"> </span><span class="kn">import</span> <span class="n">prepare_pt2e</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">export</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantizer.x86_inductor_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">X86InductorQuantizer</span><span class="p">,</span>
+    <span class="n">get_default_x86_inductor_quantization_config</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">M</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+
+   <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+       <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+<span class="c1"># initialize a floating point model</span>
+<span class="n">float_model</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+
+<span class="c1"># define calibration function</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">calibrate</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data_loader</span><span class="p">):</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">image</span><span class="p">,</span> <span class="n">target</span> <span class="ow">in</span> <span class="n">data_loader</span><span class="p">:</span>
+            <span class="n">model</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+
+<span class="c1"># Step 1. program capture</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span><span class="o">.</span><span class="n">module</span><span class="p">()</span>
+<span class="c1"># we get a model with aten ops</span>
+
+<span class="c1"># Step 2. quantization</span>
+<span class="c1"># backend developer will write their own Quantizer and expose methods to allow</span>
+<span class="c1"># users to express how they</span>
+<span class="c1"># want the model to be quantized</span>
+<span class="n">quantizer</span> <span class="o">=</span> <span class="n">X86InductorQuantizer</span><span class="p">()</span>
+<span class="n">quantizer</span><span class="o">.</span><span class="n">set_global</span><span class="p">(</span><span class="n">xiq</span><span class="o">.</span><span class="n">get_default_x86_inductor_quantization_config</span><span class="p">())</span>
+
+<span class="c1"># or prepare_qat_pt2e for Quantization Aware Training</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">prepare_pt2e</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">quantizer</span><span class="p">)</span>
+
+<span class="c1"># run calibration</span>
+<span class="c1"># calibrate(m, sample_inference_data)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">convert_pt2e</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="c1"># Step 3. lowering</span>
+<span class="c1"># lower to target backend</span>
+
+<span class="c1"># Optional: using the C++ wrapper instead of default Python wrapper</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch._inductor.config</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">config</span>
+<span class="n">config</span><span class="o">.</span><span class="n">cpp_wrapper</span> <span class="o">=</span> <span class="kc">True</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">optimized_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">converted_model</span><span class="p">)</span>
+
+    <span class="c1"># Running some benchmark</span>
+    <span class="n">optimized_model</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Please follow these tutorials to get started on PyTorch 2 Export Quantization:</p>
+<p>Modeling Users:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></p></li>
+<li><p><a class="reference external" href="ttps://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization Aware Training</a></p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor</a></p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor</a></p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_openvino.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></p></li>
+</ul>
+<p>Backend Developers (please check out all Modeling Users docs as well):</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quantizer.html">How to Write a Quantizer for PyTorch 2 Export Quantization</a></p></li>
+</ul>
+</section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Permalink to this heading">¶</a></h2>
 <p>In this quick start guide, we learned how to quantize a simple model with
@@ -584,6 +669,7 @@ out our <a class="reference external" href="contributor_guide.html">contributor 
               <ul>
 <li><a class="reference internal" href="#">Quick Start Guide</a><ul>
 <li><a class="reference internal" href="#first-quantization-example">First Quantization Example</a></li>
+<li><a class="reference internal" href="#pytorch-2-export-quantization">PyTorch 2 Export Quantization</a></li>
 <li><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>

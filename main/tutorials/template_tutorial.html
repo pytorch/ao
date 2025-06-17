@@ -329,7 +329,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
+<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
@@ -337,6 +337,14 @@
 <li class="toctree-l1"><a class="reference internal" href="../static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../pretraining.html">Pretraining with float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
 </ul>
 
             
@@ -447,11 +455,11 @@ to download the full example code.</p>
 <span class="nb">print</span><span class="p">(</span><a href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="torch.Tensor" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">x</span></a><span class="p">)</span>
 </pre></div>
 </div>
-<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.9681, 0.7548, 0.0483],
-        [0.8361, 0.4257, 0.6738],
-        [0.2935, 0.7179, 0.3679],
-        [0.9726, 0.4220, 0.3899],
-        [0.6707, 0.3861, 0.6457]])
+<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.3180, 0.6078, 0.8448],
+        [0.7906, 0.9876, 0.3284],
+        [0.4909, 0.0697, 0.8026],
+        [0.8068, 0.5433, 0.7339],
+        [0.0385, 0.0258, 0.7559]])
 </pre></div>
 </div>
 </section>
