@@ -135,7 +135,7 @@ class MultiTensor(torch.Tensor):
         group_size=-1,
         percdamp=0.01,
         blocksize=128,
-        execute_device: torch.device = torch.device("cuda"),
+        device: torch.device = torch.device("cuda"),
     ):
         cls.get_qparams_func = get_qparams_func
         cls.quantize_func = quantize_func
@@ -149,7 +149,7 @@ class MultiTensor(torch.Tensor):
         cls.group_size = group_size
         cls.percdamp = percdamp
         cls.blocksize = blocksize
-        cls.execute_device = execute_device
+        cls.device = device
 
     @classmethod
     def __torch_function__(
@@ -184,10 +184,10 @@ class MultiTensor(torch.Tensor):
         # then we can do the fast thing.
 
         quantize_linear = not skip_gptq and cls.is_linear_layer(func)
-        if hasattr(cls, "execute_device"):
-            execute_device = cls.execute_device
+        if hasattr(cls, "device") and isinstance(cls.device, torch.device):
+            device = cls.device
         else:
-            execute_device = "cpu"
+            device = "cpu"
         # Determine if function is in-place
 
         # initialize function tracking
@@ -209,7 +209,7 @@ class MultiTensor(torch.Tensor):
 
         # if we're not doing an in place op, move singular tensors to cuda now
         if not is_in_place:
-            flat_args = _tensors_to_device(flat_args, device=execute_device)
+            flat_args = _tensors_to_device(flat_args, device=device)
 
         # convert [A, MultiTensor(b), MultiTensor(c1,c2,c3)] => [[A,b,c1], [A,b,c2] [A,b,c3]]
         # if its in place then instead we first pad i.e. MultiTensor(b) => MultiTensor(b1, b2, b3)
@@ -219,7 +219,7 @@ class MultiTensor(torch.Tensor):
         with torch._C.DisableTorchFunctionSubclass():
             if not quantize_linear:  # normal function eval
                 out = cls._evaluate_function(
-                    func, grouped_args, spec, is_in_place, execute_device
+                    func, grouped_args, spec, is_in_place, device
                 )
 
                 # go back and unpad everything where possible.
@@ -229,7 +229,7 @@ class MultiTensor(torch.Tensor):
 
             # GPTQ quantization for linear layers
             # Calculate Hessian approximation
-            H = _calculate_hessian(grouped_args, spec, execute_device)
+            H = _calculate_hessian(grouped_args, spec, device)
 
             # turn weight MultiTensor into single cuda tensor
             W = args[1]
@@ -237,7 +237,7 @@ class MultiTensor(torch.Tensor):
                 W = W.values[0]
             W = W.to(H.device)
 
-            Q, DQ, all_qparams = cls.faster_quant(H, W.detach(), execute_device)
+            Q, DQ, all_qparams = cls.faster_quant(H, W.detach(), device)
 
             # make quantized tensor subclass
             qtensor = cls.make_qtensor(Q, all_qparams)
@@ -256,12 +256,8 @@ class MultiTensor(torch.Tensor):
                 _do_unpad(flat_args, orig_counts=orig_counts)
                 return out
             if args[0].debug:
-                act = args[0].values[0].to(execute_device)
-                bias = (
-                    args[2].values[0].to(execute_device)
-                    if args[2] is not None
-                    else args[2]
-                )
+                act = args[0].values[0].to(device)
+                bias = args[2].values[0].to(device) if args[2] is not None else args[2]
 
                 new_out = out.values[0].cpu()
                 old_out = (
@@ -281,7 +277,7 @@ class MultiTensor(torch.Tensor):
                     "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
                 )  # matches
                 print(
-                    "SQNR for weight (can be low)", SQNR(W, DQ.to(execute_device))
+                    "SQNR for weight (can be low)", SQNR(W, DQ.to(device))
                 )  # fine to not match
                 print(
                     "SQNR for output with GPTQ (hopefully 35+)",
@@ -334,11 +330,11 @@ class MultiTensor(torch.Tensor):
         return flattened, non_tensors_equal
 
     @classmethod
-    def _evaluate_function(cls, func, grouped_args, spec, is_in_place, execute_device):
+    def _evaluate_function(cls, func, grouped_args, spec, is_in_place, device):
         outputs = []
         for inp in grouped_args:
             # we move all remaining cpu tensors to cuda
-            device_inp = _tensors_to_device(inp, execute_device)
+            device_inp = _tensors_to_device(inp, device)
 
             # return input to original structure
             cur_args, cur_kwargs = tree_unflatten(device_inp, spec)
@@ -381,14 +377,14 @@ class MultiTensor(torch.Tensor):
         return final_out
 
     @classmethod
-    def faster_quant(cls, H, W, execute_device):
+    def faster_quant(cls, H, W, device):
         """
         GPTQ quantization implementation.
 
         Args:
             H: Hessian matrix approximation
             W: Weight matrix to quantize
-            execute_device: accelerator device
+            device: accelerator device
 
         Returns:
             Tuple containing:
@@ -474,9 +470,9 @@ class MultiTensor(torch.Tensor):
                 Hinv[block_start:block_end, block_end:]
             )
 
-        if "xpu" in execute_device.type:
+        if "xpu" in device.type:
             torch.xpu.synchronize()
-        elif "cuda" in execute_device.type:
+        elif "cuda" in device.type:
             torch.cuda.synchronize()
         else:
             pass
@@ -593,7 +589,7 @@ class GPTQQuantizer(Quantizer):
         self.make_qtensor = None
         self.skip_layer_func = None
         self.act_fake_quant_func = None
-        self.execute_device = None
+        self.device = None
 
     def _check_functions(self):
         assert self.get_qparams_func is not None, "get_qparams_func must be set"
@@ -634,7 +630,7 @@ class GPTQQuantizer(Quantizer):
             group_size=group_size,
             percdamp=percdamp,
             blocksize=blocksize,
-            execute_device=self.execute_device,
+            device=self.device,
         )
         # Set the state dict for the original model
         self.state_dict_manager.set_state_dict(model)
@@ -672,7 +668,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self.inner_k_tiles = inner_k_tiles
         self.padding_allowed = padding_allowed
         self.device = device
-        self.execute_device = self.device
+        self.device = self.device
         self.act_fake_quant_func = None
         self.layout = layout
         n_bit = 4
