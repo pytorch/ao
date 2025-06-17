@@ -6,6 +6,7 @@
 
 import copy
 import unittest
+from typing import Dict
 
 import torch
 from torch.ao.quantization.backend_config import (
@@ -19,13 +20,19 @@ from torch.testing._internal.common_quantization import (
     NodeSpec,
     QuantizationTestCase,
 )
+from torch.testing._internal.common_utils import TestCase
 
+from torchao.quantization.pt2e import (
+    CUSTOM_KEY,
+    NUMERIC_DEBUG_HANDLE_KEY,
+)
+from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.export import export_for_training
@@ -133,3 +140,66 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             fx_quant_output = m_fx(*example_inputs)
             self.assertEqual(fx_quant_output, pt2_quant_output)
         return m
+
+
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+class PT2ENumericDebuggerTestCase(TestCase):
+    """
+    Base test case class for PT2E numeric debugger tests containing common utility functions
+    for numeric debugging functionality.
+    """
+
+    def _assert_each_node_has_debug_handle(self, model) -> None:
+        """Assert that each node in the model has a debug handle."""
+
+        def _assert_node_has_debug_handle(node):
+            self.assertTrue(
+                CUSTOM_KEY in node.meta
+                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY],
+                f"Node {node} doesn't have debug handle",
+            )
+
+        bfs_trace_with_node_process(model, _assert_node_has_debug_handle)
+
+    def _extract_debug_handles(self, model) -> Dict[str, int]:
+        """Extract debug handles from all nodes in the model."""
+        debug_handle_map: Dict[str, int] = {}
+
+        def _extract_debug_handles_from_node(node):
+            nonlocal debug_handle_map
+            if (
+                CUSTOM_KEY in node.meta
+                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY]
+            ):
+                debug_handle_map[str(node)] = node.meta[CUSTOM_KEY][
+                    NUMERIC_DEBUG_HANDLE_KEY
+                ]
+
+        bfs_trace_with_node_process(model, _extract_debug_handles_from_node)
+        return debug_handle_map
+
+    def _extract_debug_handles_with_prev_decomp_op(self, model) -> Dict[str, int]:
+        """Extract debug handles with previous decomposition operation mapping."""
+        prev_decomp_op_to_debug_handle_map: Dict[str, int] = {}
+
+        def _extract_debug_handles_with_prev_decomp_op_from_node(node):
+            nonlocal prev_decomp_op_to_debug_handle_map
+            if (
+                CUSTOM_KEY in node.meta
+                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY]
+            ):
+                prev_decomp_op = str(node.meta.get("nn_module_stack"))
+                debug_handle = node.meta[CUSTOM_KEY][NUMERIC_DEBUG_HANDLE_KEY]
+                if prev_decomp_op not in prev_decomp_op_to_debug_handle_map:
+                    prev_decomp_op_to_debug_handle_map[prev_decomp_op] = debug_handle
+                else:
+                    assert (
+                        prev_decomp_op_to_debug_handle_map[prev_decomp_op]
+                        == debug_handle
+                    ), f"Node {node} has different debug handle {debug_handle}"
+                    "than previous node sharing the same decomp op {prev_decomp_op}"
+
+        bfs_trace_with_node_process(
+            model, _extract_debug_handles_with_prev_decomp_op_from_node
+        )
+        return prev_decomp_op_to_debug_handle_map
