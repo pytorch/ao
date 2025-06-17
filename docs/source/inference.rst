@@ -103,7 +103,7 @@ Torchao's sparsity support can be combined with quantization for additional perf
     print(response)
 
 .. note::
-For more information on supported quantization and sparsity configurations, see `HF-Torchao Docs <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`_.
+    For more information on supported quantization and sparsity configurations, see `HF-Torchao Docs <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`_.
 
 Inference with Transformers
 ---------------------------
@@ -356,6 +356,10 @@ When using vLLM with torchao:
 - **Sparsity Support**: Semi-structured (2:4) sparsity for faster inference (see `Accelerating Neural Network Training with Semi-Structured (2:4) Sparsity <https://pytorch.org/blog/accelerating-neural-network-training/>`_ blog post)
 - **KV Cache Quantization**: Enables long context inference with lower memory (see `KV Cache Quantization <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/README.md>`_)
 
+.. note::
+    For more information on vLLM Integration, please refer to the detailed guide :ref:`torchao_vllm_integration`.
+
+
 Mobile Deployment with ExecuTorch
 ---------------------------------
 
@@ -518,7 +522,7 @@ The torchao-optimized 8da4w model provides:
 - **Accuracy**: Maintained within 5-10% of original model on most benchmarks
 
 .. note::
-For detailed instructions on testing the executorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
+    For detailed instructions on testing the executorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
 
 **Conclusion**
 ==============
