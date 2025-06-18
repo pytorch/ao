@@ -37,10 +37,6 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
-from torchao.quantization.quant_primitives import (
-    dequantize_affine_float8,
-    quantize_affine_float8,
-)
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 
@@ -412,6 +408,8 @@ def test_dynamic_scale_numeric_parity(
     ],
 )
 def test_quantize_dequantize_fp8_inductor(float8_dtype, hp_dtype):
+    quantize_affine_float8 = torch.ops.torchao.quantize_affine_float8
+    dequantize_affine_float8 = torch.ops.torchao.dequantize_affine_float8
     input = torch.randn(10, 10)
     with torch.no_grad():
         torch._dynamo.reset()
@@ -419,7 +417,7 @@ def test_quantize_dequantize_fp8_inductor(float8_dtype, hp_dtype):
         expected_quantized = quantize_affine_float8(
             input,
             expected_scale,
-            float8_dtype,
+            float8_dtype=float8_dtype,
         )
         expected_dequantized = dequantize_affine_float8(
             expected_quantized,
@@ -430,7 +428,7 @@ def test_quantize_dequantize_fp8_inductor(float8_dtype, hp_dtype):
             torch.compile(quantize_affine_float8),
             input,
             expected_scale,
-            float8_dtype,
+            float8_dtype=float8_dtype,
         )
         torch.testing.FileCheck().check(
             "torch.ops.torchao.quantize_affine_float8.default"

@@ -2274,7 +2274,7 @@ def _expand_scale_to_tensor_shape(
 def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    float8_dtype: torch.dtype,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
@@ -2295,7 +2295,7 @@ def _quantize_affine_float8(
 def _quantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    float8_dtype: torch.dtype,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
 ) -> torch.Tensor:
     return torch.empty_like(tensor, dtype=float8_dtype)
 
@@ -2304,7 +2304,7 @@ def _quantize_affine_float8_meta(
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    output_dtype: torch.dtype,
+    output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """
     Dequantizes the float8 tensor to high precision tensor.
@@ -2322,6 +2322,6 @@ def _dequantize_affine_float8(
 def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    output_dtype: torch.dtype,
+    output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     return torch.empty_like(tensor, dtype=output_dtype)
