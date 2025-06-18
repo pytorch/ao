@@ -22,10 +22,8 @@ from torch.testing._internal.common_quantization import (
 )
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.quantization.pt2e import (
-    CUSTOM_KEY,
-    NUMERIC_DEBUG_HANDLE_KEY,
-)
+from torchao.quantization.pt2e import FROM_NODE_KEY
+from torchao.quantization.pt2e._numeric_debugger import _generate_debug_handle_from_node
 from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
@@ -153,10 +151,10 @@ class PT2ENumericDebuggerTestCase(TestCase):
         """Assert that each node in the model has a debug handle."""
 
         def _assert_node_has_debug_handle(node):
-            self.assertTrue(
-                CUSTOM_KEY in node.meta
-                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY],
-                f"Node {node} doesn't have debug handle",
+            self.assertIn(
+                FROM_NODE_KEY,
+                node.meta,
+                f"Node {node} doesn't have from_node info",
             )
 
         bfs_trace_with_node_process(model, _assert_node_has_debug_handle)
@@ -167,29 +165,20 @@ class PT2ENumericDebuggerTestCase(TestCase):
 
         def _extract_debug_handles_from_node(node):
             nonlocal debug_handle_map
-            if (
-                CUSTOM_KEY in node.meta
-                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY]
-            ):
-                debug_handle_map[str(node)] = node.meta[CUSTOM_KEY][
-                    NUMERIC_DEBUG_HANDLE_KEY
-                ]
+            if (dh := _generate_debug_handle_from_node(node)) is not None:
+                debug_handle_map[str(node)] = dh
 
         bfs_trace_with_node_process(model, _extract_debug_handles_from_node)
         return debug_handle_map
 
-    def _extract_debug_handles_with_prev_decomp_op(self, model) -> Dict[str, int]:
-        """Extract debug handles with previous decomposition operation mapping."""
-        prev_decomp_op_to_debug_handle_map: Dict[str, int] = {}
+    def _extract_debug_handles_with_prev_decomp_op(self, model) -> dict[str, int]:
+        prev_decomp_op_to_debug_handle_map: dict[str, int] = {}
 
         def _extract_debug_handles_with_prev_decomp_op_from_node(node):
             nonlocal prev_decomp_op_to_debug_handle_map
-            if (
-                CUSTOM_KEY in node.meta
-                and NUMERIC_DEBUG_HANDLE_KEY in node.meta[CUSTOM_KEY]
-            ):
+            if FROM_NODE_KEY in node.meta:
                 prev_decomp_op = str(node.meta.get("nn_module_stack"))
-                debug_handle = node.meta[CUSTOM_KEY][NUMERIC_DEBUG_HANDLE_KEY]
+                debug_handle = _generate_debug_handle_from_node(node)
                 if prev_decomp_op not in prev_decomp_op_to_debug_handle_map:
                     prev_decomp_op_to_debug_handle_map[prev_decomp_op] = debug_handle
                 else:
