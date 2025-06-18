@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Pretraining with float8 &mdash; torchao main documentation</title>
+  <title>(Part 1) Pre-training with float8 &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Integration with VLLM: Architecture and Usage Guide" href="torchao_vllm_integration.html" />
-    <link rel="prev" title="Static Quantization" href="static_quantization.html" />
+    <link rel="next" title="(Part 2) Fine-tuning with QAT, QLoRA, and float8" href="finetuning.html" />
+    <link rel="prev" title="precompute_float8_dynamic_scale_for_fsdp" href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -333,12 +333,14 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Pretraining with float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
 <ul>
@@ -387,7 +389,7 @@
       </li>
 
         
-      <li>Pretraining with float8</li>
+      <li>(Part 1) Pre-training with float8</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
@@ -423,19 +425,25 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="pretraining-with-float8">
-<h1>Pretraining with float8<a class="headerlink" href="#pretraining-with-float8" title="Permalink to this heading">¶</a></h1>
-<p>Pretraining with float8 using torchao can provide <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/">up to 1.5x speedups</a> on 512 GPU clusters,
+  <section id="part-1-pre-training-with-float8">
+<h1>(Part 1) Pre-training with float8<a class="headerlink" href="#part-1-pre-training-with-float8" title="Permalink to this heading">¶</a></h1>
+<p>TorchAO provides an end-to-end pre-training, fine-tuning, and serving
+model optimization flow by leveraging our quantization and sparsity
+techniques integrated into our partner frameworks. This is part 1 of 3
+such tutorials showcasing this end-to-end flow, focusing on the
+pre-training step.</p>
+<img alt="_images/e2e_flow_part1.png" src="_images/e2e_flow_part1.png" />
+<p>Pre-training with float8 using torchao can provide <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/">up to 1.5x speedups</a> on 512 GPU clusters,
 and up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/">1.34-1.43x speedups</a> on 2K H200 clusters with the latest <cite>torchao.float8</cite> rowwise recipe.</p>
-<p>In this tutorial, we will show 2 ways to use the <strong>torchao.float8</strong> recipes for pretraining:</p>
+<p>In this tutorial, we will show 2 ways to use the <strong>torchao.float8</strong> recipes for pre-training:</p>
 <ol class="arabic simple">
-<li><p><a class="reference internal" href="#pretraining-with-torchtitan"><span class="std std-ref">Pretraining with torchtitan</span></a>, the offical PyTorch pretraining framework with native torchao integration.</p></li>
-<li><p><a class="reference internal" href="#pretraining-with-torchao-directly"><span class="std std-ref">Pretraining with torchao directly</span></a>, to integrate torchao’s float8 training recipes into your own pretraining code.</p></li>
+<li><p><a class="reference internal" href="#pre-training-with-torchtitan"><span class="std std-ref">Pre-training with torchtitan</span></a>, the offical PyTorch pre-training framework with native torchao integration.</p></li>
+<li><p><a class="reference internal" href="#pre-training-with-torchao-directly"><span class="std std-ref">Pre-training with torchao directly</span></a>, to integrate torchao’s float8 training recipes into your own pre-training code.</p></li>
 </ol>
-<section id="pretraining-with-torchtitan">
-<h2>Pretraining with torchtitan<a class="headerlink" href="#pretraining-with-torchtitan" title="Permalink to this heading">¶</a></h2>
-<p>In this tutorial we’ll pretrain Llama3 8b using torchtitan with torchao’s float8 training recipes: rowwise scaling and tensorwise scaling.</p>
-<p><a class="reference external" href="https://github.com/pytorch/torchtitan/">Torchtitan</a> is PyTorch’s official pretraining framework that is natively integrated with torchao, and supports
+<section id="pre-training-with-torchtitan">
+<h2>Pre-training with torchtitan<a class="headerlink" href="#pre-training-with-torchtitan" title="Permalink to this heading">¶</a></h2>
+<p>In this tutorial we’ll pre-train Llama3-8B using torchtitan with torchao’s float8 training recipes: rowwise scaling and tensorwise scaling.</p>
+<p><a class="reference external" href="https://github.com/pytorch/torchtitan/">Torchtitan</a> is PyTorch’s official pre-training framework that is natively integrated with torchao, and supports
 several popular flagship models with common forms of parallelism, float8 training, distributed checkpointing and more.
 See the torchtitan <a class="reference external" href="https://github.com/pytorch/torchtitan">docs</a> for additional details.</p>
 <p>You can use this workflow to get started quickly with a “batteries included” experience. Users commonly
@@ -447,11 +455,11 @@ fork torchtitan and build on top of it when they’re ready.</p>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a>.</p></li>
 <li><p><a class="reference external" href="https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation">Install torchtitan</a>, including the “downloading a tokenizer” step.</p></li>
 </ol>
-<p>You’re now ready to start a pretraining job using one of the recipes below!</p>
+<p>You’re now ready to start a pre-training job using one of the recipes below!</p>
 </section>
 <section id="rowwise-scaling">
 <h3>Rowwise scaling<a class="headerlink" href="#rowwise-scaling" title="Permalink to this heading">¶</a></h3>
-<p>Run the following command from torchtitan root directory to launch a Llama3 8b training job on 8 GPUs with float8 rowwise training:</p>
+<p>Run the following command from torchtitan root directory to launch a Llama3-8B training job on 8 GPUs with float8 rowwise training:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile --model.converters=&quot;float8&quot; --float8.recipe_name=&quot;rowwise&quot;</span>
 </pre></div>
 </div>
@@ -502,8 +510,8 @@ and run the same command to see the baseline performance of bfloat16 training:</
 <p><strong>TL;DR</strong>: rowwise scaling is better for jobs prioritizing more accurate numerics and training stability, and tensorwise is better for jobs prioritizing training throughput.</p>
 <p>The higher throughput of tensorwise scaling comes at the cost of slightly higher quantization error (i.e., reduced numerical integrity vs bfloat16) compared to rowwise scaling.
 This is because rowwise scaling using a more granular scaling factor (per row, instead of per tensor), which limits the impact of outliers that can cause underflow during scaling.</p>
-<p>Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3 8b on 8xH100 GPUs:</p>
-<img alt="Loss curves for training Llama3 8b on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training." src="_images/fp8-loss-curves.png" />
+<p>Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3-8B on 8xH100 GPUs:</p>
+<img alt="Loss curves for training Llama3-8B on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training." src="_images/fp8-loss-curves.png" />
 </section>
 <section id="important-notes">
 <h3>Important notes<a class="headerlink" href="#important-notes" title="Permalink to this heading">¶</a></h3>
@@ -513,10 +521,10 @@ This is because rowwise scaling using a more granular scaling factor (per row, i
 </ul>
 </section>
 </section>
-<section id="pretraining-with-torchao-directly">
-<h2>Pretraining with torchao directly<a class="headerlink" href="#pretraining-with-torchao-directly" title="Permalink to this heading">¶</a></h2>
-<p>In this tutorial we’ll pretrain a toy model using torchao APIs directly.</p>
-<p>You can use this workflow to integrate torchao into your own custom pretraining code directly.</p>
+<section id="pre-training-with-torchao-directly">
+<h2>Pre-training with torchao directly<a class="headerlink" href="#pre-training-with-torchao-directly" title="Permalink to this heading">¶</a></h2>
+<p>In this tutorial we’ll pre-train a toy model using torchao APIs directly.</p>
+<p>You can use this workflow to integrate torchao into your own custom pre-training code directly.</p>
 <section id="id1">
 <h3>Prerequisites<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h3>
 <ol class="arabic simple">
@@ -588,6 +596,9 @@ what kind of performance improvement over bfloat16 you can expect for a given GE
 <span class="p">},</span> <span class="s1">&#39;checkpoint.pth&#39;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>After pre-training your model, you can optionally fine-tune it to more domain-specific datasets
+and adapt it for eventual quantization during serving. In the <a class="reference external" href="finetuning.html">next part</a> of
+this tutorial, we will explore a few model optimization options during the fine-tuning step.</p>
 </section>
 </section>
 </section>
@@ -600,10 +611,10 @@ what kind of performance improvement over bfloat16 you can expect for a given GE
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao_vllm_integration.html" class="btn btn-neutral float-right" title="Integration with VLLM: Architecture and Usage Guide" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="finetuning.html" class="btn btn-neutral float-right" title="(Part 2) Fine-tuning with QAT, QLoRA, and float8" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="static_quantization.html" class="btn btn-neutral" title="Static Quantization" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html" class="btn btn-neutral" title="precompute_float8_dynamic_scale_for_fsdp" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -635,8 +646,8 @@ what kind of performance improvement over bfloat16 you can expect for a given GE
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Pretraining with float8</a><ul>
-<li><a class="reference internal" href="#pretraining-with-torchtitan">Pretraining with torchtitan</a><ul>
+<li><a class="reference internal" href="#">(Part 1) Pre-training with float8</a><ul>
+<li><a class="reference internal" href="#pre-training-with-torchtitan">Pre-training with torchtitan</a><ul>
 <li><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
 <li><a class="reference internal" href="#rowwise-scaling">Rowwise scaling</a></li>
 <li><a class="reference internal" href="#tensorwise-scaling">Tensorwise scaling</a></li>
@@ -644,7 +655,7 @@ what kind of performance improvement over bfloat16 you can expect for a given GE
 <li><a class="reference internal" href="#important-notes">Important notes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#pretraining-with-torchao-directly">Pretraining with torchao directly</a><ul>
+<li><a class="reference internal" href="#pre-training-with-torchao-directly">Pre-training with torchao directly</a><ul>
 <li><a class="reference internal" href="#id1">Prerequisites</a></li>
 <li><a class="reference internal" href="#model-conversion-api">Model conversion API</a></li>
 </ul>
