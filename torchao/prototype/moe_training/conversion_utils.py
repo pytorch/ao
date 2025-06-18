@@ -28,6 +28,7 @@ class MoETrainingConfig(AOBaseConfig):
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
 
+    # temporary config flag for testing/benchmarking, will remove before graduating out of prototype
     use_triton_for_per_group_scales: bool = True
 
 
