@@ -181,4 +181,18 @@ TEST(test_groupwise_lowbit_lut_kernel, lower_indice_bit) {
         /*m=*/8, /*k=*/64, /*n=*/32, /*scale_group_size=*/32,
         /*lut_group_size=*/32, /*has_scales=*/false,
         /*has_bias=*/false, /*has_clamp=*/false, /*weight_nbit=*/3, true);
-}
+
+    // Standard case
+    test_groupwise_lowbit_lut_kernel<MR, NR>(
+        /*m=*/8, /*k=*/64, /*n=*/32, /*scale_group_size=*/32,
+        /*lut_group_size=*/32, /*has_scales=*/false,
+        /*has_bias=*/false, /*has_clamp=*/false, /*weight_nbit=*/3, true);
+
+
+    // Standard case
+    test_groupwise_lowbit_lut_kernel<MR, NR>(
+        /*m=*/8, /*k=*/64, /*n=*/32, /*scale_group_size=*/32,
+        /*lut_group_size=*/32, /*has_scales=*/true,
+        /*has_bias=*/true, /*has_clamp=*/true, /*weight_nbit=*/3, true);
+
+    }
