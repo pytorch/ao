@@ -9,7 +9,7 @@ import torch
 
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
-    fake_quantize_affine,
+    _fake_quantize_affine,
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
@@ -87,7 +87,7 @@ def _fake_quantize_per_channel_group(
     assert input.shape[-1] % group_size == 0
     assert input.dim() == 2
     block_size = (1, group_size)
-    return fake_quantize_affine(
+    return _fake_quantize_affine(
         input,
         block_size,
         scales,
@@ -110,7 +110,7 @@ def _fake_quantize_per_token(
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
     block_size = _get_per_token_block_size(input)
-    fq = fake_quantize_affine(
+    fq = _fake_quantize_affine(
         input,
         block_size,
         scales,

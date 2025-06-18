@@ -78,6 +78,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_fbcode,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -2010,7 +2011,7 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
 
     import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
-    if fbgemm_gpu.__version__ < "1.2.0":
+    if not is_fbcode() and fbgemm_gpu.__version__ < "1.2.0":
         raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
     _SUPPORTED_DTYPES = {

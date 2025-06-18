@@ -14,15 +14,15 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
+    _choose_qparams_affine_dont_preserve_zero,
+    _choose_qparams_affine_tinygemm,
+    _dequantize_affine_no_zero_point,
+    _dequantize_affine_tinygemm,
+    _quantize_affine_no_zero_point,
+    _quantize_affine_tinygemm,
     choose_qparams_affine,
-    choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_tinygemm,
     dequantize_affine,
-    dequantize_affine_no_zero_point,
-    dequantize_affine_tinygemm,
     quantize_affine,
-    quantize_affine_no_zero_point,
-    quantize_affine_tinygemm,
 )
 
 from .quantizer import Quantizer
@@ -57,16 +57,16 @@ class UnifTorchaoQuantizer(Quantizer):
         self._dequantize = dequantize_affine
 
         if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-            self._choose_qparams = choose_qparams_affine_tinygemm
-            self._quantize = quantize_affine_tinygemm
-            self._dequantize = dequantize_affine_tinygemm
+            self._choose_qparams = _choose_qparams_affine_tinygemm
+            self._quantize = _quantize_affine_tinygemm
+            self._dequantize = _dequantize_affine_tinygemm
         elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
-            self._choose_qparams = choose_qparams_affine_dont_preserve_zero
+            self._choose_qparams = _choose_qparams_affine_dont_preserve_zero
             self._quantize = quantize_affine
             self._dequantize = dequantize_affine
         elif zero_point_domain == ZeroPointDomain.NONE:
-            self._quantize = quantize_affine_no_zero_point
-            self._dequantize = dequantize_affine_no_zero_point
+            self._quantize = _quantize_affine_no_zero_point
+            self._dequantize = _dequantize_affine_no_zero_point
 
     def _init_quant_min_max(self, b: int) -> None:
         if self.quant_min is None or self.quant_max is None:
