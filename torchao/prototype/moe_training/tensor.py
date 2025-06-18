@@ -38,10 +38,12 @@ class ScaledGroupedMMTensor(torch.Tensor):
             B_is_3d = B.dim() == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             if A_is_2d and B_is_3d and has_offs:
+                # prefer to use B to check use_triton, as that will be the weight/nn.Parameter
+                # that is converted to ScaledGroupedMMTensor
                 use_triton = (
-                    A._use_triton_for_per_group_scales
-                    if isinstance(A, cls)
-                    else B._use_triton_for_per_group_scales
+                    B._use_triton_for_per_group_scales
+                    if isinstance(B, cls)
+                    else A._use_triton_for_per_group_scales
                 )
                 return _scaled_grouped_mm(
                     *args,
