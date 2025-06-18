@@ -203,7 +203,8 @@ void linear_operator(
     nc = tiling_params->nc;
   } else {
     auto params = LinearTilingParams::from_target_tiles_per_thread(
-        m,
+        // We process m sequentially, so m_step is the "m" for the purpose of computing tiling params
+        m_step,
         m_step,
         n,
         n_step,
