@@ -30,12 +30,15 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.transform_module import (
+    _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
+from torchao.utils import DummyModule
 
 from .core import (
     AWQObservedLinear,
     AWQObserver,
+    AWQObserver2,
 )
 
 assert len(_DTYPE_TO_BIT_WIDTH) > 0, (
@@ -50,6 +53,7 @@ def insert_awq_observer_(
     quant_dtype: torch.dtype = torch.uint4,
     scale_search_space_size: int = 20,
     group_size: int = 128,
+    base_config: Optional[AOBaseConfig] = None,
 ):
     """
     Inserts AWQObserver into Linear layers of a given model.
@@ -80,22 +84,32 @@ def insert_awq_observer_(
 
     def replace_with_observer(layer):
         # creates observer and replaces linear layers with AWQObservedLinear layers
-        observer = AWQObserver(
-            layer.weight,
-            layer.bias,
-            quantization_granularity,
-            mapping_type,
-            quant_dtype,
-            n_validation_examples,
-            validation_sequence_len,
-            scale_search_space_size,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-            zero_point_dtype=zero_point_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=eps,
-        )
+        if base_config is None:
+            observer = AWQObserver(
+                layer.weight,
+                layer.bias,
+                quantization_granularity,
+                mapping_type,
+                quant_dtype,
+                n_validation_examples,
+                validation_sequence_len,
+                scale_search_space_size,
+                preserve_zero=preserve_zero,
+                zero_point_domain=zero_point_domain,
+                zero_point_dtype=zero_point_dtype,
+                quant_min=quant_min,
+                quant_max=quant_max,
+                eps=eps,
+            )
+        else:
+            observer = AWQObserver2(
+                layer.weight,
+                layer.bias,
+                base_config,
+                n_validation_examples,
+                validation_sequence_len,
+                scale_search_space_size,
+            )
         return AWQObservedLinear.from_float(layer, observer)
 
     _replace_with_custom_fn_if_matches_filter(model, replace_with_observer, _is_linear)
@@ -181,6 +195,53 @@ def _awq_uintx_transform(
         use_hqq=use_hqq,
     )
 
+    qw = to_weight_tensor_with_linear_activation_scale_metadata(qw, equalization_scale)
+
+    linear = torch.nn.Linear(
+        observed_linear.in_features,
+        observed_linear.out_features,
+        observed_linear.bias != None,
+        device=observed_linear.weight.device,
+        dtype=observed_linear.weight.dtype,
+    )
+    linear.weight = torch.nn.Parameter(qw, requires_grad=False)
+    linear.extra_repr = types.MethodType(_linear_extra_repr, module)
+    linear.bias = observed_linear.bias
+    return linear
+
+
+@dataclass
+class AWQConfig(AOBaseConfig):
+    """
+    Configuration for quantizing linear layers when passed into quantize_()
+
+    Args:
+        quant_dtype: The data type of the quantized weights. Currently only torch.uint4 is intended to be used but can be used with torch.uint1 -> torch.uint8
+        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
+        group_size: Quantization granularity. Use -1 for channel wise quantization
+        weight_quant_fn: The quantization function to be used, which takes in the weight and returns the quantized weight. If None, then affine uint4 quantization is used
+        set_inductor_config: if True, adjusts `torchinductor` settings to recommended values.
+    """
+
+    base_config: AOBaseConfig
+    set_inductor_config: bool = True
+
+
+@register_quantize_module_handler(AWQConfig)
+def _awq_transform(
+    module: torch.nn.Module,
+    config: AWQUIntXConfig,
+) -> torch.nn.Module:
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    observed_linear = module
+    equalization_scale = observed_linear.act_obs.calculate_qparams()
+
+    base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
+    dummy_mod = DummyModule(observed_linear.weight * equalization_scale)
+    quant_mod = base_config_handler(dummy_mod, config.base_config)
+    qw = quant_mod.weight
     qw = to_weight_tensor_with_linear_activation_scale_metadata(qw, equalization_scale)
 
     linear = torch.nn.Linear(
