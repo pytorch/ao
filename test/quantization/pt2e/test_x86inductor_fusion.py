@@ -2427,6 +2427,74 @@ class TestPatternMatcher(TestPatternMatcherBase):
             self.assertEqual(counters["inductor"]["qlinear_binary_matcher_count"], 1)
 
 
+    @skipIfNoONEDNN
+    # @parametrize("has_bias", [True, False])
+    # @parametrize("dtype", [torch.float32, torch.bfloat16])
+    # @parametrize("input_dim_exceeds_two", [True, False])
+    @parametrize("has_bias", [True, ])
+    @parametrize("dtype", [torch.float32, ])
+    @parametrize("input_dim_exceeds_two", [False])
+    def test_scaled_mm(self, has_bias, dtype, input_dim_exceeds_two):
+        class FP8QDQLinear(torch.nn.Module):
+            def __init__(self, in_features, out_features):
+                super().__init__()
+                self.qtype = torch.float8_e4m3fn
+                self.weight = torch.randn((out_features, in_features)).to(self.qtype)
+                self.weight_scale = 2.0
+                self.scale = 2.0
+                self.bias = None
+                if has_bias:
+                    self.bias = torch.randn((out_features,)).to(dtype)
+
+            def forward(self, input):
+                weight = torch.ops.torchao.dequantize_affine_float8(
+                    tensor=self.weight.data,
+                    scale=torch.tensor(self.weight_scale),
+                    output_dtype=torch.float
+                )
+                if dtype != torch.float:
+                    weight = weight.to(dtype)
+
+                q_input = torch.ops.torchao.quantize_affine_float8(
+                    tensor=input,
+                    scale=torch.tensor(self.scale),
+                    float8_dtype=self.qtype,
+                )
+                dq_input = torch.ops.torchao.dequantize_affine_float8(
+                    tensor=q_input,
+                    scale=torch.tensor(self.scale),
+                    output_dtype=torch.float
+                )
+                if dtype != torch.float:
+                    dq_input = dq_input.to(dtype)
+
+                out = torch.nn.functional.linear(dq_input, weight, self.bias)
+                return out
+
+        class Mod(torch.nn.Module):
+            def __init__(self, in_features, out_features):
+                super().__init__()
+                self.l0 = FP8QDQLinear(in_features, out_features)
+
+            def forward(self, x):
+                y = self.l0(x)
+                return y
+
+        M1, M2, N, K = 2, 3, 13, 16
+        M = M1 * M2
+        mod = Mod(N, K)
+        if input_dim_exceeds_two:
+            v = torch.randn(M1, M2, N)
+        else:
+            v = torch.randn(M, N)
+        v = v.to(dtype)
+
+        def matcher_check_fn():
+            self.assertEqual(counters["inductor"]["scaled_mm_matcher_count"], 1)
+
+        self._test_common(mod, (v,), matcher_check_fn)
+
+
 @dynamo_config.patch(
     {
         "dynamic_shapes": True,
