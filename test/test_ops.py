@@ -685,7 +685,6 @@ MARLIN_TEST_PARAMS = list(
     MARLIN_TEST_PARAMS,
     ids=str,
 )
-@pytest.mark.skip(reason="test outputs nan after cuda is upgraded to 12.4")
 def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors):
     int8_traits = torch.iinfo(torch.int8)
     m_factor, n_factor, k_factor = mnk_factors
