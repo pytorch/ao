@@ -14,7 +14,11 @@ from torchao.prototype.moe_training.kernels import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
-from torchao.prototype.moe_training.utils import _is_column_major
+from torchao.prototype.moe_training.utils import (
+    _is_column_major,
+    _to_2d_jagged_float8_tensor_colwise,
+    _to_2d_jagged_float8_tensor_rowwise,
+)
 
 
 def _scaled_grouped_mm(
@@ -22,6 +26,7 @@ def _scaled_grouped_mm(
     B_t: torch.Tensor,
     offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    use_triton_for_per_group_scales: bool = True,
 ) -> torch.Tensor:
     """
     This function performs dynamic float8 quantization with row-wise scaling
@@ -34,6 +39,7 @@ def _scaled_grouped_mm(
             and in column-major memory layout.
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
+        use_triton_for_per_group_scales (bool): Whether to use custom triton kernels to compute per-group scales. Default is True.
     """
     return _Float8GroupedMM.apply(
         A,
@@ -53,6 +59,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         B_t: torch.Tensor,
         offs: torch.Tensor,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
+        use_triton_for_per_group_scales: bool = True,
     ) -> torch.Tensor:
         # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
@@ -136,9 +143,16 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Store what we need for backward.
         ctx.save_for_backward(A, B_fp8_col_major, B_scales, offs)
         ctx.out_dtype = out_dtype
+        ctx.use_triton_for_per_group_scales = use_triton_for_per_group_scales
 
         # Perform scaled grouped GEMM and return result.
         # output shape: scaled grouped mm of (M,K) @ (B,K,N) = (M,N)
+        assert not _is_column_major(A_fp8_row_major), (
+            "A must be row-major for output = A @ B"
+        )
+        assert _is_column_major(B_t_fp8_col_major), (
+            "B must be column-major for output = A @ B"
+        )
         return torch._scaled_grouped_mm(
             A_fp8_row_major,
             B_t_fp8_col_major,
@@ -153,6 +167,7 @@ class _Float8GroupedMM(torch.autograd.Function):
     def backward(ctx, grad_output: torch.Tensor):
         A, B_fp8_col_major, B_scales, offs = ctx.saved_tensors
         out_dtype = ctx.out_dtype
+        use_triton_for_per_group_scales = ctx.use_triton_for_per_group_scales
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_A: grad_output @ B
@@ -175,6 +190,12 @@ class _Float8GroupedMM(torch.autograd.Function):
         #
         # grad_A = grad_output @ B
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
+        assert not _is_column_major(grad_output_fp8_row_major), (
+            "grad_output must be row-major for grad_A = grad_output @ B"
+        )
+        assert _is_column_major(B_fp8_col_major), (
+            "B must be column-major for grad_A = grad_output @ B"
+        )
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major,
             B_fp8_col_major,
@@ -195,25 +216,42 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # grad_B is a special case. both operands of the grouped gemm will be 2D with offsets determing the "groups."
         # Compute scales for grad_output_t and A, which are both 2D tensors with offsets which define the "jagged" groups.
+        per_group_rowwise_scale_func = (
+            triton_fp8_row_major_jagged_rowwise_scales
+            if use_triton_for_per_group_scales
+            else _to_2d_jagged_float8_tensor_rowwise
+        )
+        per_group_colwise_scale_func = (
+            triton_fp8_col_major_jagged_colwise_scales
+            if use_triton_for_per_group_scales
+            else _to_2d_jagged_float8_tensor_colwise
+        )
+
         grad_output_t_fp8_row_major, grad_output_t_scales = (
-            triton_fp8_row_major_jagged_rowwise_scales(
+            per_group_rowwise_scale_func(
                 grad_output_t_row_major,
                 offs,
-                output_dtype=torch.float8_e4m3fn,
+                torch.float8_e4m3fn,
                 round_scales_to_power_of_2=True,
             )
         )
 
-        A_fp8_col_major, A_scales = triton_fp8_col_major_jagged_colwise_scales(
+        A_fp8_col_major, A_scales = per_group_colwise_scale_func(
             A_col_major,
             offs,
-            output_dtype=torch.float8_e4m3fn,
+            torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
 
         # Compute grad_B = grad_output_t @ A.
         # grad_B = grad_output_t @ A
         # grad_B = (N,M) @ (M,K) = (N,K)
+        assert not _is_column_major(grad_output_t_fp8_row_major), (
+            "grad_output_t must be row-major for grad_B = grad_output_t @ A"
+        )
+        assert _is_column_major(A_fp8_col_major), (
+            "A must be column-major for grad_B = grad_output_t @ A"
+        )
         grad_B = torch._scaled_grouped_mm(
             grad_output_t_fp8_row_major,
             A_fp8_col_major,
