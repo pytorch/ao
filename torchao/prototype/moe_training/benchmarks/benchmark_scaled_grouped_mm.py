@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
-
+import argparse
 import itertools
 import time
 from dataclasses import dataclass
@@ -28,11 +28,11 @@ class ExperimentConfig:
     A_shape: tuple[int]
     B_shape: tuple[int]
 
-
 @dataclass(frozen=True)
 class ExperimentResult:
-    time_us: float
-
+    torch_time_us: float
+    triton_time_us: bool
+    triton_speedup: float
 
 @dataclass(frozen=True)
 class Experiment:
@@ -41,12 +41,12 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    A_shapes = [(2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    B_shapes = [(4, 4096, 4096), (8, 4096, 4096), (16, 4096, 4096)]
+    A_shapes = [(2**8, 8192), (2**12, 8192), (2**16, 8192)]
+    B_shapes = [(4, 8192, 8192), (8, 8192, 8192), (16, 8192, 8192)]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for A_shape, B_shape, high_precision_dtype in itertools.product(
-        A_shapes, B_shapes, high_precision_dtypes
+        A_shapes, B_shapes, high_precision_dtypes, 
     ):
         configs.append(
             ExperimentConfig(
@@ -58,7 +58,7 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-def run_experiment(config: ExperimentConfig) -> ExperimentResult:
+def run_experiment(config: ExperimentConfig, args: argparse.Namespace) -> ExperimentResult:
     # define test inputs
     A = torch.randn(
         *config.A_shape,
@@ -92,26 +92,54 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         for _ in range(10):
             func(*args, **kwargs)
 
-    def forward_backward(A, B_t, offs):
-        out = _scaled_grouped_mm(A, B_t, offs=offs, out_dtype=torch.bfloat16)
+    def forward_backward(A, B_t, offs, use_triton=True):
+        out = _scaled_grouped_mm(
+            A,
+            B_t,
+            offs=offs,
+            out_dtype=torch.bfloat16,
+            use_triton_for_per_group_scales=use_triton,
+        )
         out.sum().backward()
+        torch.cuda.synchronize()
 
-    # bench triton
-    warmup(forward_backward, A, B_t, offs)
+    # benchmark torch
+    if args.compile:
+        compiled_fwd_bwd = torch.compile(forward_backward)
+        warmup(compiled_fwd_bwd, A, B_t, offs, use_triton=False)
+        start_time_ns = time.perf_counter_ns()
+        compiled_fwd_bwd(A, B_t, offs, use_triton=False)
+        torch_time_ns = time.perf_counter_ns() - start_time_ns
+        torch_time_us = torch_time_ns / 1e3
+    else:
+        warmup(forward_backward, A, B_t, offs, use_triton=False)
+        start_time_ns = time.perf_counter_ns()
+        forward_backward(A, B_t, offs, use_triton=False)
+        torch_time_ns = time.perf_counter_ns() - start_time_ns
+        torch_time_us = torch_time_ns / 1e3
+
+    # benchmark triton
+    warmup(forward_backward, A, B_t, offs, use_triton=True)
     start_time_ns = time.perf_counter_ns()
-    forward_backward(A, B_t, offs)
-    time_ns = time.perf_counter_ns() - start_time_ns
-    time_us = time_ns / 1e3
+    forward_backward(A, B_t, offs, use_triton=True)
+    triton_time_ns = time.perf_counter_ns() - start_time_ns
+    triton_time_us = triton_time_ns / 1e3 
 
-    return ExperimentResult(time_us=time_us)
 
+    
+    return ExperimentResult(
+        torch_time_us=round(torch_time_us, 3),
+        triton_time_us=round(triton_time_us, 3),
+        triton_speedup=round(torch_time_us / triton_time_us, 3),
+    )
 
 def print_results(experiments: List[Experiment]):
     headers = [
         "A_shape",
         "B_shape",
-        "high_precision_dtype",
-        "time_us",
+        "torch_time_us",
+        "triton_time_us",
+        "triton_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -121,19 +149,20 @@ def print_results(experiments: List[Experiment]):
             [
                 A_shape,
                 B_shape,
-                experiment.config.high_precision_dtype,
-                experiment.result.time_us,
+                experiment.result.torch_time_us,
+                experiment.result.triton_time_us,
+                experiment.result.triton_speedup,
             ]
         )
     print(tabulate(rows, headers=headers))
 
 
-def main():
+def main(args: argparse.Namespace):
     torch.random.manual_seed(123)
     configs = get_configs()
     results = []
     for config in tqdm(configs):
-        result = run_experiment(config)
+        result = run_experiment(config, args)
         results.append(Experiment(config=config, result=result))
 
     # Use Tabulate to print results
@@ -141,4 +170,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("--compile", action="store_true")
+    args = arg_parser.parse_args()
+    main(args)

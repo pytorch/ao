@@ -27,8 +27,7 @@ class MoETrainingConfig(AOBaseConfig):
 
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
-
-    pass
+    use_triton_for_per_group_scales: bool = True
 
 
 @register_quantize_module_handler(MoETrainingConfig)
@@ -46,7 +45,7 @@ def _moe_training_transform(
     Returns:
      nn.Module: The modified module with swapped parameters.
     """
-    out = _swap_params(module)
+    out = _swap_params(module, config=config)
     return out
 
 
@@ -54,6 +53,7 @@ def _swap_params(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
+    config: Optional[MoETrainingConfig] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
@@ -69,6 +69,7 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
+    use_triton = config.use_triton_for_per_group_scales if config is not None else False
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
     ):
@@ -77,7 +78,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data)
+            new_data = ScaledGroupedMMTensor(module.data, use_triton_for_per_group_scales=use_triton)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
