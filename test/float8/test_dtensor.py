@@ -16,9 +16,12 @@ import os
 import pytest
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_7,
+    get_device,
+)
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 from torch.distributed._tensor import DTensor, Replicate, Shard, distribute_tensor
@@ -64,7 +67,7 @@ torch.set_float32_matmul_precision("high")
 
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
-    device_mesh = init_device_mesh("cuda", (world_size,))
+    device_mesh = init_device_mesh(get_device(), (world_size,))
     # seed must be the same in all processes
     torch.manual_seed(1)
     return device_mesh
@@ -327,7 +330,7 @@ def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
 
 def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
     torch.manual_seed(42)
-    model = Transformer(ModelArgs(dropout_p=0.0, weight_tying=False)).cuda()
+    model = Transformer(ModelArgs(dropout_p=0.0, weight_tying=False)).to(device=get_device())
     convert_to_float8_training(
         model,
         config=Float8LinearConfig(
@@ -378,3 +381,4 @@ if __name__ == "__main__":
             raise e
 
     torch.distributed.destroy_process_group()
+
