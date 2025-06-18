@@ -237,6 +237,46 @@ def run_evaluation(
             quantize_(
                 model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64)
             )
+        elif quantization.startswith("awq-uintx"):
+            from torchao._models._eval import TransformerEvalWrapper
+            from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+
+            if not TORCH_VERSION_AT_LEAST_2_3:
+                print("Awq requires torch2.3+")
+                exit()
+            from torchao.prototype.awq import (
+                AWQObservedLinear,
+                awq_uintx,
+                insert_awq_observer_,
+            )
+
+            quant_dtype = quantization.split("-")[1]
+            group_size = int(quantization.split("-")[2])
+            quant_dtype = getattr(torch, quant_dtype, torch.uint8)
+            model = model.to(device)
+            # get calibration data
+            insert_awq_observer_(
+                model, 1, 256, quant_dtype=quant_dtype, group_size=group_size
+            )
+            TransformerEvalWrapper(
+                model=model.to(device),
+                tokenizer=tokenizer,
+                max_seq_length=256,
+                input_prep_func=prepare_inputs_for_model,
+                device=device,
+            ).run_eval(
+                tasks=["wikitext"],
+                limit=1,
+            )
+            is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+            use_hqq = "hqq" in quantization
+            quantize_(
+                model,
+                awq_uintx(
+                    quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq
+                ),
+                is_observed_linear,
+            )
 
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)

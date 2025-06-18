@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -43,6 +43,7 @@ __all__ = [
     "is_sm_at_least_89",
     "is_sm_at_least_90",
     "is_package_at_least",
+    "DummyModule",
 ]
 
 
@@ -882,3 +883,14 @@ def _is_fbgemm_genai_gpu_available():
         return False
 
     return True
+
+
+class DummyModule(torch.nn.Module):
+    """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
+    DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.
+    """
+
+    def __init__(self, weight: torch.Tensor, bias: Optional[torch.Tensor] = None):
+        super().__init__()
+        self.weight = weight
+        self.bias = bias
