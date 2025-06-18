@@ -1,9 +1,0 @@
-﻿.. role:: hidden
-    :class: hidden-section
-.. currentmodule:: torchao.quantization
-
-
-fake_quantize_affine_cachemask
-==============================
-
-.. autofunction:: fake_quantize_affine_cachemask

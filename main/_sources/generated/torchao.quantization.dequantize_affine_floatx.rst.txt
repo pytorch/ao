@@ -1,9 +1,0 @@
-﻿.. role:: hidden
-    :class: hidden-section
-.. currentmodule:: torchao.quantization
-
-
-dequantize_affine_floatx
-========================
-
-.. autofunction:: dequantize_affine_floatx

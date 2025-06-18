@@ -1,9 +1,0 @@
-﻿.. role:: hidden
-    :class: hidden-section
-.. currentmodule:: torchao.quantization
-
-
-choose_qparams_affine_floatx
-============================
-
-.. autofunction:: choose_qparams_affine_floatx

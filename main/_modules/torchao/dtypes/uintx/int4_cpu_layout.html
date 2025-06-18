@@ -440,7 +440,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">AQTTensorImpl</span><span class="p">,</span> <span class="n">Layout</span><span class="p">,</span> <span class="n">is_device</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
-    <span class="n">quantize_affine_tinygemm</span><span class="p">,</span>
+    <span class="n">_quantize_affine_tinygemm</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
@@ -687,7 +687,7 @@
         <span class="c1"># TODO: move this to `unpack_tinygemm_scales_and_zeros`?</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
         <span class="n">zero</span> <span class="o">=</span> <span class="n">zero</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">zero</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
-        <span class="n">int_data</span> <span class="o">=</span> <span class="n">quantize_affine_tinygemm</span><span class="p">(</span>
+        <span class="n">int_data</span> <span class="o">=</span> <span class="n">_quantize_affine_tinygemm</span><span class="p">(</span>
             <span class="n">dequantized</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">scale</span><span class="p">,</span>

@@ -521,19 +521,13 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine_with_min_max.html#torchao.quantization.choose_qparams_affine_with_min_max" title="torchao.quantization.choose_qparams_affine_with_min_max"><code class="xref py py-obj docutils literal notranslate"><span class="pre">choose_qparams_affine_with_min_max</span></code></a></p></td>
 <td><p>A variant of <code class="xref py py-func docutils literal notranslate"><span class="pre">choose_qparams_affine()</span></code> operator that pass in min_val and max_val directly instead of deriving these from a single input.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine_floatx.html#torchao.quantization.choose_qparams_affine_floatx" title="torchao.quantization.choose_qparams_affine_floatx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">choose_qparams_affine_floatx</span></code></a></p></td>
-<td><p></p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_affine.html#torchao.quantization.quantize_affine" title="torchao.quantization.quantize_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_affine</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_affine.html#torchao.quantization.quantize_affine" title="torchao.quantization.quantize_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_affine</span></code></a></p></td>
 <td><p><dl class="field-list simple">
 <dt class="field-odd">param input<span class="colon">:</span></dt>
 <dd class="field-odd"><p>original float32, float16 or bfloat16 Tensor</p>
 </dd>
 </dl>
 </p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_affine_floatx.html#torchao.quantization.quantize_affine_floatx" title="torchao.quantization.quantize_affine_floatx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_affine_floatx</span></code></a></p></td>
-<td><p>Quantizes the float32 high precision floating point tensor to low precision floating point number and converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.dequantize_affine.html#torchao.quantization.dequantize_affine" title="torchao.quantization.dequantize_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dequantize_affine</span></code></a></p></td>
 <td><p><dl class="field-list simple">
@@ -542,18 +536,6 @@
 </dd>
 </dl>
 </p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.dequantize_affine_floatx.html#torchao.quantization.dequantize_affine_floatx" title="torchao.quantization.dequantize_affine_floatx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dequantize_affine_floatx</span></code></a></p></td>
-<td><p></p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.choose_qparams_and_quantize_affine_hqq.html#torchao.quantization.choose_qparams_and_quantize_affine_hqq" title="torchao.quantization.choose_qparams_and_quantize_affine_hqq"><code class="xref py py-obj docutils literal notranslate"><span class="pre">choose_qparams_and_quantize_affine_hqq</span></code></a></p></td>
-<td><p></p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.fake_quantize_affine.html#torchao.quantization.fake_quantize_affine" title="torchao.quantization.fake_quantize_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">fake_quantize_affine</span></code></a></p></td>
-<td><p>General fake quantize op for quantization-aware training (QAT).</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.fake_quantize_affine_cachemask.html#torchao.quantization.fake_quantize_affine_cachemask" title="torchao.quantization.fake_quantize_affine_cachemask"><code class="xref py py-obj docutils literal notranslate"><span class="pre">fake_quantize_affine_cachemask</span></code></a></p></td>
-<td><p>General fake quantize op for quantization-aware training (QAT).</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm" title="torchao.quantization.safe_int_mm"><code class="xref py py-obj docutils literal notranslate"><span class="pre">safe_int_mm</span></code></a></p></td>
 <td><p>Performs a safe integer matrix multiplication, considering different paths for torch.compile, cublas, and fallback cases.</p></td>
