@@ -28,11 +28,13 @@ class ExperimentConfig:
     A_shape: tuple[int]
     B_shape: tuple[int]
 
+
 @dataclass(frozen=True)
 class ExperimentResult:
     torch_time_us: float
     triton_time_us: bool
     triton_speedup: float
+
 
 @dataclass(frozen=True)
 class Experiment:
@@ -46,7 +48,9 @@ def get_configs() -> List[ExperimentConfig]:
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for A_shape, B_shape, high_precision_dtype in itertools.product(
-        A_shapes, B_shapes, high_precision_dtypes, 
+        A_shapes,
+        B_shapes,
+        high_precision_dtypes,
     ):
         configs.append(
             ExperimentConfig(
@@ -58,7 +62,9 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-def run_experiment(config: ExperimentConfig, args: argparse.Namespace) -> ExperimentResult:
+def run_experiment(
+    config: ExperimentConfig, args: argparse.Namespace
+) -> ExperimentResult:
     # define test inputs
     A = torch.randn(
         *config.A_shape,
@@ -123,15 +129,14 @@ def run_experiment(config: ExperimentConfig, args: argparse.Namespace) -> Experi
     start_time_ns = time.perf_counter_ns()
     forward_backward(A, B_t, offs, use_triton=True)
     triton_time_ns = time.perf_counter_ns() - start_time_ns
-    triton_time_us = triton_time_ns / 1e3 
+    triton_time_us = triton_time_ns / 1e3
 
-
-    
     return ExperimentResult(
         torch_time_us=round(torch_time_us, 3),
         triton_time_us=round(triton_time_us, 3),
         triton_speedup=round(torch_time_us / triton_time_us, 3),
     )
+
 
 def print_results(experiments: List[Experiment]):
     headers = [

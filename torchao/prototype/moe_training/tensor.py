@@ -18,7 +18,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
         cls.use_triton_for_per_group_scales = use_triton_for_per_group_scales
         return cls
 
-    def __init__(self, data: torch.Tensor, use_triton_for_per_group_scales: bool = True):
+    def __init__(
+        self, data: torch.Tensor, use_triton_for_per_group_scales: bool = True
+    ):
         self._data = data
         self.use_triton_for_per_group_scales = use_triton_for_per_group_scales
 
@@ -40,5 +42,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
             B_is_3d = B.dim() == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             if A_is_2d and B_is_3d and has_offs:
-                return _scaled_grouped_mm(*args, use_triton_for_per_group_scales=self.use_triton_for_per_group_scales, **kwargs)
+                return _scaled_grouped_mm(
+                    *args,
+                    use_triton_for_per_group_scales=cls.use_triton_for_per_group_scales,
+                    **kwargs,
+                )
         return super().__torch_function__(func, types, args, kwargs)

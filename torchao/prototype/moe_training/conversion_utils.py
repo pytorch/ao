@@ -27,6 +27,7 @@ class MoETrainingConfig(AOBaseConfig):
 
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
+
     use_triton_for_per_group_scales: bool = True
 
 
@@ -78,7 +79,9 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data, use_triton_for_per_group_scales=use_triton)
+            new_data = ScaledGroupedMMTensor(
+                module.data, use_triton_for_per_group_scales=use_triton
+            )
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
