@@ -110,19 +110,12 @@ def run_experiment(
         torch.cuda.synchronize()
 
     # benchmark torch
-    if args.compile:
-        compiled_fwd_bwd = torch.compile(forward_backward)
-        warmup(compiled_fwd_bwd, A, B_t, offs, use_triton=False)
-        start_time_ns = time.perf_counter_ns()
-        compiled_fwd_bwd(A, B_t, offs, use_triton=False)
-        torch_time_ns = time.perf_counter_ns() - start_time_ns
-        torch_time_us = torch_time_ns / 1e3
-    else:
-        warmup(forward_backward, A, B_t, offs, use_triton=False)
-        start_time_ns = time.perf_counter_ns()
-        forward_backward(A, B_t, offs, use_triton=False)
-        torch_time_ns = time.perf_counter_ns() - start_time_ns
-        torch_time_us = torch_time_ns / 1e3
+    torch_func = torch.compile(forward_backward) if args.compile else forward_backward
+    warmup(torch_func, A, B_t, offs, use_triton=False)
+    start_time_ns = time.perf_counter_ns()
+    torch_func(A, B_t, offs, use_triton=False)
+    torch_time_ns = time.perf_counter_ns() - start_time_ns
+    torch_time_us = torch_time_ns / 1e3
 
     # benchmark triton
     warmup(forward_backward, A, B_t, offs, use_triton=True)

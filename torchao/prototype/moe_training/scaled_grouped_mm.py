@@ -216,39 +216,33 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # grad_B is a special case. both operands of the grouped gemm will be 2D with offsets determing the "groups."
         # Compute scales for grad_output_t and A, which are both 2D tensors with offsets which define the "jagged" groups.
-        if use_triton_for_per_group_scales:
-            grad_output_t_fp8_row_major, grad_output_t_scales = (
-                triton_fp8_row_major_jagged_rowwise_scales(
-                    grad_output_t_row_major,
-                    offs,
-                    output_dtype=torch.float8_e4m3fn,
-                    round_scales_to_power_of_2=True,
-                )
-            )
-        else:
-            grad_output_t_fp8_row_major, grad_output_t_scales = (
-                _to_2d_jagged_float8_tensor_rowwise(
-                    grad_output_t_row_major,
-                    offs,
-                    torch.float8_e4m3fn,
-                    round_scales_to_power_of_2=True,
-                )
-            )
+        per_group_rowwise_scale_func = (
+            triton_fp8_row_major_jagged_rowwise_scales
+            if use_triton_for_per_group_scales
+            else _to_2d_jagged_float8_tensor_rowwise
+        )
+        per_group_colwise_scale_func = (
+            triton_fp8_col_major_jagged_colwise_scales
+            if use_triton_for_per_group_scales
+            else _to_2d_jagged_float8_tensor_colwise
+        )
 
-        if use_triton_for_per_group_scales:
-            A_fp8_col_major, A_scales = triton_fp8_col_major_jagged_colwise_scales(
-                A_col_major,
-                offs,
-                output_dtype=torch.float8_e4m3fn,
-                round_scales_to_power_of_2=True,
-            )
-        else:
-            A_fp8_col_major, A_scales = _to_2d_jagged_float8_tensor_colwise(
-                A_col_major,
+        grad_output_t_fp8_row_major, grad_output_t_scales = (
+            per_group_rowwise_scale_func(
+                grad_output_t_row_major,
                 offs,
                 torch.float8_e4m3fn,
                 round_scales_to_power_of_2=True,
             )
+        )
+
+        A_fp8_col_major, A_scales = per_group_colwise_scale_func(
+            A_col_major,
+            offs,
+            torch.float8_e4m3fn,
+            round_scales_to_power_of_2=True,
+        )
+
         # Compute grad_B = grad_output_t @ A.
         # grad_B = grad_output_t @ A
         # grad_B = (N,M) @ (M,K) = (N,K)
