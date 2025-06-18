@@ -6,13 +6,13 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 
 import itertools
-import time
 from dataclasses import dataclass
 from typing import List
 
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
+from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
@@ -40,6 +40,7 @@ class ExperimentConfig:
 class ExperimentResult:
     torch_time_us: float
     triton_time_us: float
+    triton_speedup: float
 
 
 @dataclass(frozen=True)
@@ -91,10 +92,6 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         dtype=torch.int32,
     )
 
-    def warmup(func, *args, **kwargs):
-        for _ in range(10):
-            func(*args, **kwargs)
-
     def run_torch(
         input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
@@ -129,22 +126,19 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)
-    warmup(compiled_run_torch, input_row_major, input_col_major, offs)
-    start_time_ns = time.perf_counter_ns()
-    compiled_run_torch(input_row_major, input_col_major, offs)
-    torch_time_ns = time.perf_counter_ns() - start_time_ns
-    torch_time_us = torch_time_ns / 1e3
+    compiled_run_torch_no_args = lambda: compiled_run_torch(
+        input_row_major, input_col_major, offs
+    )
+    torch_time_us = do_bench(compiled_run_torch_no_args)
 
     # bench triton
-    warmup(run_triton, input_row_major, input_col_major, offs)
-    start_time_ns = time.perf_counter_ns()
-    run_triton(input_row_major, input_col_major, offs)
-    triton_time_ns = time.perf_counter_ns() - start_time_ns
-    triton_time_us = triton_time_ns / 1e3
+    run_triton_no_args = lambda: run_triton(input_row_major, input_col_major, offs)
+    triton_time_us = do_bench(run_triton_no_args)
 
     return ExperimentResult(
-        torch_time_us=torch_time_us,
-        triton_time_us=triton_time_us,
+        torch_time_us=round(torch_time_us, 3),
+        triton_time_us=round(triton_time_us, 3),
+        triton_speedup=round(torch_time_us / triton_time_us, 3),
     )
 
 
@@ -152,9 +146,9 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
         "n_groups",
-        "high_precision_dtype",
         "torch_time_us",
         "triton_time_us",
+        "triton_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -165,9 +159,9 @@ def print_results(experiments: List[Experiment]):
             [
                 input_shape,
                 experiment.config.n_groups,
-                experiment.config.high_precision_dtype,
                 experiment.result.torch_time_us,
                 experiment.result.triton_time_us,
+                experiment.result.triton_speedup,
             ]
         )
     print(tabulate(rows, headers=headers))
