@@ -80,7 +80,7 @@ Torchao's sparsity support can be combined with quantization for additional perf
 
     # Load a pre-sparsified checkpoint
     model = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/Meta-Llama-3.1-8B-Instruct-W4A16-G128-2of4",  # 2:4 sparse model
+        "RedHatAI/Sparse-Llama-3.1-8B-2of4",  # 2:4 sparse model
         torch_dtype=torch.float16,
         device_map="cuda",
         quantization_config=quantization_config
@@ -105,8 +105,41 @@ Torchao's sparsity support can be combined with quantization for additional perf
 .. note::
     For more information on supported quantization and sparsity configurations, see `HF-Torchao Docs <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`_.
 
-Inference with Transformers
----------------------------
+Inference with vLLM
+-------------------
+
+.. code-block:: python
+
+    from vllm import LLM, SamplingParams
+
+    # Sample prompts.
+    prompts = [
+        "Hello, my name is",
+        "The president of the United States is",
+        "The capital of France is",
+        "The future of AI is",
+    ]
+    # Create a sampling params object.
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+
+    if __name__ == '__main__':
+        # Create an LLM.
+        llm = LLM(model="pytorch/Phi-4-mini-instruct-float8dq")
+        # Generate texts from the prompts.
+        # The output is a list of RequestOutput objects
+        # that contain the prompt, generated text, and other information.
+        outputs = llm.generate(prompts, sampling_params)
+        # Print the outputs.
+        print("\nGenerated Outputs:\n" + "-" * 60)
+        for output in outputs:
+            prompt = output.prompt
+            generated_text = output.outputs[0].text
+            print(f"Prompt:    {prompt!r}")
+            print(f"Output:    {generated_text!r}")
+            print("-" * 60)
+
+[Optional] Inference with Transformers
+--------------------------------------
 
 Install the required packages:
 
@@ -178,8 +211,6 @@ Evaluate quantized models using lm-evaluation-harness:
 
 Memory Benchmarking
 --------------------
-
-**Memory Usage Comparison**:
 
 .. code-block:: python
 
@@ -297,9 +328,6 @@ High-throughput Serving with vLLM
 
 vLLM automatically leverages torchao's optimized kernels when serving quantized models, providing significant throughput improvements.
 
-Setting up vLLM with Quantized Models
-=====================================
-
 First, install vLLM with torchao support:
 
 .. code-block:: bash
@@ -307,45 +335,9 @@ First, install vLLM with torchao support:
     pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
     pip install torchao
 
-Serving Quantized Models
-========================
-
 .. code-block:: bash
 
     vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
-
-Inference with vLLM
-===================
-
-.. code-block:: python
-
-    from vllm import LLM, SamplingParams
-
-    # Sample prompts.
-    prompts = [
-        "Hello, my name is",
-        "The president of the United States is",
-        "The capital of France is",
-        "The future of AI is",
-    ]
-    # Create a sampling params object.
-    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
-
-    if __name__ == '__main__':
-        # Create an LLM.
-        llm = LLM(model="pytorch/Phi-4-mini-instruct-float8dq")
-        # Generate texts from the prompts.
-        # The output is a list of RequestOutput objects
-        # that contain the prompt, generated text, and other information.
-        outputs = llm.generate(prompts, sampling_params)
-        # Print the outputs.
-        print("\nGenerated Outputs:\n" + "-" * 60)
-        for output in outputs:
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
-            print(f"Prompt:    {prompt!r}")
-            print(f"Output:    {generated_text!r}")
-            print("-" * 60)
 
 Performance Breakdown
 =====================
