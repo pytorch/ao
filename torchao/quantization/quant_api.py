@@ -296,10 +296,13 @@ def _replace_with_custom_fn_if_matches_filter(
         new_module.weight = model.weight
         new_module.bias = model.bias
         model = new_module
+    print("filter:", filter_fn, model)
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
         model = replacement_fn(model, *extra_args)
+        print("replacement fn:", replacement_fn)
+        print("replaced model:", model)
         return model
     else:
         named_children_list = list(model.named_children())
@@ -542,10 +545,10 @@ def _quantization_type(weight: torch.Tensor):
     if hasattr(weight, "_quantization_type"):
         return f"{weight.__class__.__name__}({weight._quantization_type()})"
 
-    if type(weight) is torch.Tensor:
-        return "not quantized"
+    if type(weight) is torch.Tensor or type(weight, torch.nn.Parameter):
+        return f"Tensor: {type(weight)}"
 
-    return "not recognized"
+    return f"not recognized: {type(weight)}"
 
 
 def _linear_extra_repr(self):
