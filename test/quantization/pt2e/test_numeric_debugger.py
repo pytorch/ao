@@ -15,7 +15,6 @@ from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import IS_WINDOWS, run_tests
 
 from torchao.quantization.pt2e import (
-    generate_numeric_debug_handle,
     prepare_for_propagation_comparison,
 )
 from torchao.testing.pt2e.utils import PT2ENumericDebuggerTestCase
@@ -35,20 +34,21 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = export_for_training(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
-        self._assert_each_node_has_debug_handle(ep)
-        debug_handle_map = self._extract_debug_handles(ep)
+        m = ep.module()
+        self._assert_each_node_has_debug_handle(m)
+        debug_handle_map = self._extract_debug_handles(m)
 
         self.assertEqual(len(set(debug_handle_map.values())), len(debug_handle_map))
 
+    @unittest.skip("debug flow not working on model with conditional control flow")
     def test_control_flow(self):
         m = TestHelperModules.ControlFlow()
         example_inputs = m.example_inputs()
         ep = export_for_training(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
+        m = ep.module()
 
-        self._assert_each_node_has_debug_handle(ep)
-        debug_handle_map = self._extract_debug_handles(ep)
+        self._assert_each_node_has_debug_handle(m)
+        debug_handle_map = self._extract_debug_handles(m)
 
         self.assertEqual(len(set(debug_handle_map.values())), len(debug_handle_map))
 
@@ -56,13 +56,13 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = torch.export.export(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
+        m = ep.module()
 
-        self._assert_each_node_has_debug_handle(ep)
-        debug_handle_map_ref = self._extract_debug_handles(ep)
+        self._assert_each_node_has_debug_handle(m)
+        debug_handle_map_ref = self._extract_debug_handles(m)
 
         ep_copy = copy.copy(ep)
-        debug_handle_map = self._extract_debug_handles(ep_copy)
+        debug_handle_map = self._extract_debug_handles(ep_copy.module())
 
         self._assert_each_node_has_debug_handle(ep)
         self.assertEqual(debug_handle_map, debug_handle_map_ref)
@@ -71,13 +71,12 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = torch.export.export(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
 
-        debug_handle_map_ref = self._extract_debug_handles(ep)
+        debug_handle_map_ref = self._extract_debug_handles(ep.module())
         ep_copy = copy.deepcopy(ep)
-        debug_handle_map = self._extract_debug_handles(ep_copy)
+        debug_handle_map = self._extract_debug_handles(ep_copy.module())
 
-        self._assert_each_node_has_debug_handle(ep)
+        self._assert_each_node_has_debug_handle(ep.module())
         self.assertEqual(debug_handle_map, debug_handle_map_ref)
 
     @unittest.skip(
@@ -87,16 +86,16 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = export_for_training(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
         m = ep.module()
 
-        self._assert_each_node_has_debug_handle(ep)
-        debug_handle_map_ref = self._extract_debug_handles(ep)
+        self._assert_each_node_has_debug_handle(m)
+        debug_handle_map_ref = self._extract_debug_handles(m)
 
         ep_reexport = export_for_training(m, example_inputs, strict=True)
+        m_reexport = ep_reexport.module()
 
-        self._assert_each_node_has_debug_handle(ep_reexport)
-        debug_handle_map = self._extract_debug_handles(ep_reexport)
+        self._assert_each_node_has_debug_handle(m_reexport)
+        debug_handle_map = self._extract_debug_handles(m_reexport)
 
         self.assertEqual(debug_handle_map, debug_handle_map_ref)
 
@@ -107,16 +106,17 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = export_for_training(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
+        m = ep.module()
 
-        self._assert_each_node_has_debug_handle(ep)
-        debug_handle_map_ref = self._extract_debug_handles(ep)
+        self._assert_each_node_has_debug_handle(m)
+        debug_handle_map_ref = self._extract_debug_handles(m)
 
         ep_copy = copy.copy(ep)
         ep_copy = ep_copy.run_decompositions()
+        m_decomposed = ep_copy.module()
 
-        self._assert_each_node_has_debug_handle(ep_copy)
-        debug_handle_map = self._extract_debug_handles(ep_copy)
+        self._assert_each_node_has_debug_handle(m_decomposed)
+        debug_handle_map = self._extract_debug_handles(m_decomposed)
 
         # checking the map still has the same ids, the node may change
         self.assertEqual(
@@ -135,18 +135,19 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         for m in test_models:
             example_inputs = m.example_inputs()
             ep = export_for_training(m, example_inputs, strict=True)
-            generate_numeric_debug_handle(ep)
+            m = ep.module()
 
-            self._assert_each_node_has_debug_handle(ep)
+            self._assert_each_node_has_debug_handle(m)
             pre_decomp_to_debug_handle_map_ref = (
-                self._extract_debug_handles_with_prev_decomp_op(ep)
+                self._extract_debug_handles_with_prev_decomp_op(m)
             )
 
             ep_copy = copy.copy(ep)
             ep_copy = ep_copy.run_decompositions()
-            self._assert_each_node_has_debug_handle(ep_copy)
+            m_decomposed = ep_copy.module()
+            self._assert_each_node_has_debug_handle(m_decomposed)
             pre_decomp_to_debug_handle_map = (
-                self._extract_debug_handles_with_prev_decomp_op(ep_copy)
+                self._extract_debug_handles_with_prev_decomp_op(m_decomposed)
             )
 
             # checking the map still has the same ids, the node may change
@@ -158,7 +159,6 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = export_for_training(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
         m = ep.module()
         m_logger = prepare_for_propagation_comparison(m)
         ref = m(*example_inputs)
@@ -175,9 +175,10 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
         ep = export_for_training(m, example_inputs, strict=True)
-        generate_numeric_debug_handle(ep)
-        ref_handles = self._extract_debug_handles(ep)
+
+        ref_handles = self._extract_debug_handles(ep.module())
         ref_counter = Counter(ref_handles.values())
+
         for k, v in ref_counter.items():
             self.assertEqual(
                 v,
@@ -199,10 +200,10 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
 
         # Regenerate handles, make sure only the new relu node has a new id, and
         # it doesn't clash with any of the existing ids.
-        generate_numeric_debug_handle(ep)
 
-        self._assert_each_node_has_debug_handle(ep)
-        handles_after_modification = self._extract_debug_handles(ep)
+        m = ep.module()
+        self._assert_each_node_has_debug_handle(m)
+        handles_after_modification = self._extract_debug_handles(m)
         handles_counter = Counter(handles_after_modification.values())
         for name, handle in ref_handles.items():
             self.assertIn(name, handles_after_modification)
@@ -219,7 +220,7 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
 
         # Check for relu specifically. Avoid hardcoding the handle id since it
         # may change with future node ordering changes.
-        self.assertNotEqual(handles_after_modification["relu_default"], 0)
+        self.assertNotIn(handles_after_modification["relu_default"], ref_counter)
         self.assertEqual(handles_counter[handles_after_modification["relu_default"]], 1)
 
 

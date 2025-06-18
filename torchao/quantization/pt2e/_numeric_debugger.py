@@ -16,10 +16,16 @@ from torch.export import ExportedProgram
 from torch.fx import GraphModule, Node
 from torch.nn import functional as F
 
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+
+if TORCH_VERSION_AT_LEAST_2_6:
+    from torch.fx.traceback import NodeSource
+
 from .graph_utils import bfs_trace_with_node_process
 
 NUMERIC_DEBUG_HANDLE_KEY = "numeric_debug_handle"
 CUSTOM_KEY = "custom"
+FROM_NODE_KEY = "from_node"
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +82,56 @@ def generate_numeric_debug_handle(ep: ExportedProgram) -> None:
     # Assign debug handles to all nodes in the graph that don't have one based on the
     # max ID found in the previous step.
     bfs_trace_with_node_process(ep, _assign_debug_handle)
+
+
+def _get_greatest_ancestor_node_source(node: Node) -> Optional["NodeSource"]:
+    if (node_source := node.meta.get(FROM_NODE_KEY)) is None:
+        return None
+
+    node_source = node_source[-1]
+
+    while len(node_source.from_node) > 0:
+        node_source = node_source.from_node[-1]
+
+    return node_source
+
+
+def _generate_debug_handle_from_node(node: Node) -> Optional[int]:
+    """
+    Generate a debug handle based on node's oldest ancestor node's name
+    and graph id, or return None if the node does not need to be traced.
+
+    This is a temporary function for migrating node tracing infra from
+    using debug handle to node.meta["from_node"]. The infrastructure will
+    depend on node.meta["from_node"] directly in the future, without the need
+    of debug handle as intermediate variable.
+    """
+
+    if node.op == "placeholder" or node.op == "output":
+        # placeholder and output nodes don't have debug handle
+        return None
+
+    if (
+        FROM_NODE_KEY not in node.meta
+        or node.meta[FROM_NODE_KEY] is None
+        or node.meta[FROM_NODE_KEY][-1].pass_name == "ExportedProgram.module().unlift()"
+    ):
+        # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
+        return None
+
+    greatest_ancestor_node_source = _get_greatest_ancestor_node_source(node)
+
+    if greatest_ancestor_node_source is None:
+        # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
+        return None
+
+    if greatest_ancestor_node_source.pass_name == "ExportedProgram.module().unlift()":
+        # uplifted nodes don't have debug handle
+        return None
+
+    return hash(
+        greatest_ancestor_node_source.name + str(greatest_ancestor_node_source.graph_id)
+    )
 
 
 def _detach(x: object) -> object:
@@ -187,23 +243,24 @@ def _insert_logger(model: GraphModule, node: Node, debug_handle: int) -> Node:
 
 
 def prepare_for_propagation_comparison(model: GraphModule) -> GraphModule:
-    """Add output loggers to node that has numeric_debug_handle
+    """Add output loggers to unlifted node
 
     Args:
         model (GraphModule): original model
     Returns:
-        a model with output loggers for all nodes that has numeric_debug_handle_id
+        a model with output loggers for all unlifted nodes
     """
+    if not TORCH_VERSION_AT_LEAST_2_6:
+        log.warning(
+            "prepare_for_propagation_comparison is only supported for PyTorch 2.6+"
+        )
+        return model
+
     # don't change the original model
     model = copy.deepcopy(model)
     for n in model.graph.nodes:
-        if (
-            CUSTOM_KEY not in n.meta
-            or NUMERIC_DEBUG_HANDLE_KEY not in n.meta[CUSTOM_KEY]
-        ):
-            continue
-        numeric_debug_handle = n.meta[CUSTOM_KEY][NUMERIC_DEBUG_HANDLE_KEY]
-        _insert_logger(model, n, numeric_debug_handle)
+        if (numeric_debug_handle := _generate_debug_handle_from_node(n)) is not None:
+            _insert_logger(model, n, numeric_debug_handle)
 
     model.recompile()
     return model

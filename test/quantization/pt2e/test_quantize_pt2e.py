@@ -36,7 +36,7 @@ from torch.testing._internal.common_utils import (
 )
 
 import torchao
-from torchao.quantization.pt2e import ObserverOrFakeQuantize, observer
+from torchao.quantization.pt2e import FROM_NODE_KEY, ObserverOrFakeQuantize, observer
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
@@ -1499,7 +1499,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         for n in m.graph.nodes:
             if n.op == "get_attr" and "frozen_param" in n.target:
                 for key in n.meta:
-                    self.assertEqual(n.meta[key], weight_meta[key])
+                    if key != FROM_NODE_KEY:
+                        self.assertEqual(n.meta[key], weight_meta[key])
 
     def test_save_load(self):
         """Test save/load a quantized model"""

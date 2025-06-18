@@ -7,6 +7,7 @@ from torch import Tensor
 
 from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
+    FROM_NODE_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
     compare_results,
     extract_results_from_loggers,
@@ -132,6 +133,7 @@ __all__ = [
     "generate_numeric_debug_handle",
     "CUSTOM_KEY",
     "NUMERIC_DEBUG_HANDLE_KEY",
+    "FROM_NODE_KEY",
     "prepare_for_propagation_comparison",
     "extract_results_from_loggers",
     "compare_results",
