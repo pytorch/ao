@@ -2758,7 +2758,7 @@ def _generate_dequant_fp8_linear_node_pattern(dtype, input_dim_exceeds_two):
         torch.ops.torchao.dequantize_affine_float8.default,
         KeywordArg("q_weight"),
         KeywordArg("w_scale"),
-        KeywordArg("w_dtype"),
+        output_dtype=KeywordArg("w_dtype"),
     )
     t_pattern = CallFunction(
         aten.permute.default,
@@ -2773,7 +2773,7 @@ def _generate_dequant_fp8_linear_node_pattern(dtype, input_dim_exceeds_two):
         torch.ops.torchao.dequantize_affine_float8.default,
         KeywordArg("x"),
         KeywordArg("x_scale"),
-        KeywordArg("x_dq_dtype"),
+        output_dtype=KeywordArg("x_dq_dtype"),
     )
 
     dequant_fp8_linear_bias_pattern = _may_generate_pattern_with_reshape(
@@ -2816,33 +2816,33 @@ def _generate_dequant_fp8_linear_node_pattern(dtype, input_dim_exceeds_two):
 
 def _is_valid_scaled_mm_pattern(dtype, input_dim_exceeds_two):
     def _inner(match):
-        # input_contiguous = True
-        # # Check dequant pattern has only 1 user.
-        # (
-        #     linear_node,
-        #     _,
-        # ) = _get_linear_node(match, input_dim_exceeds_two, input_contiguous)
+        input_contiguous = True
+        # Check dequant pattern has only 1 user.
+        (
+            linear_node,
+            _,
+        ) = _get_linear_node(match, input_dim_exceeds_two, input_contiguous)
 
-        # input_index = 1 if linear_node.target is aten.addmm.default else 0
-        # assert dtype in [torch.float32, torch.bfloat16]
-        # (
-        #     dequant_node,
-        #     _,
-        #     _,
-        #     _,
-        # ) = _get_linear_dq_node(
-        #     linear_node, input_index, dtype, input_dim_exceeds_two, input_contiguous
-        # )
-        # assert dequant_node.target is quantized_decomposed.dequantize_per_tensor.tensor
+        input_index = 1 if linear_node.target is aten.addmm.default else 0
+        assert dtype in [torch.float32, torch.bfloat16]
+        (
+            dequant_node,
+            _,
+            _,
+            _,
+        ) = _get_linear_dq_node(
+            linear_node, input_index, dtype, input_dim_exceeds_two, input_contiguous
+        )
+        assert dequant_node.target is torch.ops.torchao.dequantize_affine_float8.default
 
-        # # only support float8_e4m3 input
-        # if dequant_node.meta["eager_input_vals"][0][0].dtype != torch.float8_e4m3fn:
-        #     return False
+        # only support float8_e4m3 input
+        if dequant_node.meta["eager_input_vals"][0][0].dtype != torch.float8_e4m3fn:
+            return False
 
-        # if len(list(dequant_node.users)) != 1:
-        #     # Ensure the dequant pattern only has 1 user
-        #     # since we will delete the dequant pattern here
-        #     return False
+        if len(list(dequant_node.users)) != 1:
+            # Ensure the dequant pattern only has 1 user
+            # since we will delete the dequant pattern here
+            return False
 
         return True
 

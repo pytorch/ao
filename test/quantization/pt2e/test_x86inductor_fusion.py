@@ -2426,14 +2426,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
         if test_for_pointwise_binary:
             self.assertEqual(counters["inductor"]["qlinear_binary_matcher_count"], 1)
 
-
     @skipIfNoONEDNN
-    # @parametrize("has_bias", [True, False])
-    # @parametrize("dtype", [torch.float32, torch.bfloat16])
-    # @parametrize("input_dim_exceeds_two", [True, False])
-    @parametrize("has_bias", [True, ])
-    @parametrize("dtype", [torch.float32, ])
-    @parametrize("input_dim_exceeds_two", [False])
+    @parametrize("has_bias", [True, False])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("input_dim_exceeds_two", [True, False])
     def test_scaled_mm(self, has_bias, dtype, input_dim_exceeds_two):
         class FP8QDQLinear(torch.nn.Module):
             def __init__(self, in_features, out_features):
@@ -2450,7 +2446,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 weight = torch.ops.torchao.dequantize_affine_float8(
                     tensor=self.weight.data,
                     scale=torch.tensor(self.weight_scale),
-                    output_dtype=torch.float
+                    output_dtype=torch.float,
                 )
                 if dtype != torch.float:
                     weight = weight.to(dtype)
@@ -2463,7 +2459,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 dq_input = torch.ops.torchao.dequantize_affine_float8(
                     tensor=q_input,
                     scale=torch.tensor(self.scale),
-                    output_dtype=torch.float
+                    output_dtype=torch.float,
                 )
                 if dtype != torch.float:
                     dq_input = dq_input.to(dtype)
