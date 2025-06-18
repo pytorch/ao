@@ -8,6 +8,7 @@ from typing import Iterable, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+from torch import nn
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
 from torchao.float8.config import ScalingGranularity
