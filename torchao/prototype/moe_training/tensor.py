@@ -3,28 +3,6 @@ from torch.utils._pytree import tree_map
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
 
-# aten = torch.ops.aten
-# c10d_functional = torch.ops.c10d_functional
-# _c10d_functional = torch.ops._c10d_functional
-# OPS_TABLE = {}
-
-# def implements(aten_ops):
-#     """Register aten ops to the float8 op table"""
-
-#     def decorator(func):
-#         for op in aten_ops:
-#             if op in OPS_TABLE:
-#                 raise RuntimeError(
-#                     f"op {op} is already registered to {OPS_TABLE[op].__name__}"
-#                 )
-#             OPS_TABLE[op] = func
-#         return func
-
-#     return decorator
-
-# @implements([aten.split_with_sizes_copy.default])
-# def _split_with_sizes_copy(*args, **kwargs):
-#     kwargs = 
 class ScaledGroupedMMTensor(torch.Tensor):
     """
     ScaledGroupedMMTensor is a simple tensor subclass that wraps a regular tensor
@@ -59,7 +37,8 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 return _scaled_grouped_mm(*args, **kwargs)
 
         # Disable torch_function by hand because we don't want 
-        # the wrapping behavior of the super() impl
+        # the wrapping behavior of the super() impl, go directly to
+        # torch_dispatch for the rest of the ops.
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
 
