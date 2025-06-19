@@ -726,6 +726,48 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values_with_lut(
   unpacked7 = vqtbl1q_s8(lut, idx7);
 }
 
+
+TORCHAO_ALWAYS_INLINE inline void lookup_and_store_16_fp32_values(
+  float* out,
+  const uint8x16_t& idx,
+  const int8x16x4_t& lut) {
+
+const int8x16_t s_idx = vreinterpretq_s8_u8(idx);
+int8x16_t b0 = vqtbl1q_s8(lut.val[0], s_idx);
+int8x16_t b1 = vqtbl1q_s8(lut.val[1], s_idx);
+int8x16_t b2 = vqtbl1q_s8(lut.val[2], s_idx);
+int8x16_t b3 = vqtbl1q_s8(lut.val[3], s_idx);
+
+int8x16x4_t result_bytes = {b0, b1, b2, b3};
+vst4q_s8(reinterpret_cast<int8_t*>(out), result_bytes);
+}
+
+template <int nbit>
+TORCHAO_ALWAYS_INLINE inline void unpack_128_lowbit_values_with_fp32_lut(
+  float* unpacked,
+  const uint8_t* packed,
+  const int8x16x4_t& lut
+) {
+  uint8x16_t idx0;
+  uint8x16_t idx1;
+  uint8x16_t idx2;
+  uint8x16_t idx3;
+  uint8x16_t idx4;
+  uint8x16_t idx5;
+  uint8x16_t idx6;
+  uint8x16_t idx7;
+  vec_unpack_128_uintx_values<nbit>(
+    idx0, idx1, idx2, idx3, idx4, idx5, idx6, idx7, packed);
+  lookup_and_store_16_fp32_values(unpacked + 0, idx0, lut);
+  lookup_and_store_16_fp32_values(unpacked + 16, idx1, lut);
+  lookup_and_store_16_fp32_values(unpacked + 32, idx2, lut);
+  lookup_and_store_16_fp32_values(unpacked + 48, idx3, lut);
+  lookup_and_store_16_fp32_values(unpacked + 64, idx4, lut);
+  lookup_and_store_16_fp32_values(unpacked + 80, idx5, lut);
+  lookup_and_store_16_fp32_values(unpacked + 96, idx6, lut);
+  lookup_and_store_16_fp32_values(unpacked + 112, idx7, lut);
+}
+
 } // namespace bitpacking
 } // namespace torchao
 
