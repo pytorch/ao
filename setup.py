@@ -385,19 +385,20 @@ def get_extensions():
         extra_compile_args["cxx"].extend(
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
-
-        # TODO(future PR): make this work without using `TORCH_VERSION_AT_LEAST_2_7`,
-        # because we should not be using anything from `torchao` to build `torchao`.
-        # if use_cpu_kernels and is_linux and TORCH_VERSION_AT_LEAST_2_7:
-        #     if torch._C._cpu._is_avx512_supported():
-        #         extra_compile_args["cxx"].extend(
-        #             [
-        #                 "-DCPU_CAPABILITY_AVX512",
-        #                 "-march=native",
-        #                 "-mfma",
-        #                 "-fopenmp",
-        #             ]
-        #         )
+        if (
+            use_cpu_kernels
+            and is_linux
+            and hasattr(torch._C._cpu, "_is_avx512_supported")
+            and torch._C._cpu._is_avx512_supported()
+        ):
+            extra_compile_args["cxx"].extend(
+                [
+                    "-DCPU_CAPABILITY_AVX512",
+                    "-march=native",
+                    "-mfma",
+                    "-fopenmp",
+                ]
+            )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
