@@ -17,6 +17,7 @@ from utils import (
 )
 
 from torchao.ops import mx_fp4_bf16
+from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.float8.roofline_utils import get_specs
 
 
@@ -114,22 +115,20 @@ def run(
 
         del A
 
+        A_hp = torch.randn(M, K, device=device)
+        B_hp_t = torch.randn(N, K, device=device)
+
         if use_fp4:
-            A = torch.zeros(M, K // 2, device=device, dtype=torch.int8).view(
-                torch.float4_e2m1fn_x2
-            )
-            B = (
-                torch.zeros(N, K // 2, device=device, dtype=torch.int8)
-                .view(torch.float4_e2m1fn_x2)
-                .T
-            )
+            _, A = to_mx(A_hp, torch.float4_e2m1fn_x2, 32)
+            _, Bt = to_mx(B_hp_t, torch.float4_e2m1fn_x2, 32)
+            B = Bt.contiguous().T
             peak_tops = fp4_peak_tops
         else:
             # raw float8 matmul (upper bound for what we can achive in eager mode)
             # TODO(future): add e5m2
             d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
-            A = torch.zeros(M, K, device=device, dtype=d1)
-            B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+            A = A_hp.to(d1)
+            B = B_hp_t.to(d2).contiguous().T
             peak_tops = fp8_peak_tops
 
         if recipe == "tensorwise":
