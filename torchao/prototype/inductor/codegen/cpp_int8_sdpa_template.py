@@ -704,7 +704,6 @@ INT8_SDPA_ONE_LOOP_TEMPLATE = r"""
 #include <ATen/core/Tensor.h>
 #include <ATen/cpu/vec/functional.h>
 #include <ATen/cpu/vec/vec.h>
-#include <ATen/cpu/vec/vec_quant.h>
 #include <ATen/cpu/Utils.h>
 #include <ATen/native/cpu/utils.h>
 #include <ATen/native/CPUBlas.h>
@@ -899,12 +898,12 @@ extern "C"
             for (int64_t b = 0; b < kvBlockSize; b += block_64) {
               bool istail = kvBlockSize - b < block_64;
               int64_t trans_rows = istail ? kvBlockSize - b : block_64;
-              at::native::utils::transpose<uint8_t>(
-                  headSize,
-                  trans_rows,
+              do_transpose(
                   k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN,
-                  kStrideN,
                   B_blocked_xform_u8,
+                  trans_rows,
+                  headSize,
+                  kStrideN,
                   block_64);
               if (!headSize_mul64 || istail) {
                 pad_remain_row_col(
@@ -916,24 +915,30 @@ extern "C"
                     block_64
                   );
               }
-              at::vec::pack_vnni4(
-                      /* src */ B_blocked_xform_u8,
-                      /* dst */ key_reorder_ptr + n * qk_gemm_K +
-                          b * qk_gemm_K,
-                      /* ld_src */ block_64,
-                      /* K */ qk_gemm_K,
-                      /* N */ block_64);
+              at::native::cpublas::pack(
+                      qk_gemm_K, // K
+                      block_64, // N
+                      block_64, // ld_in
+                      block_64, // ld_out
+                      u8_dt, // dt_in
+                      u8_dt, // dt_out
+                      B_blocked_xform_u8,
+                      key_reorder_ptr + n * qk_gemm_K +
+                          b * qk_gemm_K);
             }
             // split headSize to block_64, block_64, block_64 ...
             // [av_gemm_K, headSize] -> [av_gemm_K,  block_64 ...]
             for (int64_t b = 0; b < rndHeadSize; b += block_64) {
-              at::vec::pack_vnni4(
-                      /* src */ v_data + i * vStrideB + j * vStrideH + n * vStrideN + b,
-                      /* dst */ value_reorder_ptr + n * rndHeadSize +
-                          av_gemm_K * b,
-                      /* ld_src */ vStrideN,
-                      /* K */ av_gemm_K,
-                      /* N */ block_64);
+              at::native::cpublas::pack(
+                      av_gemm_K,
+                      block_64,
+                      vStrideN, // block_64,
+                      block_64,
+                      u8_dt,
+                      u8_dt,
+                      v_data + i * vStrideB + j * vStrideH + n * vStrideN + b,
+                      value_reorder_ptr + n * rndHeadSize +
+                          av_gemm_K * b);
             }
           }
 
@@ -1166,8 +1171,6 @@ extern "C"
   int64_t num_thread = {{num_thread}};
   using accum_t = float;
   using scalar_t = {{kernel.dtype(query)}};
-  int block_64 = 64;
-  auto u8_dt = at::ScalarType::Byte;
 
   // Sizes
   int64_t batchSize = {{kernel.size(query, 0)}};
@@ -1198,14 +1201,10 @@ extern "C"
   int64_t kvSlice = (kvSize - 1) / kvSplitSize + 1;
   int64_t kvTail = (kvSize - 1) % kvSplitSize + 1;
 
-  int64_t rndHeadSize = (headSize + block_64 - 1L) / block_64 * block_64;
-  int64_t rndkvSplitSize = (kvSplitSize + block_64 - 1L) / block_64 * block_64;
-  int64_t rndkvTail = (kvTail + block_64 - 1L) / block_64 * block_64;
+  int64_t rndHeadSize = headSize % 4 == 0 ? headSize : headSize + 4 - headSize % 4;
+  int64_t rndkvSplitSize = kvSplitSize % 4 == 0 ? kvSplitSize : kvSplitSize + 4 - kvSplitSize % 4;
+  int64_t rndkvTail = kvTail % 4 == 0 ? kvTail : kvTail + 4 - kvTail % 4;
   int64_t rndkvSize = {{kv_split_size}} > kvSize ? rndkvTail : rndkvSplitSize * kvSlice + rndkvTail;
-
-  bool av_gemm_K_mul4 = kvSplitSize % 4 == 0;
-  int av_gemm_K_padding = av_gemm_K_mul4 ? 0 : 4 - kvSplitSize % 4;
-  int av_gemm_K = kvSplitSize + av_gemm_K_padding;
 
 {%- if has_attention_mask %}
   // attention mask
@@ -1235,16 +1234,12 @@ extern "C"
   const scalar_t* v_data = value;
   scalar_t* out_data = output;
 
-  bool headSize_mul64 = headSize % 64 == 0;
-  int qk_gemm_K_padding = headSize_mul64 ? 0 : 64 - headSize % 64;
-  int qk_gemm_K = headSize + qk_gemm_K_padding;
-
-  int64_t qk_reduce_strideL = qSplitSize * av_gemm_K;
-  int64_t v_reorder_strideL = av_gemm_K * rndHeadSize;
+  int64_t qk_reduce_strideL = qSplitSize * rndkvSplitSize;
+  int64_t v_reorder_strideL = rndkvSplitSize * rndHeadSize;
 
   int64_t total_size_uint8_per_thread =
     /* qk */ kvSlice * qSplitSize * rndkvSplitSize * 4 +
-    /* qk_local  */ kvSlice * av_gemm_K * 4 +
+    /* qk_local  */ kvSlice * rndkvSplitSize * 4 +
     /* qk_reduce  */ kvSlice * qk_reduce_strideL +
     /* qk_s32   */ qSplitSize * rndkvSplitSize * 4 +
     /* dst_s32  */ qSplitSize * rndHeadSize * 4 +
@@ -1252,7 +1247,7 @@ extern "C"
     /* query_sum     */ qSplitSize * 4 +
     /* attention_sum */ qSplitSize * 4 +
     /* softmax max */ qSplitSize * 4 +
-    /* query_padding_data */ qSplitSize * qk_gemm_K;
+    /* query_padding_data */ qSplitSize * rndHeadSize;
   {{template.codegen_allocate_buffer("total_buf_data", "scalar_t", "num_thread * total_size_uint8_per_thread")}}
 
   int64_t kv_sum_size_per_BH =
@@ -1261,11 +1256,11 @@ extern "C"
   {{template.codegen_allocate_buffer("kv_sum_buf_data", "int32_t", "batchSize * num_head * kv_sum_size_per_BH")}}
 
   int64_t kv_reorder_size_per_BH =
-    /* key_t_reorder */ qk_gemm_K * rndkvSize +
+    /* key_t_reorder */ rndHeadSize * rndkvSize +
     /* value_t_reorder */ kvSlice * v_reorder_strideL;
   {{template.codegen_allocate_buffer("kv_reorder_buf_data", "scalar_t", "batchSize * num_head * kv_reorder_size_per_BH")}}
   scalar_t* key_reorder_ptr = kv_reorder_buf_data;
-  scalar_t* value_reorder_ptr = kv_reorder_buf_data + batchSize * num_head * qk_gemm_K * rndkvSize;
+  scalar_t* value_reorder_ptr = kv_reorder_buf_data + batchSize * num_head * rndHeadSize * rndkvSize;
 
   // sum k and v
   at::parallel_for(
@@ -1305,12 +1300,12 @@ extern "C"
       int64_t i = 0, j = 0, l = 0, n = 0;
       at::native::data_index_init(
           begin, i, batchSize, j, num_head, l, kvSlice);
-      uint8_t* B_blocked_xform_u8 = new uint8_t[qk_gemm_K * kvSplitSize];
+      uint8_t* B_blocked_xform_u8 = new uint8_t[rndHeadSize * kvSplitSize];
       for (const auto z : c10::irange(begin, end)) {
         (void)z; // Suppress unused variable
         n = l * kvSplitSize;
-        auto k_reorder = key_reorder_ptr + i * num_head * qk_gemm_K * rndkvSize +
-                      j * qk_gemm_K * rndkvSize + n * qk_gemm_K;
+        auto k_reorder = key_reorder_ptr + i * num_head * rndHeadSize * rndkvSize +
+                      j * rndHeadSize * rndkvSize + n * rndHeadSize;
         auto v_reorder = value_reorder_ptr +
                       i * num_head * kvSlice * v_reorder_strideL +
                       j * kvSlice * v_reorder_strideL + n * rndHeadSize;
@@ -1326,13 +1321,13 @@ extern "C"
               /* src */ B_blocked_xform_u8,
               /* dst */ k_reorder,
               /* ld_src */ kvBlockSize,
-              /* K */ qk_gemm_K,
+              /* K */ rndHeadSize,
               /* N */ kvBlockSize);
         at::vec::pack_vnni4(
               /* src */ v_data + i * vStrideB + j * vStrideH + n * vStrideN,
               /* dst */ v_reorder,
               /* ld_src */ vStrideN,
-              /* K */ av_gemm_K,
+              /* K */ rndkvSplitSize,
               /* N */ rndHeadSize);
         // Move to the next query
         at::native::data_index_step(i, batchSize, j, num_head, l, kvSlice);
@@ -1350,7 +1345,7 @@ extern "C"
         accum_t* qk_data = reinterpret_cast<accum_t*>(total_buf_ptr);
         offset += kvSlice * qSplitSize * rndkvSplitSize * 4;
         accum_t* qk_local_data = reinterpret_cast<accum_t*>(total_buf_ptr + offset);
-        offset += kvSlice * av_gemm_K * 4;
+        offset += kvSlice * rndkvSplitSize * 4;
         scalar_t* qk_reduced_data = reinterpret_cast<scalar_t*>(total_buf_ptr + offset);
         offset += kvSlice * qk_reduce_strideL;
         int32_t* qk_s32_data = reinterpret_cast<int32_t*>(total_buf_ptr + offset);
@@ -1401,8 +1396,8 @@ extern "C"
           for (int64_t l = 0; l < rkvSlice; l++) {
             int64_t n = l * kvSplitSize;
             int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
-            auto k_reorder = key_reorder_ptr + i * num_head * qk_gemm_K * rndkvSize +
-                      j * qk_gemm_K * rndkvSize + n * qk_gemm_K;
+            auto k_reorder = key_reorder_ptr + i * num_head * rndHeadSize * rndkvSize +
+                      j * rndHeadSize * rndkvSize + n * rndHeadSize;
             // Calculate q @ k.T
             at::native::cpublas::brgemm(
                     qSplitSize, kvBlockSize, headSize,
@@ -1462,7 +1457,7 @@ extern "C"
             qk_reduce_strideL, //ldo
             kvSize, //kvSize
             rndkvSplitSize, //rndkvSplitSize
-            av_gemm_K, //av_gemm_K
+            rndkvSplitSize, //av_gemm_K
             {{a_zp}}, // zp_a=beta1
             {{a_scale}}, // scale_a=alpha
             qk_local_data, //local
@@ -1480,7 +1475,7 @@ extern "C"
             qk_reduce_strideL, //ldo
             kvSize, //kvSize
             rndkvSplitSize, //rndkvSplitSize
-            av_gemm_K, //av_gemm_K
+            rndkvSplitSize, //av_gemm_K
             {{a_zp}}, // zp_a=beta1
             {{v_zp}}, // zp_b=beta2
             {{a_scale}}, // scale_a=alpha
@@ -1497,8 +1492,8 @@ extern "C"
                   j * kvSlice * v_reorder_strideL;
           for (int64_t s = 0; s < kvSlice; s++) {
             at::native::cpublas::brgemm(
-                qSplitSize, headSize, av_gemm_K,
-                av_gemm_K, // lda
+                qSplitSize, headSize, rndkvSplitSize,
+                rndkvSplitSize, // lda
                 rndHeadSize, //ldb
                 rndHeadSize, //ldc
                 s != 0,
@@ -1675,7 +1670,6 @@ class CppInt8SdpaTemplate(CppFlexAttentionTemplate):
             q_split_size = 256
         elif qSize >= 192:
             q_split_size = 128
-        kv_split_size = 512
 
         qSplitSize = min(qSize, q_split_size)
         l2_cache_size = torch._C._cpu._L2_cache_size()
@@ -1687,8 +1681,9 @@ class CppInt8SdpaTemplate(CppFlexAttentionTemplate):
         ):
             # if not symbolic shape
             use_one_parallel_loop = (batchSize * num_head > num_threads) and (
-                attn_size > 1.5 * l2_cache_size
+                attn_size > 3 * l2_cache_size
             )
+        kv_split_size = 64 if use_one_parallel_loop else 512
 
         options = dict(
             q_split_size=q_split_size,
