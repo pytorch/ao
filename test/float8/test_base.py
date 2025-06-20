@@ -55,7 +55,7 @@ from torchao.float8.float8_utils import (
     fp8_tensor_statistics,
     tensor_to_scale,
 )
-from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.utils import is_MI300, is_ROCM
 
 random.seed(0)

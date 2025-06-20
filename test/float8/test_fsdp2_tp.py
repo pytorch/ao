@@ -32,7 +32,7 @@ from torchao.float8.float8_tensor_parallel import (
     Float8ColwiseParallel,
     Float8RowwiseParallel,
 )
-from torchao.testing.float8.dtensor_utils import ToyModel
+from torchao.testing.training.dtensor_utils import ToyModel
 
 
 def setup_distributed():
