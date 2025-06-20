@@ -1262,6 +1262,9 @@ extern "C"
   scalar_t* key_reorder_ptr = kv_reorder_buf_data;
   scalar_t* value_reorder_ptr = kv_reorder_buf_data + batchSize * num_head * rndHeadSize * rndkvSize;
 
+  int64_t B_blocked_xform_u8_per_thread = rndHeadSize * kvSplitSize;
+  {{template.codegen_allocate_buffer("B_blocked_xform_u8_data", "scalar_t", "num_thread * B_blocked_xform_u8_per_thread")}}
+
   // sum k and v
   at::parallel_for(
       0, batchSize * num_head, 1, [&](int64_t begin, int64_t end) {
@@ -1300,7 +1303,8 @@ extern "C"
       int64_t i = 0, j = 0, l = 0, n = 0;
       at::native::data_index_init(
           begin, i, batchSize, j, num_head, l, kvSlice);
-      uint8_t* B_blocked_xform_u8 = new uint8_t[rndHeadSize * kvSplitSize];
+      int ompIdx = at::get_thread_num();
+      scalar_t* B_blocked_xform_u8 = B_blocked_xform_u8_data + ompIdx * B_blocked_xform_u8_per_thread;
       for (const auto z : c10::irange(begin, end)) {
         (void)z; // Suppress unused variable
         n = l * kvSplitSize;
