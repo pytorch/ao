@@ -12,7 +12,6 @@ import time
 from typing import Dict
 
 import numpy as np
-from triton.runtime.cache import default_cache_dir
 from triton.runtime.errors import OutOfResources
 from triton.runtime.jit import KernelInterface
 from triton.testing import do_bench
@@ -183,7 +182,18 @@ class Autotuner(KernelInterface):
                 )
                 _key_suffix = self._get_key_combination(args, sep="-")
                 autotune_file = f"autotune_{self.kernel_name}_{_key_suffix}.log"
-                autotune_log_path = os.path.join(default_cache_dir(), autotune_file)
+                # In newer Triton we always use knobs
+                # This try-catch is here only to support Triton upgrading
+                try:
+                    from triton import knobs
+
+                    # this API takes into consideration env var and redirecting user home dir for fbcode
+                    triton_cache_dir = knobs.cache.dir
+                except ImportError:
+                    from triton.runtime.cache import default_cache_dir
+
+                    triton_cache_dir = default_cache_dir()
+                autotune_log_path = os.path.join(triton_cache_dir, autotune_file)
 
                 logger.info(f"\nFinished autotune, writing log to {autotune_log_path}")
 
