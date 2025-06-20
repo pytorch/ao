@@ -6,9 +6,6 @@ from torch._prims_common import suggest_memory_format
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
 
-# FSDP pads its local tensor on dim-0. The subclass should be preserved such
-# that the padded local tensor (and any transformations like copying to GPU)
-# is of the subclass as well.
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
     torch.ops.aten.new_zeros.default,
@@ -80,8 +77,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
         # Disable torch_function by hand because we don't want
         # the wrapping behavior of the super() impl, go directly to dispatch
-        # wrap = lambda x: ScaledGroupedMMTensor(x)
-        # wrapped_args, wrapped_kwargs = pytree.tree_map_only(torch.Tensor, wrap, (args, kwargs))
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
 
