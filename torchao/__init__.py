@@ -25,8 +25,21 @@ try:
 
     so_files = list(Path(__file__).parent.glob("_C*.so"))
     if len(so_files) > 0:
+        compute_capability = (
+            torch.cuda.get_device_capability() if torch.cuda.is_available() else None
+        )
+
         for file in so_files:
+            # only load architecture-specific target if the current GPU matches that target
+            if (
+                ("cutlass_90a" in file.name and compute_capability != (9, 0))
+                or ("cutlass_100a" in file.name and compute_capability != (10, 0))
+                or ("cutlass_120a" in file.name and compute_capability != (12, 0))
+            ):
+                continue
+
             torch.ops.load_library(str(file))
+
         from . import ops
 
     # The following library contains CPU kernels from torchao/experimental
