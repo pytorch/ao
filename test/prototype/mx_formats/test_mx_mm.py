@@ -14,7 +14,7 @@ from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
-    is_sm_at_least_100,
+    is_sm_version,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_8:
@@ -59,7 +59,8 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+    not (is_sm_version(10, 0) or is_sm_version(12, 0)),
+    reason="CUDA capability 10.0 or 12.0 is required for mxfloat8",
 )
 @pytest.mark.parametrize(
     "size",
