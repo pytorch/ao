@@ -19,14 +19,13 @@ from torchao.prototype.moe_training.utils import (
     _is_column_major,
 )
 
-
 logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
-    offs: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
 ) -> torch.Tensor:
     """
@@ -58,9 +57,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         ctx,
         A: torch.Tensor,
         B_t: torch.Tensor,
-        offs: torch.Tensor,
+        offs: Optional[torch.Tensor] = None,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
-        use_triton_for_per_group_scales: bool = True,
     ) -> torch.Tensor:
         # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
@@ -80,7 +78,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert B_t.dtype == torch.float32 or B_t.dtype == torch.bfloat16, (
             "B must be float32 or bfloat16"
         )
-        assert offs.dtype == torch.int32, "offs must be int32"
 
         # Assert A and B dims are compatible for a scaled grouped GEMM.
         assert A.size(-1) == B_t.size(-2), (
