@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -24,6 +25,8 @@ from torchao.float8.float8_tensor_parallel import (
     Float8RowwiseParallel,
     PrepareFloat8ModuleInput,
 )
+from torchao.prototype.mx_formats.config import MXLinearConfig
+from torchao.quantization import quantize_
 
 
 class FeedForward(nn.Module):
@@ -36,7 +39,9 @@ class FeedForward(nn.Module):
         self.out_proj = nn.Linear(32, 16, bias=False)
 
     def forward(self, x):
-        return self.out_proj(F.silu(self.w1(x)) * self.w2(x))
+        x = F.silu(self.w1(x)) * self.w2(x)
+        x = self.out_proj(x)
+        return x
 
 
 class ToyModel(nn.Module):
@@ -50,20 +55,26 @@ class ToyModel(nn.Module):
 
 def _test_lowp_mlp_tensor_parallelism_base(
     mesh: DeviceMesh,
-    config: Float8LinearConfig,
+    config: Union[Float8LinearConfig, MXLinearConfig],
     size=16,
     compile: bool = False,
     allgather_in_lowp: bool = False,
 ):
     device = mesh.device_type
 
+    # TODO(future): remove this once float8 training works with `quantize_` API
+    convert_model_func = convert_to_float8_training
+    if isinstance(config, MXLinearConfig):
+        convert_model_func = quantize_
+
     toy_model = ToyModel().to(device)
-    toy_model_fp8 = convert_to_float8_training(toy_model, config=config)
+    toy_model_fp8 = copy.deepcopy(toy_model)
+    convert_model_func(toy_model_fp8, config=config)
 
     tp_model = copy.deepcopy(toy_model)
-    tp_model = convert_to_float8_training(tp_model, config=config)
+    convert_model_func(tp_model, config=config)
     sp_model = copy.deepcopy(toy_model)
-    sp_model = convert_to_float8_training(sp_model, config=config)
+    convert_model_func(sp_model, config=config)
 
     # For tensorwise scaling, enable float8 all_gather.
     # For rowwise scaling, keep high precision all_gather. Motivation for
@@ -108,7 +119,7 @@ def _test_lowp_mlp_tensor_parallelism_base(
 
     # prepare_input_cls with specific submodule fqn
     sp_model2 = copy.deepcopy(toy_model)
-    sp_model2 = convert_to_float8_training(sp_model2, config=config)
+    convert_model_func(sp_model2, config=config)
 
     if not allgather_in_lowp:
         prepare_input = prepare_input_cls(

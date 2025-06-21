@@ -1102,15 +1102,12 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         bf16_mbits = 7
         bf16_exp_bias = 127
         fp32_mbits = 23
-        # We use a small epsilon to avoid division by zero
-        epsilon = 1e-10
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
         # Calculate the e8m0 scale by extracting the exponent (floor)
         # TODO(future PR): support other exponent extraction types (ceil, RNE)
-        max_abs = max_abs + epsilon
         max_abs = max_abs.to(tl.bfloat16)
         max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
         extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
