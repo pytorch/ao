@@ -53,7 +53,6 @@ class ScalingGranularity(enum.Enum):
 class Float8TypeConfig:
     """
     Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
-
     Currently, ROCm supports 1. fnuz variants in MI300. 2. OCP F8 variants in MI350/Navi4.
     """
 

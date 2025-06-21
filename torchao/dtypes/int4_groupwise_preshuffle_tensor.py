@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import importlib.util
 from typing import List
 
 import torch
@@ -17,57 +18,45 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "to_fbgemm_int4",
-    "FbgemmInt4Tensor",
+    "to_int4_groupwise_preshuffle",
+    "Int4GroupwisePreshuffleTensor",
 ]
 
 aten = torch.ops.aten
 
 
-try:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
-except:
-    int4_row_quantize_zp = None
-    pack_int4 = None
+if importlib.util.find_spec("fbgemm_gpu") is None:
+    quantize_int4_preshuffle = None
+else:
+    from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 
 
-class FbgemmInt4Tensor(TorchAOBaseTensor):
+class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
     """
-    Groupwise int4 weight only quantization
-
-    Tensor Attributes:
-        packed_weight: packed int4 weight, either 2D (N, K/2) or 3D (B, N, K/2), last dimension is packed
-        scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
-               dtype is the same as the original Tensor dtype
-        zero_point: Same size as the scale
-               dtype is the same as the original Tensor dtype
-
-    Non-Tensor Attributes:
-        group_size: the group size for groupwise quantization
+    Args:
         shape_multiplier: is the multipler from packed_weight to the real weight, since
         we pack the weight for int4, for example, when we pack the last dimension for
         a 2D tensor, the shape_multiplier will be [1, 2]
-        shape: shape of the original Tensor
     """
 
-    tensor_data_attrs = ["packed_weight", "scale", "zero_point"]
+    tensor_data_attrs = ["packed_weight", "group_scale", "row_scale"]
     tensor_attributes = ["group_size", "shape_multiplier", "shape"]
 
     def __new__(
-        cls, packed_weight, scale, zero_point, group_size, shape_multiplier, shape
+        cls, packed_weight, group_scale, row_scale, group_size, shape_multiplier, shape
     ):
         kwargs = {}
         kwargs["device"] = packed_weight.device
-        kwargs["dtype"] = scale.dtype
+        kwargs["dtype"] = group_scale.dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
-        self, packed_weight, scale, zero_point, group_size, shape_multiplier, shape
+        self, packed_weight, group_scale, row_scale, group_size, shape_multiplier, shape
     ):
         self.packed_weight = packed_weight
-        self.scale = scale
-        self.zero_point = zero_point
+        self.group_scale = group_scale
+        self.row_scale = row_scale
         self.shape_multiplier = shape_multiplier
         self.group_size = group_size
 
@@ -94,8 +83,8 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(weight={self.packed_weight}, group_size={self.group_size}, "
-            f"shape_multiplier={self.shape_multiplier}, shape={self.shape}, "
-            f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
+            f"shape_multiplier={self.shape_multiplier}, shape={self.shape}, device={self.device}, dtype={self.dtype}, "
+            f"requires_grad={self.requires_grad})"
         )
 
     def _quantization_type(self):
@@ -106,85 +95,11 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         device = kwargs.pop("device")
         return self.__class__(
             self.packed_weight.to(device),
-            self.scale.to(device),
-            self.zero_point.to(device),
+            self.group_scale.to(device),
+            self.row_scale.to(device),
             self.group_size,
             self.shape_multiplier,
             self.shape,
-        )
-
-    def _transpose_and_reshape(self):
-        """This is added for resharding support, since the resharding logic for the model we are
-        working with only support 2D
-
-        High level goal is to match the shape of the original unquantized Tensor and reshape
-        it to 2D since resharding logic only supports 2D Tensor
-
-        * transpose(1, 2) since we did a transpose initially to quantize the weight
-        * reshape to 2D
-        """
-        assert len(self.shape) == 3, (
-            f"Only expected to be used when the Tensor is 3D, got {len(self.shape)}"
-        )
-        dim0, dim1, dim2 = self.shape
-        shape_multiplier = self.shape_multiplier.copy()
-        # because we first transpose the weight before quantization, we'll recover the original shape
-        # by swapping dim1 and dim2
-        assert shape_multiplier[-1] == 2, (
-            "Expecting original weight to be packed in the last dimension"
-        )
-        original_shape = (dim0, dim2, dim1)
-        # we must save this as 2D in the state dict, since loading code expects 2D weights
-        new_shape = (-1, original_shape[-1])
-        packed_weight = self.packed_weight
-        packed_weight = packed_weight.transpose(1, 2).reshape(*new_shape).contiguous()
-        # expecting the packed dimension to be swapped to 0
-        shape_multiplier = [2, 1]
-
-        tensor_shape = list(packed_weight.shape)
-        for i in range(len(shape_multiplier)):
-            tensor_shape[i] *= shape_multiplier[i]
-        tensor_shape = tuple(tensor_shape)
-        return self.__class__(
-            packed_weight,
-            self.scale,
-            self.zero_point,
-            self.group_size,
-            shape_multiplier,
-            tensor_shape,
-        )
-
-    def _unflatten(self, num_experts):
-        """This is added for resharding support, since the resharding logic for the model we are
-        working with only support 2D
-
-        This is called after resharding logic, and it reverses the reshape to 2D in `_transpose_and_reshape`
-        and gives a 3D tensor with `num_experts` as the first dimension
-        """
-        packed_weight = self.packed_weight
-        shape_multiplier = self.shape_multiplier
-        dim0, dim1 = self.shape
-        packed_weight = packed_weight.unflatten(0, (num_experts, -1)).squeeze(dim=0)
-        if shape_multiplier == [2, 1]:
-            shape_multiplier = [1, 2, 1]
-        elif shape_multiplier == [1, 2]:
-            shape_multiplier = [1, 1, 2]
-        else:
-            raise NotImplementedError(
-                f"Unexpected shape multiplier: {shape_multiplier}"
-            )
-
-        tensor_shape = list(packed_weight.shape)
-        for i in range(len(shape_multiplier)):
-            tensor_shape[i] *= shape_multiplier[i]
-        tensor_shape = tuple(tensor_shape)
-        return self.__class__(
-            packed_weight,
-            self.scale,
-            self.zero_point,
-            self.group_size,
-            shape_multiplier,
-            tensor_shape,
         )
 
     @classmethod
@@ -196,41 +111,40 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
-        if int4_row_quantize_zp is None:
+        if quantize_int4_preshuffle is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
         group_size = block_size[-1]
         original_shape = w.shape
 
         if w.ndim >= 3:
-            wq, scale, zero_point = zip(
-                *[int4_row_quantize_zp(i, group_size) for i in w], strict=False
+            wq, scales = zip(
+                *[quantize_int4_preshuffle(i.cuda(), dtype="bf16") for i in w]
             )
-            wq = torch.stack([pack_int4(i) for i in wq], dim=0)
-            scale = torch.stack(scale, dim=0)
-            zero_point = torch.stack(zero_point, dim=0)
+            wq = torch.stack(wq, dim=0)
+            group_scale, row_scale = zip(*scales)
+            row_scale = torch.stack(row_scale, dim=0)
+            group_scale = torch.stack(group_scale, dim=0)
         else:
-            wq, scale, zero_point = int4_row_quantize_zp(w, group_size)
-            wq = pack_int4(wq)
-
-        scale = scale.to(w.dtype)
-        zero_point = zero_point.to(w.dtype)
+            wq, (group_scale, row_scale) = quantize_int4_preshuffle(
+                w.cuda(), dtype="bf16"
+            )
 
         shape_multiplier = [1] * wq.ndim
         shape_multiplier[-1] = 2
 
         del w
-        return FbgemmInt4Tensor(
+        return Int4GroupwisePreshuffleTensor(
             packed_weight=wq,
-            scale=scale,
-            zero_point=zero_point,
+            group_scale=group_scale,
+            row_scale=row_scale,
             group_size=group_size,
             shape_multiplier=shape_multiplier,
             shape=original_shape,
         )
 
 
-implements = FbgemmInt4Tensor.implements
+implements = Int4GroupwisePreshuffleTensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -242,17 +156,24 @@ def _(func, types, args, kwargs):
     )
     orig_input_size = input_tensor.size()
     orig_out_features = weight_tensor.shape[-2]
-    assert weight_tensor.shape_multiplier[-1] == 2, (
-        "Expecting the last dimension of weight to be the packed dimension"
-    )
 
-    input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise(
-        input_tensor,
-        weight_tensor.packed_weight.contiguous(),
-        weight_tensor.scale,
-        weight_tensor.zero_point,
-    )
+    wq = weight_tensor.packed_weight
+    group_scale = weight_tensor.group_scale
+    row_scale = weight_tensor.row_scale
+
+    if input_tensor.dim() == 3:
+        B, M, _ = input_tensor.shape
+        _, N, _ = wq.shape
+        res = torch.empty((B, M, N), device=input_tensor.device, dtype=torch.bfloat16)
+        for i in range(B):
+            res[i] = torch.ops.fbgemm.bf16i4bf16_shuffled(
+                input_tensor[i], wq[i], group_scale[i], row_scale[i]
+            )
+    else:
+        # Otherwise run gemm normally.
+        res = torch.ops.fbgemm.bf16i4bf16_shuffled(
+            input_tensor, wq, group_scale, row_scale
+        )
 
     res = res.reshape(*orig_input_size[:-1], orig_out_features)
     if bias is not None:
@@ -270,12 +191,16 @@ def _(func, types, args, kwargs):
     orig_out_features = weight_tensor.shape[-2]
     assert weight_tensor.shape_multiplier[-1] == 2
 
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(
-        input_tensor,
-        weight_tensor.packed_weight.contiguous(),
-        weight_tensor.scale,
-        weight_tensor.zero_point,
-    )
+    wq = weight_tensor.packed_weight
+    group_scale = weight_tensor.group_scale
+    row_scale = weight_tensor.row_scale
+    B, M, _ = input_tensor.shape
+    _, N, _ = wq.shape
+    res = torch.empty((B, M, N), device=input_tensor.device, dtype=torch.bfloat16)
+    for i in range(B):
+        res[i] = torch.ops.fbgemm.bf16i4bf16_shuffled(
+            input_tensor[i], wq[i], group_scale[i], row_scale[i]
+        )
     res = res.reshape(*orig_input_size[:-1], orig_out_features)
     return res
 
@@ -294,14 +219,16 @@ def _(func, types, args, kwargs):
     )
 
 
-def _same_metadata(self: "FbgemmInt4Tensor", src: "FbgemmInt4Tensor") -> bool:
+def _same_metadata(
+    self: "Int4GroupwisePreshuffleTensor", src: "Int4GroupwisePreshuffleTensor"
+) -> bool:
     return (
-        isinstance(self, FbgemmInt4Tensor)
-        and isinstance(src, FbgemmInt4Tensor)
+        isinstance(self, Int4GroupwisePreshuffleTensor)
+        and isinstance(src, Int4GroupwisePreshuffleTensor)
         and self.shape == src.shape
         and self.packed_weight.shape == src.packed_weight.shape
-        and self.scale.shape == src.scale.shape
-        and self.zero_point.shape == src.zero_point.shape
+        and self.group_scale.shape == src.group_scale.shape
+        and self.row_scale.shape == src.row_scale.shape
         and self.group_size == src.group_size
         and self.shape_multiplier == src.shape_multiplier
     )
@@ -325,20 +252,20 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     """Only supports slicing for dim == 1 and dim == 2
     packed_weight has dimension: (N, K/2)
-    scale and zero_point has dimension: (K/group_size, N)
+    group_scale and row_scale has dimension: (K/groups, N)
 
     dim, start, end, step are args that's referring to the original tensor shape
     which is (N, K), and we need to map that to the transformed weight shape of packed_weight,
-    scale and zero_point
+    group_scale and row_scale
 
-    when dim == 0: we do a slice on packed_weight dim 0, and on dim 1 of scale and zero_point,
+    when dim == 0: we do a slice on packed_weight dim 0, and on dim 1 of group_scale and row_scale,
     also adjust the start and end indexes based on the ratio between original shape and the shape
-    of packed_weight and scale/zero_point
+    of packed_weight and group_scale/row_scale
 
-    when dim == 1: we do a slice on packed_weight dim 1 and dim 0 of scale and zero_point and do the
+    when dim == 1: we do a slice on packed_weight dim 1 and dim 0 of group_scale and row_scale and do the
     same adjustment based on ratio
 
-    Note that we need to call slice on the packed_weight, scale and zero_point directly because slice
+    Note that we need to call slice on the packed_weight, group_scale and row_scale directly because slice
     is an operation that need to preserve aliasing, see `test_slice_and_copy_` in `test_fbgemm_int4`
     for
     """
@@ -352,7 +279,7 @@ def _(func, types, args, kwargs):
         f"Expected packed weight to have dim 2, got {self.packed_weight.dim}"
     )
     N, K_by_2 = self.packed_weight.shape
-    sz_dim0, sz_dim1 = self.scale.shape
+    sz_dim0, sz_dim1 = self.group_scale.shape
 
     data_len = self.shape[dim]
 
@@ -371,8 +298,8 @@ def _(func, types, args, kwargs):
             kwargs,
             self.__class__(
                 self.packed_weight,
-                self.scale,
-                self.zero_point,
+                self.group_scale,
+                self.row_scale,
                 group_size=self.group_size,
                 shape=self.shape,
             ),
@@ -387,14 +314,14 @@ def _(func, types, args, kwargs):
     end_sz = int(end / sz_ratio)
 
     packed_weight = aten.slice.Tensor(self.packed_weight, dim, start_pw, end_pw, step)
-    scale = aten.slice.Tensor(self.scale, sz_dim, start_sz, end_sz, step)
-    zero_point = aten.slice.Tensor(self.zero_point, sz_dim, start_sz, end_sz, step)
+    group_scale = aten.slice.Tensor(self.group_scale, sz_dim, start_sz, end_sz, step)
+    row_scale = aten.slice.Tensor(self.row_scale, sz_dim, start_sz, end_sz, step)
     packed_shape0, packed_shape1 = packed_weight.shape
     new_shape = (packed_shape0, packed_shape1 * 2)
     new = self.__class__(
         packed_weight,
-        scale,
-        zero_point,
+        group_scale,
+        row_scale,
         group_size=self.group_size,
         shape_multiplier=self.shape_multiplier,
         shape=new_shape,
@@ -411,33 +338,34 @@ def _(func, types, args, kwargs):
 
     for i in range(1, len(tensors)):
         assert tensor_0.packed_weight.ndim == tensors[i].packed_weight.ndim
-        assert tensor_0.scale.ndim == tensors[i].scale.ndim
-        assert tensor_0.zero_point.ndim == tensors[i].zero_point.ndim
+        assert tensor_0.group_scale.ndim == tensors[i].group_scale.ndim
+        assert tensor_0.row_scale.ndim == tensors[i].row_scale.ndim
         assert tensor_0.group_size == tensors[i].group_size
         assert tensor_0.shape_multiplier == tensors[i].shape_multiplier
 
     packed_weight = [t.packed_weight for t in tensors]
-    scale = [t.scale for t in tensors]
-    zero_point = [t.zero_point for t in tensors]
+    group_scale = [t.group_scale for t in tensors]
+    row_scale = [t.row_scale for t in tensors]
 
-    # with group wise quantization, dimension of scale, packed_weight and
+    # with group wise quantization, dimension of group_scale, packed_weight and
     # origianl shape will be the same, so original dim argument applies
-    # to both packed_weight and scale
+    # to both packed_weight and group_scale
     cat_packed_weight = aten.cat.default(packed_weight, dim)
     if cat_packed_weight.ndim == 2:
         sz_dim = 1 - dim
     else:
         sz_dim = dim
-    cat_scale = aten.cat.default(scale, sz_dim)
-    cat_zero_point = aten.cat.default(zero_point, sz_dim)
+
+    cat_group_scale = aten.cat.default(group_scale, sz_dim)
+    cat_row_scale = aten.cat.default(row_scale, sz_dim)
     new_shape = list(cat_packed_weight.shape)
     for i in range(len(tensor_0.shape_multiplier)):
         new_shape[i] *= tensor_0.shape_multiplier[i]
     new_shape = tuple(new_shape)
     new = tensor_0.__class__(
         cat_packed_weight,
-        cat_scale,
-        cat_zero_point,
+        cat_group_scale,
+        cat_row_scale,
         group_size=tensor_0.group_size,
         shape_multiplier=tensor_0.shape_multiplier,
         shape=new_shape,
@@ -461,8 +389,8 @@ def _(func, types, args, kwargs):
     tensor_shape = tuple(tensor_shape)
     new = self.__class__(
         packed_weight,
-        self.scale,
-        self.zero_point,
+        self.group_scale,
+        self.row_scale,
         self.group_size,
         shape_multiplier,
         tensor_shape,
@@ -470,9 +398,9 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
-to_fbgemm_int4 = FbgemmInt4Tensor.from_float
+to_int4_groupwise_preshuffle = Int4GroupwisePreshuffleTensor.from_float
 
 
 if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with FbgemmInt4Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([FbgemmInt4Tensor])
+    # Allow a model with Int4GroupwisePreshuffleTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([Int4GroupwisePreshuffleTensor])
