@@ -21,6 +21,7 @@ from enum import Enum, auto
 from typing import Callable, Dict, Union
 
 import torch
+from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
@@ -166,6 +167,8 @@ def to_mx(
     # calculate the scale in e8m0 format
 
     orig_shape = data_hp.shape
+    # TODO(future PR): fix this line for TP, currently this reshape does not work
+    # for rank 3 tensor where dim1 is sharded
     data_hp = data_hp.reshape(-1, block_size)
 
     # find max value of the data
@@ -173,10 +176,6 @@ def to_mx(
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
     max_abs = torch.amax(torch.abs(data_hp), 1)
-
-    # Add an epsilon to prevent the log2 function call for returning -inf
-    # where the values are zero.
-    eps = F32_MIN_NORMAL * (max_abs == 0).type(max_abs.dtype)
 
     # Set X to be the largest power-of-two less than or equal to
     # max_abs(v), divided by the largest power of two representable
@@ -233,8 +232,14 @@ def to_mx(
             )
 
         # Calculate the scale for different modes
-        max_abs_int32 = (max_abs + eps).view(hp_int_dtype)
-        extracted_pow2 = ((max_abs_int32 >> hp_mbits) & 0b11111111) - hp_exp_bias
+        max_abs_int32 = max_abs.view(hp_int_dtype)
+        # the `>>` seems to be silently incorrect (result is the same as the first
+        # operand) if the input is a DTensor. If we use `torch.bitwise_right_shift`
+        # instead, it works. Same for `<<`.
+        # TODO(before land): file an issue in pytorch/pytorch about this
+        extracted_pow2 = (
+            (torch.bitwise_right_shift(max_abs_int32, hp_mbits)) & 0b11111111
+        ) - hp_exp_bias
 
         if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
             scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
@@ -266,9 +271,9 @@ def to_mx(
         )
 
         # For now, calculate the scale in floating point.
-        scale_fp32 = (scale_e8m0_biased.to(torch.int32) << MBITS_F32).view(
-            torch.float32
-        )
+        scale_fp32 = (
+            torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
+        ).view(torch.float32)
 
         # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
         # float32 denormal range. For now, manually adjust the fp scale. This is
@@ -597,6 +602,28 @@ class MXTensor(torch.Tensor):
         scale_e8m0_biased, data_lp = to_mx(
             data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
         )
+        if isinstance(scale_e8m0_biased, DTensor):
+            assert isinstance(data_lp, DTensor), "unsupported"
+            local_scale_e8m0_biased = scale_e8m0_biased.to_local()
+            local_data_lp = data_lp.to_local()
+            inner_mx_tensor = MXTensor(
+                local_scale_e8m0_biased,
+                local_data_lp,
+                elem_dtype,
+                block_size,
+                data_hp.dtype,
+                use_fp4_custom_triton_dequant_kernel,
+                gemm_kernel_choice,
+                pack_fp6,
+            )
+            return DTensor.from_local(
+                inner_mx_tensor,
+                data_lp.device_mesh,
+                data_lp.placements,
+                run_check=False,
+                shape=data_lp.size(),
+                stride=data_lp.stride(),
+            )
         return MXTensor(
             scale_e8m0_biased,
             data_lp,
