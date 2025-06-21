@@ -57,7 +57,7 @@ from torchao.float8.float8_tensor_parallel import (
 )
 from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from torchao.testing.float8.dtensor_utils import ToyModel
+from torchao.testing.training.dtensor_utils import ToyModel
 
 torch.set_float32_matmul_precision("high")
 

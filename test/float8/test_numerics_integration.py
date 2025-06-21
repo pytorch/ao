@@ -33,7 +33,7 @@ from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
 from torchao.float8.float8_utils import IS_ROCM, compute_error
-from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.testing.training.test_utils import get_test_float8_linear_config
 
 torch.manual_seed(0)
 
