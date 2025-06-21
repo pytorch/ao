@@ -233,10 +233,8 @@ def to_mx(
 
         # Calculate the scale for different modes
         max_abs_int32 = max_abs.view(hp_int_dtype)
-        # the `>>` seems to be silently incorrect (result is the same as the first
-        # operand) if the input is a DTensor. If we use `torch.bitwise_right_shift`
-        # instead, it works. Same for `<<`.
-        # TODO(before land): file an issue in pytorch/pytorch about this
+        # For now, use `torch.bitwise_right_shift` instead of `>>` to support DTensor
+        # See https://github.com/pytorch/pytorch/issues/156533.
         extracted_pow2 = (
             (torch.bitwise_right_shift(max_abs_int32, hp_mbits)) & 0b11111111
         ) - hp_exp_bias
@@ -271,6 +269,8 @@ def to_mx(
         )
 
         # For now, calculate the scale in floating point.
+        # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
+        # See https://github.com/pytorch/pytorch/issues/156533.
         scale_fp32 = (
             torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
         ).view(torch.float32)
