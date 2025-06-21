@@ -28,9 +28,6 @@ class MoETrainingConfig(AOBaseConfig):
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
 
-    # temporary config flag for testing/benchmarking, will remove before graduating out of prototype
-    use_triton_for_per_group_scales: bool = True
-
 
 @register_quantize_module_handler(MoETrainingConfig)
 def _moe_training_transform(
@@ -71,7 +68,6 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    use_triton = config.use_triton_for_per_group_scales if config is not None else False
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
     ):
@@ -80,9 +76,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(
-                module.data, use_triton_for_per_group_scales=use_triton
-            )
+            new_data = ScaledGroupedMMTensor(module.data)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 

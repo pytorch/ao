@@ -31,9 +31,7 @@ class ExperimentConfig:
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    torch_time_us: float
-    triton_time_us: bool
-    triton_speedup: float
+    time_us: float
 
 
 @dataclass(frozen=True)
@@ -98,36 +96,26 @@ def run_experiment(
         for _ in range(10):
             func(*args, **kwargs)
 
-    def forward_backward(A, B_t, offs, use_triton=True):
+    def forward_backward(A, B_t, offs):
         out = _scaled_grouped_mm(
             A,
             B_t,
             offs=offs,
             out_dtype=torch.bfloat16,
-            use_triton_for_per_group_scales=use_triton,
         )
         out.sum().backward()
         torch.cuda.synchronize()
 
     # benchmark torch
     torch_func = torch.compile(forward_backward) if args.compile else forward_backward
-    warmup(torch_func, A, B_t, offs, use_triton=False)
+    warmup(torch_func, A, B_t, offs)
     start_time_ns = time.perf_counter_ns()
-    torch_func(A, B_t, offs, use_triton=False)
+    torch_func(A, B_t, offs)
     torch_time_ns = time.perf_counter_ns() - start_time_ns
-    torch_time_us = torch_time_ns / 1e3
-
-    # benchmark triton
-    warmup(forward_backward, A, B_t, offs, use_triton=True)
-    start_time_ns = time.perf_counter_ns()
-    forward_backward(A, B_t, offs, use_triton=True)
-    triton_time_ns = time.perf_counter_ns() - start_time_ns
-    triton_time_us = triton_time_ns / 1e3
+    time_us = torch_time_ns / 1e3
 
     return ExperimentResult(
-        torch_time_us=round(torch_time_us, 3),
-        triton_time_us=round(triton_time_us, 3),
-        triton_speedup=round(torch_time_us / triton_time_us, 3),
+        time_us=round(time_us, 3),
     )
 
 
@@ -135,9 +123,7 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "A_shape",
         "B_shape",
-        "torch_time_us",
-        "triton_time_us",
-        "triton_speedup",
+        "time_us",
     ]
     rows = []
     for experiment in experiments:
@@ -147,9 +133,7 @@ def print_results(experiments: List[Experiment]):
             [
                 A_shape,
                 B_shape,
-                experiment.result.torch_time_us,
-                experiment.result.triton_time_us,
-                experiment.result.triton_speedup,
+                experiment.result.time_us,
             ]
         )
     print(tabulate(rows, headers=headers))
