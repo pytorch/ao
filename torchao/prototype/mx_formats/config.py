@@ -57,10 +57,10 @@ def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
             f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
         )
     elif gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
-        assert block_size == 32, (
-            f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {block_size}"
+        assert block_size in [16, 32], (
+            f"block_size must be in [16, 32] to use the cuBLAS MX gemm kernels, got {block_size}"
         )
-        valid_dtypes = [torch.float8_e4m3fn]
+        valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
         assert elem_dtype in valid_dtypes, (
             f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
         )

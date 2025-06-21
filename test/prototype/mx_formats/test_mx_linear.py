@@ -25,7 +25,10 @@ from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
 )
-from torchao.prototype.mx_formats.mx_subclass import MXFPInferenceConfig
+from torchao.prototype.mx_formats.mx_subclass import (
+    MXFPInferenceConfig,
+    NVFP4InferenceConfig,
+)
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
@@ -440,4 +443,93 @@ def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
     SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for float4 gemm"
+)
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("compile", [True, False])
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_inference_subclass_nvfp4(bias: bool, compile: bool):
+    """
+    Test NVFP4 recipe with scale_dtype=float8_e4m3fn and block_size=16
+    """
+    m = nn.Linear(64, 256, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m_mx = copy.deepcopy(m)
+
+    config = NVFP4InferenceConfig()
+    quantize_(m_mx, config=config)
+    if compile:
+        m_mx = torch.compile(m_mx, fullgraph=True)
+
+    x = torch.randn(128, 64, device="cuda", dtype=torch.bfloat16)
+    y_ref = m(x)
+    y_mx = m_mx(x)
+    sqnr = compute_error(y_ref, y_mx)
+    SQNR_THRESHOLD = 15.0
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("use_gelu", [True, False])
+@pytest.mark.parametrize("emulate", [True, False])
+@pytest.mark.parametrize("compile", [False])
+@torch.no_grad()
+def test_nvfp4_matmul_with_amax_emulate(use_gelu: bool, emulate: bool, compile: bool):
+    from torchao.prototype.mx_formats.nvfp4_tensor import (
+        NVFP4Tensor,
+        per_tensor_amax_to_scale,
+    )
+
+    m, k, n = 64, 256, 128
+
+    # Create activation tensor
+    if use_gelu:
+        x = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
+        A = torch.nn.functional.gelu(x)
+    else:
+        A = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
+
+    # Create weight tensor (always Gaussian)
+    B = torch.randn(n, k, dtype=torch.bfloat16, device="cuda")
+
+    # Compute reference
+    C_ref = torch.matmul(A, B.t())
+
+    a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
+    b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
+
+    # Quantize with per-tensor amax
+    A_nvfp4 = NVFP4Tensor.to_nvfp4(A, per_tensor_scale=a_scale)
+    B_nvfp4 = NVFP4Tensor.to_nvfp4(B, per_tensor_scale=b_scale)
+
+    if emulate:
+        # Cast back to original dtype and compute
+        A_emulated = A_nvfp4.to_dtype(A.dtype)
+        B_emulated = B_nvfp4.to_dtype(B.dtype)
+        mm = torch.compile(torch.matmul, fullgraph=True) if compile else torch.matmul
+        C_emulated = mm(A_emulated, B_emulated.t())
+        sqnr = compute_error(C_ref, C_emulated)
+    else:
+        # Use native nvfp4 matmul
+        mm = torch.compile(torch.matmul, fullgraph=True) if compile else torch.matmul
+        C_nvfp4 = mm(A_nvfp4, B_nvfp4.t())
+        sqnr = compute_error(C_ref, C_nvfp4)
+
+    # Check quality threshold
+    SQNR_THRESHOLD = 16.0
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, emulate={emulate}, compile={compile}"
     )
