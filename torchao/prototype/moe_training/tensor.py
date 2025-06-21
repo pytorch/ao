@@ -1,3 +1,10 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+import logging
 from typing import Any, Optional, Tuple
 
 import torch
@@ -5,6 +12,8 @@ import torch.utils._pytree as pytree
 from torch._prims_common import suggest_memory_format
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
@@ -27,7 +36,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     differentiable _scaled_grouped_mm autograd function.
     """
 
-    grouped_mm_func_name = "_grouped_mm"
+    grouped_mm_func_names = {"_grouped_mm", "_grouped_mm.default"}
     offs_arg_name = "offs"
 
     @staticmethod
@@ -57,7 +66,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
         # override the grouped mm op to use the differentiable _scaled_grouped_mm
-        if func.__name__ == cls.grouped_mm_func_name:
+        if func.__name__ in cls.grouped_mm_func_names:
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
             # Otherwise, fall back to regular grouped mm.
@@ -69,7 +78,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
             A_is_2d = A.dim() == 2
             B_is_3d = B.dim() == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
-            if A_is_2d and B_is_3d and has_offs:
+            logger.info(f"A.shape={A.shape}, B.shape={B.shape}, has_offs={has_offs}")
+            
+            if A_is_2d and B_is_3d:
                 return _scaled_grouped_mm(
                     *args,
                     **kwargs,
@@ -107,7 +118,8 @@ class ScaledGroupedMMTensor(torch.Tensor):
         )
 
     def fsdp_pre_all_gather(self, mesh):
-        return (self._data,), ()
+        metadata = ()
+        return (self._data,), metadata
 
     def fsdp_post_all_gather(
         self,
