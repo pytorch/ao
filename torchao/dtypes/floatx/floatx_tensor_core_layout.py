@@ -22,6 +22,7 @@ from torchao.dtypes.utils import (
     AQTTensorImpl,
     Layout,
 )
+from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
@@ -214,7 +215,7 @@ def pack_tc_floatx(tensor: Tensor, nbits: int) -> Tensor:
 
 
 def to_scaled_tc_floatx(
-    tensor: Tensor, ebits: int, mbits: int
+    tensor: Tensor, ebits: int, mbits: int, round_scales_to_power_of_2: bool = False
 ) -> Tuple[Tensor, Tensor]:
     # _n_ones() is not compatible with torch.compile() due to << operator
     # https://github.com/pytorch/pytorch/issues/119152
@@ -230,6 +231,8 @@ def to_scaled_tc_floatx(
     dtype = tensor.dtype
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    if round_scales_to_power_of_2:
+        scale = _round_scale_down_to_power_of_2(scale.float())
     tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
     tensor_tc_floatx = pack_tc_floatx(tensor_floatx, 1 + ebits + mbits)
     return tensor_tc_floatx, scale.to(dtype)

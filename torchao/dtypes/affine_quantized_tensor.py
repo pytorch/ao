@@ -457,13 +457,17 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         _layout: Layout,
         scale_dtype: Optional[torch.dtype] = None,
+        round_scales_to_power_of_2: bool = False,
     ):
         """Convert a high precision tensor to a float8 quantized tensor."""
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
             scale = _choose_qparams_affine_float8(
-                input_float, float8_dtype=target_dtype, block_size=block_size
+                input_float,
+                float8_dtype=target_dtype,
+                block_size=block_size,
+                round_scales_to_power_of_2=round_scales_to_power_of_2,
             )
             data = _quantize_affine_float8(input_float, scale, target_dtype)
             data, scale, zero_point = _layout.post_process(
@@ -530,6 +534,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         cls,
         input_float: torch.Tensor,
         _layout: Layout,
+        round_scales_to_power_of_2: bool = False,
     ):
         """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
@@ -545,7 +550,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         ebits, mbits = _layout.ebits, _layout.mbits
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
-        scale = _choose_qparams_affine_floatx(input_float, ebits, mbits)
+        scale = _choose_qparams_affine_floatx(
+            input_float, ebits, mbits, round_scales_to_power_of_2
+        )
         floatx_unpacked = _quantize_affine_floatx(input_float, scale, ebits, mbits)
         floatx_packed, scale, _ = _layout.post_process(
             floatx_unpacked, scale, None, block_size
