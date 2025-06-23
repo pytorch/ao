@@ -1,11 +1,7 @@
 (Part 3) Serving on vLLM, SGLang, ExecuTorch
 ------------------------------------------------
 
-TorchAO provides an end-to-end pre-training, fine-tuning, and serving
-model optimization flow by leveraging our quantization and sparsity
-techniques integrated into our partner frameworks. This is part 3 of 3
-such tutorials showcasing this end-to-end flow, focusing on the
-serving step.
+TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is part 3 of 3 such tutorials showcasing this end-to-end flow, focusing on the serving step.
 
 .. image:: ../static/e2e_flow_part3.png
 
@@ -18,12 +14,7 @@ This tutorial demonstrates how to perform post-training quantization and deploy 
 Post-training Quantization with HuggingFace
 ############################################
 
-HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading.
-
-Float8 Dynamic Quantization
-------------------------------
-
-Float8 dynamic quantization shows 36% reduction in model size with minimal accuracy loss:
+HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading. For this example, we'll use `Float8DynamicActivationFloat8WeightConfig` on the Phi-4 mini-instruct model.
 
 .. code-block:: python
 
@@ -71,82 +62,68 @@ Float8 dynamic quantization shows 36% reduction in model size with minimal accur
     )
     print("Response:", output_text[0][len(prompt):])
 
-
-[Optional] Float8 Dynamic Quantization + Semi-structured (2:4) sparsity
---------------------------------------------------------------------------
-
-Torchao's sparsity support can be combined with quantization for additional performance gains, using optimized kernels for 2:4 structured sparsity.
-
-.. code-block:: python
-
-    from torchao.quantization import Float8DynamicActivationFloat8SemiSparseWeightConfig
-
-    # Combine sparsity with int4 quantization - both optimized by torchao
-    quant_config = Float8DynamicActivationFloat8SemiSparseWeightConfig()
-    quantization_config = TorchAoConfig(quant_type=quant_config)
-
-    # Load a pre-sparsified checkpoint
-    model = AutoModelForCausalLM.from_pretrained(
-        "RedHatAI/Sparse-Llama-3.1-8B-2of4",  # 2:4 sparse model
-        torch_dtype=torch.float16,
-        device_map="cuda",
-        quantization_config=quantization_config
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-
-    # Use static KV cache for best performance with torchao optimizations
-    messages = [{"role": "user", "content": "What are the benefits of sparse neural networks?"}]
-    inputs = tokenizer.apply_chat_template(messages, return_tensors="pt", add_generation_prompt=True).to("cuda")
-
-    outputs = model.generate(
-        inputs,
-        max_new_tokens=150,
-        cache_implementation="static",  # Optimized for torchao
-        do_sample=False
-    )
-
-    response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-    print(response)
-
 .. note::
     For more information on supported quantization and sparsity configurations, see `HF-Torchao Docs <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`_.
 
-Inference with vLLM
--------------------
+Serving and Inference
+######################
 
-.. code-block:: python
+Serving and Inference with vLLM
+-------------------------------
 
-    from vllm import LLM, SamplingParams
+vLLM automatically leverages torchao's optimized kernels when serving quantized models, providing significant throughput improvements.
 
-    # Sample prompts.
-    prompts = [
-        "Hello, my name is",
-        "The president of the United States is",
-        "The capital of France is",
-        "The future of AI is",
-    ]
-    # Create a sampling params object.
-    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+First, install vLLM with torchao support:
 
-    if __name__ == '__main__':
-        # Create an LLM.
-        llm = LLM(model="pytorch/Phi-4-mini-instruct-float8dq")
-        # Generate texts from the prompts.
-        # The output is a list of RequestOutput objects
-        # that contain the prompt, generated text, and other information.
-        outputs = llm.generate(prompts, sampling_params)
-        # Print the outputs.
-        print("\nGenerated Outputs:\n" + "-" * 60)
-        for output in outputs:
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
-            print(f"Prompt:    {prompt!r}")
-            print(f"Output:    {generated_text!r}")
-            print("-" * 60)
+.. code-block:: bash
 
-[Optional] Inference with Transformers
---------------------------------------
+    pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
+    pip install torchao
+
+.. code-block:: bash
+
+    # Server
+    vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+
+    # Client
+    curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
+    "model": "pytorch/Phi-4-mini-instruct-float8dq",
+    "messages": [
+        {"role": "user", "content": "Give me a short introduction to large language models."}
+    ],
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": 20,
+    "max_tokens": 32768
+    }'
+
+.. note::
+    For more information on vLLM Integration, please refer to the detailed guide :ref:`torchao_vllm_integration`.
+
+
+Serving and Inference with SGLang
+---------------------------------
+
+First install SGLang and torchao:
+.. code-block:: bash
+    pip install uv
+    uv pip install "sglang[all]>=0.4.7.post1"
+    pip install torchao
+
+.. code-block:: bash
+
+    # Server
+    python3 -m sglang.launch_server --model-path pytorch/Phi-4-mini-instruct-float8dq --host 0.0.0.0
+
+    # Client
+    curl -s http://localhost:{port}/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{{"model": "qwen/qwen2.5-0.5b-instruct", "messages": [{{"role": "user", "content": "What is the capital of France?"}}]}}'
+
+
+
+Inference with Transformers
+---------------------------
 
 Install the required packages:
 
@@ -196,168 +173,6 @@ Install the required packages:
 
     output = pipe(messages, **generation_args)
     print(output[0]['generated_text'])
-
-Evaluation
-###########
-
-Model Quality Assessment
-------------------------
-
-Evaluate quantized models using lm-evaluation-harness:
-
-.. code-block:: bash
-
-    # Install evaluation framework
-    # Need to install lm-eval from source: https://github.com/EleutherAI/lm-evaluation-harness#install
-
-    # Evaluate baseline model
-    lm_eval --model hf --model_args pretrained=microsoft/Phi-4-mini-instruct --tasks hellaswag --device cuda:0 --batch_size 8
-
-    # Evaluate torchao-quantized model (float8dq)
-    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
-
-Memory Benchmarking
---------------------
-
-.. code-block:: python
-
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-
-    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
-    model_id = "pytorch/Phi-4-mini-instruct-float8dq"
-    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-    torch.cuda.reset_peak_memory_stats()
-
-    prompt = "Hey, are you conscious? Can you talk to me?"
-    messages = [
-        {
-            "role": "system",
-            "content": "",
-        },
-        {"role": "user", "content": prompt},
-    ]
-    templated_prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    print("Prompt:", prompt)
-    print("Templated prompt:", templated_prompt)
-    inputs = tokenizer(
-        templated_prompt,
-        return_tensors="pt",
-    ).to("cuda")
-    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
-    output_text = tokenizer.batch_decode(
-        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-    )
-    print("Response:", output_text[0][len(prompt):])
-
-    mem = torch.cuda.max_memory_reserved() / 1e9
-    print(f"Peak Memory Usage: {mem:.02f} GB")
-
-+-------------------+---------------------+------------------------------+
-| Benchmark         | Phi-4 mini-instruct | Phi-4-mini-instruct-float8dq |
-+===================+=====================+==============================+
-| Peak Memory (GB)  | 8.91                | 5.70 (36% reduction)         |
-+-------------------+---------------------+------------------------------+
-
-Performance Benchmarking
-------------------------------
-
-**Latency Benchmarking**:
-=========================
-
-.. code-block:: bash
-
-    # baseline
-    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
-
-    # float8dq
-    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
-
-**Serving Benchmarking**:
-=========================
-
-We benchmarked the throughput in a serving environment.
-
-.. code-block:: bash
-
-    # Setup: Get vllm source code
-    git clone git@github.com:vllm-project/vllm.git
-
-    # Install vllm
-    VLLM_USE_PRECOMPILED=1 pip install --editable .
-
-    # Run the benchmarks under vllm root folder:
-
-    # Download sharegpt dataset:
-    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
-
-    # Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
-    # Note: you can change the number of prompts to be benchmarked with --num-prompts argument for benchmark_serving script.
-
-    # For baseline
-    # Server:
-    vllm serve microsoft/Phi-4-mini-instruct --tokenizer microsoft/Phi-4-mini-instruct -O3
-    # Client:
-    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
-
-    # For float8dq
-    # Server:
-    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
-    # Client:
-    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
-
-**Results (H100 machine)**:
-============================
-
-+----------------------------+---------------------+------------------------------+
-| Benchmark                  | Phi-4-mini-instruct | Phi-4-mini-instruct-float8dq |
-+============================+=====================+==============================+
-| latency (batch_size=1)     | 1.64s               | 1.41s (1.16x speedup)        |
-+----------------------------+---------------------+------------------------------+
-| latency (batch_size=128)   | 3.1s                | 2.72s (1.14x speedup)        |
-+----------------------------+---------------------+------------------------------+
-| serving (num_prompts=1)    | 1.35 req/s          | 1.57 req/s (1.16x speedup)   |
-+----------------------------+---------------------+------------------------------+
-| serving (num_prompts=1000) | 66.68 req/s         | 80.53 req/s (1.21x speedup)  |
-+----------------------------+---------------------+------------------------------+
-
-Serving
-#######
-
-High-throughput Serving with vLLM
----------------------------------
-
-vLLM automatically leverages torchao's optimized kernels when serving quantized models, providing significant throughput improvements.
-
-First, install vLLM with torchao support:
-
-.. code-block:: bash
-
-    pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
-    pip install torchao
-
-.. code-block:: bash
-
-    vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
-
-Performance Breakdown
-=====================
-
-When using vLLM with torchao:
-
-- **Float8 dynamic quantization**: Provides 36% VRAM reduction, 1.15x-1.2x speedup and little to no accuracy impact on H100
-- **Sparsity Support**: Semi-structured (2:4) sparsity for faster inference (see `Accelerating Neural Network Training with Semi-Structured (2:4) Sparsity <https://pytorch.org/blog/accelerating-neural-network-training/>`_ blog post)
-- **KV Cache Quantization**: Enables long context inference with lower memory (see `KV Cache Quantization <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/README.md>`_)
-
-.. note::
-    For more information on vLLM Integration, please refer to the detailed guide :ref:`torchao_vllm_integration`.
-
 
 Mobile Deployment with ExecuTorch
 ---------------------------------
@@ -522,6 +337,136 @@ The torchao-optimized 8da4w model provides:
 
 .. note::
     For detailed instructions on testing the executorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
+
+Evaluation
+###########
+
+Model Quality Assessment
+------------------------
+
+Evaluate quantized models using lm-evaluation-harness:
+
+.. code-block:: bash
+
+    # Install evaluation framework
+    # Need to install lm-eval from source: https://github.com/EleutherAI/lm-evaluation-harness#install
+
+    # Evaluate baseline model
+    lm_eval --model hf --model_args pretrained=microsoft/Phi-4-mini-instruct --tasks hellaswag --device cuda:0 --batch_size 8
+
+    # Evaluate torchao-quantized model (float8dq)
+    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
+
+Memory Benchmarking
+--------------------
+
+.. code-block:: python
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+
+    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
+    model_id = "pytorch/Phi-4-mini-instruct-float8dq"
+    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    torch.cuda.reset_peak_memory_stats()
+
+    prompt = "Hey, are you conscious? Can you talk to me?"
+    messages = [
+        {
+            "role": "system",
+            "content": "",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    templated_prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    print("Prompt:", prompt)
+    print("Templated prompt:", templated_prompt)
+    inputs = tokenizer(
+        templated_prompt,
+        return_tensors="pt",
+    ).to("cuda")
+    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
+    output_text = tokenizer.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    print("Response:", output_text[0][len(prompt):])
+
+    mem = torch.cuda.max_memory_reserved() / 1e9
+    print(f"Peak Memory Usage: {mem:.02f} GB")
+
++-------------------+---------------------+------------------------------+
+| Benchmark         | Phi-4 mini-instruct | Phi-4-mini-instruct-float8dq |
++===================+=====================+==============================+
+| Peak Memory (GB)  | 8.91                | 5.70 (36% reduction)         |
++-------------------+---------------------+------------------------------+
+
+Performance Benchmarking
+------------------------------
+
+**Latency Benchmarking**:
+=========================
+
+.. code-block:: bash
+
+    # baseline
+    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
+
+    # float8dq
+    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
+
+**Serving Benchmarking**:
+=========================
+
+We benchmarked the throughput in a serving environment.
+
+.. code-block:: bash
+
+    # Setup: Get vllm source code
+    git clone git@github.com:vllm-project/vllm.git
+
+    # Install vllm
+    VLLM_USE_PRECOMPILED=1 pip install --editable .
+
+    # Run the benchmarks under vllm root folder:
+
+    # Download sharegpt dataset:
+    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
+
+    # Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
+    # Note: you can change the number of prompts to be benchmarked with --num-prompts argument for benchmark_serving script.
+
+    # For baseline
+    # Server:
+    vllm serve microsoft/Phi-4-mini-instruct --tokenizer microsoft/Phi-4-mini-instruct -O3
+    # Client:
+    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
+
+    # For float8dq
+    # Server:
+    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+    # Client:
+    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
+
+**Results (H100 machine)**:
+============================
+
++----------------------------+---------------------+------------------------------+
+| Benchmark                  | Phi-4-mini-instruct | Phi-4-mini-instruct-float8dq |
++============================+=====================+==============================+
+| latency (batch_size=1)     | 1.64s               | 1.41s (1.16x speedup)        |
++----------------------------+---------------------+------------------------------+
+| latency (batch_size=128)   | 3.1s                | 2.72s (1.14x speedup)        |
++----------------------------+---------------------+------------------------------+
+| serving (num_prompts=1)    | 1.35 req/s          | 1.57 req/s (1.16x speedup)   |
++----------------------------+---------------------+------------------------------+
+| serving (num_prompts=1000) | 66.68 req/s         | 80.53 req/s (1.21x speedup)  |
++----------------------------+---------------------+------------------------------+
 
 **Conclusion**
 ==============
