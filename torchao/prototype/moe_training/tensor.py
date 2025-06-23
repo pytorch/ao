@@ -83,12 +83,12 @@ class ScaledGroupedMMTensor(torch.Tensor):
             # used for shared experts. This is basically the grouped_mm
             # kernel handling a bmm.
             A, B = args[0], args[1]
-            A_is_2d = A.dim() == 2
+            A_is_2d_or_3d = A.dim() in (2, 3)
             B_is_3d = B.dim() == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
-            logger.info(f"A.shape={A.shape}, B.shape={B.shape}, has_offs={has_offs}")
-            
-            if A_is_2d and B_is_3d:
+            logger.debug(f"A.shape={A.shape}, B.shape={B.shape}, has_offs={has_offs}")
+
+            if A_is_2d_or_3d and B_is_3d:
                 return _scaled_grouped_mm(
                     *args,
                     **kwargs,

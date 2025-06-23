@@ -60,8 +60,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         offs: Optional[torch.Tensor] = None,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
     ) -> torch.Tensor:
-        # torchao _scaled_grouped_mm only supports A=2D, B=3D.
-        assert A.ndim == 2, "A must be 2D"
+        # torchao _scaled_grouped_mm only supports A=2D|3D + B=3D.
+        assert A.ndim == 2 or A.ndim == 3, "A must be 2D or 3D"
         assert B_t.ndim == 3, "B must be 3D"
 
         assert A.size(-1) % 16 == 0, (
@@ -150,12 +150,25 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert _is_column_major(B_t_fp8_col_major), (
             "B must be column-major for output = A @ B"
         )
+
+        # TODO: remove excessive logging once prototype is more mature.
+        logger.debug(
+            (
+                f"forward scaled_grouped_mm: A_fp8_row_major.shape={A_fp8_row_major.shape}, "
+                f"A_scale.shape={A_scales.squeeze(-1).shape}, "
+                f"B_t_fp8_col_major.shape={B_t_fp8_col_major.shape}, "
+                f"B_t_scale.shape={B_t_scales.squeeze(1).shape}, "
+                f"offs={offs if offs is not None else None}"
+            )
+        )
         return torch._scaled_grouped_mm(
             A_fp8_row_major,
             B_t_fp8_col_major,
-            A_scales.squeeze().reciprocal(),
-            B_t_scales.squeeze().reciprocal(),
-            offs,
+            # Squeeze A scales to: (B, S, 1) => (B, M), or (B*S, 1) => (B*S)
+            A_scales.squeeze(-1).reciprocal(),
+            # Squeeze B scales to: (B, 1, N) => (B, N)
+            B_t_scales.squeeze(1).reciprocal(),
+            offs=offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
@@ -192,12 +205,20 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert _is_column_major(B_fp8_col_major), (
             "B must be column-major for grad_A = grad_output @ B"
         )
+        logger.debug(
+            (
+                f"backward grad_A: grad_output_fp8_row_major.shape={grad_output_fp8_row_major.shape}, "
+                f"grad_output_scale.shape={grad_output_scales.shape}, "
+                f"B_fp8_col_major.shape={B_fp8_col_major.shape}, "
+                f"B_scale.shape={B_scales.shape}, "
+            )
+        )
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major,
             B_fp8_col_major,
-            grad_output_scales.squeeze().reciprocal(),
-            B_scales.squeeze().reciprocal(),
-            offs,
+            grad_output_scales.squeeze(-1).reciprocal(),
+            B_scales.squeeze(1).reciprocal(),
+            offs=offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
@@ -237,12 +258,21 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert _is_column_major(A_fp8_col_major), (
             "A must be column-major for grad_B = grad_output_t @ A"
         )
+
+        logger.debug(
+            (
+                f"backward grad_B: grad_output_t_fp8_row_major.shape={grad_output_t_fp8_row_major.shape}, "
+                f"grad_output_t_scale.shape={grad_output_t_scales.shape}, "
+                f"A_fp8_col_major.shape={A_fp8_col_major.shape}, "
+                f"A_scale.shape={A_scales.shape}, "
+            )
+        )
         grad_B = torch._scaled_grouped_mm(
             grad_output_t_fp8_row_major,
             A_fp8_col_major,
             grad_output_t_scales.reciprocal(),
             A_scales.reciprocal(),
-            offs,
+            offs=offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
