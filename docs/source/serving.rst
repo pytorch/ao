@@ -78,7 +78,7 @@ First, install vLLM with torchao support:
 .. code-block:: bash
 
     pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
-    pip install torchao
+    pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
 
 .. code-block:: bash
 
