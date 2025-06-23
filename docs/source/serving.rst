@@ -16,6 +16,12 @@ Post-training Quantization with HuggingFace
 
 HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading. For this example, we'll use `Float8DynamicActivationFloat8WeightConfig` on the Phi-4 mini-instruct model.
 
+.. code-block:: bash
+    pip install git+https://github.com/huggingface/transformers@main
+    pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
+    pip install torch
+    pip install accelerate
+
 .. code-block:: python
 
     import torch
@@ -87,7 +93,7 @@ First, install vLLM with torchao support:
 
     # Client
     curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
-    "model": "pytorch/Phi-4-mini-instruct-float8dq",
+    "model": "appy1234/Phi-4-mini-instruct-float8dq",
     "messages": [
         {"role": "user", "content": "Give me a short introduction to large language models."}
     ],
