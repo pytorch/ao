@@ -14,6 +14,10 @@ from .floatx import (
     CutlassSemiSparseLayout,
     Float8Layout,
 )
+from .int4_groupwise_preshuffle_tensor import (
+    Int4GroupwisePreshuffleTensor,
+    to_int4_groupwise_preshuffle,
+)
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     BlockSparseLayout,
@@ -67,4 +71,6 @@ __all__ = [
     "FbgemmInt4Tensor",
     "to_fbgemm_fp8",
     "FbgemmFp8Tensor",
+    "Int4GroupwisePreshuffleTensor",
+    "to_int4_groupwise_preshuffle",
 ]
