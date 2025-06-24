@@ -67,6 +67,8 @@ def setup_distributed():
     device_mesh = init_device_mesh("cuda", (world_size,))
     # seed must be the same in all processes
     torch.manual_seed(1)
+    local_rank = torch.distributed.get_rank()
+    torch.cuda.set_device(local_rank)
     return device_mesh
 
 
