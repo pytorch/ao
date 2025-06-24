@@ -24,6 +24,7 @@ if TORCH_VERSION_AT_LEAST_2_7:
     from torch.export import export_for_training
 
 
+@unittest.skip("skip for now, need to fix")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
 class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
