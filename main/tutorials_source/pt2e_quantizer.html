@@ -449,15 +449,15 @@
 (2). How can users express the way they want their floating point model to be quantized, for example, quantized the whole model to be int8 symmetric quantization, or quantize only linear layers etc.</p>
 <p>Please see <a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html#motivation-of-pytorch-2-export-quantization">here</a> For motivations for the new API and <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>.</p>
 <p>An existing quantizer object defined for <code class="docutils literal notranslate"><span class="pre">XNNPACK</span></code> is in
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/pt2e/quantizer/xnnpack_quantizer.py">QNNPackQuantizer</a></p>
+<a class="reference external" href="https://github.com/pytorch/executorch/blob/752f6a729d3a2090b43ace6915086d8b4e03644f/backends/xnnpack/quantizer/xnnpack_quantizer.py">XNNPackQuantizer</a></p>
 </section>
 <section id="annotation-api">
 <h2>Annotation API<a class="headerlink" href="#annotation-api" title="Permalink to this heading">¶</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> uses annotation API to convey quantization intent for different operators/patterns.
 Annotation API mainly consists of
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L38">QuantizationSpec</a>
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L40">QuantizationSpec</a>
 and
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L144">QuantizationAnnotation</a>.</p>
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L121">QuantizationAnnotation</a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> is used to convey intent of how a tensor will be quantized,
 e.g. dtype, bitwidth, min, max values, symmetric vs. asymmetric etc.
 Furthermore, <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> also allows quantizer to specify how a
@@ -543,7 +543,7 @@ parameters can be shared among some tensors explicitly. Two typical use cases ar
 <ul class="simple">
 <li><p>Example 1: One example is for <code class="docutils literal notranslate"><span class="pre">add</span></code> where having both inputs sharing quantization
 parameters makes operator implementation much easier. Without using of
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L90">SharedQuantizationSpec</a>,
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L97">SharedQuantizationSpec</a>,
 we must annotate <code class="docutils literal notranslate"><span class="pre">add</span></code> as example in above section 1, in which two inputs of <code class="docutils literal notranslate"><span class="pre">add</span></code>
 has different quantization parameters.</p></li>
 <li><p>Example 2: Another example is that of sharing quantization parameters between inputs and output.
@@ -617,7 +617,7 @@ object.</p></li>
 <p>Another typical use case to annotate a quantized model is for tensors whose
 quantization parameters are known beforehand. For example, operator like <code class="docutils literal notranslate"><span class="pre">sigmoid</span></code>, which has
 predefined and fixed scale/zero_point at input and output tensors.
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L90">FixedQParamsQuantizationSpec</a>
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L76">FixedQParamsQuantizationSpec</a>
 is designed for this use case. To use <code class="docutils literal notranslate"><span class="pre">FixedQParamsQuantizationSpec</span></code>, users need to pass in parameters
 of <code class="docutils literal notranslate"><span class="pre">scale</span></code> and <code class="docutils literal notranslate"><span class="pre">zero_point</span></code> explicitly.</p>
 <ul class="simple">
@@ -648,14 +648,14 @@ These values will be used to create the <code class="docutils literal notranslat
 <p>Another use case is to define the constraint for tensors whose quantization parameters are derived from other tensors.
 For example, if we want to annotate a convolution node, and define the <code class="docutils literal notranslate"><span class="pre">scale</span></code> of its bias input tensor
 as product of the activation tensor’s <code class="docutils literal notranslate"><span class="pre">scale</span></code> and weight tensor’s <code class="docutils literal notranslate"><span class="pre">scale</span></code>. We can use
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L102">DerivedQuantizationSpec</a>
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L107">DerivedQuantizationSpec</a>
 to annotate this conv node.</p>
 <ul class="simple">
 <li><p>Step 1: Identify the original floating point pattern in the FX graph. We can use the same
 methods introduced in <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> example to identify the <code class="docutils literal notranslate"><span class="pre">convolution</span></code> pattern.</p></li>
 <li><p>Step 2: Define <code class="docutils literal notranslate"><span class="pre">derive_qparams_fn</span></code> function, it accepts list of <code class="docutils literal notranslate"><span class="pre">ObserverOrFakeQuantize</span></code> (
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/observer.py#L124">ObserverBase</a>
-or <a class="reference external" href="https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/fake_quantize.py#L60">FakeQuantizeBase</a>)
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/observer.py#L157">ObserverBase</a>
+or <a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/fake_quantize.py#L78">FakeQuantizeBase</a>)
 as input. From each <code class="docutils literal notranslate"><span class="pre">ObserverOrFakeQuantize</span></code> object, user can get the <code class="docutils literal notranslate"><span class="pre">scale</span></code>, <code class="docutils literal notranslate"><span class="pre">zero</span> <span class="pre">point</span></code> value.
 User can define its heuristic about how to derive new <code class="docutils literal notranslate"><span class="pre">scale</span></code>, <code class="docutils literal notranslate"><span class="pre">zero</span> <span class="pre">point</span></code> value based on the
 quantization parameters calculated from the observer or fake quant instances.</p></li>
@@ -697,13 +697,13 @@ and run a <a class="reference external" href="https://gist.github.com/leslie-fan
 with <code class="docutils literal notranslate"><span class="pre">Torchvision</span> <span class="pre">Resnet18</span></code>. To better understand the final example, here are the classes and utility
 functions that are used in the example:</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/pytorch/pytorch/blob/73fd7235ad25ff061c087fa4bafc6e8df4d9c299/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L103-L109">QuantizationConfig</a>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L21">QuantizationConfig</a>
 consists of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> for activation, weight, and bias separately.</p></li>
 <li><p>When annotating the model,
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L10">get_input_act_qspec</a>,
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L23">get_output_act_qspec</a>,
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L36">get_weight_qspec</a>, and
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L53">get_bias_qspec</a>
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L48">get_input_act_qspec</a>,
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L61">get_output_act_qspec</a>,
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L74">get_weight_qspec</a>, and
+<a class="reference external" href="https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L92">get_bias_qspec</a>
 can be used to get the <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code> from <code class="docutils literal notranslate"><span class="pre">QuantizationConfig</span></code> for a specific pattern.</p></li>
 </ul>
 </section>
@@ -777,7 +777,7 @@ can be used to get the <code class="docutils literal notranslate"><span class="p
 <p>With this tutorial, we introduce the new quantization path in PyTorch 2. Users can learn about
 how to define a <code class="docutils literal notranslate"><span class="pre">BackendQuantizer</span></code> with the <code class="docutils literal notranslate"><span class="pre">QuantizationAnnotation</span> <span class="pre">API</span></code> and integrate it into the PyTorch 2 Export Quantization flow.
 Examples of <code class="docutils literal notranslate"><span class="pre">QuantizationSpec</span></code>, <code class="docutils literal notranslate"><span class="pre">SharedQuantizationSpec</span></code>, <code class="docutils literal notranslate"><span class="pre">FixedQParamsQuantizationSpec</span></code>, and <code class="docutils literal notranslate"><span class="pre">DerivedQuantizationSpec</span></code>
-are given for specific annotation use case. You can use <a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/quantizer/xnnpack_quantizer.py">XNNPACKQuantizer</a> as an example to start implementing your own <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>. After that please follow <a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html">this tutorial</a> to actually quantize your model.</p>
+are given for specific annotation use case. You can use <a class="reference external" href="https://github.com/pytorch/executorch/blob/752f6a729d3a2090b43ace6915086d8b4e03644f/backends/xnnpack/quantizer/xnnpack_quantizer.py">XNNPACKQuantizer</a> as an example to start implementing your own <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>. After that please follow <a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html">this tutorial</a> to actually quantize your model.</p>
 </section>
 </section>
 
