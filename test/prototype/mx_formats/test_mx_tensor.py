@@ -72,7 +72,7 @@ def _test_mx(
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_hello_world(elem_dtype):
-    data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(8, 8, device="cuda", dtype=torch.bfloat16)
     block_size = 4
     _test_mx(data, elem_dtype, block_size)
 
