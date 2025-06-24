@@ -236,6 +236,7 @@ def pad_tensor_for_matmul(
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
 
 
-def _round_scale_down_to_power_of_2(scale: torch.Tensor):
+def _round_scale_down_to_power_of_2(scale: torch.Tensor) -> torch.Tensor:
+    """Rounds the scale down to the nearest power of 2."""
     assert scale.dtype == torch.float32, "scale must be float32 tensor"
     return torch.exp2(torch.floor(torch.log2(scale)))
