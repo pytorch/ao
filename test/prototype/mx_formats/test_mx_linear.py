@@ -195,8 +195,8 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
 # TODO(future): enable compile support
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_activation_checkpointing():
-    input_shape = (2, 4)
-    grad_shape = (2, 8)
+    input_shape = (16, 4)
+    grad_shape = (16, 8)
     elem_dtype = torch.float8_e4m3fn
 
     m = nn.Sequential(
