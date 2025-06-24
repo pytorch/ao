@@ -152,15 +152,18 @@ def _test_lowp_mlp_tensor_parallelism_base(
         sp_model2 = torch.compile(sp_model2)
 
     x_fp32 = torch.rand(size, size * 2, size, device=device, requires_grad=False)
+    go_fp32 = torch.rand(size, size * 2, size, device=device, requires_grad=False)
     x_fp32_tp_input = x_fp32.clone()
+    go_fp32_tp = go_fp32.clone()
     x_fp32_sp_input = distribute_tensor(x_fp32.clone(), mesh, [Shard(0)])
+    go_fp32_sp = distribute_tensor(go_fp32.clone(), mesh, [Shard(0)])
 
     tp_out = tp_model(x_fp32_tp_input)
-    tp_out.sum().backward()
+    tp_out.backward(go_fp32_tp)
     sp_out = sp_model(x_fp32_sp_input)
-    sp_out.sum().backward()
+    sp_out.backward(go_fp32_sp)
     global_out = toy_model_fp8(x_fp32)
-    global_out.sum().backward()
+    global_out.backward(go_fp32)
     torch.testing.assert_close(tp_out, global_out)
     torch.testing.assert_close(sp_out.full_tensor(), global_out)
     torch.testing.assert_close(tp_model.ffn.w1.weight.grad, sp_model.ffn.w1.weight.grad)
@@ -169,7 +172,7 @@ def _test_lowp_mlp_tensor_parallelism_base(
     )
 
     sp_out2 = sp_model2(x_fp32_sp_input)
-    sp_out2.sum().backward()
+    sp_out2.backward(go_fp32_sp)
     torch.testing.assert_close(sp_out2.full_tensor(), global_out)
     torch.testing.assert_close(
         tp_model.ffn.w1.weight.grad, sp_model2.ffn.w1.weight.grad
