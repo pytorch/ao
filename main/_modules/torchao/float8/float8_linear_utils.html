@@ -427,11 +427,12 @@
 <span class="c1"># This source code is licensed under the BSD 3-Clause license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8LinearConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8LinearConfig</span><span class="p">,</span> <span class="n">Float8LinearRecipeName</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
 
 <span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -536,6 +537,88 @@
         <span class="n">from_float</span><span class="p">,</span>
         <span class="n">module_filter_fn</span><span class="o">=</span><span class="n">module_filter_fn</span><span class="p">,</span>
     <span class="p">)</span></div>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_auto_filter_for_recipe</span><span class="p">(</span>
+    <span class="n">recipe</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Float8LinearRecipeName</span><span class="p">],</span> <span class="n">filter_fqns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns function which automatically filters nn.Linear modules that meet at least one of the following criteria:</span>
+
+<span class="sd">    1. Dims not divisible by 16 (hardware requirement for float8).</span>
+<span class="sd">    2. Dim sizes below certain thresholds, which may result in worse performance.</span>
+
+<span class="sd">    NOTE: the thresholds are simple heuristics based on performance testing, and may not be optimal</span>
+<span class="sd">    for your model. For the best performance, we recommend defining your own module_filter_fn customized for</span>
+<span class="sd">    your module, using the performance tables for the given float8 recipe here:</span>
+<span class="sd">    https://github.com/pytorch/ao/tree/main/torchao/float8#performance). These benchmarks referenced for</span>
+<span class="sd">    auto filtering layers were run on H100 GPUs, and may not be representative of other hardware.</span>
+
+<span class="sd">    This is an experimental API, the design may change in the future.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">recipe</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">recipe</span> <span class="o">=</span> <span class="n">Float8LinearRecipeName</span><span class="p">(</span><span class="n">recipe</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">recipe</span> <span class="o">==</span> <span class="n">Float8LinearRecipeName</span><span class="o">.</span><span class="n">TENSORWISE</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">partial</span><span class="p">(</span><span class="n">_auto_filter_for_tensorwise</span><span class="p">,</span> <span class="n">filter_fqns</span><span class="o">=</span><span class="n">filter_fqns</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">recipe</span> <span class="o">==</span> <span class="n">Float8LinearRecipeName</span><span class="o">.</span><span class="n">ROWWISE</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">partial</span><span class="p">(</span><span class="n">_auto_filter_for_rowwise</span><span class="p">,</span> <span class="n">filter_fqns</span><span class="o">=</span><span class="n">filter_fqns</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">recipe</span> <span class="o">==</span> <span class="n">Float8LinearRecipeName</span><span class="o">.</span><span class="n">ROWWISE_WITH_GW_HP</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported recipe: </span><span class="si">{</span><span class="n">recipe</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid recipe: </span><span class="si">{</span><span class="n">recipe</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_auto_filter_for_rowwise</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">filter_fqns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># If the fqn matches any filtered fqn, then we should not convert this module.</span>
+    <span class="n">is_filtered_fqn</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">filter_fqn</span> <span class="ow">in</span> <span class="n">fqn</span> <span class="k">for</span> <span class="n">filter_fqn</span> <span class="ow">in</span> <span class="n">filter_fqns</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">is_filtered_fqn</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># All dims must be divisible by 16 due to float8 hardware requirements.</span>
+    <span class="n">N</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">dims_multiples_of_16</span> <span class="o">=</span> <span class="n">K</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">N</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">dims_multiples_of_16</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># Dims below these thresholds may result in worse performance</span>
+    <span class="c1"># (see https://github.com/pytorch/ao/tree/main/torchao/float8#rowwise-scaling)</span>
+    <span class="c1"># Note that these benchmarks referenced for auto filtering layers were run on</span>
+    <span class="c1"># H100 GPUs, and may not be representative of other hardware.</span>
+    <span class="k">if</span> <span class="n">N</span> <span class="o">&lt;=</span> <span class="mi">2048</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">elif</span> <span class="n">K</span> <span class="o">&lt;=</span> <span class="mi">1024</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">elif</span> <span class="n">N</span> <span class="o">&lt;=</span> <span class="mi">4096</span> <span class="ow">and</span> <span class="n">K</span> <span class="o">&lt;=</span> <span class="mi">2048</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_auto_filter_for_tensorwise</span><span class="p">(</span>
+    <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">filter_fqns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># If the fqn matches any filtered fqn, then we should not convert this module.</span>
+    <span class="n">is_filtered_fqn</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">filter_fqn</span> <span class="ow">in</span> <span class="n">fqn</span> <span class="k">for</span> <span class="n">filter_fqn</span> <span class="ow">in</span> <span class="n">filter_fqns</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">is_filtered_fqn</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># All dims must be divisible by 16 due to float8 hardware requirements.</span>
+    <span class="n">N</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">dims_multiples_of_16</span> <span class="o">=</span> <span class="n">K</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">N</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">dims_multiples_of_16</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># Dims below these thresholds may result in worse performance</span>
+    <span class="c1"># (see https://github.com/pytorch/ao/tree/main/torchao/float8#tensorwise-scaling)</span>
+    <span class="c1"># Note that these benchmarks referenced for auto filtering layers were run on</span>
+    <span class="c1"># H100 GPUs, and may not be representative of other hardware.</span>
+    <span class="k">if</span> <span class="n">K</span> <span class="o">&lt;=</span> <span class="mi">4096</span> <span class="ow">and</span> <span class="n">N</span> <span class="o">&lt;=</span> <span class="mi">1024</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
 </pre></div>
 
              </article>
