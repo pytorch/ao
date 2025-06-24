@@ -6,7 +6,10 @@ from torchao.float8.config import (
     ScalingGranularity,
     ScalingType,
 )
-from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_linear_utils import (
+    _auto_filter_for_recipe,
+    convert_to_float8_training,
+)
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
@@ -44,6 +47,7 @@ __all__ = [
     # top level UX
     "convert_to_float8_training",
     "precompute_float8_dynamic_scale_for_fsdp",
+    "_auto_filter_for_recipe",
     # types
     "FP8Granularity",
     # note: Float8Tensor and Float8Linear are not public APIs
