@@ -18,14 +18,15 @@ from torchao.quantization.pt2e import (
     prepare_for_propagation_comparison,
 )
 from torchao.testing.pt2e.utils import PT2ENumericDebuggerTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
 
-if TORCH_VERSION_AT_LEAST_2_7:
+if TORCH_VERSION_AT_LEAST_2_8:
     from torch.export import export_for_training
 
 
-@unittest.skip("skip for now, need to fix")
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(
+    not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8 and above, including nightly"
+)
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
 class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     @unittest.skip(
