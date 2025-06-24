@@ -54,13 +54,6 @@ gpu_name_to_specs = {
         # TODO(future): run measurement on hardware
         "pct_achievable_mem_bw": 0.92,
     },
-    "NVIDIA GeForce RTX 5090": {
-        # https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
-        "bf16_peak_tops": 209.5e12,
-        "fp8_peak_tops": 419e12,
-        "fp4_peak_tops": 1676e12,
-        "peak_mem_bw_bytes_sec": 1.792e15,
-    },
     # TODO(future): more GPU names
 }
 

@@ -352,6 +352,9 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
     )
     # there is only 1 key, aten::mm or aten::_scaled_mm, with unit nanoseconds
     assert len(data) == 1
-    key, value = next(iter(data.items()))
-    assert key in ("aten::mm", "aten::_scaled_mm", "torchao::mx_fp4_bf16")
-    return value / 1e6 / n_iter
+    if "aten::mm" in data:
+        return data["aten::mm"] / 1e6 / n_iter
+    elif "aten::_scaled_mm" in data:
+        return data["aten::_scaled_mm"] / 1e6 / n_iter
+    else:
+        raise AssertionError("unexpected format of data")
