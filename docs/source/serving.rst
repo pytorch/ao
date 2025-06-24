@@ -107,27 +107,6 @@ First, install vLLM with torchao support:
     For more information on vLLM Integration, please refer to the detailed guide :ref:`torchao_vllm_integration`.
 
 
-Serving and Inference with SGLang
----------------------------------
-
-First install SGLang and torchao:
-.. code-block:: bash
-    pip install uv
-    uv pip install "sglang[all]>=0.4.7.post1"
-    pip install torchao
-
-.. code-block:: bash
-
-    # Server
-    python3 -m sglang.launch_server --model-path pytorch/Phi-4-mini-instruct-float8dq --host 0.0.0.0
-
-    # Client
-    curl -s http://localhost:{port}/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{{"model": "qwen/qwen2.5-0.5b-instruct", "messages": [{{"role": "user", "content": "What is the capital of France?"}}]}}'
-
-
-
 Inference with Transformers
 ---------------------------
 
