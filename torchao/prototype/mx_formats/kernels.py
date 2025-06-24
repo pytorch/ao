@@ -1337,7 +1337,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
 
         # Create scale tensors
         col_scale = torch.empty(
-            # (n_cols * n_rows // inner_block_size, 1), dtype=torch.uint8, device=x.device
             (n_cols, n_rows // inner_block_size, 1),
             dtype=torch.uint8,
             device=x.device,

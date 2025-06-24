@@ -512,8 +512,6 @@ class MXTensor(torch.Tensor):
         assert scale_e8m0_bits.dtype == torch.float8_e8m0fnu, (
             f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
         )
-        # TODO new assertion
-        # assert len(scale_e8m0_bits.shape) == 1, "unsupported"
         assert data_bits.dtype in (
             torch.float8_e4m3fn,
             torch.float8_e5m2,
