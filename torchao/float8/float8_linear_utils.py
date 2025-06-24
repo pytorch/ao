@@ -116,7 +116,7 @@ def convert_to_float8_training(
     )
 
 
-def auto_filter_for_recipe(
+def _auto_filter_for_recipe(
     recipe: Float8LinearRecipeName, filter_fqns: List[str]
 ) -> Callable[[nn.Module, str], bool]:
     """Automatically filters nn.Linear modules that meet at least one of the following criteria:
@@ -127,7 +127,9 @@ def auto_filter_for_recipe(
     NOTE: the thresholds are simple heuristics based on performance testing, and may not be optimal
     for your model. For the best performance, we recommend defining your own module_filter_fn customized for
     your module, using the performance tables for the given float8 recipe here:
-    https://github.com/pytorch/ao/tree/main/torchao/float8#performance).
+    https://github.com/pytorch/ao/tree/main/torchao/float8#performance). Note that the benchmarks referenced
+    for auto filtering layers were run on H100 GPUs, and may not be representative of other hardware.
+
 
     The design of this function may change in the future.
     """
@@ -156,8 +158,10 @@ def _auto_filter_for_rowwise(mod: nn.Module, fqn: str, filter_fqns: List[str]) -
     if not dims_multiples_of_16:
         return False
 
-    # Dims below these thresholds will result in worse performance
+    # Dims below these thresholds may result in worse performance
     # (see https://github.com/pytorch/ao/tree/main/torchao/float8#rowwise-scaling)
+    # Note that these benchmarks referenced for auto filtering layers were run on
+    # H100 GPUs, and may not be representative of other hardware.
     if N <= 2048:
         return False
     elif K <= 1024:
@@ -184,8 +188,10 @@ def _auto_filter_for_tensorwise(
     if not dims_multiples_of_16:
         return False
 
-    # Dims below these thresholds will result in worse performance
+    # Dims below these thresholds may result in worse performance
     # (see https://github.com/pytorch/ao/tree/main/torchao/float8#tensorwise-scaling)
+    # Note that these benchmarks referenced for auto filtering layers were run on
+    # H100 GPUs, and may not be representative of other hardware.
     if K <= 4096 and N <= 1024:
         return False
     return True
