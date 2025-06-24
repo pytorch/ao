@@ -75,7 +75,7 @@ Serving and Inference
 ######################
 
 Serving and Inference with vLLM
--------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 vLLM automatically leverages torchao's optimized kernels when serving quantized models, providing significant throughput improvements.
 
@@ -108,7 +108,7 @@ First, install vLLM with torchao support:
 
 
 Inference with Transformers
----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Install the required packages:
 
@@ -160,12 +160,12 @@ Install the required packages:
     print(output[0]['generated_text'])
 
 Mobile Deployment with ExecuTorch
----------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment.
 
 Step 1: Untie Embedding Weights
-===============================
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 We want to quantize the embedding and lm_head differently. Since those layers are tied, we first need to untie the model:
 
@@ -206,7 +206,7 @@ We want to quantize the embedding and lm_head differently. Since those layers ar
     tokenizer.save_pretrained(save_to)
 
 Step 2: Create Mobile-Optimized Quantization
-============================================
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivationIntxWeightConfig** configuration:
 
@@ -284,7 +284,7 @@ Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivati
 
 
 Step 3: Export to ExecuTorch
-============================
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
@@ -327,7 +327,7 @@ Evaluation
 ###########
 
 Model Quality Assessment
-------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 Evaluate quantized models using lm-evaluation-harness:
 
@@ -343,7 +343,7 @@ Evaluate quantized models using lm-evaluation-harness:
     lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
 
 Memory Benchmarking
---------------------
+~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -392,10 +392,10 @@ Memory Benchmarking
 +-------------------+---------------------+------------------------------+
 
 Performance Benchmarking
-------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Latency Benchmarking**:
-=========================
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
@@ -406,7 +406,7 @@ Performance Benchmarking
     VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
 
 **Serving Benchmarking**:
-=========================
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 We benchmarked the throughput in a serving environment.
 
@@ -439,7 +439,7 @@ We benchmarked the throughput in a serving environment.
     python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
 
 **Results (H100 machine)**:
-============================
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 +----------------------------+---------------------+------------------------------+
 | Benchmark                  | Phi-4-mini-instruct | Phi-4-mini-instruct-float8dq |
@@ -454,7 +454,7 @@ We benchmarked the throughput in a serving environment.
 +----------------------------+---------------------+------------------------------+
 
 **Conclusion**
-==============
+^^^^^^^^^^^^^^^
 
 This tutorial demonstrated how torchao's quantization and sparsity techniques integrate seamlessly across the entire ML deployment stack:
 
