@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import logging
 from typing import Any, Optional, Tuple
 
 import torch
@@ -18,7 +17,6 @@ from torch.autograd.grad_mode import _unsafe_preserve_version_counter
 from torchao.prototype.moe_training import _scaled_grouped_mm
 
 logger: logging.Logger = logging.getLogger(__name__)
-
 
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
@@ -85,9 +83,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
             A, B = args[0], args[1]
             A_is_2d_or_3d = A.dim() in (2, 3)
             B_is_3d = B.dim() == 3
-            has_offs = kwargs.get(cls.offs_arg_name) is not None
-            logger.debug(f"A.shape={A.shape}, B.shape={B.shape}, has_offs={has_offs}")
-
             if A_is_2d_or_3d and B_is_3d:
                 return _scaled_grouped_mm(
                     *args,
