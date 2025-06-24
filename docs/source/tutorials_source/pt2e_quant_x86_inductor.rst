@@ -104,7 +104,8 @@ We will start by performing the necessary imports, capturing the FX Graph from t
         # Note: requires torch >= 2.6
         exported_model = export(
             model,
-            example_inputs
+            example_inputs,
+            strict=True
         )
 
 
@@ -266,7 +267,7 @@ The PyTorch 2 Export QAT flow is largely similar to the PTQ flow:
   # Step 1. program capture
   # NOTE: this API will be updated to torch.export API in the future, but the captured
   # result shoud mostly stay the same
-  exported_model = export(m, example_inputs)
+  exported_model = export(m, example_inputs, strict=True)
   # we get a model with aten ops
 
   # Step 2. quantization-aware training
