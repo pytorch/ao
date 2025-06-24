@@ -16,7 +16,7 @@ from utils import (
     get_name_to_shapes_iter,
 )
 
-from torchao.testing.float8.roofline_utils import get_specs
+from torchao.testing.training.roofline_utils import get_specs
 
 
 def benchmark_fn_in_sec(f, *args, **kwargs):
