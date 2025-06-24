@@ -14,4 +14,4 @@ if python -c 'import torch;print(torch.cuda.is_available())' | grep -q "False"; 
 fi
 
 # integration tests for TP/SP
-NCCL_DEBUG=WARN torchrun --nproc_per_node 2 test/prototype/mx_formats/test_dtensor.py
+NCCL_DEBUG=WARN torchrun --nproc_per_node 2 test/prototype/mx_formats/test_mx_dtensor.py
