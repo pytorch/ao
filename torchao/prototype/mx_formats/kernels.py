@@ -1315,7 +1315,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
         assert x.is_contiguous(), "`x` must be contiguous"
-        assert x.dtype == torch.bfloat16
+        # TODO(before land): maybe gate by FakeTensor below?
+        # assert x.dtype == torch.bfloat16
         assert inner_block_size <= 32
 
         # Get tensor shape
@@ -1362,6 +1363,10 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             output_col_major.t(),
             col_scale.view(torch.float8_e8m0fnu),
         )
+        
+    print('ASDFASDFASDF')
+    from torchao import triton_to_mxfp8_dim1
+    print(triton_to_mxfp8_dim1)
 
     def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
