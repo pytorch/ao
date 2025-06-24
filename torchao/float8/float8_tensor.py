@@ -59,6 +59,7 @@ class ScaledMMConfig(NamedTuple):
     use_fast_accum: bool = False
     fp8_output: bool = False
     pad_inner_dim: bool = False
+    convert_dtypes_for_rowwise_scaled_mm: bool = False
 
 
 class LinearMMConfig(NamedTuple):
@@ -75,9 +76,9 @@ class LinearMMConfig(NamedTuple):
         grad_weight (ScaledMMConfig): Configuration for the grad_weight gemm.
     """
 
-    output: ScaledMMConfig = ScaledMMConfig(False, True, False, False)
-    grad_input: ScaledMMConfig = ScaledMMConfig(False, False, False, False)
-    grad_weight: ScaledMMConfig = ScaledMMConfig(False, False, False, False)
+    output: ScaledMMConfig = ScaledMMConfig(False, True, False, False, False)
+    grad_input: ScaledMMConfig = ScaledMMConfig(False, False, False, False, False)
+    grad_weight: ScaledMMConfig = ScaledMMConfig(False, False, False, False, False)
 
 
 class GemmInputRole(enum.Enum):

@@ -204,6 +204,11 @@ class Float8LinearConfig:
     # same value in the forward pass as the backward passes.
     round_scales_to_power_of_2: bool = False
 
+    # This is a workaround for using rowwise_scaled_mm for non-bf16 tensors.
+    # Currently, rowwise_scaled_mm only supports bf16 outputs.
+    # We workaround this by using bf16 as rowwise_scaled_mm output, and cast back to the original precision.
+    convert_dtypes_for_rowwise_scaled_mm: bool = False
+
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
         # Note: this hacks around the frozen-ness of this dataclass

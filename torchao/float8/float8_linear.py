@@ -281,6 +281,7 @@ class Float8Linear(torch.nn.Linear):
                 self.config.gemm_config_output.use_fast_accum,
                 False,
                 self.config.pad_inner_dim,
+                config.convert_dtypes_for_rowwise_scaled_mm,
             ),
             # grad_input
             ScaledMMConfig(
@@ -288,6 +289,7 @@ class Float8Linear(torch.nn.Linear):
                 self.config.gemm_config_grad_input.use_fast_accum,
                 False,
                 self.config.pad_inner_dim,
+                config.convert_dtypes_for_rowwise_scaled_mm,
             ),
             # grad_weight
             ScaledMMConfig(
@@ -295,6 +297,7 @@ class Float8Linear(torch.nn.Linear):
                 self.config.gemm_config_grad_weight.use_fast_accum,
                 False,
                 self.config.pad_inner_dim,
+                config.convert_dtypes_for_rowwise_scaled_mm,
             ),
         )
 
