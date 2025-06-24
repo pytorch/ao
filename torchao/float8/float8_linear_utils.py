@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import logging
 from functools import partial
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Union
 
 import torch.nn as nn
 
@@ -117,27 +117,28 @@ def convert_to_float8_training(
 
 
 def _auto_filter_for_recipe(
-    recipe: Float8LinearRecipeName, filter_fqns: List[str]
+    recipe: Union[str, Float8LinearRecipeName], filter_fqns: List[str]
 ) -> Callable[[nn.Module, str], bool]:
-    """Automatically filters nn.Linear modules that meet at least one of the following criteria:
+    """Returns function which automatically filters nn.Linear modules that meet at least one of the following criteria:
 
     1. Dims not divisible by 16 (hardware requirement for float8).
-    2. Dim sizes below certain thresholds, which will result in worse performance.
+    2. Dim sizes below certain thresholds, which may result in worse performance.
 
     NOTE: the thresholds are simple heuristics based on performance testing, and may not be optimal
     for your model. For the best performance, we recommend defining your own module_filter_fn customized for
     your module, using the performance tables for the given float8 recipe here:
-    https://github.com/pytorch/ao/tree/main/torchao/float8#performance). Note that the benchmarks referenced
-    for auto filtering layers were run on H100 GPUs, and may not be representative of other hardware.
+    https://github.com/pytorch/ao/tree/main/torchao/float8#performance). These benchmarks referenced for
+    auto filtering layers were run on H100 GPUs, and may not be representative of other hardware.
 
-
-    The design of this function may change in the future.
+    This is an experimental API, the design may change in the future.
     """
-    if recipe == Float8LinearRecipeName.TENSORWISE.value:
+    if isinstance(recipe, str):
+        recipe = Float8LinearRecipeName(recipe)
+    if recipe == Float8LinearRecipeName.TENSORWISE:
         return partial(_auto_filter_for_tensorwise, filter_fqns=filter_fqns)
-    elif recipe == Float8LinearRecipeName.ROWWISE.value:
+    elif recipe == Float8LinearRecipeName.ROWWISE:
         return partial(_auto_filter_for_rowwise, filter_fqns=filter_fqns)
-    elif recipe == Float8LinearRecipeName.ROWWISE_WITH_GW_HP.value:
+    elif recipe == Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
         raise NotImplementedError(f"Unsupported recipe: {recipe}")
     else:
         raise ValueError(f"Invalid recipe: {recipe}")
@@ -153,7 +154,7 @@ def _auto_filter_for_rowwise(mod: nn.Module, fqn: str, filter_fqns: List[str]) -
         return False
 
     # All dims must be divisible by 16 due to float8 hardware requirements.
-    K, N = mod.weight.shape
+    N, K = mod.weight.shape
     dims_multiples_of_16 = K % 16 == 0 and N % 16 == 0
     if not dims_multiples_of_16:
         return False
@@ -183,7 +184,7 @@ def _auto_filter_for_tensorwise(
         return False
 
     # All dims must be divisible by 16 due to float8 hardware requirements.
-    K, N = mod.weight.shape
+    N, K = mod.weight.shape
     dims_multiples_of_16 = K % 16 == 0 and N % 16 == 0
     if not dims_multiples_of_16:
         return False
