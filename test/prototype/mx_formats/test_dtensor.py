@@ -68,24 +68,22 @@ def _test_dtensor_cast_to_mxfp8(mesh: DeviceMesh, size=4):
     )
 
 
-def _test_mxfp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
+def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=16):
     config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
-    # TODO(future PR): assert that the K dim must be divisible by block size,
-    # today this is silently incorrect if block_size is greater than K
     config.block_size = 16
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
     )
-
-    # TODO(future PR): compile
+    _test_lowp_mlp_tensor_parallelism_base(
+        mesh, config, size, compile=True, allgather_in_lowp=False
+    )
 
 
 if __name__ == "__main__":
     device_mesh = setup_distributed()
     tests = [
         _test_dtensor_cast_to_mxfp8,
-        # TODO(next PR): enable this (current PR got too large, so splitting)
-        # _test_mxfp8_mlp_tensor_parallelism_eager,
+        _test_mxfp8_mlp_tensor_parallelism,
     ]
 
     for test in tqdm(tests, desc="Running tests"):
