@@ -14,6 +14,7 @@ from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
+    F4_E2M1_MAX,
     SUPPORTED_ELEM_DTYPES,
 )
 from torchao.prototype.mx_formats.kernels import pack_uint4, pack_uint6
@@ -590,4 +591,69 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
     assert not torch.any(torch.isnan(data_out_of_range_f8_c))
     torch.testing.assert_close(
         data_in_range_f8_c, data_out_of_range_f8_c, atol=0, rtol=0
+    )
+
+
+@pytest.mark.parametrize(
+    "dtype,shape,use_per_tensor_scale",
+    [
+        (torch.bfloat16, (32, 64), False),
+        (torch.float32, (64, 128), False),
+        (torch.bfloat16, (128, 256), False),
+        (torch.bfloat16, (64, 128), True),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
+    from torchao.prototype.mx_formats.nvfp4_tensor import (
+        NVFP4Tensor,
+        per_tensor_amax_to_scale,
+    )
+
+    x = torch.randn(shape, dtype=dtype, device="cuda")
+    if use_per_tensor_scale:
+        tensor_amax = torch.max(torch.abs(x))
+        scale = per_tensor_amax_to_scale(tensor_amax)
+    else:
+        scale = None
+
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
+    x_reconstructed = x_nvfp4.to_dtype(dtype)
+
+    def assert_sqnr_gt_threshold(orig, new, threshold):
+        sqnr = compute_error(orig, new)
+        if torch.all(torch.isnan(sqnr)):
+            # if both operands are full of zeroes, sqnr is nan and this is ok
+            # test for this explicitly
+            assert torch.all(orig == 0) and torch.all(new == 0)
+        else:
+            assert sqnr >= threshold
+
+    reconstructed_amax = x_nvfp4.get_hp_scales().view(shape[0], -1, 1) * F4_E2M1_MAX
+    max_abs = torch.amax(
+        torch.abs(x.reshape(shape[0], -1, x_nvfp4._block_size)), dim=-1
+    ).unsqueeze(-1)
+
+    assert_sqnr_gt_threshold(max_abs, reconstructed_amax, 30.0)
+    assert_sqnr_gt_threshold(x, x_reconstructed, 8.0)
+
+    assert x.shape == x_reconstructed.shape, (
+        f"Shape mismatch: {x.shape} vs {x_reconstructed.shape}"
+    )
+    assert x.dtype == x_reconstructed.dtype, (
+        f"Dtype mismatch: {x.dtype} vs {x_reconstructed.dtype}"
+    )
+
+    x_nvfp4_t = x_nvfp4.t()
+    x_reconstructed_t = x_nvfp4_t.to_dtype(dtype)
+    assert_sqnr_gt_threshold(x.t(), x_reconstructed_t, 8.0)
+
+    assert x.t().shape == x_reconstructed_t.shape, (
+        f"Transpose shape mismatch: {x.t().shape} vs {x_reconstructed_t.shape}"
+    )
+    assert x.t().dtype == x_reconstructed_t.dtype, (
+        f"Transpose dtype mismatch: {x.t().dtype} vs {x_reconstructed_t.dtype}"
     )
