@@ -32,16 +32,16 @@ Introduction
 Please see `here <https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html#motivation-of-pytorch-2-export-quantization>`__ For motivations for the new API and ``Quantizer``.
 
 An existing quantizer object defined for ``XNNPACK`` is in
-`QNNPackQuantizer <https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/pt2e/quantizer/xnnpack_quantizer.py>`__
+`XNNPackQuantizer <https://github.com/pytorch/executorch/blob/752f6a729d3a2090b43ace6915086d8b4e03644f/backends/xnnpack/quantizer/xnnpack_quantizer.py>`__
 
 Annotation API
 ^^^^^^^^^^^^^^^^^^^
 
 ``Quantizer`` uses annotation API to convey quantization intent for different operators/patterns.
 Annotation API mainly consists of
-`QuantizationSpec <https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L38>`__
+`QuantizationSpec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L40>`__
 and
-`QuantizationAnnotation <https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L144>`__.
+`QuantizationAnnotation <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L121>`__.
 
 ``QuantizationSpec`` is used to convey intent of how a tensor will be quantized,
 e.g. dtype, bitwidth, min, max values, symmetric vs. asymmetric etc.
@@ -133,7 +133,7 @@ parameters can be shared among some tensors explicitly. Two typical use cases ar
 
 -  Example 1: One example is for ``add`` where having both inputs sharing quantization
    parameters makes operator implementation much easier. Without using of
-   `SharedQuantizationSpec <https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L90>`__,
+   `SharedQuantizationSpec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L97>`__,
    we must annotate ``add`` as example in above section 1, in which two inputs of ``add``
    has different quantization parameters.
 -  Example 2: Another example is that of sharing quantization parameters between inputs and output.
@@ -211,7 +211,7 @@ as this:
 Another typical use case to annotate a quantized model is for tensors whose
 quantization parameters are known beforehand. For example, operator like ``sigmoid``, which has
 predefined and fixed scale/zero_point at input and output tensors.
-`FixedQParamsQuantizationSpec <https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L90>`__
+`FixedQParamsQuantizationSpec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L76>`__
 is designed for this use case. To use ``FixedQParamsQuantizationSpec``, users need to pass in parameters
 of ``scale`` and ``zero_point`` explicitly.
 
@@ -243,14 +243,14 @@ of ``scale`` and ``zero_point`` explicitly.
 Another use case is to define the constraint for tensors whose quantization parameters are derived from other tensors.
 For example, if we want to annotate a convolution node, and define the ``scale`` of its bias input tensor
 as product of the activation tensor's ``scale`` and weight tensor's ``scale``. We can use
-`DerivedQuantizationSpec <https://github.com/pytorch/pytorch/blob/1ca2e993af6fa6934fca35da6970308ce227ddc7/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L102>`__
+`DerivedQuantizationSpec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/quantizer.py#L107>`__
 to annotate this conv node.
 
 -  Step 1: Identify the original floating point pattern in the FX graph. We can use the same
    methods introduced in ``QuantizationSpec`` example to identify the ``convolution`` pattern.
 -  Step 2: Define ``derive_qparams_fn`` function, it accepts list of ``ObserverOrFakeQuantize`` (
-   `ObserverBase <https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/observer.py#L124>`__
-   or `FakeQuantizeBase <https://github.com/pytorch/pytorch/blob/07104ca99c9d297975270fb58fda786e60b49b38/torch/ao/quantization/fake_quantize.py#L60>`__)
+   `ObserverBase <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/observer.py#L157>`__
+   or `FakeQuantizeBase <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/fake_quantize.py#L78>`__)
    as input. From each ``ObserverOrFakeQuantize`` object, user can get the ``scale``, ``zero point`` value.
    User can define its heuristic about how to derive new ``scale``, ``zero point`` value based on the
    quantization parameters calculated from the observer or fake quant instances.
@@ -293,13 +293,13 @@ and run a `toy example <https://gist.github.com/leslie-fang-intel/b78ed682aa9b54
 with ``Torchvision Resnet18``. To better understand the final example, here are the classes and utility
 functions that are used in the example:
 
--  `QuantizationConfig <https://github.com/pytorch/pytorch/blob/73fd7235ad25ff061c087fa4bafc6e8df4d9c299/torch/ao/quantization/_pt2e/quantizer/quantizer.py#L103-L109>`__
+-  `QuantizationConfig <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L21>`__
    consists of ``QuantizationSpec`` for activation, weight, and bias separately.
 -  When annotating the model,
-   `get_input_act_qspec <https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L10>`__,
-   `get_output_act_qspec <https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L23>`__,
-   `get_weight_qspec <https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L36>`__, and
-   `get_bias_qspec <https://github.com/pytorch/pytorch/blob/47cfcf566ab76573452787335f10c9ca185752dc/torch/ao/quantization/_pt2e/quantizer/utils.py#L53>`__
+   `get_input_act_qspec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L48>`__,
+   `get_output_act_qspec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L61>`__,
+   `get_weight_qspec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L74>`__, and
+   `get_bias_qspec <https://github.com/pytorch/ao/blob/b96354087db6d0480ebbc10d5a63a9ca49c19dfa/torchao/quantization/pt2e/quantizer/utils.py#L92>`__
    can be used to get the ``QuantizationSpec`` from ``QuantizationConfig`` for a specific pattern.
 
 A Note on IR for PT2E Quantization Flow
@@ -378,4 +378,4 @@ Conclusion
 With this tutorial, we introduce the new quantization path in PyTorch 2. Users can learn about
 how to define a ``BackendQuantizer`` with the ``QuantizationAnnotation API`` and integrate it into the PyTorch 2 Export Quantization flow.
 Examples of ``QuantizationSpec``, ``SharedQuantizationSpec``, ``FixedQParamsQuantizationSpec``, and ``DerivedQuantizationSpec``
-are given for specific annotation use case. You can use `XNNPACKQuantizer <https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/quantizer/xnnpack_quantizer.py>`_ as an example to start implementing your own ``Quantizer``. After that please follow `this tutorial <https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html>`_ to actually quantize your model.
+are given for specific annotation use case. You can use `XNNPACKQuantizer <https://github.com/pytorch/executorch/blob/752f6a729d3a2090b43ace6915086d8b4e03644f/backends/xnnpack/quantizer/xnnpack_quantizer.py>`_ as an example to start implementing your own ``Quantizer``. After that please follow `this tutorial <https://pytorch.org/tutorials/prototype/pt2e_quant_ptq.html>`_ to actually quantize your model.

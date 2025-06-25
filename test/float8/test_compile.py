@@ -37,7 +37,7 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
-from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.testing.training.test_utils import get_test_float8_linear_config
 
 
 def _test_compile_base(

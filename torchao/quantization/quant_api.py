@@ -78,10 +78,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_fbcode,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
-    is_fbcode,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
