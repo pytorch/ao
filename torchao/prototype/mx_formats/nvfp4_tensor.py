@@ -16,6 +16,7 @@ from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     f32_to_f4_unpacked,
     pack_uint4,
+    triton_quantize_nvfp4,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.mx_tensor import (
@@ -71,6 +72,7 @@ class NVFP4Tensor(torch.Tensor):
     _orig_dtype: torch.dtype
     _is_swizzled_scales: bool
     mm_config: NVFP4MMConfig
+    use_triton_kernel: bool
 
     def __new__(
         cls,
@@ -81,6 +83,7 @@ class NVFP4Tensor(torch.Tensor):
         orig_dtype,
         mm_config=NVFP4MMConfig.DYNAMIC,
         is_swizzled_scales=False,
+        use_triton_kernel=False,
     ):
         # FP4 tensor size handling two paths, contiguous or not
         new_size = data_bits.size()
@@ -105,6 +108,7 @@ class NVFP4Tensor(torch.Tensor):
         self._block_size = block_size
         self._orig_dtype = orig_dtype
         self.mm_config = mm_config
+        self.use_triton_kernel = use_triton_kernel
         return self
 
     def __repr__(self):
@@ -125,6 +129,7 @@ class NVFP4Tensor(torch.Tensor):
         per_tensor_scale: Optional[torch.Tensor] = None,
         mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC,
         is_swizzled_scales: bool = False,
+        use_triton_kernel: bool = False,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -135,18 +140,27 @@ class NVFP4Tensor(torch.Tensor):
                 If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
             mm_config: Matrix multiplication configuration
             is_swizzled_scales: If True, store scales in swizzled format for faster matrix multiplication
+            use_triton_kernel: If True, use Triton kernel for quantization
 
         Returns:
             NVFP4Tensor: Quantized tensor in NVFP4 format
         """
-        blockwise_scales, data_lp = nvfp4_quantize(
-            data_hp, block_size, per_tensor_scale
-        )
-
-        if is_swizzled_scales:
-            M, K = data_hp.shape[0], data_hp.shape[1]
-            scale_shape = (M, K // block_size)
-            blockwise_scales = to_blocked(blockwise_scales.view(scale_shape)).flatten()
+        if use_triton_kernel:
+            assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
+            assert data_hp.shape[1] % 16 == 0, (
+                f"Triton kernel requires K (dim 1) to be divisible by 16, got {data_hp.shape[1]}"
+            )
+            blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
+        else:
+            blockwise_scales, data_lp = nvfp4_quantize(
+                data_hp, block_size, per_tensor_scale
+            )
+            if is_swizzled_scales:
+                M, K = data_hp.shape[0], data_hp.shape[1]
+                scale_shape = (M, K // block_size)
+                blockwise_scales = to_blocked(
+                    blockwise_scales.view(scale_shape)
+                ).flatten()
 
         return NVFP4Tensor(
             blockwise_scales,
@@ -156,6 +170,7 @@ class NVFP4Tensor(torch.Tensor):
             data_hp.dtype,
             mm_config,
             is_swizzled_scales,
+            use_triton_kernel,
         )
 
     def __tensor_flatten__(self):
@@ -164,6 +179,7 @@ class NVFP4Tensor(torch.Tensor):
             "_orig_dtype": self._orig_dtype,
             "_is_swizzled_scales": self._is_swizzled_scales,
             "mm_config": self.mm_config,
+            "use_triton_kernel": self.use_triton_kernel,
         }
         tensor_list = ["_scale_e4m3", "_data"]
         if self._per_tensor_scale is not None:
@@ -200,6 +216,7 @@ class NVFP4Tensor(torch.Tensor):
             metadata["_orig_dtype"],
             metadata["mm_config"],
             metadata.get("_is_swizzled_scales", False),
+            metadata.get("use_triton_kernel", False),
         )
 
     # Do not force the NVFP4Tensor type on the returned tensor
@@ -322,6 +339,7 @@ def nvfp4_to_copy(func, types, args, kwargs):
             dtype,
             tensor.mm_config,
             tensor._is_swizzled_scales,
+            tensor.use_triton_kernel,
         )
         return res
 
@@ -521,6 +539,7 @@ def nvfp4_slice(func, types, args, kwargs):
         x._orig_dtype,
         x.mm_config,
         x._is_swizzled_scales,
+        x.use_triton_kernel,
     )
 
     return return_and_correct_aliasing(func, args, kwargs, result)
@@ -538,6 +557,7 @@ def nvfp4_t(func, types, args, kwargs):
         old._orig_dtype,
         old.mm_config,
         old._is_swizzled_scales,
+        old.use_triton_kernel,
     )
     return new
 
@@ -556,6 +576,7 @@ def nvfp4_view_op(func, types, args, kwargs):
         args[0]._orig_dtype,
         args[0].mm_config,
         args[0]._is_swizzled_scales,
+        args[0].use_triton_kernel,
     )
 
 
@@ -600,6 +621,7 @@ def _addmm_nvfp4_dispatch(
     # When we have per-tensor scaling, we need to apply it before bias
     # since bias is not quantized
     should_add_bias_separately = (scale_result is not None) and (bias is not None)
+    # should_add_bias_separately = bias is not None
 
     result = torch._scaled_mm(
         a._data.view(torch.float4_e2m1fn_x2),
@@ -638,8 +660,13 @@ def nvfp4_linear(func, types, args, kwargs):
         weight_dequant = weight_tensor.to_dtype(weight_tensor._orig_dtype)
         return torch.nn.functional.linear(input_tensor, weight_dequant, bias)
     else:
-        input_quant = NVFP4Tensor.to_nvfp4(input_tensor, mm_config=config)
-        return _addmm_nvfp4_dispatch(input_quant, weight_tensor, func, bias=bias)
+        input_tensor = NVFP4Tensor.to_nvfp4(
+            input_tensor,
+            mm_config=config,
+            is_swizzled_scales=True,
+            use_triton_kernel=weight_tensor.use_triton_kernel,
+        )
+        return _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
 
 
 @implements([aten.mm.default, aten.matmul.default])
@@ -660,7 +687,12 @@ def nvfp4_mm(func, types, args, kwargs):
             return func(input_tensor, weight_dequant)
     else:
         if not isinstance(input_tensor, NVFP4Tensor):
-            input_tensor = NVFP4Tensor.to_nvfp4(input_tensor, mm_config=config)
+            input_tensor = NVFP4Tensor.to_nvfp4(
+                input_tensor,
+                mm_config=config,
+                is_swizzled_scales=True,
+                use_triton_kernel=weight_tensor.use_triton_kernel,
+            )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func)
 
 
@@ -682,7 +714,12 @@ def nvfp4_addmm(func, types, args, kwargs):
             return torch.addmm(bias, input_tensor, weight_dequant)
     else:
         if not isinstance(input_tensor, NVFP4Tensor):
-            input_tensor = NVFP4Tensor.to_nvfp4(input_tensor, mm_config=config)
+            input_tensor = NVFP4Tensor.to_nvfp4(
+                input_tensor,
+                mm_config=config,
+                is_swizzled_scales=True,
+                use_triton_kernel=weight_tensor.use_triton_kernel,
+            )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
 
 

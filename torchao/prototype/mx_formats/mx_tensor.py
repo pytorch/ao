@@ -685,16 +685,47 @@ class MXTensor(torch.Tensor):
 
     @classmethod
     def _same_metadata(cls, self: "MXTensor", src: "MXTensor") -> bool:
-        return (
-            isinstance(self, MXTensor)
-            and isinstance(src, MXTensor)
-            and self._elem_dtype == src._elem_dtype
-            and self._block_size == src._block_size
-            and self._orig_dtype == src._orig_dtype
-            and self._use_fp4_custom_triton_dequant_kernel
-            == src._use_fp4_custom_triton_dequant_kernel
-            and self._gemm_kernel_choice == src._gemm_kernel_choice
-            and self._pack_fp6 == src._pack_fp6
-            and self._scale_e8m0.shape == src._scale_e8m0.shape
-            and self._data.shape == src._data.shape
-        )
+        checks = [
+            (isinstance(self, MXTensor), "self is not MXTensor"),
+            (isinstance(src, MXTensor), "src is not MXTensor"),
+            (
+                self._elem_dtype == src._elem_dtype,
+                f"elem_dtype: {self._elem_dtype} != {src._elem_dtype}",
+            ),
+            (
+                self._block_size == src._block_size,
+                f"block_size: {self._block_size} != {src._block_size}",
+            ),
+            (
+                self._orig_dtype == src._orig_dtype,
+                f"orig_dtype: {self._orig_dtype} != {src._orig_dtype}",
+            ),
+            (
+                self._use_fp4_custom_triton_dequant_kernel
+                == src._use_fp4_custom_triton_dequant_kernel,
+                "use_fp4_custom_triton_dequant_kernel mismatch",
+            ),
+            (
+                self._gemm_kernel_choice == src._gemm_kernel_choice,
+                f"gemm_kernel_choice: {self._gemm_kernel_choice} != {src._gemm_kernel_choice}",
+            ),
+            (
+                self._pack_fp6 == src._pack_fp6,
+                f"pack_fp6: {self._pack_fp6} != {src._pack_fp6}",
+            ),
+            (
+                self._scale_e8m0.shape == src._scale_e8m0.shape,
+                f"scale_e8m0.shape: {self._scale_e8m0.shape} != {src._scale_e8m0.shape}",
+            ),
+            (
+                self._data.shape == src._data.shape,
+                f"data.shape: {self._data.shape} != {src._data.shape}",
+            ),
+        ]
+
+        for condition, error_msg in checks:
+            if not condition:
+                raise ValueError(f"Metadata mismatch: {error_msg}")
+                return False
+
+        return True
