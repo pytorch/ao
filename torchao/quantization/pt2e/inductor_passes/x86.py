@@ -116,7 +116,9 @@ def _unary_fusion_pattern(unary_fusion, call_fn, users, is_bf16):
     return unary_fusion(computation_call)
 
 
-def get_dequantize_per_tensor_activation_pattern(is_tensor_overload=False, is_fp8=False):
+def get_dequantize_per_tensor_activation_pattern(
+    is_tensor_overload=False, is_fp8=False
+):
     if is_fp8:
         dequantize_per_tensor_activation_pattern = CallFunction(
             torch.ops.torchao.dequantize_affine_float8.default,
@@ -1347,7 +1349,12 @@ def _register_dequant_promotion():
     dequant_pattern_cases = itertools.product(
         [torch.float32, torch.bfloat16], [True, False], [True, False], [True, False]
     )
-    for dtype, input_dim_exceeds_two, is_tensor_overload, is_fp8 in dequant_pattern_cases:
+    for (
+        dtype,
+        input_dim_exceeds_two,
+        is_tensor_overload,
+        is_fp8,
+    ) in dequant_pattern_cases:
         # 4 dequantization patterns will be matched based on the dtype and input dimension size.
         # Case 1: int8-mixed-fp32, input dim size is 2
         # Case 2: int8-mixed-fp32, input dim size exceeds 2
