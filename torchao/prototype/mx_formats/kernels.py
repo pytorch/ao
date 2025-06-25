@@ -1363,10 +1363,21 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             output_col_major.t(),
             col_scale.view(torch.float8_e8m0fnu),
         )
-        
-    print('ASDFASDFASDF')
-    from torchao import triton_to_mxfp8_dim1
-    print(triton_to_mxfp8_dim1)
+
+    # print(torch.ops.torchao.triton_to_mxfp8_dim1.default)
+
+    from torch.distributed.tensor import Replicate, Shard
+    from torch.distributed.tensor.experimental import register_sharding
+
+    @register_sharding(torch.ops.torchao.triton_to_mxfp8_dim1.default)
+    def custom_triton_to_mxfp8_dim1_sharding(x, inner_block_size=32):
+        replicate = ([Replicate(), Replicate()], [Replicate(), None])
+        # Note that the data is returned transposed, which is why
+        # we flip the sharding dim below
+        shard_dim0 = ([Shard(1), Shard(1)], [Shard(0), None])
+        shard_dim1 = ([Shard(0), Shard(0)], [Shard(1), None])
+        acceptable_shardings = [replicate, shard_dim0, shard_dim1]
+        return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
