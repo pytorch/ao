@@ -540,7 +540,7 @@ def _is_valid_dequant_promotion_pattern(dtype=torch.float32):
     return _inner
 
 
-def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32, is_fp8=False):
+def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
     @register_freezing_graph_pattern(
         pattern,
         extra_check=_is_valid_dequant_promotion_pattern(dtype),
@@ -1386,7 +1386,6 @@ def _register_dequant_promotion():
             ),
             pass_number=0,
             dtype=dtype,
-            is_fp8=is_fp8,
         )  # pass_number=0 to run before weight prepack
 
 
