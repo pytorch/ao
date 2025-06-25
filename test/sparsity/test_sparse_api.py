@@ -24,6 +24,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
 )
+from torchao.sparsity.blocksparse import BlockSparseTensor
+from torchao.sparsity.utils import create_block_sparse_tensor
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -167,6 +169,38 @@ class TestBlockSparseWeight(common_utils.TestCase):
         sparse_result = model(input)
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4,
+        "pytorch 2.4+ feature due to need for custom op support",
+    )
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize("compile", [False])
+    @common_utils.parametrize("blocksize", [(64, 8), (8, 64)])
+    def test_non_square_sparse(self, compile, blocksize):
+        input_shape = 1024
+        input = torch.rand((input_shape, 1024)).half().cuda()
+        model = (
+            nn.Sequential(
+                nn.Linear(1024, 2048),
+                nn.Linear(2048, 1024),
+            )
+            .half()
+            .cuda()
+            .eval()
+        )
+
+        M, N = model[0].weight.shape
+        model[0].weight.data = create_block_sparse_tensor(M, N, blocksize, 0.5, torch.float16)
+        M, N = model[1].weight.shape
+        model[1].weight.data = create_block_sparse_tensor(M, N, blocksize, 0.5, torch.float16)
+        dense_result = model(input)
+
+        from torchao.sparsity import block_sparse_weight
+        sparsify_(model, block_sparse_weight(blocksize=blocksize))
+        sparse_result = model(input)
+
+        torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
 
 class TestQuantBlockSparseWeight(common_utils.TestCase):
