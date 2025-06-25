@@ -95,6 +95,9 @@ endif()
 if (NOT TARGET cpuinfo)
     # For some reason cpuinfo package has unused functions/variables
     # TODO (T215533422): fix upstream
+    set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "Disable unit tests" FORCE)
+    set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Disable mock tests" FORCE)
+    set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks" FORCE)
     add_compile_options(-Wno-unused-function -Wno-unused-variable)
     include(FetchContent)
     FetchContent_Declare(cpuinfo

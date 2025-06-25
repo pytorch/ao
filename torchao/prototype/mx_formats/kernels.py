@@ -1056,7 +1056,7 @@ if TORCH_VERSION_AT_LEAST_2_4:
 
         # effective mx block size since we're packing 2 fp4 into 1 uint8
         packed_mx_block_size = 3 * mx_block_size // 4
-        packed_shape = [uint8_data.shape[0], packed_mx_block_size]
+        packed_shape = [*uint8_data.shape[:-1], packed_mx_block_size]
         n_mx_blocks = uint8_data.numel() // mx_block_size
 
         grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
@@ -1102,15 +1102,12 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         bf16_mbits = 7
         bf16_exp_bias = 127
         fp32_mbits = 23
-        # We use a small epsilon to avoid division by zero
-        epsilon = 1e-10
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
         # Calculate the e8m0 scale by extracting the exponent (floor)
         # TODO(future PR): support other exponent extraction types (ceil, RNE)
-        max_abs = max_abs + epsilon
         max_abs = max_abs.to(tl.bfloat16)
         max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
         extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
@@ -1340,7 +1337,9 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
 
         # Create scale tensors
         col_scale = torch.empty(
-            (n_cols * n_rows // inner_block_size, 1), dtype=torch.uint8, device=x.device
+            (n_cols, n_rows // inner_block_size, 1),
+            dtype=torch.uint8,
+            device=x.device,
         )
 
         # Calculate grid dimensions based on tile size
@@ -1377,7 +1376,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
             x_hp_d1, torch.float8_e4m3fn, block_size
         )
-        scale_e8m0_dim1 = scale_e8m0_dim1.unsqueeze(1).view(torch.float8_e8m0fnu)
+        scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
             x_hp_d1_normalized.t(),
             scale_e8m0_dim1,

@@ -28,8 +28,6 @@ class MoETrainingConfig(AOBaseConfig):
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
 
-    pass
-
 
 @register_quantize_module_handler(MoETrainingConfig)
 def _moe_training_transform(
@@ -46,7 +44,7 @@ def _moe_training_transform(
     Returns:
      nn.Module: The modified module with swapped parameters.
     """
-    out = _swap_params(module)
+    out = _swap_params(module, config=config)
     return out
 
 
@@ -54,6 +52,7 @@ def _swap_params(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
+    config: Optional[MoETrainingConfig] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
