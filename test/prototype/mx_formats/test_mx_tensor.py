@@ -27,6 +27,7 @@ from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
+    is_sm_at_least_100,
 )
 
 torch.manual_seed(2)
@@ -955,3 +956,69 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     expected_shape = (M, K // 16)
     assert regular_scales.shape == expected_shape
     assert swizzled_scales.shape == expected_shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
+)
+@pytest.mark.parametrize("N", [64, 128, 256, 512, 32, 96, 160], ids=lambda n: f"N{n}")
+@pytest.mark.parametrize(
+    "use_per_tensor_scale", [False, True], ids=["block_scale", "tensor_scale"]
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
+)
+@torch.no_grad()
+def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
+    """Test that Triton and PyTorch NVFP4 quantization produce equivalent results."""
+    from torchao.prototype.mx_formats.nvfp4_tensor import (
+        NVFP4Tensor,
+        per_tensor_amax_to_scale,
+        unpack_uint4,
+    )
+
+    torch.manual_seed(42)
+    x = torch.randn(M, N, dtype=dtype, device="cuda")
+
+    per_tensor_scale = None
+    if use_per_tensor_scale:
+        per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x)))
+
+    nvfp4_pt = NVFP4Tensor.to_nvfp4(
+        x.clone(),
+        per_tensor_scale=per_tensor_scale,
+        is_swizzled_scales=True,
+        use_triton_kernel=False,
+    )
+
+    nvfp4_triton = NVFP4Tensor.to_nvfp4(
+        x.clone(),
+        per_tensor_scale=per_tensor_scale,
+        is_swizzled_scales=True,
+        use_triton_kernel=True,
+    )
+
+    torch.testing.assert_close(
+        nvfp4_pt._scale_e4m3.flatten(), nvfp4_triton._scale_e4m3.flatten()
+    )
+    pt_unpacked = unpack_uint4(nvfp4_pt._data)
+    triton_unpacked = unpack_uint4(nvfp4_triton._data)
+    torch.testing.assert_close(
+        pt_unpacked,
+        triton_unpacked,
+        atol=0,
+        rtol=0,
+    )
+
+    x_pt_dequant = nvfp4_pt.to_dtype(dtype)
+    x_triton_dequant = nvfp4_triton.to_dtype(dtype)
+
+    sqnr = compute_error(x_pt_dequant, x_triton_dequant)
+    SQNR_THRESHOLD = 40.0
+
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD} for M={M}, N={N}, "
+        f"use_per_tensor_scale={use_per_tensor_scale}, dtype={dtype}"
+    )
