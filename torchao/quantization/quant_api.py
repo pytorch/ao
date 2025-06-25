@@ -762,11 +762,6 @@ def _int8_dynamic_activation_int4_weight_transform(
     quant_min = -8
     quant_max = 7
 
-    if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
-        # Int8DynamicActInt4WeightCPULayout requires bias to be in float32
-        if module.bias is not None:
-            module.bias = torch.nn.Parameter(module.bias.float(), requires_grad=False)
-
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
         if isinstance(layout, Int8DynamicActInt4WeightCPULayout):

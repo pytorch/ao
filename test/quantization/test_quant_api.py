@@ -723,7 +723,7 @@ class TestQuantFlow(TestCase):
             # is that the former packs two int4 weights into one int8, while the latter does not.
             quantize_(
                 m,
-                int8_dynamic_activation_int4_weight(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=32,
                     layout=Int8DynamicActInt4WeightCPULayout(),
                     act_mapping_type=MappingType.SYMMETRIC

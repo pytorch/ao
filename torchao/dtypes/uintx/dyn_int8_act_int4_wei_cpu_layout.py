@@ -300,7 +300,7 @@ def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
         wei_scales,
         wei_qzeros,
         compensation,
-        bias,
+        bias.float() if bias is not None else bias,  # requires bias to be float
         orig_dtype,  # out_dtype
     )
 
