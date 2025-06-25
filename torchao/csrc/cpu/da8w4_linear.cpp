@@ -64,8 +64,10 @@ da8w4_linear_prepack_impl(
   at::Tensor blocked_weight;
   at::Tensor blocked_scales = new_scales.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
   at::Tensor blocked_qzeros = new_qzeros.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
-  // weight was increased by 8 during quantization, so we need to subtract 8
-  at::Tensor compensation = weight_view.to(at::kInt).sub(8).sum(-1);
+  // Compensation = Σ(k)(W[k][n] - ZP[n]) for each block.
+  auto weight_sub_qzero = weight.view({Nc, block_n, G, -1}).to(at::kInt) - new_qzeros.view({Nc, block_n, G, -1});
+  weight_sub_qzero = weight_sub_qzero.view({Nc, block_n, Kc, block_k});
+  at::Tensor compensation = weight_sub_qzero.sum(-1);
   compensation = compensation.permute({0, 2, 1}).contiguous().to(at::kInt);
 
   if (cpublas_could_pack()) {
