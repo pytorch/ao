@@ -29,6 +29,7 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     PlainLayout,
     QDQLayout,
     TensorCoreTiledLayout,
@@ -70,6 +71,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -694,6 +696,72 @@ class TestQuantFlow(TestCase):
             )
             assert "_weight_int4pack_mm_for_cpu" in code[0]
             assert "aten.mm.default" not in code[0]
+
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
+        reason="cpp kernels not built",
+    )
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Test only enabled for 2.7+")
+    @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("x_dim", [2, 3])
+    @common_utils.parametrize("bias", [True, False])
+    @common_utils.parametrize("bs", [1, 160])
+    @common_utils.parametrize("sym_quant_a", [True, False])
+    def test_8da4w_cpu(self, dtype, x_dim, bias, bs, sym_quant_a):
+        if sym_quant_a and not TORCH_VERSION_AT_LEAST_2_8:
+            # not supported until PT 2.8
+            return
+        device = "cpu"
+        m = ToyLinearModel(bias=bias).eval().to(dtype).to(device)
+        m2 = copy.deepcopy(m)
+        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
+        if x_dim == 3:
+            example_inputs = (example_inputs[0].unsqueeze(0),)
+
+        with torch.no_grad():
+            # Currently, the difference between Int8DynamicActInt4WeightCPULayout and PlainLayout
+            # is that the former packs two int4 weights into one int8, while the latter does not.
+            quantize_(
+                m,
+                Int8DynamicActivationInt4WeightConfig(
+                    group_size=32,
+                    layout=Int8DynamicActInt4WeightCPULayout(),
+                    act_mapping_type=MappingType.SYMMETRIC
+                    if sym_quant_a
+                    else MappingType.ASYMMETRIC,
+                ),
+            )
+            y, code = torch._inductor.utils.run_and_get_code(
+                torch.compile(m, fullgraph=True, dynamic=True),
+                *example_inputs,
+            )
+            # ensure the expected op is in the code
+            assert "torch.ops.torchao.da8w4_linear_cpu.default" in code[0]
+            quantize_(
+                m2,
+                int8_dynamic_activation_int4_weight(
+                    group_size=32,
+                    layout=PlainLayout(),
+                    act_mapping_type=MappingType.SYMMETRIC
+                    if sym_quant_a
+                    else MappingType.ASYMMETRIC,
+                ),
+            )
+            torch._dynamo.reset()  # may segfault without this
+            y2 = torch.compile(m2, fullgraph=True, dynamic=True)(*example_inputs)
+            atol, rtol = 4e-7, 1e-5
+            if dtype == torch.bfloat16:
+                atol, rtol = 1e-2, 3e-3
+            elif dtype == torch.half:
+                atol, rtol = 6e-3, 2e-3
+            assert torch.allclose(y, y2, atol=atol, rtol=rtol)
+            # Test get_plain by dequantize()
+            dqw1 = m.linear1.weight.original_weight_tensor.dequantize()
+            dqw2 = m.linear2.weight.original_weight_tensor.dequantize()
+            dqw1_ref = m2.linear1.weight.original_weight_tensor.dequantize()
+            dqw2_ref = m2.linear2.weight.original_weight_tensor.dequantize()
+            assert torch.allclose(dqw1, dqw1_ref)
+            assert torch.allclose(dqw2, dqw2_ref)
 
     # TODO(#1690): move to new config names
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
