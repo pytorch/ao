@@ -385,20 +385,29 @@ def get_extensions():
         extra_compile_args["cxx"].extend(
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
-        if (
-            use_cpu_kernels
-            and is_linux
-            and hasattr(torch._C._cpu, "_is_avx512_supported")
-            and torch._C._cpu._is_avx512_supported()
-        ):
-            extra_compile_args["cxx"].extend(
-                [
-                    "-DCPU_CAPABILITY_AVX512",
-                    "-march=native",
-                    "-mfma",
-                    "-fopenmp",
-                ]
-            )
+
+        if use_cpu_kernels and is_linux:
+            if (
+                hasattr(torch._C._cpu, "_is_avx512_supported")
+                and torch._C._cpu._is_avx512_supported()
+            ):
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
+            if (
+                hasattr(torch._C._cpu, "_is_avx512_vnni_supported")
+                and torch._C._cpu._is_avx512_vnni_supported()
+            ):
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512_VNNI",
+                    ]
+                )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
