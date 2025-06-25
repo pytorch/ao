@@ -2693,6 +2693,7 @@
     <span class="k">return</span> <span class="n">expanded_scale</span>
 
 
+<span class="nd">@_register_custom_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_float8</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -2713,6 +2714,16 @@
     <span class="k">return</span> <span class="n">fp8_tensor</span>
 
 
+<span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="s2">&quot;quantize_affine_float8&quot;</span><span class="p">,</span> <span class="s2">&quot;Meta&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_float8_meta</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float8_dtype</span><span class="p">)</span>
+
+
+<span class="nd">@_register_custom_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_float8</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -2728,6 +2739,15 @@
 
     <span class="n">hp_tensor</span> <span class="o">=</span> <span class="n">fp8_tensor</span> <span class="o">*</span> <span class="n">scale_expanded</span>
     <span class="k">return</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
+
+
+<span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="s2">&quot;dequantize_affine_float8&quot;</span><span class="p">,</span> <span class="s2">&quot;Meta&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_float8_meta</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">output_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">)</span>
 </pre></div>
 
              </article>
