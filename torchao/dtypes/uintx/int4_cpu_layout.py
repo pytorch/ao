@@ -153,7 +153,8 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         if self.device.type == "xpu":
             from torchao.dtypes import Int4XPULayout
             int_data, scale, zero_point = self.get_plain()
-            return Int4XPUAQTTensorImpl.from_plain(int_data.to(device), scale.to(device), zero_point.to(device), _layout=Int4XPULayout())
+            int_data, scale, zero_point = int_data.to(self.device), scale.to(self.device), zero_point.to(self.device)
+            return Int4XPUAQTTensorImpl.from_plain(int_data, scale, zero_point, _layout=Int4XPULayout())
         elif not is_device(torch.device(self.device).type, device):
             raise ValueError(
                 f"Int4CPUAQTTensorImpl does not support conversion from {self.device} to {device}"
