@@ -2270,6 +2270,7 @@ def _expand_scale_to_tensor_shape(
     return expanded_scale
 
 
+@_register_custom_op(quant_lib, False)
 def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2290,6 +2291,16 @@ def _quantize_affine_float8(
     return fp8_tensor
 
 
+@torch.library.impl(quant_lib, "quantize_affine_float8", "Meta")
+def _quantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=float8_dtype)
+
+
+@_register_custom_op(quant_lib, False)
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2305,3 +2316,12 @@ def _dequantize_affine_float8(
 
     hp_tensor = fp8_tensor * scale_expanded
     return hp_tensor.to(output_dtype)
+
+
+@torch.library.impl(quant_lib, "dequantize_affine_float8", "Meta")
+def _dequantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=output_dtype)
