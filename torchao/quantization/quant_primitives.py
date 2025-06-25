@@ -209,8 +209,6 @@ _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
-register_custom_op = _register_custom_op(quant_lib)
-
 
 class _Round(torch.autograd.Function):
     """
@@ -357,7 +355,7 @@ def quantize_affine(
     )
 
 
-@register_custom_op
+@_register_custom_op(quant_lib, "CompositeExplicitAutograd")
 def _quantize_affine(
     input: torch.Tensor,
     block_size: List[int],
@@ -400,6 +398,19 @@ def _quantize_affine(
         quant_min,
         quant_max,
     ).to(output_dtype)
+
+
+@torch.library.impl(quant_lib, "quantize_affine", "Meta")
+def _quantize_affine_meta(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    output_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+) -> torch.Tensor:
+    return torch.empty_like(input, dtype=output_dtype)
 
 
 def _quantize_affine_no_dtype_cast(
@@ -695,7 +706,7 @@ def _quantize_affine_no_zero_point_no_dtype_cast(
 
 def dequantize_affine(
     input: torch.Tensor,
-    block_size: Tuple[int, ...],
+    block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
@@ -733,8 +744,7 @@ def dequantize_affine(
     )
 
 
-@register_custom_op
-def _dequantize_affine(
+def _dequantize_affine_impl(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -781,6 +791,44 @@ def _dequantize_affine(
         quant_max,
         output_dtype,
     )
+
+
+@_register_custom_op(quant_lib, "CompositeExplicitAutograd")
+def _dequantize_affine(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """op definition that has compatible signatures with custom op library"""
+    return _dequantize_affine_impl(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        input_dtype,
+        quant_min,
+        quant_max,
+        output_dtype,
+    )
+
+
+@torch.library.impl(quant_lib, "dequantize_affine", "Meta")
+def _dequantize_affine_meta(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    return torch.empty_like(input, dtype=output_dtype)
 
 
 def _dequantize_affine_no_dtype_check(
@@ -1501,7 +1549,7 @@ def choose_qparams_affine_with_min_max(
     return scale.to(dtype=scale_dtype, device=min_val.device), zero_point
 
 
-@register_custom_op
+@_register_custom_op(quant_lib)
 def _choose_qparams_affine(
     input: Optional[torch.Tensor],
     mapping_type: str,
