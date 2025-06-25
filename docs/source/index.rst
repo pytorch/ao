@@ -37,12 +37,14 @@ for an overall introduction to the library and recent highlight and updates.
    :maxdepth: 1
    :caption: Eager Quantization Tutorials
 
+   pretraining
+   finetuning
+   serving
+   torchao_vllm_integration
    serialization
+   static_quantization
    subclass_basic
    subclass_advanced
-   static_quantization
-   pretraining
-   torchao_vllm_integration
 
 .. toctree::
    :glob:
