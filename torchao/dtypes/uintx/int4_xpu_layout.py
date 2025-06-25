@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -89,26 +95,22 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
     return y.to(orig_dtype)
 
 
-def _linear_bf16_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, bias):
+def _linear_fp_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, bias):
     return (
-        # input is native bfloat16 tensor
         not is_traceable_wrapper_subclass(input_tensor)
-        and input_tensor.dtype == torch.bfloat16
         and
         # weight is uint4, group quantized tensor_core_tiled tensor impl affine quantized tensor
         isinstance(weight_tensor, AffineQuantizedTensor)
         and _aqt_is_xpu_layout_uint4(weight_tensor)
-        and weight_tensor.dtype == torch.bfloat16
         and len(weight_tensor.shape) == 2
         and weight_tensor.zero_point_domain == ZeroPointDomain.INT
         and weight_tensor.tensor_impl.scale_and_zero is None
-        and weight_tensor.tensor_impl.scale.dtype == torch.bfloat16
         and weight_tensor.tensor_impl.zero.dtype == torch.int8
         and isinstance(weight_tensor._layout, Int4XPULayout)
     )
 
 
-def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias):
+def _linear_fp_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias):
     assert weight_tensor.block_size[0] == 1, (
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
     )
@@ -129,7 +131,7 @@ def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bi
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
 
-    act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1])
 
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
@@ -246,14 +248,15 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(_layout, Int4XPULayout)
 
-        from torchao.quantization.utils import convert_weight_to_int4pack_xpu
-
         if TORCH_VERSION_AT_LEAST_2_8:
             assert int_data.dtype == torch.int32, (
                 "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             )
-            packed_weight = convert_weight_to_int4pack_xpu(
-                int_data, zero_point.dtype != scale.dtype
+            packed_weight = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(
+                torch.uint8
+            )
+            packed_weight = torch.ops.aten._convert_weight_to_int4pack(
+                packed_weight.contiguous(), 8
             )
         else:
             assert False, "INT4 not supported on XPU until 2.8"
@@ -374,7 +377,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.quant_primitives import (
-            ZeroPointDomain,
+            _quantize_affine_tinygemm,
             quantize_affine,
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
@@ -398,7 +401,6 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         quant_max = 15
         assert len(block_size) == 2 and block_size[0] == 1
         if self.scale_and_zero is None:
-            zero_point_domain = ZeroPointDomain.INT
             dequantized = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
                 torch.eye(eye_shape, device=device, dtype=original_dtype),
                 self.packed_weight,
@@ -415,10 +417,8 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 target_dtype,
                 quant_min,
                 quant_max,
-                zero_point_domain,
             )
         else:
-            zero_point_domain = ZeroPointDomain.FLOAT
             dequantized = torch.ops.aten._weight_int4pack_mm(
                 torch.eye(eye_shape, device=device, dtype=original_dtype),
                 self.packed_weight,
@@ -429,7 +429,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
             scale = scale.reshape(scale.shape[:-1]).contiguous()
             zero = zero.reshape(zero.shape[:-1]).contiguous()
-            int_data = quantize_affine(
+            int_data = _quantize_affine_tinygemm(
                 dequantized,
                 block_size,
                 scale,
@@ -437,7 +437,6 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 target_dtype,
                 quant_min,
                 quant_max,
-                zero_point_domain,
             )
         return int_data, scale, zero
 

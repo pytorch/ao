@@ -17,6 +17,8 @@ and composable with key systems such as autograd, ```torch.compile``` and distri
 This is the default recipe, with a good balance of performance and accuracy.
 
 ```python
+import time
+
 import torch
 import torch.nn as nn
 from torchao.float8 import convert_to_float8_training
@@ -26,11 +28,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
     raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
+M, K, N = 4096, 8192, 4096
 m = nn.Sequential(
-    nn.Linear(2048, 4096),
-    nn.Linear(4096, 128),
+    nn.Linear(K, N, bias=False),
+    nn.Linear(N, 128, bias=False),
 ).bfloat16().cuda()
-x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
+x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 optimizer = torch.optim.SGD(m.parameters(), lr=0.1)
 
 # optional: filter modules from being eligible for float8 conversion
@@ -50,12 +53,26 @@ convert_to_float8_training(m, module_filter_fn=module_filter_fn)
 # enable torch.compile for competitive performance
 m = torch.compile(m)
 
+# warm up torch.compile for a clean training time measurement
+for _ in range(1):
+    optimizer.zero_grad()
+    y = m(x)
+    y.sum().backward()
+    optimizer.step()
+
+torch.cuda.synchronize()
+start_time = time.time()
+
 # toy training loop
 for _ in range(10):
     optimizer.zero_grad()
     y = m(x)
     y.sum().backward()
     optimizer.step()
+
+torch.cuda.synchronize()
+end_time = time.time()
+print("Training time:", end_time - start_time)
 ```
 
 ## float8 linear with rowwise scaling
@@ -115,7 +132,9 @@ on using `torchao.float8` in a distributed setting.
 
 # Performance
 
-A common question about float8 training is "when is float8 linear faster vs bfloat16?".  Given the M, K, N of the forward pass through your linear, you can reference the table below for a microbenchmark based speedup estimate on NVIDIA H100:
+A common question about float8 training is "when is float8 linear faster vs bfloat16?".  Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100:
+
+### Tensorwise scaling
 
 <img width="805" alt="float8_speedup" src="https://github.com/user-attachments/assets/5c5f2817-7eb7-4cab-bd03-49fe70cd31a8">
 
@@ -134,6 +153,11 @@ To reproduce the raw data for table above, you can run the following script
 ```lang=shell
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
 ```
+
+### Rowwise scaling
+
+<img width="805" alt="float8_rowwise_speedup" src="../../docs/static/fp8-rowwise-perf.png" />
+
 
 ## Derivation
 

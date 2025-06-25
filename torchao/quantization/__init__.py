@@ -15,10 +15,8 @@ from .autoquant import (
 )
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightLinear,
-    Int8DynActInt4WeightQuantizer,
+    MultiTensor,
+    MultiTensorInputRecorder,
 )
 from .granularity import (
     PerAxis,
@@ -34,13 +32,18 @@ from .linear_activation_quantized_tensor import (
 from .linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
 )
+from .linear_quant_modules import (
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightLinear,
+    Int8DynActInt4WeightQuantizer,
+)
 from .observer import (
     AffineQuantizedMinMaxObserver,
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    AOPerModuleConfig,
     CutlassInt4PackedLayout,
+    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
@@ -55,6 +58,7 @@ from .quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
@@ -79,15 +83,9 @@ from .quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
     choose_qparams_affine,
-    choose_qparams_affine_floatx,
     choose_qparams_affine_with_min_max,
-    choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
-    dequantize_affine_floatx,
-    fake_quantize_affine,
-    fake_quantize_affine_cachemask,
     quantize_affine,
-    quantize_affine_floatx,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -104,6 +102,9 @@ from .utils import (
     compute_error,
 )
 from .weight_only import WeightOnlyInt8QuantLinear
+
+# TODO: remove after migration of APIs are done
+AOPerModuleConfig = ModuleFqnToConfig
 
 __all__ = [
     # top level API - auto
@@ -146,6 +147,8 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
+    "ModuleFqnToConfig",
+    "FbgemmConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -162,14 +165,8 @@ __all__ = [
     # quant primitive ops
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
-    "choose_qparams_affine_floatx",
     "quantize_affine",
-    "quantize_affine_floatx",
     "dequantize_affine",
-    "dequantize_affine_floatx",
-    "choose_qparams_and_quantize_affine_hqq",
-    "fake_quantize_affine",
-    "fake_quantize_affine_cachemask",
     # operators/kernels
     "safe_int_mm",
     "int_scaled_matmul",
@@ -185,9 +182,7 @@ __all__ = [
     "PerRow",
     "PerToken",
     "LinearActivationQuantizedTensor",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
     "WeightOnlyInt8QuantLinear",
@@ -198,4 +193,8 @@ __all__ = [
     "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
+    # GPTQ
+    "Int4WeightOnlyGPTQQuantizer",
+    "MultiTensor",
+    "MultiTensorInputRecorder",
 ]

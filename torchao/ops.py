@@ -43,6 +43,9 @@ lib.define(
     "sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale=None) -> (Tensor, Tensor)"
 )
 lib.define(
+    "sparse24_fp8_sm90_cutlass_gemm(Tensor a, Tensor a_mdata, Tensor b, *, Tensor? a_scale = None, Tensor? b_scale = None, int swizzle_size=8, str swizzle_axis='n', int sm_count=128) -> Tensor"
+)
+lib.define(
     "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
 )
 lib.define(
@@ -57,6 +60,15 @@ lib.define(
 lib.define(
     "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
     tags=[torch._C.Tag.needs_fixed_stride_order],
+)
+lib.define(
+    "qscaled_dot_product(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float? scale=None, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
+)
+lib.define(
+    "da8w4_linear_prepack_cpu(Tensor weight, Tensor scales, Tensor qzeros) -> (Tensor, Tensor, Tensor, Tensor)"
+)
+lib.define(
+    "da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor"
 )
 
 
@@ -160,6 +172,92 @@ def _(
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def qscaled_dot_product(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Optional[Tensor] = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: Optional[float] = None,
+    q_scale: float = 1.0,
+    q_zp: int = 0,
+    k_scale: float = 1.0,
+    k_zp: int = 0,
+    v_scale: float = 1.0,
+    v_zp: int = 0,
+    a_scale: float = 1.0,
+    a_zp: int = 0,
+    o_scale: float = 1.0,
+    o_zp: int = 0,
+) -> Tensor:
+    """
+    Quantized SDPA with quantized inputs and outputs.
+    Arguments
+        query: input query tensor,
+        key: input key tensor,
+        value: input value tensor,
+        attn_mask: attention mask tensor,
+        dropout_p: dropout probability,
+        is_causal: causal flag,
+        scale: scaling factor applied prior to softmax,
+        q_scale: scale for query from linear quantization,
+        q_zp: zero point for query from linear quantization,
+        k_scale: scale for key from linear quantization,
+        k_zp: zero point of key from linear quantization,
+        v_scale: zero point for value from linear quantization,
+        v_zp: zero point of value from linear quantization,
+        a_scale: scale for attention from softmax quantization,
+        a_zp: zero point for attention from softmax quantization,
+        o_scale: scale for output from linear quantization,
+        o_zp: zero point for output from linear quantization,
+    Returns
+        output of quantized SDPA
+    """
+    return torch.ops.torchao.qscaled_dot_product.default(
+        query,
+        key,
+        value,
+        attn_mask,
+        dropout_p,
+        is_causal,
+        scale,
+        q_scale,
+        q_zp,
+        k_scale,
+        k_zp,
+        v_scale,
+        v_zp,
+        a_scale,
+        a_zp,
+        o_scale,
+        o_zp,
+    )
+
+
+@register_custom_op("torchao::qscaled_dot_product")
+def _(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Optional[Tensor] = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: Optional[float] = None,
+    q_scale: float = 1.0,
+    q_zp: int = 0,
+    k_scale: float = 1.0,
+    k_zp: int = 0,
+    v_scale: float = 1.0,
+    v_zp: int = 0,
+    a_scale: float = 1.0,
+    a_zp: int = 0,
+    o_scale: float = 1.0,
+    o_zp: int = 0,
+) -> Tensor:
+    return query
 
 
 def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
@@ -751,6 +849,66 @@ def sparse24_sm90_sparsify(
     )
 
 
+@register_custom_op("torchao::sparse24_sm90_sparsify")
+def _(
+    input_tensor: Tensor,
+    metadata_format: str,
+    activation: str,
+    algorithm: str,
+    dtype=None,
+    scale=None,
+):
+    out_dtype = dtype if dtype is not None else input_tensor.dtype
+    return (
+        torch.empty(
+            (input_tensor.shape[0], input_tensor.shape[1] // 2),
+            dtype=out_dtype,
+            device=input_tensor.device,
+        ),
+        torch.empty(
+            (input_tensor.shape[0], input_tensor.shape[1] // 8),
+            dtype=torch.uint8,
+            device=input_tensor.device,
+        ),
+    )
+
+
+def sparse24_fp8_sm90_cutlass_gemm(
+    a: Tensor,
+    meta: Tensor,
+    b: Tensor,
+    a_scale: Optional[Tensor] = None,
+    b_scale: Optional[Tensor] = None,
+    swizzle_size: int = 8,
+    swizzle_axis: str = "n",
+    sm_count: int = 128,
+) -> Tensor:
+    return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
+        a,
+        meta,
+        b,
+        a_scale=a_scale,
+        b_scale=b_scale,
+        swizzle_size=swizzle_size,
+        swizzle_axis=swizzle_axis,
+        sm_count=sm_count,
+    )
+
+
+@register_custom_op("torchao::sparse24_fp8_sm90_cutlass_gemm")
+def _(
+    a: Tensor,
+    meta: Tensor,
+    b: Tensor,
+    a_scale: Optional[Tensor] = None,
+    b_scale: Optional[Tensor] = None,
+    swizzle_size: int = 8,
+    swizzle_axis: str = "n",
+    sm_count: int = 128,
+):
+    return torch.empty((a.shape[0], b.shape[1]), dtype=torch.bfloat16, device=a.device)
+
+
 def swizzle_mm(
     mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
 ) -> Tensor:
@@ -870,3 +1028,81 @@ def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Meta impl for mx_fp4_bf16"""
     # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
     return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
+
+
+def da8w4_linear_prepack_cpu(
+    weight: Tensor,
+    scales: Tensor,
+    qzeros: Tensor,
+) -> Tensor:
+    """
+    Prepack weights for DA8W4 linear operator on CPU.
+    Args:
+        weight: weight tensor.
+        scales: scales for weight tensor.
+        qzeros: zero points for weight tensor.
+    Returns:
+        packed weight, scales, and zero points.
+    """
+    return torch.ops.torchao.da8w4_linear_prepack_cpu.default(weight, scales, qzeros)
+
+
+@register_custom_op("torchao::da8w4_linear_prepack_cpu")
+def _(weight: Tensor, scales: Tensor, qzeros: Tensor) -> Tensor:
+    return weight, scales, qzeros, torch.Tensor()
+
+
+def da8w4_linear_cpu(
+    input: Tensor,
+    input_scales: Tensor,
+    input_qzeros: Tensor,
+    weight: Tensor,
+    weight_scales: Tensor,
+    weight_qzeros: Tensor,
+    compensation: Tensor,
+    bias: Optional[Tensor],
+    out_dtype: torch.dtype,
+):
+    """
+    DA8W4 linear operator on CPU.
+    Args:
+        input: input tensor.
+        input_scales: scales for input tensor.
+        input_qzeros: zero points for input tensor.
+        weight: weight tensor.
+        weight_scales: scales for weight tensor.
+        weight_qzeros: zero points for weight tensor.
+        compensation: compensation tensor for weight.
+        bias: optional bias tensor.
+        out_dtype: output data type.
+    Returns:
+        output tensor in out_dtype.
+    """
+    return torch.ops.torchao.da8w4_linear_cpu.default(
+        input,
+        input_scales,
+        input_qzeros,
+        weight,
+        weight_scales,
+        weight_qzeros,
+        compensation,
+        bias,
+        out_dtype,
+    )
+
+
+@register_custom_op("torchao::da8w4_linear_cpu")
+def _(
+    input: Tensor,
+    input_scales: Tensor,
+    input_qzeros: Tensor,
+    weight: Tensor,
+    weight_scales: Tensor,
+    weight_qzeros: Tensor,
+    compensation: Tensor,
+    bias: Optional[Tensor],
+    out_dtype: torch.dtype,
+) -> Tensor:
+    assert weight.dim() == 4
+    N = weight.size(0) * weight.size(3) * 2
+    return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)

@@ -17,7 +17,10 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    _quantize_affine_tinygemm,
+)
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -147,7 +150,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         device = kwargs["device"]
         if not is_device(torch.device(self.device).type, device):
             raise ValueError(
-                f"Int4CPUAQTTensorImpl does not support conversion from {self.device} to {device}"
+                f"{self.__class__.__name__} does not support conversion from {self.device} to {device}"
             )
         return self.__class__(
             self.packed_weight.to(device),
@@ -178,18 +181,6 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
 
-        if func is aten.t.default:
-            """we don't need to repack the weight and just rely on external
-            shape being changed and record the status of transpose/no-transpose
-            """
-            transposed = Int4CPUAQTTensorImpl(
-                args[0].packed_weight,
-                args[0].scale_and_zero,
-                not args[0].transposed,
-                args[0]._layout,
-            )
-            return return_and_correct_aliasing(func, args, kwargs, transposed)
-
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim in [0, 1]:
@@ -214,11 +205,11 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
-                    f"Int4CPUAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+                    f"{cls.__name__} dispatch: attempting to run {func}, with dim={dim}, that is not supported"
                 )
 
         raise NotImplementedError(
-            f"Int4CPUAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
+            f"{cls.__name__} dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -236,10 +227,6 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         return (1, groupsize)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        from torchao.quantization.quant_primitives import (
-            ZeroPointDomain,
-            quantize_affine,
-        )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
         scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
@@ -255,7 +242,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        zero_point_domain = ZeroPointDomain.FLOAT
+        # zero_point_domain is ZeroPointDomain.FLOAT  # TODO: clean up later
         assert len(block_size) == 2 and block_size[0] == 1
         dequantized = torch.ops.aten._weight_int4pack_mm_for_cpu(
             torch.eye(eye_shape, device=device, dtype=original_dtype),
@@ -267,7 +254,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
         scale = scale.reshape(scale.shape[:-1]).contiguous()
         zero = zero.reshape(zero.shape[:-1]).contiguous()
-        int_data = quantize_affine(
+        int_data = _quantize_affine_tinygemm(
             dequantized,
             block_size,
             scale,
@@ -275,7 +262,6 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
             target_dtype,
             quant_min,
             quant_max,
-            zero_point_domain,
         )
         return int_data, scale, zero
 

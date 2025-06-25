@@ -48,7 +48,11 @@ jobs:
         conda activate venv
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
+        pip install uv
         pip install ${{ matrix.torch-spec }}
-        pip install -r dev-requirements.txt
+        uv pip install -r dev-requirements.txt
+        uv pip install vllm
         pip install .
         pytest test/float8 --verbose -s
+        pytest test/integration --verbose -s
+        pytest test/dtypes/test_affine_quantized_float.py --verbose -s

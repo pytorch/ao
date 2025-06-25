@@ -15,11 +15,12 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import importlib.util
 import logging
 import types
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -34,6 +35,7 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
@@ -45,6 +47,8 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
+    to_fbgemm_fp8,
+    to_fbgemm_int4,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -52,8 +56,14 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
+from torchao.float8.config import e4m3_dtype, e5m2_dtype
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.inference import Float8MMConfig
+from torchao.float8.inference import (
+    Float8MMConfig,
+    FP8Granularity,
+    _check_hardware_support,
+    _normalize_granularity,
+)
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
@@ -69,6 +79,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_fbcode,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -77,9 +88,6 @@ from torchao.utils import (
 from .autoquant import AutoQuantizableLinearWeight, autoquant
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
     Granularity,
@@ -91,6 +99,10 @@ from .granularity import (
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
+)
+from .linear_quant_modules import (
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightQuantizer,
 )
 from .qat import (
     intx_quantization_aware_training,
@@ -133,8 +145,9 @@ __all__ = [
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
+    "ModuleFqnToConfig",
+    "FbgemmConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -527,6 +540,9 @@ def _quantization_type(weight: torch.Tensor):
     if isinstance(weight, LinearActivationQuantizedTensor):
         return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
 
+    if hasattr(weight, "_quantization_type"):
+        return f"{weight.__class__.__name__}({weight._quantization_type()})"
+
     if type(weight) is torch.Tensor:
         return "not quantized"
 
@@ -595,10 +611,10 @@ def quantize_(
     """
     filter_fn = _is_linear if filter_fn is None else filter_fn
 
-    if isinstance(config, AOPerModuleConfig):
+    if isinstance(config, ModuleFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            _ao_per_module_config_handler,
+            _module_fqn_to_config_handler,
             filter_fn,
             device=device,
             extra_args=(config,),
@@ -643,6 +659,38 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
         return to_affine_quantized_intx(
             x, mapping_type, _get_per_token_block_size(x), target_dtype
         )
+
+
+def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.uint8
+    scale_dtype = torch.float32
+    eps = torch.finfo(torch.float32).eps
+    zero_point_dtype = torch.int32
+    quant_min = 0
+    quant_max = 255
+    if TORCH_VERSION_AT_LEAST_2_6:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    else:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+    return out
 
 
 def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
@@ -716,7 +764,10 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
-        input_quant_func = _int8_asymm_per_token_quant
+        if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+            input_quant_func = _uint8_asymm_per_token_quant
+        else:
+            input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant
@@ -733,6 +784,16 @@ def _int8_dynamic_activation_int4_weight_transform(
         )
     elif isinstance(layout, CutlassInt4PackedLayout):
         weight = _int4_symm_cutlass_quant(weight)
+    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype=torch.uint8,
+            quant_min=0,
+            quant_max=15,
+            _layout=layout,
+        )
     else:
         weight = to_affine_quantized_intx(
             weight,
@@ -972,14 +1033,14 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
          size is more fine grained
         `bit_width`: bit width of the quantized weight.
         `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+        `mode`: if set to "dynamic", activations are quantized at runtime; default is "weight_only" (weight-only quantization).
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
-    group_size: Optional[int] = 64
+    group_size: Optional[int] = 128
     bit_width: int = 4
-    packing_bitwidth: int = 32
-    contiguous: Optional[bool] = None
+    packing_bitwidth: Optional[int] = None
+    mode: Optional[str] = "weight_only"
     set_inductor_config: bool = True
 
 
@@ -994,7 +1055,7 @@ def _gemlite_uintx_weight_only_transform(
     group_size = config.group_size
     bit_width = config.bit_width
     packing_bitwidth = config.packing_bitwidth
-    contiguous = config.contiguous
+    mode = config.mode
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1006,7 +1067,12 @@ def _gemlite_uintx_weight_only_transform(
     new_weight = to_affine_quantized_intx(
         weight,
         **get_gemlite_aqt_kwargs(
-            weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+            weight,
+            group_size=group_size,
+            bit_width=bit_width,
+            packing_bitwidth=packing_bitwidth,
+            mode=mode,
+            use_hqq=use_hqq,
         ),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
@@ -1396,7 +1462,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
         The actual matmul will be computed in original precision of the weight tensor.
     """
 
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
 
 
@@ -1436,56 +1502,9 @@ def _float8_weight_only_transform(
     return module
 
 
-_fp8_granularities = Union[PerTensor, PerRow]
-
-
-# Validate and process granularity input
-def _normalize_granularity(
-    granularity: Optional[
-        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
-    ],
-) -> Tuple[_fp8_granularities, _fp8_granularities]:
-    processed_granularity = None
-    if granularity is None:
-        processed_granularity = (PerTensor(), PerTensor())
-    elif isinstance(granularity, (PerTensor, PerRow)):
-        processed_granularity = (granularity, granularity)
-    elif isinstance(granularity, tuple) and len(granularity) == 2:
-        if not (
-            isinstance(granularity[0], (PerTensor, PerRow))
-            and isinstance(granularity[1], (PerTensor, PerRow))
-        ):
-            raise ValueError(
-                f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported."
-            )
-        if not isinstance(granularity[0], type(granularity[1])):
-            raise ValueError(
-                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
-            )
-        processed_granularity = granularity
-    else:
-        raise ValueError(
-            f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
-        )
-    # Validate granularity with supported Hardware
-    for _granularity in processed_granularity:
-        if isinstance(_granularity, PerTensor):
-            assert is_sm_at_least_89() or is_MI300(), (
-                "PerTensor quantization only works for CUDA>=8.9 and MI300+"
-            )
-        elif isinstance(_granularity, PerRow):
-            assert is_sm_at_least_90() or is_MI300(), (
-                "PerRow quantization only works for CUDA>=9.0 and MI300+"
-            )
-        else:
-            raise ValueError(f"Invalid granularity type: {_granularity}")
-
-    return processed_granularity
-
-
 def _input_activation_quant_func_fp8(
     x: torch.Tensor,
-    activation_granularity: _fp8_granularities,
+    activation_granularity: FP8Granularity,
     activation_dtype: torch.dtype,
     scale: Optional[torch.Tensor] = None,
     zero_point: Optional[torch.Tensor] = None,
@@ -1569,17 +1588,20 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
     """
 
-    activation_dtype: torch.dtype = torch.float8_e4m3fn
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
-    granularity: Optional[
-        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
-    ] = None
+    activation_dtype: torch.dtype = e4m3_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
 
     def __post_init__(self):
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
+
+        activation_granularity, weight_granularity = _normalize_granularity(
+            self.granularity
+        )
+        self.granularity = [activation_granularity, weight_granularity]
 
 
 # for bc
@@ -1592,7 +1614,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     granularity = config.granularity
     mm_config = config.mm_config
 
-    activation_granularity, weight_granularity = _normalize_granularity(granularity)
+    # Ensure works on device
+    _check_hardware_support(granularity)
+    activation_granularity, weight_granularity = granularity
 
     if not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
@@ -1660,8 +1684,8 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     """
 
     layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = torch.float8_e5m2
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    activation_dtype: torch.dtype = e5m2_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
 
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
@@ -1706,10 +1730,10 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
 
     scale: torch.Tensor
-    activation_dtype: torch.dtype = torch.float8_e4m3fn
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    activation_dtype: torch.dtype = e4m3_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[
-        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
     ] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
@@ -1835,7 +1859,7 @@ def _uintx_weight_only_transform(
 
     if use_hqq:
         if dtype == torch.uint4:
-            logger.warn(
+            logger.warning(
                 "Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance"
             )
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
@@ -2007,7 +2031,74 @@ def _fpx_weight_only_transform(
 
 
 @dataclass
-class AOPerModuleConfig(AOBaseConfig):
+class FbgemmConfig(AOBaseConfig):
+    """Quantization Config for fbgemm-genai kernels
+    Args:
+       input_dtype (torch.dtype): input dtype of the kernel
+       weight_dtype (torch.dtype): weight dtype of the kernel
+       output_dtype (torch.dtype): output dtype of the kernel
+       group_size (int): The group size for weight
+    """
+
+    input_dtype: torch.dtype
+    weight_dtype: torch.dtype
+    output_dtype: torch.dtype
+    block_size: Optional[List[int]] = None
+    activation_scale_ub: Optional[float] = None
+    transpose_input: bool = False
+
+
+@register_quantize_module_handler(FbgemmConfig)
+def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
+    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
+    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
+    if importlib.util.find_spec("fbgemm_gpu") is None:
+        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
+
+    if not is_fbcode() and fbgemm_gpu.__version__ < "1.2.0":
+        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+    _SUPPORTED_DTYPES = {
+        (torch.bfloat16, torch.int4, torch.bfloat16),
+        (e4m3_dtype, e4m3_dtype, torch.bfloat16),
+    }
+
+    if (
+        (config.input_dtype == torch.bfloat16)
+        and (config.weight_dtype == torch.int4)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        weight = to_fbgemm_int4(
+            module.weight,
+            config.block_size,
+            config.transpose_input,
+        )
+        module.weight = torch.nn.Parameter(weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
+    elif (
+        (config.input_dtype == e4m3_dtype)
+        and (config.weight_dtype == e4m3_dtype)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        weight = to_fbgemm_fp8(
+            module.weight,
+            config.activation_scale_ub,
+            config.transpose_input,
+        )
+        module.weight = torch.nn.Parameter(weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
+    else:
+        raise NotImplementedError(
+            f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"
+        )
+
+
+@dataclass
+class ModuleFqnToConfig(AOBaseConfig):
     """Per module configurations for torchao quantize_ API
 
     Args:
@@ -2023,8 +2114,8 @@ class AOPerModuleConfig(AOBaseConfig):
     )
 
 
-def _ao_per_module_config_handler(
-    module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
+def _module_fqn_to_config_handler(
+    module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
 ):
     c = None
     if module_fqn in config.module_fqn_to_config:

@@ -132,6 +132,12 @@ class ConfigJSONEncoder(json.JSONEncoder):
         if isinstance(o, list):
             return [self.encode_value(item) for item in o]
 
+        elif isinstance(o, tuple):
+            raise NotImplementedError(
+                "Tuples will be serialized as List in JSON, so we recommend to use "
+                f"Lists instead to avoid surprises. got: {o}"
+            )
+
         if isinstance(o, dict):
             return {k: self.encode_value(v) for k, v in o.items()}
 
@@ -176,6 +182,7 @@ ALLOWED_AO_MODULES = {
     "torchao.sparsity.sparse_api",
     "torchao.prototype.quantization",
     "torchao.prototype.mx_formats",
+    "torchao.dtypes",
 }
 
 
@@ -249,13 +256,18 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
             # Recursively handle nested configs
             processed_data[key] = config_from_dict(value)
         elif isinstance(value, list):
-            # Handle lists of possible configs
+            # Handle lists or tuples of possible configs
             processed_data[key] = [
                 config_from_dict(item)
                 if isinstance(item, dict) and "_type" in item and "_data" in item
                 else item
                 for item in value
             ]
+        elif isinstance(value, tuple):
+            raise NotImplementedError(
+                "Tuples will be serialized as List in JSON, so we recommend to use "
+                f"Lists instead to avoid surprises. got: {value}"
+            )
         elif isinstance(value, dict):
             # Handle dicts of possible configs
             processed_data[key] = {
