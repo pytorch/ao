@@ -116,18 +116,26 @@ def _unary_fusion_pattern(unary_fusion, call_fn, users, is_bf16):
     return unary_fusion(computation_call)
 
 
-def get_dequantize_per_tensor_activation_pattern(is_tensor_overload=False):
-    dequantize_per_tensor_activation_pattern = CallFunction(
-        quantized_decomposed.dequantize_per_tensor.tensor
-        if is_tensor_overload
-        else quantized_decomposed.dequantize_per_tensor.default,
-        KeywordArg("x"),
-        KeywordArg("x_scale"),
-        KeywordArg("x_zp"),
-        KeywordArg("x_quant_min"),
-        KeywordArg("x_quant_max"),
-        KeywordArg("x_dq_dtype"),
-    )
+def get_dequantize_per_tensor_activation_pattern(is_tensor_overload=False, is_fp8=False):
+    if is_fp8:
+        dequantize_per_tensor_activation_pattern = CallFunction(
+            torch.ops.torchao.dequantize_affine_float8.default,
+            KeywordArg("x"),
+            KeywordArg("x_scale"),
+            output_dtype=KeywordArg("x_dq_dtype"),
+        )
+    else:
+        dequantize_per_tensor_activation_pattern = CallFunction(
+            quantized_decomposed.dequantize_per_tensor.tensor
+            if is_tensor_overload
+            else quantized_decomposed.dequantize_per_tensor.default,
+            KeywordArg("x"),
+            KeywordArg("x_scale"),
+            KeywordArg("x_zp"),
+            KeywordArg("x_quant_min"),
+            KeywordArg("x_quant_max"),
+            KeywordArg("x_dq_dtype"),
+        )
     return dequantize_per_tensor_activation_pattern
 
 
@@ -491,6 +499,7 @@ def _is_valid_dequant_promotion_pattern(dtype=torch.float32):
         if dequant_pattern_end_node.target not in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
+            torch.ops.torchao.dequantize_affine_float8.default,
             prims.convert_element_type.default,
             aten.reshape.default,
         ]:
@@ -520,6 +529,7 @@ def _is_valid_dequant_promotion_pattern(dtype=torch.float32):
             in [
                 quantized_decomposed.dequantize_per_tensor.default,
                 quantized_decomposed.dequantize_per_tensor.tensor,
+                torch.ops.torchao.dequantize_affine_float8.default,
             ]
             and len(list(dequant_pattern_end_node.users)) > 1
         ):
@@ -586,6 +596,7 @@ def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
         assert dequant_pattern_end_node.target in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
+            torch.ops.torchao.dequantize_affine_float8.default,
             prims.convert_element_type.default,
             aten.reshape.default,
         ]
@@ -598,6 +609,7 @@ def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
             if _node.target in [
                 quantized_decomposed.dequantize_per_tensor.default,
                 quantized_decomposed.dequantize_per_tensor.tensor,
+                torch.ops.torchao.dequantize_affine_float8.default,
             ]:
                 # For a dequant pattern, we expect the start node is a dequantize_per_tensor node
                 return _node
@@ -614,6 +626,7 @@ def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
         assert dequant_pattern_start_node.target in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
+            torch.ops.torchao.dequantize_affine_float8.default,
         ]
 
         # Clone the dequant pattern for each user node
@@ -1332,9 +1345,9 @@ def _generate_linear_dynamic_fp16_pattern(
 
 def _register_dequant_promotion():
     dequant_pattern_cases = itertools.product(
-        [torch.float32, torch.bfloat16], [True, False], [True, False]
+        [torch.float32, torch.bfloat16], [True, False], [True, False], [True, False]
     )
-    for dtype, input_dim_exceeds_two, is_tensor_overload in dequant_pattern_cases:
+    for dtype, input_dim_exceeds_two, is_tensor_overload, is_fp8 in dequant_pattern_cases:
         # 4 dequantization patterns will be matched based on the dtype and input dimension size.
         # Case 1: int8-mixed-fp32, input dim size is 2
         # Case 2: int8-mixed-fp32, input dim size exceeds 2
@@ -1355,11 +1368,15 @@ def _register_dequant_promotion():
         #  OPT(to_fp32) OPT(to_fp32)
         #   + - - | - - - | - - +
         #       quant   quant
+        if is_fp8 and not is_tensor_overload:
+            continue
+
         _register_dequant_promotion_pass(
             _may_generate_pattern_with_reshape(
                 _may_generate_pattern_with_dtype_convert(
                     get_dequantize_per_tensor_activation_pattern(
-                        is_tensor_overload=is_tensor_overload
+                        is_tensor_overload=is_tensor_overload,
+                        is_fp8=is_fp8,
                     ),
                     KeywordArg("autocast_act_dtype"),
                     dtype == torch.bfloat16,
@@ -2853,7 +2870,7 @@ def _register_scaled_mm_pass(pattern, dtype, input_dim_exceeds_two):
     @register_freezing_graph_pattern(
         pattern,
         extra_check=_is_valid_scaled_mm_pattern(dtype, input_dim_exceeds_two),
-        pass_number=0,
+        pass_number=1,
     )
     def scaled_mm_fusion(match: Match, *args, **kwargs):
         input_contiguous = True
