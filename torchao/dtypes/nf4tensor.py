@@ -22,7 +22,51 @@ aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
 
 
-NF4_OPS_TABLE: Dict[Any, Any] = {}
+def nf4_all_gather_into_tensor(func, *args, **kwargs):
+    nf4tensor = args[0][0]
+    group_size = args[0][1]
+    name = args[0][2]
+    updated_attrs = {}
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        updated_attrs[attr] = func(getattr(nf4tensor, attr), group_size, name)
+    updated_attrs.update(
+        {
+            "size": torch.Size((nf4tensor.size()[0] * group_size, nf4tensor.size()[1])),
+        }
+    )
+    updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+    return updatedNF4Tensor
+
+
+def scatter_nf4tensor(func, *args, **kwargs):
+    output_tensor = args[0][0][0]
+    input_tensors = args[0][1]
+    process_group = args[0][2]
+    src = args[0][3]
+    asyncOp = args[0][4]
+    new_attr, update_work = [], []
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        input_attrs = []
+        if input_tensors:
+            for input_tensor in input_tensors[0]:
+                if hasattr(input_tensor, attr):
+                    input_attrs.append(getattr(input_tensor, attr))
+            input_attrs = [input_attrs]
+        new_attr, update_work = func(
+            [getattr(output_tensor, attr)],
+            input_attrs,
+            process_group,
+            src,
+            asyncOp,
+        )
+    # there are 3 works, return one of them, same as the tensor to fit the required output format
+    return new_attr, update_work
+
+
+NF4_OPS_TABLE: Dict[Any, Any] = {
+    torch.ops._c10d_functional.all_gather_into_tensor.default: nf4_all_gather_into_tensor,
+    torch.ops.c10d.scatter_.default: scatter_nf4tensor,
+}
 
 
 _INNER_TENSOR_NAMES_FOR_SHARDING = [
@@ -475,27 +519,6 @@ def nf4_cat(aten_op: torch._ops.OpOverload, args, kwargs=None):
 
 @implements(
     [
-        torch.ops._c10d_functional.all_gather_into_tensor.default,
-    ]
-)
-def all_gather_into_tensor(func, *args, **kwargs):
-    nf4tensor = args[0][0]
-    group_size = args[0][1]
-    name = args[0][2]
-    updated_attrs = {}
-    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
-        updated_attrs[attr] = func(getattr(nf4tensor, attr), group_size, name)
-    updated_attrs.update(
-        {
-            "size": torch.Size((nf4tensor.size()[0] * group_size, nf4tensor.size()[1])),
-        }
-    )
-    updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-    return updatedNF4Tensor
-
-
-@implements(
-    [
         torch.ops._c10d_functional.wait_tensor.default,
     ]
 )
@@ -506,34 +529,6 @@ def wait_tensor(func, *args, **kwargs):
         updated_attrs[attr] = func(getattr(nf4tensor, attr))
     updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
     return updatedNF4Tensor
-
-
-@implements([torch.ops.c10d.scatter_.default])
-def scatter_nf4tensor(func, *args, **kwargs):
-    output_tensor = args[0][0][0]
-    input_tensors = args[0][1]
-    process_group = args[0][2]
-    src = args[0][3]
-    asyncOp = args[0][4]
-    timeout = args[0][5]
-    new_attr, update_work = [], []
-    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
-        input_attrs = []
-        if input_tensors:
-            for input_tensor in input_tensors[0]:
-                if hasattr(input_tensor, attr):
-                    input_attrs.append(getattr(input_tensor, attr))
-            input_attrs = [input_attrs]
-        new_attr, update_work = func(
-            [getattr(output_tensor, attr)],
-            input_attrs,
-            process_group,
-            src,
-            asyncOp,
-            timeout,
-        )
-    # there are 3 works, return one of them, same as the tensor to fit the required output format
-    return new_attr, update_work
 
 
 @dataclass(frozen=True)
