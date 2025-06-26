@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 from typing import Any, Optional, Tuple
 
 import torch
@@ -18,6 +19,10 @@ from torchao.prototype.moe_training import _scaled_grouped_mm
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> eb2dd3e0 (fix dtype bug)
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
     torch.ops.aten.new_zeros.default,
@@ -96,6 +101,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        logger.debug(f"{func.__name__}, args={args}, kwargs={kwargs}")
         # detach is special case
         if func == torch.ops.aten.detach.default:
             return ScaledGroupedMMTensor(args[0]._data, args[0]._dtype)
@@ -134,6 +140,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     def __tensor_flatten__(self):
         return ["_data"], {"_dtype": self._dtype}
+
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
