@@ -192,20 +192,9 @@ class Float8LinearConfig:
     # If True, emulation is used instead of hardware accelerated gemm
     emulate: bool = False
 
-    # If the option is enabled, fp8_weight will always be re-computed in backward.
-    # It's recommended to enable this flag when using FSDP.
-    # Otherwise, the entire fp8_weight, instead of the sharded weight may be saved.
-    # If using outer activation checkpointing context or SAC, you may disable this option
-    # and handle the recomputation of fp8 weight in your customized AC context.
-    #
-    # Details:
-    # When using float8 training with FSDP, the original weight is sharded; fp8_weight (in forward) and fp8_weight_transpose (in backward) are used by the model.
-    # However, when partitioning the forward_backward graph, torch.compile may decide to
-    # save the fp8_weight_transpose for backward, which is an un-sahrded weight and costs a high memory utilization.
-    # The longer-term solution is to let compile decide how to partition the graph with optimal computation and memory savings.
-    # For now, we use the checkpointing api to force the recomputation of fp8 weight in backward.
-    # TODO(future PR): either enable by default or have a warning and set up the
-    # tests so that the warning does not spam the CI stdout.
+    # This flag is deprecated and currently has no effect. It will be removed
+    # in a future release. Please see https://github.com/pytorch/ao/issues/2251
+    # for more context.
     force_recompute_fp8_weight_in_bwd: bool = False
 
     # If this option is enabled, the scaling factor used for float8 quantization
@@ -278,13 +267,9 @@ class Float8LinearConfig:
                 f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
             )
 
-        # See the comments around `force_recompute_fp8_weight_in_bwd` for more details of this warning.
-        if (
-            self.enable_fsdp_float8_all_gather
-            and not self.force_recompute_fp8_weight_in_bwd
-        ):
+        if self.force_recompute_fp8_weight_in_bwd:
             logger.warning(
-                "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
+                "`config.force_recompute_fp8_weight_in_bwd` is deprecated and will be removed in a future release. Please see https://github.com/pytorch/ao/issues/2251 for more details."
             )
 
     @staticmethod

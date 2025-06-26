@@ -742,10 +742,16 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
 
         bit_width = 4
         packing_bitwidth = None
+        mode = "weight_only"
         use_hqq = True
 
         aqt_kwargs = get_gemlite_aqt_kwargs(
-            weight, cls.group_size, bit_width, packing_bitwidth, use_hqq
+            weight,
+            group_size=cls.group_size,
+            bit_width=bit_width,
+            packing_bitwidth=packing_bitwidth,
+            mode=mode,
+            use_hqq=use_hqq,
         )
         weight = to_affine_quantized_intx(weight, **aqt_kwargs)
         input_quant_func = _to_float16
