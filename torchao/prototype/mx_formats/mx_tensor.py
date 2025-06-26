@@ -331,6 +331,8 @@ def to_mx(
         raise AssertionError("unsupported")
 
     scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
+    scale_shape = [*orig_shape[:-1], orig_shape[-1] // block_size]
+    scale_e8m0_biased = scale_e8m0_biased.reshape(scale_shape)
     return scale_e8m0_biased, data_lp
 
 
