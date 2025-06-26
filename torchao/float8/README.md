@@ -12,16 +12,12 @@ and composable with key systems such as autograd, ```torch.compile``` and distri
 
 # Single GPU User API
 
-## float8 linear with dynamic tensorwise scaling
-
-This is the default recipe, with a good balance of performance and accuracy.
-
 ```python
 import time
 
 import torch
 import torch.nn as nn
-from torchao.float8 import convert_to_float8_training
+from torchao.float8 import convert_to_float8_training, Float8LinearConfig
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
@@ -47,8 +43,15 @@ def module_filter_fn(mod: torch.nn.Module, fqn: str):
             return False
     return True
 
+# configure float8 recipe
+# valid recipe names: "tensorwise", "rowwise", "rowwise_with_gw_hp"
+config = Float8LinearConfig.from_recipe_name("tensorwise")
+
 # convert specified `torch.nn.Linear` modules to `Float8Linear`
-convert_to_float8_training(m, module_filter_fn=module_filter_fn)
+convert_to_float8_training(m, config=config, module_filter_fn=module_filter_fn)
+
+# display converted model
+print(m)
 
 # enable torch.compile for competitive performance
 m = torch.compile(m)
@@ -73,55 +76,6 @@ for _ in range(10):
 torch.cuda.synchronize()
 end_time = time.time()
 print("Training time:", end_time - start_time)
-```
-
-## float8 linear with rowwise scaling
-
-This is a more accurate recipe compared to tensorwise, with more granular scaling.
-
-```python
-import torch
-import torch.nn as nn
-from torchao.float8 import convert_to_float8_training, Float8LinearConfig
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
-
-# create model and sample input
-m = nn.Sequential(
-    nn.Linear(2048, 4096),
-    nn.Linear(4096, 128),
-).bfloat16().cuda()
-x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
-optimizer = torch.optim.SGD(m.parameters(), lr=0.1)
-
-# optional: filter modules from being eligible for float8 conversion
-def module_filter_fn(mod: torch.nn.Module, fqn: str):
-    # don't convert the last module
-    if fqn == "1":
-        return False
-    # don't convert linear modules with weight dimensions not divisible by 16
-    if isinstance(mod, torch.nn.Linear):
-        if mod.in_features % 16 != 0 or mod.out_features % 16 != 0:
-            return False
-    return True
-
-# configure rowwise scaling
-config = Float8LinearConfig.from_recipe_name("rowwise")
-
-# convert specified `torch.nn.Linear` modules to `Float8Linear`
-convert_to_float8_training(m, config=config, module_filter_fn=module_filter_fn)
-
-# enable torch.compile for competitive performance
-m = torch.compile(m)
-
-# toy training loop
-for _ in range(10):
-    optimizer.zero_grad()
-    y = m(x)
-    y.sum().backward()
-    optimizer.step()
 ```
 
 # Multi GPU User API
