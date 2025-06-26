@@ -7,7 +7,7 @@ import functools
 import math
 import sys
 from dataclasses import dataclass, replace
-from enum import Enum, auto
+from enum import auto, Enum
 from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
@@ -41,9 +41,6 @@ def nf4_all_gather_into_tensor(func, *args, **kwargs):
 def scatter_nf4tensor(func, *args, **kwargs):
     output_tensor = args[0][0][0]
     input_tensors = args[0][1]
-    process_group = args[0][2]
-    src = args[0][3]
-    asyncOp = args[0][4]
     new_attr, update_work = [], []
     for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         input_attrs = []
@@ -53,11 +50,7 @@ def scatter_nf4tensor(func, *args, **kwargs):
                     input_attrs.append(getattr(input_tensor, attr))
             input_attrs = [input_attrs]
         new_attr, update_work = func(
-            [getattr(output_tensor, attr)],
-            input_attrs,
-            process_group,
-            src,
-            asyncOp,
+            [getattr(output_tensor, attr)], input_attrs, *args[0][2:]
         )
     # there are 3 works, return one of them, same as the tensor to fit the required output format
     return new_attr, update_work
@@ -242,9 +235,9 @@ def nf4_split(aten_op, args, kwargs=None):
     attr_to_chunks = {}
     for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
-        assert inner_tensor.numel() % num_chunks == 0, (
-            f"{attr}.numel() not divisible by {num_chunks}"
-        )
+        assert (
+            inner_tensor.numel() % num_chunks == 0
+        ), f"{attr}.numel() not divisible by {num_chunks}"
         chunks = aten_op(inner_tensor, inner_tensor.numel() // num_chunks, **kwargs)
         attr_to_chunks[attr] = chunks
 
@@ -285,9 +278,9 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
     updated_attrs = {}
     for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
-        assert inner_tensor.size(0) % ratio == 0, (
-            f"{attr}.numel() must be divisible by {ratio}"
-        )
+        assert (
+            inner_tensor.size(0) % ratio == 0
+        ), f"{attr}.numel() must be divisible by {ratio}"
         inner_tensor = aten_op(inner_tensor, [inner_tensor.size(0) // ratio], **kwargs)
         updated_attrs[attr] = inner_tensor
     updated_attrs["size"] = new_size
@@ -552,9 +545,9 @@ def get_block_absmax(input_tensor: torch.Tensor, block_size: int) -> torch.Tenso
         torch.Tensor: Tensor of scalers for each block
     """
     assert input_tensor.dim() == 1, "Input tensor must be flattened"
-    assert (input_tensor.numel() % block_size) == 0, (
-        f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
-    )
+    assert (
+        input_tensor.numel() % block_size
+    ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
 
     n_blocks = input_tensor.numel() // block_size
     blocks = input_tensor.view(n_blocks, block_size)
@@ -637,12 +630,12 @@ class NF4Tensor(torch.Tensor):
         block_size: int,
         scaler_block_size: int,
     ):
-        assert input_tensor.dim() <= 2, (
-            f"expect input tensor dim <= 2 but got dim = {input_tensor.dim()}"
-        )
-        assert input_tensor.numel() % block_size == 0, (
-            f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
-        )
+        assert (
+            input_tensor.dim() <= 2
+        ), f"expect input tensor dim <= 2 but got dim = {input_tensor.dim()}"
+        assert (
+            input_tensor.numel() % block_size == 0
+        ), f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
         assert input_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
         # assert not input_tensor.requires_grad, "Input tensor must not require grad"
@@ -723,9 +716,9 @@ class NF4Tensor(torch.Tensor):
                 size: (n_scaler_blocks)
         """
         assert input_tensor.dim() == 1, "Input tensor must be flattened"
-        assert (input_tensor.numel() % scaler_block_size) == 0, (
-            f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
-        )
+        assert (
+            input_tensor.numel() % scaler_block_size
+        ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
 
         # First round of quantization
         # Produces: A tensor of size (n_blocks) of input_tensor.dtype
@@ -733,9 +726,9 @@ class NF4Tensor(torch.Tensor):
         scalers_1_mean = scalers_1.mean()
         scalers_1 = scalers_1 - scalers_1_mean
         # Second round of quantization
-        assert scalers_1.numel() % scaler_block_size == 0, (
-            f"Number of scalers must be divisible by scaler block size, got {scalers_1.numel()} scaler_block_size {scaler_block_size} "
-        )
+        assert (
+            scalers_1.numel() % scaler_block_size == 0
+        ), f"Number of scalers must be divisible by scaler block size, got {scalers_1.numel()} scaler_block_size {scaler_block_size} "
         n_scaler_blocks = scalers_1.numel() // scaler_block_size
         scaler_blocks = scalers_1.view(n_scaler_blocks, scaler_block_size)
 
@@ -777,9 +770,9 @@ class NF4Tensor(torch.Tensor):
 
         """
         assert input_tensor.dim() == 1, "Input tensor must be flattened"
-        assert (input_tensor.numel() % scaler_block_size) == 0, (
-            f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
-        )
+        assert (
+            input_tensor.numel() % scaler_block_size
+        ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
         n_scaler_blocks = input_tensor.numel() // scaler_block_size
         input_tensor = input_tensor.view(n_scaler_blocks, scaler_block_size)
         dequantized = (input_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
@@ -795,9 +788,9 @@ class NF4Tensor(torch.Tensor):
         flattened_tensor = input_tensor.flatten()
         #  Since we are using uint8 we will encode 2 entries per byte
         numel = input_tensor.numel()
-        assert numel % 2 == 0, (
-            "Number of elements must be even just to not have to think about the end"
-        )
+        assert (
+            numel % 2 == 0
+        ), "Number of elements must be even just to not have to think about the end"
         # Reshape the flattened tensor into blocks of size self.block_size
         blocks = flattened_tensor.view(n_blocks, block_size)
 
