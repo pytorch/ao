@@ -306,6 +306,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
         float res = 0.0;
         for (int k_idx = 0; k_idx < k; k_idx++) {
           int activation_idx = m_idx * k + k_idx;
+          // int weight_idx = n_idx * k + k_idx;
           int weight_idx = n_idx * k + k_idx;
           int weight_group_idx = weight_idx / weight_group_size;
 
@@ -617,10 +618,6 @@ struct groupwise_lowbit_weight_lut_test_case {
         weight_scales(weight_scales_)
   {}
 
-  //--------------------------------------------------------------------------
-  // Generator Functions (Factories)
-  //--------------------------------------------------------------------------
-
 private:
   /**
    * @brief The private "master" generator that provides maximum flexibility.
@@ -636,15 +633,12 @@ private:
     int weight_nbit, bool has_scales,
     bool has_bias, bool has_clamp) {
 
-    // --- 0. Validation and Setup ---
     const int total_weights = n * k;
-    // Frequencies are controlled by their group sizes.
-    assert(total_weights % scale_group_size == 0);
-    assert(total_weights % lut_group_size == 0);
+    assert(k % scale_group_size == 0);
+    assert(k % lut_group_size == 0);
 
-    // The number of unique scales/LUTs is derived directly from their group size.
-    const int num_scales = total_weights / scale_group_size;
-    const int num_luts = total_weights / lut_group_size;
+    const int num_scales = k / scale_group_size;
+    const int num_luts = k / lut_group_size;
     const int lut_size = 1 << weight_nbit;
     std::mt19937 gen(std::random_device{}());
 
@@ -683,15 +677,16 @@ private:
       float res = 0.0f;
       for (int k_idx = 0; k_idx < k; ++k_idx) {
         float activation_val = activations[m_idx * k + k_idx];
-        int weight_idx = n_idx * k + k_idx;
-        uint8_t qval_idx = weight_qval_indices[weight_idx];
 
-        int32_t scale_idx = weight_idx / scale_group_size;
-        int32_t lut_idx   = weight_idx / lut_group_size;
+        int weight_qval_1d_idx = k_idx * n + n_idx;
+        uint8_t qval_idx = weight_qval_indices[weight_qval_1d_idx];
 
-        // Dequantize: scale * LUT_value
+        int32_t scale_idx = k_idx / scale_group_size;
+        int32_t lut_idx   = k_idx / lut_group_size;
+
         float scale = weight_scales[scale_idx];
         float lut_val = weight_luts[lut_idx * lut_size + qval_idx];
+
         res += activation_val * (scale * lut_val);
       }
       res += bias_vec[n_idx];

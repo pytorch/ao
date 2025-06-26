@@ -869,6 +869,56 @@ void test_bitpacking_128_lowbit_values_with_lut() {
   }
 }
 
+template <int nbit>
+void test_bitpacking_128_lowbit_values_with_fp32_lut() {
+
+  constexpr int num_values = 128;
+
+  const int packed_bytes = (num_values * nbit + 7) / 8;
+  auto input = torchao::get_random_lowbit_vector(num_values, nbit);
+  std::vector<uint8_t> packed(packed_bytes, 0);
+
+  uint8x16_t idx0;
+  uint8x16_t idx1;
+  uint8x16_t idx2;
+  uint8x16_t idx3;
+  uint8x16_t idx4;
+  uint8x16_t idx5;
+  uint8x16_t idx6;
+  uint8x16_t idx7;
+
+  torchao::bitpacking::internal::vec_load_64_uint8_values(idx0, idx1, idx2, idx3, input.data());
+  torchao::bitpacking::internal::vec_load_64_uint8_values(idx4, idx5, idx6, idx7, input.data() + 64);
+
+  // generate test cases
+  auto lut = torchao::get_random_vector(16, -1.0, 1.0);
+
+  // prepare LUT
+  uint8x16x4_t luts_u8 = vld4q_u8(reinterpret_cast<const uint8_t*>(lut.data()));
+
+  // Now, just reinterpret to the signed type your function needs
+  int8x16x4_t luts = {
+    vreinterpretq_s8_u8(luts_u8.val[0]),
+    vreinterpretq_s8_u8(luts_u8.val[1]),
+    vreinterpretq_s8_u8(luts_u8.val[2]),
+    vreinterpretq_s8_u8(luts_u8.val[3])
+  };
+
+
+  torchao::bitpacking::vec_pack_128_uintx_values<nbit>(packed.data(), idx0, idx1, idx2, idx3, idx4, idx5, idx6, idx7);
+
+  std::vector<float> unpacked(num_values, 0.0f);
+  torchao::bitpacking::unpack_128_lowbit_values_with_fp32_lut<nbit>(unpacked.data(), packed.data(), luts);
+
+  for (int i = 0; i < num_values; ++i) {
+    uint8_t original_index = input[i];
+    float expected_value = lut[original_index];
+    float actual_value = unpacked[i];
+    EXPECT_FLOAT_EQ(actual_value, expected_value)
+        << "Mismatch at index " << i << " for nbit=" << nbit;
+  }
+}
+
 #define TEST_BITPACKING_32_LOWBIT_VALUES(nbit)                       \
   TEST(test_bitpacking_32_lowbit_values_##nbit, PackUnpackAreSame) { \
     test_bitpacking_32_lowbit_values<nbit>();                        \
@@ -888,6 +938,11 @@ void test_bitpacking_128_lowbit_values_with_lut() {
   TEST(test_bitpacking_128_lowbit_values_with_lut_##nbit, PackUnpackAreSame) { \
     test_bitpacking_128_lowbit_values_with_lut<nbit>();                        \
   }
+
+#define TEST_BITPACKING_128_LOWBIT_VALUES_WITH_FP32_LUT(nbit)                       \
+TEST(test_bitpacking_128_lowbit_values_with_fp32_lut_##nbit, PackUnpackAreSame) { \
+  test_bitpacking_128_lowbit_values_with_fp32_lut<nbit>();                        \
+}
 
 TEST_BITPACKING_32_LOWBIT_VALUES(1);
 TEST_BITPACKING_32_LOWBIT_VALUES(2);
@@ -915,6 +970,11 @@ TEST_BITPACKING_128_LOWBIT_VALUES(5);
 TEST_BITPACKING_128_LOWBIT_VALUES(6);
 TEST_BITPACKING_128_LOWBIT_VALUES(7);
 TEST_BITPACKING_128_LOWBIT_VALUES(8);
+
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_FP32_LUT(1);
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_FP32_LUT(2);
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_FP32_LUT(3);
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_FP32_LUT(4);
 
 TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(1);
 TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(2);
