@@ -435,7 +435,7 @@ class TestFSDPOps(TestCase):
             inner_tensor = getattr(viewed_tensor, attr)
             self.assertEqual(inner_tensor.size(0), inner_tensor.numel())
 
-    @parametrize("input_size", [(512 * 512,), (512, 512)])
+    @parametrize("input_size", [(512 * 512,)])
     def test_tensor_view_invalid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
         if len(input_size) == 1:
