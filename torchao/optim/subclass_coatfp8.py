@@ -21,46 +21,41 @@ DTYPE = torch.float8_e4m3fn
 def quantize_fp8(input: Tensor, block_size: int):
     shape = input.shape
     input = input.view(-1, block_size)
-    k = None
-    SqrtMinMax = None
 
-    scale = input.abs().amax(-1).clip(1e-12)
-
-    # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
-    # The idea is to align optimizer state distributions more closely
-    # with the FP8 representation range, reducing the quantization error.
-
-    k = torch.ones(input.shape[0], device=input.device)
-    expand_min = torch.tensor(16.0, device=input.device).view(-1, 1)
-
+    input_sign = input.sign()
     abs_input = input.abs()
+
     MaxValue = (abs_input.amax(-1) + 1e-30).view(-1, 1)
     # during min value we need to handle the case where input is 0 else this will lead to zero during min value calculation
     masked_input = torch.where(
         abs_input == 0, torch.tensor(float("inf"), device=input.device), abs_input
     )
     abs_min = masked_input.amin(-1)
-
     MinValue = (torch.where(abs_min.isinf(), 0.0, abs_min) + 1e-30).view(-1, 1)
 
+    # expand parameters
+    SqrtMinMax = torch.sqrt(MaxValue * MinValue).view(-1, 1)
     Rx = MaxValue / MinValue  # range of input max and min
-    SqrtMinMax = torch.sqrt(MaxValue) * torch.sqrt(
-        MinValue
-    )  # geomatric mean of max and min
 
-    Rdtype = torch.tensor(
-        torch.finfo(DTYPE).max * torch.finfo(DTYPE).max / 2, device=input.device
-    ).view(-1, 1)
+    # RatioUpperBound
+    Rdtype = torch.tensor(448 * 448 / 2, device=input.device)
+
+    # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
+    # The idea is to align optimizer state distributions more closely
+    # with the FP8 representation range, reducing the quantization error.
+    expand_min = torch.tensor(16.0, device=input.device).view(-1, 1)
+
+    # geometric mean of max and min
 
     k = (
         torch.floor((torch.log2(Rdtype) / torch.log2(Rx)) * expand_min) / expand_min
     ).view(-1)  # calculating optimal value k dynamically
 
-    scale = ((MaxValue / SqrtMinMax) ** k.view(-1, 1)) / torch.finfo(DTYPE).max
+    exp_avg = input / SqrtMinMax
+    input = input_sign * torch.pow(exp_avg.abs(), k.view(-1, 1))
 
-    input = (input.sign() * (input.abs() / SqrtMinMax) ** k.view(-1, 1)) / scale.view(
-        -1, 1
-    )
+    scale = ((2 * (input.abs().amax(-1) + 1e-30)) / (448 + 448)).view(-1, 1)
+    input = input / scale.view(-1, 1)
 
     k = k.view(-1)
     SqrtMinMax = SqrtMinMax.view(-1)
