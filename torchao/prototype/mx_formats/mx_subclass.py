@@ -184,6 +184,11 @@ def _nvfp4_inference_linear_transform(
 
     weight = module.weight
 
+    if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+        raise RuntimeError(
+            f"NVFP4 only supports weight shape divisible by 16, got {weight.shape}"
+        )
+
     if module.bias is not None and weight.dtype == torch.float32:
         raise RuntimeError(
             "Bias is not supported when module weight is in fp32 (out_dtype=Float32). "
@@ -193,8 +198,8 @@ def _nvfp4_inference_linear_transform(
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
         mm_config=config.mm_config,
+        is_swizzled_scales=True,
     )
-
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module

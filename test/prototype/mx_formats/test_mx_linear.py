@@ -558,11 +558,13 @@ def test_nvfp4_matmul_with_amax(
         A,
         per_tensor_scale=a_scale,
         mm_config=mm_config,
+        is_swizzled_scales=True,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
         mm_config=mm_config,
+        is_swizzled_scales=True,
     )
 
     func = torch.compile(F.linear, fullgraph=True) if compile else F.linear
