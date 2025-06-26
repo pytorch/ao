@@ -70,6 +70,7 @@ da8w4_linear_prepack_impl(
   at::Tensor compensation = weight_sub_qzero.sum(-1);
   compensation = compensation.permute({0, 2, 1}).contiguous().to(at::kInt);
 
+#if defined(CPU_CAPABILITY_AVX512)
   if (cpublas_could_pack()) {
     blocked_weight = at::empty({Nc, Kc, block_k, block_n / 2}, weight.options());
     auto weight_ptr = weight_reordered.data_ptr<uint8_t>();
@@ -105,7 +106,9 @@ da8w4_linear_prepack_impl(
         }
       }
     });
-  } else {
+  } else
+#endif
+  {
     // Pack weight: two int4 -> one int8
     using namespace at::indexing;
     at::Tensor even_columns =
