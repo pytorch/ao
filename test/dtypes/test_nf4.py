@@ -14,28 +14,28 @@ from typing import Tuple, Union
 import pytest
 import torch
 import torch.nn.functional as F
+
+import torchao
+from packaging import version
 from torch import nn
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    CheckpointWrapper,
     apply_activation_checkpointing,
+    CheckpointWrapper,
 )
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
-    TestCase,
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
+    TestCase,
 )
-
-import torchao
-from packaging import version
 from torchao.dtypes._nf4tensor_api import nf4_weight_only
 from torchao.dtypes.nf4tensor import (
     _INNER_TENSOR_NAMES_FOR_SHARDING,
-    NF4Tensor,
     linear_nf4,
+    NF4Tensor,
     to_nf4,
 )
 from torchao.testing.utils import skip_if_rocm
@@ -739,6 +739,46 @@ class TestQLoRA(FSDPTest):
                     )
             base_optim.step()
             self.assertEqual(fsdp_loss, base_loss)
+
+
+class TestComm(FSDPTest):
+    @property
+    def world_size(self) -> int:
+        return 2
+
+    @pytest.mark.skipif(
+        version.parse(torch.__version__).base_version < "2.4.0",
+        reason="torch >= 2.4 required",
+    )
+    @skip_if_lt_x_gpu(2)
+    def test_comm(self):
+        self.run_subtests(
+            {"input_size": [512, 2048]},
+            self._test_comm,
+        )
+
+    def _test_comm(self, input_size: int):
+        from torch.distributed._composable.fsdp import fully_shard
+        from torch.distributed._tensor import distribute_tensor
+
+        model = nn.Linear(input_size, input_size, device="cuda")
+        origin_tensor = model.weight
+        origin_nf4_tensor = to_nf4(origin_tensor)
+        model = fully_shard(model)
+        sharded_tensor = model.weight
+        sharded_origin_nf4_tensor = distribute_tensor(
+            origin_nf4_tensor,
+            sharded_tensor.device_mesh,
+            sharded_tensor.placements,
+        )
+
+        sharded_nf4_detach = sharded_origin_nf4_tensor.detach()
+        resumed_full_tensor = sharded_nf4_detach.full_tensor()
+
+        self.assertEqual(
+            origin_nf4_tensor.get_original_weight(),
+            resumed_full_tensor.get_original_weight(),
+        )
 
 
 instantiate_parametrized_tests(TestNF4Linear)
