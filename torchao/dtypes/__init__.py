@@ -10,6 +10,9 @@ from .affine_quantized_tensor import (
 )
 from .fbgemm_fp8_tensor import FbgemmFp8Tensor, to_fbgemm_fp8
 from .fbgemm_int4_tensor import FbgemmInt4Tensor, to_fbgemm_int4
+from .float8_activation_int4_groupwise_preshuffle_tensor import (
+    Float8ActivationInt4GroupwisePreshuffleTensor,
+)
 from .floatx import (
     CutlassSemiSparseLayout,
     Float8Layout,
@@ -70,4 +73,5 @@ __all__ = [
     "FbgemmFp8Tensor",
     "Int8DynamicActInt4WeightCPULayout",
     "Int4GroupwisePreshuffleTensor",
+    "Float8ActivationInt4GroupwisePreshuffleTensor",
 ]

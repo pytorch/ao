@@ -31,6 +31,7 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
     CutlassSemiSparseLayout,
+    Float8ActivationInt4GroupwisePreshuffleTensor,
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
@@ -2040,6 +2041,8 @@ class FbgemmConfig(AOBaseConfig):
        weight_dtype (torch.dtype): weight dtype of the kernel
        output_dtype (torch.dtype): output dtype of the kernel
        group_size (int): The group size for weight
+       preshuffle (bool): whether preshuffle the weights or not
+       float8_activation (bool): whether quantization activation to float8 (per row) or not
     """
 
     input_dtype: torch.dtype
@@ -2048,6 +2051,7 @@ class FbgemmConfig(AOBaseConfig):
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
     preshuffle: bool = False
+    float8_activation: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -2066,9 +2070,14 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         and (config.output_dtype == torch.bfloat16)
     ):
         if config.preshuffle:
-            weight = Int4GroupwisePreshuffleTensor.from_float(
-                module.weight, config.block_size
-            )
+            if config.float8_activation:
+                weight = Float8ActivationInt4GroupwisePreshuffleTensor.from_float(
+                    module.weight, config.block_size
+                )
+            else:
+                weight = Int4GroupwisePreshuffleTensor.from_float(
+                    module.weight, config.block_size
+                )
         else:
             weight = to_fbgemm_int4(
                 module.weight,
