@@ -73,6 +73,9 @@ class WeightTensorWithLinearActivationScaleMetadata(TorchAOBaseTensor):
             tensor_data_dict["scale"],
         )
 
+    def _quantization_type(self):
+        return f"{self.__class__.__name__}(original_weight_tensor={self.original_weight_tensor}, scale={self.scale})"
+
     @staticmethod
     def _quantized_linear_op(
         input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
@@ -126,7 +129,7 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements(aten.detach.default)
+@implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
