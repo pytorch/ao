@@ -49,6 +49,9 @@ def scatter_nf4tensor(func, *args, **kwargs):
         input_attrs = []
         if input_tensors:
             for input_tensor in input_tensors[0]:
+                assert input_tensor.size() == output_tensor.size(), (
+                    "Input tensor size must match output tensor size, tensors are not evenly divided."
+                )
                 if hasattr(input_tensor, attr):
                     input_attrs.append(getattr(input_tensor, attr))
             input_attrs = [input_attrs]
@@ -273,7 +276,6 @@ def nf4_split(aten_op, args, kwargs=None):
 def nf4_new_zeros(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     new_size = tuple(args[1])
-
     if nf4tensor.numel() % math.prod(new_size) != 0:
         raise NotImplementedError(f"aten.new_zeros(NF4Tensor) with new size {new_size}")
     ratio = nf4tensor.numel() // math.prod(new_size)
