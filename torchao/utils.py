@@ -216,15 +216,12 @@ def _register_custom_op(lib, inductor_decomposed=True):
         if TORCH_VERSION_AT_LEAST_2_5:
             from torch._library.infer_schema import infer_schema
 
-            # expecting fn.__name__ starts with `_` and we want to take the rest
-            # to be the name of the custom op
-            assert fn.__name__[0] == "_", (
-                f"Expecting function name starts with `_`, got {fn.__name__}"
-            )
             assert not any(c in fn.__name__ for c in ".<>"), (
                 f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
             )
-            op_name = fn.__name__[1:]
+            op_name = fn.__name__
+            if op_name[0] == "_":
+                op_name = op_name[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
             lib.impl(op_name, fn, dispatch_key)
