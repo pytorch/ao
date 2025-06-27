@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+import logging
 from typing import Callable, Optional
 
 from torch import nn
@@ -7,6 +13,8 @@ from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class MoETrainingConfig(AOBaseConfig):
@@ -76,7 +84,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data)
+            new_data = ScaledGroupedMMTensor(module.data, module.data.dtype)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -102,10 +110,13 @@ def _swap_params(
             for param_name, param in module.named_parameters(recurse=False):
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(param), requires_grad=param.requires_grad
+                        ScaledGroupedMMTensor(param.data, param.data.dtype),
+                        requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
-                    print(f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor")
+                    logger.info(
+                        f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor"
+                    )
 
     post_order_traversal(root_module)
     return root_module

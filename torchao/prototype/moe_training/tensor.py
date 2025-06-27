@@ -1,3 +1,10 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+import logging
 from typing import Any, Optional, Tuple
 
 import torch
@@ -5,6 +12,9 @@ import torch.utils._pytree as pytree
 from torch._prims_common import suggest_memory_format
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
+
+logger: logging.Logger = logging.getLogger(__name__)
+
 
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
@@ -34,6 +44,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __new__(
         cls,
         tensor: torch.Tensor,
+        dtype: torch.dtype,
     ):
         return torch.Tensor._make_wrapper_subclass(
             cls,
@@ -41,7 +52,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
             strides=tensor.stride(),
             storage_offset=tensor.storage_offset(),
             memory_format=suggest_memory_format(tensor),
-            dtype=tensor.dtype,
+            dtype=dtype,
             layout=tensor.layout,
             device=tensor.device,
             pin_memory=tensor.is_pinned(),
@@ -51,11 +62,14 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __init__(
         self,
         tensor: torch.Tensor,
+        dtype: torch.dtype,
     ):
         self._data = tensor
+        self._dtype = dtype
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
+        logger.info(f"{func.__name__}, args: {args}, kwargs: {kwargs}")
         # override the grouped mm op to use the differentiable _scaled_grouped_mm
         if func.__name__ == cls.grouped_mm_func_name:
             # Use torchao scaled grouped mm with dynamic quant for
@@ -84,10 +98,19 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
         # detach is special case
         if func == torch.ops.aten.detach.default:
-            return ScaledGroupedMMTensor(args[0]._data)
+            return ScaledGroupedMMTensor(args[0]._data, args[0]._dtype)
 
         # unwrap args and kwargs
-        unwrap = lambda tensor: tensor._data
+        dtype: Optional[torch.dtype] = None
+
+        def unwrap(t):
+            nonlocal dtype
+            if dtype is None:
+                dtype = t._dtype
+            else:
+                assert t._dtype == dtype
+            return t._data
+
         args, kwargs = pytree.tree_map_only(
             ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
@@ -102,12 +125,27 @@ class ScaledGroupedMMTensor(torch.Tensor):
         # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x),
+            lambda x: ScaledGroupedMMTensor(x, dtype),
             out,
         )
 
+    def __repr__(self):
+        return f"ScaledGroupedMMTensor(data={self._data}, dtype={self._dtype})"
+
+    def __tensor_flatten__(self):
+        return ["_data"], {"_dtype": self._dtype}
+
+    @staticmethod
+    def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
+        return ScaledGroupedMMTensor(
+            inner_tensors["_data"],
+            flatten_spec["_dtype"],
+        )
+
     def fsdp_pre_all_gather(self, mesh):
-        return (self._data,), ()
+        all_gather_inputs = (self._data,)
+        all_gather_metadata = ()
+        return all_gather_inputs, all_gather_metadata
 
     def fsdp_post_all_gather(
         self,
@@ -118,6 +156,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
         out: Optional[torch.Tensor] = None,
     ):
         (data,) = all_gather_outputs
-        return ScaledGroupedMMTensor(
-            data,
-        ), (data,)
+        output = ScaledGroupedMMTensor(data, param_dtype)
+        inner_tensors = (data,)
+        return output, inner_tensors
