@@ -42,7 +42,6 @@ def nf4_all_gather_into_tensor(func, *args, **kwargs):
 
 def scatter_nf4tensor(func, *args, **kwargs):
     assert len(args) > 1, "Expected valid input"
-    assert len(args[0]) == 5, "Expected 5 input args"
     assert len(args[0][0]) == 1, "Expected 1 output tensor"
     output_tensor = args[0][0][0]
     input_tensors = args[0][1]
