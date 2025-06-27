@@ -11,6 +11,7 @@ import torch
 import torch.utils._pytree as pytree
 from torch import nn
 from torch._prims_common import suggest_memory_format
+from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
@@ -154,21 +155,33 @@ class ScaledGroupedMMTensor(torch.Tensor):
     ):
         (data,) = all_gather_outputs
 
-        # For training step 1+, out=unsharded param, so we need to copy data to `out`
-        # if `self._data`` and `out` do not share the same storage.
-        # Otherwise, if they do share the same storage, we can just return directly.
+        # For training step 1+, out=unshared param.
         if out is not None:
-            assert isinstance(out, ScaledGroupedMMTensor), f"{type(out)}"
+            if isinstance(out, ScaledGroupedMMTensor):
+                out_data = out._data
+            elif isinstance(out, DTensor) and isinstance(
+                out._local_tensor, ScaledGroupedMMTensor
+            ):
+                out_data = out._local_tensor._data
+            else:
+                raise RuntimeError(
+                    f"expect out to be ScaledGroupedMMTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
+                )
+
+            # If `data` (all gather outputs) is already in the mixed precision policy param_dtype,
+            # verify it has underlying storage as `out` (pre-allocated unsharded param),
+            # and then we can just return directly.
             if data.dtype == param_dtype:
                 assert (
                     data.untyped_storage().data_ptr()
-                    == out._data.untyped_storage().data_ptr()
+                    == out_data.untyped_storage().data_ptr()
                 )
             else:
-                assert out._data.dtype == param_dtype, (
-                    f"{out._data.dtype} {param_dtype}"
-                )
-                out._data.copy_(data)
+                # Otherwise, verify that `out` (pre-allocated unsharded param) has the
+                # mixed precision policy param_dtype, then copy `data` to `out`.
+                assert out_data.dtype == param_dtype, f"{out_data.dtype} {param_dtype}"
+                out_data.copy_(data)
+
             return
 
         # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
