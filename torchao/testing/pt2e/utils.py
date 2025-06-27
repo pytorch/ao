@@ -6,7 +6,6 @@
 
 import copy
 import unittest
-from typing import Dict
 
 import torch
 from torch.ao.quantization.backend_config import (
@@ -23,7 +22,7 @@ from torch.testing._internal.common_quantization import (
 from torch.testing._internal.common_utils import TestCase
 
 from torchao.quantization.pt2e import FROM_NODE_KEY
-from torchao.quantization.pt2e._numeric_debugger import _generate_debug_handle_from_node
+from torchao.quantization.pt2e._numeric_debugger import _extract_node_source_debug_info
 from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
@@ -147,48 +146,59 @@ class PT2ENumericDebuggerTestCase(TestCase):
     for numeric debugging functionality.
     """
 
-    def _assert_each_node_has_debug_handle(self, model) -> None:
-        """Assert that each node in the model has a debug handle."""
-
-        def _assert_node_has_debug_handle(node):
+    def _assert_each_node_has_from_node_source(self, model) -> None:
+        def _assert_node_has_from_node_source(node):
+            if node.op == "placeholder" or node.op == "output":
+                return
             self.assertIn(
                 FROM_NODE_KEY,
                 node.meta,
                 f"Node {node} doesn't have from_node info",
             )
 
-        bfs_trace_with_node_process(model, _assert_node_has_debug_handle)
+        bfs_trace_with_node_process(model, _assert_node_has_from_node_source)
 
-    def _extract_debug_handles(self, model) -> Dict[str, int]:
-        """Extract debug handles from all nodes in the model."""
-        debug_handle_map: Dict[str, int] = {}
+    def _extract_from_node_source(self, model) -> dict[str, any]:
+        from_node_source_map: dict[str, any] = {}
 
-        def _extract_debug_handles_from_node(node):
-            nonlocal debug_handle_map
-            if (dh := _generate_debug_handle_from_node(node)) is not None:
-                debug_handle_map[str(node)] = dh
+        def _extract_from_node_source_from_node(node):
+            nonlocal from_node_source_map
+            if (root_node_source := _extract_node_source_debug_info(node)) is not None:
+                from_node_source_map[str(node)] = (
+                    root_node_source.name,
+                    root_node_source.graph_id,
+                )
 
-        bfs_trace_with_node_process(model, _extract_debug_handles_from_node)
-        return debug_handle_map
+        bfs_trace_with_node_process(model, _extract_from_node_source_from_node)
 
-    def _extract_debug_handles_with_prev_decomp_op(self, model) -> dict[str, int]:
-        prev_decomp_op_to_debug_handle_map: dict[str, int] = {}
+        return from_node_source_map
 
-        def _extract_debug_handles_with_prev_decomp_op_from_node(node):
-            nonlocal prev_decomp_op_to_debug_handle_map
-            if FROM_NODE_KEY in node.meta:
+    def _extract_from_node_source_with_prev_decomp_op(self, model) -> dict[str, any]:
+        prev_decomp_op_to_from_node_source_map: dict[str, any] = {}
+
+        def _extract_from_node_source_with_prev_decomp_op_from_node(node):
+            nonlocal prev_decomp_op_to_from_node_source_map
+            if FROM_NODE_KEY in node.meta and node.meta[FROM_NODE_KEY] is not None:
                 prev_decomp_op = str(node.meta.get("nn_module_stack"))
-                debug_handle = _generate_debug_handle_from_node(node)
-                if prev_decomp_op not in prev_decomp_op_to_debug_handle_map:
-                    prev_decomp_op_to_debug_handle_map[prev_decomp_op] = debug_handle
+                from_node_source = node.meta[FROM_NODE_KEY]
+                if prev_decomp_op not in prev_decomp_op_to_from_node_source_map:
+                    prev_decomp_op_to_from_node_source_map[prev_decomp_op] = (
+                        from_node_source
+                    )
                 else:
                     assert (
-                        prev_decomp_op_to_debug_handle_map[prev_decomp_op]
-                        == debug_handle
-                    ), f"Node {node} has different debug handle {debug_handle}"
+                        prev_decomp_op_to_from_node_source_map[prev_decomp_op]
+                        == from_node_source
+                    ), f"Node {node} has different from_node info {from_node_source}"
                     "than previous node sharing the same decomp op {prev_decomp_op}"
 
         bfs_trace_with_node_process(
-            model, _extract_debug_handles_with_prev_decomp_op_from_node
+            model, _extract_from_node_source_with_prev_decomp_op_from_node
         )
-        return prev_decomp_op_to_debug_handle_map
+        return prev_decomp_op_to_from_node_source_map
+
+    def assertNodeSourcesEqual(self, node_source_1, node_source_2):
+        self.assertTrue(
+            node_source_1.name == node_source_2.name
+            and node_source_1.graph_id == node_source_2.graph_id
+        )
