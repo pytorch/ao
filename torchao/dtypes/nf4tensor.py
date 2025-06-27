@@ -23,6 +23,8 @@ c10d_functional = torch.ops.c10d_functional
 
 
 def nf4_all_gather_into_tensor(func, *args, **kwargs):
+    assert len(args) > 1, "Expected valid input"
+    assert len(args[0]) == 3, "Expected 3 input args"
     nf4tensor = args[0][0]
     group_size = args[0][1]
     name = args[0][2]
