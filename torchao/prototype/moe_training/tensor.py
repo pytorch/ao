@@ -64,7 +64,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         tensor: torch.Tensor,
         dtype: torch.dtype,
     ):
-        self._data = tensor
+        self._data = tensor.to(dtype)
         self._dtype = dtype
 
     @classmethod
