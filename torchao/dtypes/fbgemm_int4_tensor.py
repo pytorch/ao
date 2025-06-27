@@ -93,19 +93,12 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         cls,
         w: torch.Tensor,
         block_size: List[int],
-        transpose_input: bool = False,
     ):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
         if int4_row_quantize_zp is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
-
-        if transpose_input:
-            if w.ndim == 3:
-                w = w.transpose(-1, -2)
-            else:
-                w = w.t()
 
         group_size = block_size[-1]
         original_shape = w.shape
