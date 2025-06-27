@@ -8,7 +8,7 @@
 """
 CI Microbenchmark Runner for PyTorch OSS Benchmark Database
 
-This script runs microbenchmarks for for a given config file
+This script runs microbenchmarks for a given config file
 and outputs results in the format required by the PyTorch OSS benchmark database.
 It reuses functionality from benchmark_runner.py and only adds CI-specific code.
 
