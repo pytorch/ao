@@ -39,6 +39,9 @@ def nf4_all_gather_into_tensor(func, *args, **kwargs):
 
 
 def scatter_nf4tensor(func, *args, **kwargs):
+    assert len(args) > 1, "Expected valid input"
+    assert len(args[0]) == 5, "Expected 5 input args"
+    assert len(args[0][0]) == 1, "Expected 1 output tensor"
     output_tensor = args[0][0][0]
     input_tensors = args[0][1]
     new_attr, update_work = [], []
@@ -325,10 +328,10 @@ def nf4_view(aten_op, args, kwargs=None):
                     "stride": (1,),
                 }
             )
-    else:
+    elif len(size) == 2:
+        if nf4tensor.numel() != size[0] * size[1]:
+            raise NotImplementedError("NF4Tensor size does not match view size.")
         updated_attrs = {}
-        if nf4tensor.numel() != nf4tensor.size()[0] * nf4tensor.size()[1]:
-            raise NotImplementedError("NF4Tensor size does not match numel.")
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
             attr_size = [getattr(nf4tensor, attr).size()]
             updated_attrs[attr] = aten_op(
@@ -336,9 +339,11 @@ def nf4_view(aten_op, args, kwargs=None):
             )
             updated_attrs.update(
                 {
-                    "stride": (nf4tensor.size()[1], 1),
+                    "stride": (size[1], 1),
                 }
             )
+    else:
+        raise NotImplementedError("aten.view(NF4Tensor) with empty size")
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
 
