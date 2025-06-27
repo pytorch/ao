@@ -751,10 +751,6 @@ class TestComm(FSDPTest):
     def world_size(self) -> int:
         return 2
 
-    @pytest.mark.skipif(
-        version.parse(torch.__version__).base_version < "1.9.0",
-        reason="torch >= 1.9 required",
-    )
     @skip_if_lt_x_gpu(2)
     def test_comm(self):
         self.run_subtests(
