@@ -36,11 +36,14 @@ from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
+    auto_detect_device,
 )
 
 _SEED = 1234
 torch.manual_seed(_SEED)
 
+_GPU_IS_AVAILABLE = True if torch.cuda.is_available() or torch.xpu.is_available() else False
+_DEVICE = auto_detect_device()
 
 # Helper function to run a function twice
 # and verify that the result is the same.
@@ -614,12 +617,10 @@ class TestQuantPrimitives(unittest.TestCase):
         eps = torch.finfo(torch.float32).eps
         self.assertEqual(scale, eps)
 
-    @unittest.skipIf(
-        not torch.cuda.is_available(), "skipping when cuda is not available"
-    )
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
-        weight = torch.randn(1024, 1024).to(device="cuda")
+        weight = torch.randn(1024, 1024).to(device=_DEVICE)
         original_mem_use = torch.cuda.memory_allocated()
         n_bit = 4
         groupsize = 128
