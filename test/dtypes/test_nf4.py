@@ -14,28 +14,28 @@ from typing import Tuple, Union
 import pytest
 import torch
 import torch.nn.functional as F
+
+import torchao
+from packaging import version
 from torch import nn
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    CheckpointWrapper,
     apply_activation_checkpointing,
+    CheckpointWrapper,
 )
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
-    TestCase,
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
+    TestCase,
 )
-
-import torchao
-from packaging import version
 from torchao.dtypes._nf4tensor_api import nf4_weight_only
 from torchao.dtypes.nf4tensor import (
     _INNER_TENSOR_NAMES_FOR_SHARDING,
-    NF4Tensor,
     linear_nf4,
+    NF4Tensor,
     to_nf4,
 )
 from torchao.testing.utils import skip_if_rocm
@@ -435,17 +435,22 @@ class TestFSDPOps(TestCase):
             inner_tensor = getattr(viewed_tensor, attr)
             self.assertEqual(inner_tensor.size(0), inner_tensor.numel())
 
+    @parametrize("input_size", [(512, 512)])
+    def test_tensor_2d_view_valid(self, input_size: Tuple[int]):
+        nf4_tensor = to_nf4(torch.randn(input_size))
+        viewed_tensor = nf4_tensor.view(input_size)
+        self.assertEqual(viewed_tensor.dim(), 2)
+        self.assertEqual(viewed_tensor.numel(), math.prod(input_size))
+        for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+            inner_tensor = getattr(viewed_tensor, attr)
+            self.assertEqual(inner_tensor.size(0), inner_tensor.numel())
+
     @parametrize("input_size", [(512 * 512,)])
     def test_tensor_view_invalid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
         if len(input_size) == 1:
             with self.assertRaisesRegex(
                 NotImplementedError, "aten.view\\(NF4Tensor\\) with size"
-            ):
-                nf4_tensor.view(input_size)
-        if len(input_size) == 2:
-            with self.assertRaisesRegex(
-                NotImplementedError, "aten.view\\(NF4Tensor\\) with len\\(size\\)"
             ):
                 nf4_tensor.view(input_size)
 
