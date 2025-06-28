@@ -19,10 +19,6 @@ from torchao.prototype.moe_training import _scaled_grouped_mm
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-=======
-
->>>>>>> eb2dd3e0 (fix dtype bug)
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
     torch.ops.aten.new_zeros.default,
