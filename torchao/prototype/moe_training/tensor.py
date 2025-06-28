@@ -49,6 +49,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         tensor: torch.Tensor,
         dtype: torch.dtype,
     ):
+        logger.debug(f"__new__: Creating ScaledGroupedMMTensor with dtype={dtype}")
         return torch.Tensor._make_wrapper_subclass(
             cls,
             tensor.size(),
@@ -67,11 +68,14 @@ class ScaledGroupedMMTensor(torch.Tensor):
         tensor: torch.Tensor,
         dtype: torch.dtype,
     ):
-        self._data = tensor
+        self._data = tensor.to(dtype)
         self._dtype = dtype
+        logger.debug(f"__init__: ScaledGroupedMMTensor with self._data.dtype={self._data.dtype} and dtype={dtype}")
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
+        logger.debug(f"func: {func.__name__}, args={args}, kwargs={kwargs}")
+
         # override the grouped mm op to use the differentiable _scaled_grouped_mm
         if func.__name__ in cls.grouped_mm_func_names:
             # Use torchao scaled grouped mm with dynamic quant for
@@ -97,22 +101,13 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
-        logger.debug(f"{func.__name__}, args={args}, kwargs={kwargs}")
+        logger.debug(f"dispatch: {func.__name__}, args={args}, kwargs={kwargs}")
         # detach is special case
         if func == torch.ops.aten.detach.default:
             return ScaledGroupedMMTensor(args[0]._data, args[0]._dtype)
 
         # unwrap args and kwargs
-        dtype: Optional[torch.dtype] = None
-
-        def unwrap(t):
-            nonlocal dtype
-            if dtype is None:
-                dtype = t._dtype
-            else:
-                assert t._dtype == dtype
-            return t._data
-
+        unwrap = lambda x: x._data
         args, kwargs = pytree.tree_map_only(
             ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
@@ -127,7 +122,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x, dtype),
+            lambda x: ScaledGroupedMMTensor(x, x.dtype),
             out,
         )
 
@@ -154,7 +149,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         module: nn.Module,
         mp_policy: MixedPrecisionPolicy,
     ):
-        all_gather_inputs = (self._data.to(mp_policy.param_dtype),)
+        all_gather_inputs = (self._data,)
         all_gather_metadata = ()
         logger.debug(f"fsdp_pre_all_gather: self._data.dtype={self._data.dtype}, param_dtype: {mp_policy.param_dtype}")
         return all_gather_inputs, all_gather_metadata
@@ -171,11 +166,10 @@ class ScaledGroupedMMTensor(torch.Tensor):
         logger.debug(f"fsdp_post_all_gather: data.dtype={data.dtype}, param_dtype: {param_dtype}")
 
         if out is not None:
-            with torch.no_grad():
-                out.copy_(data)
+            # with torch.no_grad():
+            #     out.copy_(data)
             return
 
-        upcast_data = data.to(param_dtype)
-        output = ScaledGroupedMMTensor(upcast_data, param_dtype)
-        inner_tensors = (upcast_data,)
+        output = ScaledGroupedMMTensor(data, param_dtype)
+        inner_tensors = (data,)
         return output, inner_tensors
