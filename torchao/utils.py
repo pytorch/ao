@@ -718,3 +718,20 @@ def is_package_at_least(package_name: str, min_version: str):
         return False
 
     return version(package_name) >= min_version
+
+
+def is_ROCm_mx_supported() -> bool:
+    """
+    Check if the current environment supports ROCm MX operations.
+    This requires:
+    1. ROCm platform
+    2. gfx950 GPU (MI350)
+    3. ROCm 7.0
+    """
+    return all(
+        [
+            is_ROCM(),
+            is_MI350(),
+            torch.version.hip is not None and torch.version.hip.startswith("7.0"),
+        ]
+    )
