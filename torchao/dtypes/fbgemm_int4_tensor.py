@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import importlib.util
 from typing import List
 
 import torch
@@ -19,16 +18,17 @@ from torchao.utils import (
 
 __all__ = [
     "to_fbgemm_int4",
+    "FbgemmInt4Tensor",
 ]
 
 aten = torch.ops.aten
 
 
-if importlib.util.find_spec("fbgemm_gpu") is None:
+try:
+    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
+except:
     int4_row_quantize_zp = None
     pack_int4 = None
-else:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
 
 
 class FbgemmInt4Tensor(TorchAOBaseTensor):
@@ -77,17 +77,35 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
     def _quantization_type(self):
         return f"shape={self.shape}, group_size={self.group_size}, device={self.device}"
 
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        device = kwargs.pop("device")
+        return self.__class__(
+            self.packed_weight.to(device),
+            self.scale.to(device),
+            self.zero_point.to(device),
+            self.group_size,
+            self.shape,
+        )
+
     @classmethod
     def from_float(
         cls,
         w: torch.Tensor,
         block_size: List[int],
+        transpose_input: bool = False,
     ):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
         if int4_row_quantize_zp is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+        if transpose_input:
+            if w.ndim == 3:
+                w = w.transpose(-1, -2)
+            else:
+                w = w.t()
 
         group_size = block_size[-1]
         original_shape = w.shape
@@ -126,11 +144,6 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    if not input_tensor.is_floating_point():
-        raise NotImplementedError(
-            f"{func} is not implemented for non floating point input"
-        )
-
     orig_act_size = input_tensor.size()
     orig_out_features = weight_tensor.shape[-2]
 
@@ -143,6 +156,25 @@ def _(func, types, args, kwargs):
     res = res.reshape(*orig_act_size[:-1], orig_out_features)
     if bias is not None:
         res = res + bias
+    return res
+
+
+@implements(torch.bmm)
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = (
+        args[0],
+        args[1],
+    )
+    orig_act_size = input_tensor.size()
+    orig_out_features = weight_tensor.shape[-2]
+
+    res = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(
+        input_tensor,
+        weight_tensor.packed_weight.contiguous(),
+        weight_tensor.scale,
+        weight_tensor.zero_point,
+    )
+    res = res.reshape(*orig_act_size[:-1], orig_out_features)
     return res
 
 

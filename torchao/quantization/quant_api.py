@@ -35,6 +35,7 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
@@ -78,6 +79,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_fbcode,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -659,6 +661,38 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
         )
 
 
+def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.uint8
+    scale_dtype = torch.float32
+    eps = torch.finfo(torch.float32).eps
+    zero_point_dtype = torch.int32
+    quant_min = 0
+    quant_max = 255
+    if TORCH_VERSION_AT_LEAST_2_6:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    else:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+    return out
+
+
 def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
@@ -730,7 +764,10 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
-        input_quant_func = _int8_asymm_per_token_quant
+        if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+            input_quant_func = _uint8_asymm_per_token_quant
+        else:
+            input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant
@@ -747,6 +784,16 @@ def _int8_dynamic_activation_int4_weight_transform(
         )
     elif isinstance(layout, CutlassInt4PackedLayout):
         weight = _int4_symm_cutlass_quant(weight)
+    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype=torch.uint8,
+            quant_min=0,
+            quant_max=15,
+            _layout=layout,
+        )
     else:
         weight = to_affine_quantized_intx(
             weight,
@@ -986,13 +1033,14 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
          size is more fine grained
         `bit_width`: bit width of the quantized weight.
         `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+        `mode`: if set to "dynamic", activations are quantized at runtime; default is "weight_only" (weight-only quantization).
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
     group_size: Optional[int] = 128
     bit_width: int = 4
     packing_bitwidth: Optional[int] = None
+    mode: Optional[str] = "weight_only"
     set_inductor_config: bool = True
 
 
@@ -1007,6 +1055,7 @@ def _gemlite_uintx_weight_only_transform(
     group_size = config.group_size
     bit_width = config.bit_width
     packing_bitwidth = config.packing_bitwidth
+    mode = config.mode
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1018,7 +1067,12 @@ def _gemlite_uintx_weight_only_transform(
     new_weight = to_affine_quantized_intx(
         weight,
         **get_gemlite_aqt_kwargs(
-            weight, group_size, bit_width, packing_bitwidth, use_hqq
+            weight,
+            group_size=group_size,
+            bit_width=bit_width,
+            packing_bitwidth=packing_bitwidth,
+            mode=mode,
+            use_hqq=use_hqq,
         ),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
@@ -1991,6 +2045,7 @@ class FbgemmConfig(AOBaseConfig):
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
+    transpose_input: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
@@ -2002,7 +2057,7 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
 
     import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
-    if fbgemm_gpu.__version__ < "1.2.0":
+    if not is_fbcode() and fbgemm_gpu.__version__ < "1.2.0":
         raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
     _SUPPORTED_DTYPES = {
@@ -2018,9 +2073,11 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_int4(
             module.weight,
             config.block_size,
+            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     elif (
         (config.input_dtype == e4m3_dtype)
         and (config.weight_dtype == e4m3_dtype)
@@ -2029,9 +2086,11 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_fp8(
             module.weight,
             config.activation_scale_ub,
+            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     else:
         raise NotImplementedError(
             f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"

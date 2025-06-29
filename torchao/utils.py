@@ -179,7 +179,7 @@ def find_multiple(n: int, *args: int) -> int:
     return n + k - (n % k)
 
 
-def _register_custom_op(lib):
+def _register_custom_op(lib, inductor_decomposed=True):
     """This decorator is used to preserve some high level operators for torch.export.export
     while still allow them to be decomposed for inductor path
 
@@ -206,26 +206,30 @@ def _register_custom_op(lib):
     """
     from torch._inductor.decomposition import register_decomposition
 
+    dispatch_key = (
+        "CompositeImplicitAutograd"
+        if inductor_decomposed
+        else "CompositeExplicitAutograd"
+    )
+
     def decorator(fn):
         if TORCH_VERSION_AT_LEAST_2_5:
             from torch._library.infer_schema import infer_schema
 
-            # expecting fn.__name__ starts with `_` and we want to take the rest
-            # to be the name of the custom op
-            assert fn.__name__[0] == "_", (
-                f"Expecting function name starts with `_`, got {fn.__name__}"
-            )
             assert not any(c in fn.__name__ for c in ".<>"), (
                 f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
             )
-            op_name = fn.__name__[1:]
+            op_name = fn.__name__
+            if op_name[0] == "_":
+                op_name = op_name[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
-            lib.impl(op_name, fn, "CompositeImplicitAutograd")
+            lib.impl(op_name, fn, dispatch_key)
 
             lib_namespace = lib.ns
             op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            register_decomposition([op])(fn)
+            if inductor_decomposed:
+                register_decomposition([op])(fn)
             return op
         else:
             return fn
@@ -696,6 +700,10 @@ def check_xpu_version(device, version="2.8.0"):
     if isinstance(device, torch.device):
         device = device.type
     return device == "xpu" and compare_versions(torch.__version__, version) >= 0
+
+
+def ceil_div(a, b):
+    return (a + b - 1) // b
 
 
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")

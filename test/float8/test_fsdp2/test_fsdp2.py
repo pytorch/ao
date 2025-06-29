@@ -43,7 +43,10 @@ from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import GemmInputRole
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parity_no_mp
+from torchao.testing.training.fsdp2_utils import (
+    check_parity_bf16_mp,
+    check_parity_no_mp,
+)
 
 if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)

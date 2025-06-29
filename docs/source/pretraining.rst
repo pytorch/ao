@@ -1,21 +1,29 @@
-Pretraining with float8
+(Part 1) Pre-training with float8
 ---------------------------------
 
-Pretraining with float8 using torchao can provide `up to 1.5x speedups <https://pytorch.org/blog/training-using-float8-fsdp2/>`__ on 512 GPU clusters,
+TorchAO provides an end-to-end pre-training, fine-tuning, and serving
+model optimization flow by leveraging our quantization and sparsity
+techniques integrated into our partner frameworks. This is part 1 of 3
+such tutorials showcasing this end-to-end flow, focusing on the
+pre-training step.
+
+.. image:: ../static/e2e_flow_part1.png
+
+Pre-training with float8 using torchao can provide `up to 1.5x speedups <https://pytorch.org/blog/training-using-float8-fsdp2/>`__ on 512 GPU clusters,
 and up to `1.34-1.43x speedups <https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/>`__ on 2K H200 clusters with the latest `torchao.float8` rowwise recipe.
 
-In this tutorial, we will show 2 ways to use the **torchao.float8** recipes for pretraining:
+In this tutorial, we will show 2 ways to use the **torchao.float8** recipes for pre-training:
 
-1. :ref:`Pretraining with torchtitan`, the offical PyTorch pretraining framework with native torchao integration.
-2. :ref:`Pretraining with torchao directly`, to integrate torchao's float8 training recipes into your own pretraining code.
+1. :ref:`Pre-training with torchtitan`, the offical PyTorch pre-training framework with native torchao integration.
+2. :ref:`Pre-training with torchao directly`, to integrate torchao's float8 training recipes into your own pre-training code.
 
 
-Pretraining with torchtitan
+Pre-training with torchtitan
 ###########################
 
-In this tutorial we'll pretrain Llama3 8b using torchtitan with torchao's float8 training recipes: rowwise scaling and tensorwise scaling.
+In this tutorial we'll pre-train Llama3-8B using torchtitan with torchao's float8 training recipes: rowwise scaling and tensorwise scaling.
 
-`Torchtitan <https://github.com/pytorch/torchtitan/>`__ is PyTorch's official pretraining framework that is natively integrated with torchao, and supports
+`Torchtitan <https://github.com/pytorch/torchtitan/>`__ is PyTorch's official pre-training framework that is natively integrated with torchao, and supports
 several popular flagship models with common forms of parallelism, float8 training, distributed checkpointing and more.
 See the torchtitan `docs <https://github.com/pytorch/torchtitan>`__ for additional details.
 
@@ -29,12 +37,12 @@ Prerequisites
 2. `Install torchao <https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation>`__.
 3. `Install torchtitan <https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation>`__, including the "downloading a tokenizer" step.
 
-You're now ready to start a pretraining job using one of the recipes below!
+You're now ready to start a pre-training job using one of the recipes below!
 
 Rowwise scaling
 ===============
 
-Run the following command from torchtitan root directory to launch a Llama3 8b training job on 8 GPUs with float8 rowwise training:
+Run the following command from torchtitan root directory to launch a Llama3-8B training job on 8 GPUs with float8 rowwise training:
 
 .. code:: console
 
@@ -104,10 +112,10 @@ Picking a recipe
 The higher throughput of tensorwise scaling comes at the cost of slightly higher quantization error (i.e., reduced numerical integrity vs bfloat16) compared to rowwise scaling.
 This is because rowwise scaling using a more granular scaling factor (per row, instead of per tensor), which limits the impact of outliers that can cause underflow during scaling.
 
-Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3 8b on 8xH100 GPUs:
+Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3-8B on 8xH100 GPUs:
 
 .. image:: ../static/fp8-loss-curves.png
-  :alt: Loss curves for training Llama3 8b on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training.
+  :alt: Loss curves for training Llama3-8B on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training.
 
 
 Important notes
@@ -117,12 +125,12 @@ Important notes
 * You must use :code:`--training.compile` to achieve high performance. torchao float8 training recipes are built natively on top of :code:`torch.compile`, so it will work out of the box!
 
 
-Pretraining with torchao directly
+Pre-training with torchao directly
 #################################
 
-In this tutorial we'll pretrain a toy model using torchao APIs directly.
+In this tutorial we'll pre-train a toy model using torchao APIs directly.
 
-You can use this workflow to integrate torchao into your own custom pretraining code directly.
+You can use this workflow to integrate torchao into your own custom pre-training code directly.
 
 Prerequisites
 ================
@@ -200,3 +208,8 @@ Below is a code snippet showing how to use it:
         'model_state_dict': m.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }, 'checkpoint.pth')
+
+
+After pre-training your model, you can optionally fine-tune it to more domain-specific datasets
+and adapt it for eventual quantization during serving. In the `next part <finetuning.html>`__ of
+this tutorial, we will explore a few model optimization options during the fine-tuning step.

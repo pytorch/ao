@@ -953,6 +953,7 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     @skip_if_rocm("ROCm enablement in progress")
+    @unittest.skip("Skip to fix CI until we deprecate these APIs long term")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1624,6 +1625,9 @@ class TestAutoQuant(unittest.TestCase):
         # Skip certain shapes on older PyTorch versions
         if (m1 == 1 or m2 == 1) and not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
+        # TODO remove this once https://github.com/pytorch/pytorch/issues/155838 is resolved
+        if m1 == 1 or m2 == 1:
+            self.skipTest(f"Shape {(m1, m2, k, n)} is flaky, skipping")
         model = (
             torch.nn.Sequential(
                 torch.nn.ReLU(),

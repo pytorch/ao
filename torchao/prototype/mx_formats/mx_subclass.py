@@ -10,7 +10,6 @@ from typing import Optional
 
 import torch
 
-import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats import (
     MXGemmKernelChoice,
@@ -20,13 +19,19 @@ from torchao.prototype.mx_formats.config import (
     _validate_gemm_kernel_choice,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4MMConfig, NVFP4Tensor
 from torchao.quantization.quant_api import to_linear_activation_quantized
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_100
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_8,
+    is_sm_at_least_100,
+)
 
 
+# TODO The naming for these configs is a little weird, rename before moving to public API
 # Note: This API is extra prototype and will change in the future
 @dataclass
 class MXFPInferenceConfig(AOBaseConfig):
@@ -63,15 +68,12 @@ class MXFPInferenceConfig(AOBaseConfig):
 
     block_size: int = 32
 
-    # Dtypes for Input and Weights
+    # Dtypes for Input and Weights, supports Fp8 and Fp4 formats
     activation_dtype: torch.dtype = torch.float8_e4m3fn
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
     # Which kernel to run for mm
     gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.CUBLAS
-
-    # Set some magic perf settings
-    set_inductor_config: bool = False
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
@@ -115,8 +117,6 @@ def _mx_inference_linear_transform(
     # TODO Sm120 has slightly more restrictive reqs
     # TODO handle AMD
     assert is_sm_at_least_100(), "MXFP is only supported on sm100 machiens for now"
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
 
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -151,7 +151,67 @@ def _mx_inference_linear_transform(
     return module
 
 
+@dataclass
+class NVFP4InferenceConfig(AOBaseConfig):
+    """
+    NVIDIA FP4 (NVFP4) Inference Quantization Configuration
+
+    This is a specialized configuration for NVIDIA's FP4 format.
+    All parameters are fixed in the NVFP4 implementation except mm_config:
+    - mm_config: NVFP4MMConfig, which can be set to DYNAMIC or WEIGHT_ONLY (emulated mm in high precision)
+    - Data: float4_e2m1fn_x2
+    - Scales: float8_e4m3fn
+    - Block size: 16 along the reduction dim
+    """
+
+    mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC
+
+    def __post_init__(self):
+        # Validate PyTorch version
+        if not TORCH_VERSION_AT_LEAST_2_8:
+            raise RuntimeError("NVFP4InferenceConfig requires PyTorch 2.8 or later")
+
+
+@register_quantize_module_handler(NVFP4InferenceConfig)
+def _nvfp4_inference_linear_transform(
+    module: torch.nn.Linear, config: NVFP4InferenceConfig
+):
+    """Quantization handler for NVFP4InferenceConfig"""
+    if config.mm_config == NVFP4MMConfig.DYNAMIC:
+        assert is_sm_at_least_100(), (
+            "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
+        )
+
+    weight = module.weight
+
+    if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+        raise RuntimeError(
+            f"NVFP4 only supports weight shape divisible by 16, got {weight.shape}"
+        )
+
+    if module.bias is not None and weight.dtype == torch.float32:
+        raise RuntimeError(
+            "Bias is not supported when module weight is in fp32 (out_dtype=Float32). "
+            "Please use bfloat16 or float16 weights, or remove the bias from the linear layer."
+        )
+
+    quantized_weight = NVFP4Tensor.to_nvfp4(
+        weight,
+        mm_config=config.mm_config,
+        is_swizzled_scales=True,
+    )
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals(
-        [MXTensor, MXGemmKernelChoice, _input_activation_quant_func_mxfp]
+        [
+            MXTensor,
+            NVFP4Tensor,
+            NVFP4MMConfig,
+            MXGemmKernelChoice,
+            _input_activation_quant_func_mxfp,
+        ]
     )

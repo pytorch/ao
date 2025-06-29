@@ -58,6 +58,38 @@ def to_blocked(input_matrix, use_triton_kernel: bool = True) -> Tensor:
     return rearranged.flatten()
 
 
+def from_blocked(
+    blocked_tensor: Tensor, original_rows: int, original_cols: int
+) -> Tensor:
+    """
+    Inverse of to_blocked: convert from blocked layout back to regular row-major layout.
+
+    Args:
+        blocked_tensor: Flattened blocked tensor from to_blocked()
+        original_rows: Original number of rows before blocking
+        original_cols: Original number of columns before blocking
+
+    Returns:
+        Tensor of shape (original_rows, original_cols) in regular layout
+    """
+    n_row_blocks = ceil_div(original_rows, 128)
+    n_col_blocks = ceil_div(original_cols, 4)
+
+    rearranged = blocked_tensor.view(n_row_blocks * n_col_blocks, 32, 16)
+
+    temp = rearranged.reshape(n_row_blocks * n_col_blocks, 32, 4, 4)
+
+    temp = temp.transpose(1, 2)
+
+    blocks = temp.reshape(n_row_blocks, n_col_blocks, 128, 4)
+
+    padded_view = blocks.permute(0, 2, 1, 3)
+
+    padded = padded_view.reshape(n_row_blocks * 128, n_col_blocks * 4)
+
+    return padded[:original_rows, :original_cols]
+
+
 def _to_blocked_single(scales: Tensor) -> Tensor:
     """Assume that we have a 128x4 block of scales in K Major order
 
