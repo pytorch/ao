@@ -240,8 +240,8 @@ def mx_slice(func, types, args, kwargs):
 
     if dim == 0:
         # Slicing along the first dimension (rows) TODO assuming that dim 1 is reduciton dim for now
-        sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step).flatten()
-        sliced_data = aten.slice.Tensor(x._data, dim, start, end, step)
+        sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step)
+        sliced_data = aten.slice.Tensor(x._data, dim, start, end, step).unsqueeze(-1)
     elif dim == 1:
         # Slicing along reduciton dim
         if start is not None:
@@ -265,7 +265,7 @@ def mx_slice(func, types, args, kwargs):
         # Slice the scale tensor accordingly
         sliced_scale = aten.slice.Tensor(
             scale_shaped, 1, start_block, end_block, step
-        ).flatten()
+        ).unsqueeze(-1)
     else:
         raise ValueError(
             f"MXTensor only supports slicing along dimensions 0 and 1, got dim={dim}"
