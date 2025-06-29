@@ -7,7 +7,7 @@
 #
 # To run these unit tests, use the following command:
 #
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp.py
+# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_tp.py
 #
 #######################################################################
 
@@ -18,7 +18,7 @@ import pytest
 import torch
 from torch import distributed as dist
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn import functional as F
 
 # this feature requires CUDA and SM89+
@@ -34,6 +34,7 @@ from torchao.quantization.quant_api import quantize_
 
 # this test requires torchtitan
 try:
+    from torchtitan.experiments.llama4.infra.parallelize import apply_moe_tp
     from torchtitan.experiments.llama4.model.args import TransformerModelArgs
     from torchtitan.experiments.llama4.model.moe import MoE
 except ImportError:
@@ -43,25 +44,32 @@ except ImportError:
     pytest.skip(allow_module_level=True)
 
 
-def test_moe_float8_training_fsdp():
+@pytest.mark.parametrize(
+    "target_fqns",
+    [
+        ["experts"],
+        ["experts,shared_expert"],
+    ],
+)
+def test_moe_float8_training_tp_sp(target_fqns: list[str]):
     assert torch.cuda.is_available()
 
     # setup distributed for fsdp
-    setup_distributed()
+    mesh = setup_distributed()
 
     # define model args
-    target_fqns = ["experts"]
     model_args = TransformerModelArgs(
         moe_enabled=True,
         num_experts=8,
         dim=256,
+        vocab_size=1024,
     )
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
     ref_model = MoE(model_args).to(torch.bfloat16).cuda()
-    torch.manual_seed(42)
+    torch.manual_seed(1)
     ref_model.init_weights(init_std, device)
 
     # target MoE for testing conversion
@@ -88,9 +96,9 @@ def test_moe_float8_training_fsdp():
         target_fqns=target_fqns,
     )
 
-    # FSDP2
-    fully_shard(model)
-    fully_shard(ref_model)
+    # apply TP
+    apply_moe_tp(model, mesh)
+    apply_moe_tp(ref_model, mesh)
 
     # inputs
     batch, seq, dim = 8, 2048, 256
@@ -140,7 +148,7 @@ def _validate_model_conversion(
         module: nn.Module,
         cur_fqn: str,
     ):
-        is_allowed_module = cur_fqn in target_fqns
+        is_allowed_module = any([target_fqn in cur_fqn for target_fqn in target_fqns])
 
         # check current module params
         for param_name, param in module.named_parameters(recurse=False):
@@ -166,4 +174,46 @@ def setup_distributed():
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    device_mesh = init_device_mesh("cuda", (world_size,))
+    # seed must be the same in all processes
+    torch.manual_seed(1)
     torch.cuda.set_device(rank)
+    return device_mesh
+
+
+def apply_moe_tp(
+    model: nn.Module,
+    tp_mesh: DeviceMesh,
+):
+    # base on llama4 MoE TP implementation here: https://github.com/pytorch/torchtitan/blob/d9cc6b4df341eec27768b5ab9cead87ef595dbc2/torchtitan/experiments/llama4/infra/parallelize.py#L147C1-L180C10
+    from torch.distributed.tensor import Partial, Replicate, Shard
+    from torch.distributed.tensor.parallel import (
+        PrepareModuleInputOutput,
+        parallelize_module,
+    )
+    from torchtitan.experiments.llama4.infra.expert_parallel import (
+        NoParallel,
+        TensorParallel,
+    )
+
+    moe_layer_plan = {
+        # input / output sharding on the seqlen dim
+        # all-gather for input, reduce-scatter for output
+        "moe": PrepareModuleInputOutput(
+            input_layouts=(Shard(1),),
+            desired_input_layouts=(Replicate(),),
+            use_local_input=True,
+            output_layouts=(Partial(),),
+            desired_output_layouts=(Shard(1),),
+        ),
+        # replicate computation for the router
+        "moe.router.gate": NoParallel(),
+        # input Replicate, output Partial
+        "moe.experts": TensorParallel(output_layout=Partial()),
+        "moe.shared_expert": TensorParallel(output_layout=Partial()),
+    }
+    parallelize_module(
+        module=model,
+        device_mesh=tp_mesh,
+        parallelize_plan=moe_layer_plan,
+    )

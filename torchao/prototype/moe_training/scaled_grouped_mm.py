@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 from typing import Optional
 
 import torch
@@ -18,11 +19,13 @@ from torchao.prototype.moe_training.utils import (
     _is_column_major,
 )
 
+logger: logging.Logger = logging.getLogger(__name__)
+
 
 def _scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
-    offs: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
 ) -> torch.Tensor:
     """
@@ -36,8 +39,8 @@ def _scaled_grouped_mm(
             and in column-major memory layout.
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
-        use_triton_for_per_group_scales (bool): Whether to use custom triton kernels to compute per-group scales. Default is True.
     """
+    logger.info("Using scaled_grouped_mm")
     return _Float8GroupedMM.apply(
         A,
         B_t,
@@ -54,12 +57,11 @@ class _Float8GroupedMM(torch.autograd.Function):
         ctx,
         A: torch.Tensor,
         B_t: torch.Tensor,
-        offs: torch.Tensor,
+        offs: Optional[torch.Tensor] = None,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
-        use_triton_for_per_group_scales: bool = True,
     ) -> torch.Tensor:
-        # torchao _scaled_grouped_mm only supports A=2D, B=3D.
-        assert A.ndim == 2, "A must be 2D"
+        # torchao _scaled_grouped_mm only supports A=2D|3D and B=3D.
+        assert A.ndim == 2 or A.ndim == 3, "A must be 2D or 3D"
         assert B_t.ndim == 3, "B must be 3D"
 
         assert A.size(-1) % 16 == 0, (
@@ -76,7 +78,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert B_t.dtype == torch.float32 or B_t.dtype == torch.bfloat16, (
             "B must be float32 or bfloat16"
         )
-        assert offs.dtype == torch.int32, "offs must be int32"
 
         # Assert A and B dims are compatible for a scaled grouped GEMM.
         assert A.size(-1) == B_t.size(-2), (
@@ -152,9 +153,11 @@ class _Float8GroupedMM(torch.autograd.Function):
         return torch._scaled_grouped_mm(
             A_fp8_row_major,
             B_t_fp8_col_major,
-            A_scales.squeeze().reciprocal(),
-            B_t_scales.squeeze().reciprocal(),
-            offs,
+            # Squeeze A scales to: (B, S, 1) => (B, M), or (B*S, 1) => (B*S)
+            A_scales.squeeze(-1).reciprocal(),
+            # Squeeze B scales to: (B, 1, N) => (B, N)
+            B_t_scales.squeeze(1).reciprocal(),
+            offs=offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
@@ -194,9 +197,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major,
             B_fp8_col_major,
-            grad_output_scales.squeeze().reciprocal(),
-            B_scales.squeeze().reciprocal(),
-            offs,
+            grad_output_scales.squeeze(-1).reciprocal(),
+            B_scales.squeeze(1).reciprocal(),
+            offs=offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
@@ -241,7 +244,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             A_fp8_col_major,
             grad_output_t_scales.reciprocal(),
             A_scales.reciprocal(),
-            offs,
+            offs=offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
