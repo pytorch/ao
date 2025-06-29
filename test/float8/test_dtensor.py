@@ -183,7 +183,7 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     loss.backward()
 
 
-def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=32):
     tensorwise_config = Float8LinearConfig(emulate=True)
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, tensorwise_config, size, compile=False, allgather_in_lowp=True
@@ -198,7 +198,7 @@ def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
     )
 
 
-def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=32):
     tensorwise_config = Float8LinearConfig(emulate=True)
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, tensorwise_config, size, compile=True, allgather_in_lowp=True
