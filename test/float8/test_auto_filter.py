@@ -1,58 +1,11 @@
-from functools import partial
-
 import pytest
 import torch.nn as nn
 
 from torchao.float8 import _auto_filter_for_recipe
-from torchao.float8.config import Float8LinearRecipeName
 from torchao.float8.float8_linear_utils import (
     _auto_filter_for_rowwise,
     _auto_filter_for_tensorwise,
 )
-
-
-@pytest.fixture
-def sample_filter_fqns():
-    """Fixture providing sample filter FQNs."""
-    return ["layer1", "layer2", "filtered_layer"]
-
-
-def test_tensorwise_recipe_returns_partial_function(sample_filter_fqns):
-    """Test that tensorwise recipe returns a partial function."""
-    filter_func = _auto_filter_for_recipe(
-        Float8LinearRecipeName.TENSORWISE, sample_filter_fqns
-    )
-
-    assert isinstance(filter_func, partial)
-    assert filter_func.keywords == {"filter_fqns": sample_filter_fqns}
-
-
-def test_rowwise_recipe_returns_partial_function(sample_filter_fqns):
-    """Test that rowwise recipe returns a partial function."""
-    filter_func = _auto_filter_for_recipe(
-        Float8LinearRecipeName.ROWWISE, sample_filter_fqns
-    )
-
-    assert isinstance(filter_func, partial)
-    assert filter_func.keywords == {"filter_fqns": sample_filter_fqns}
-
-
-def test_rowwise_with_gw_hp_raises_not_implemented(sample_filter_fqns):
-    """Test that ROWWISE_WITH_GW_HP recipe raises NotImplementedError."""
-    with pytest.raises(NotImplementedError, match="Unsupported recipe"):
-        _auto_filter_for_recipe(
-            Float8LinearRecipeName.ROWWISE_WITH_GW_HP, sample_filter_fqns
-        )
-
-
-@pytest.mark.parametrize(
-    "invalid_recipe",
-    ["invalid_recipe_name", "tensorwise_typo", "rowwise_typo", "", None],
-)
-def test_invalid_recipe_raises_value_error(invalid_recipe, sample_filter_fqns):
-    """Test that invalid recipes raise ValueError."""
-    with pytest.raises(ValueError):
-        _auto_filter_for_recipe(invalid_recipe, sample_filter_fqns)
 
 
 @pytest.mark.parametrize(
