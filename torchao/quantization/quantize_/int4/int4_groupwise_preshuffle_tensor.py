@@ -445,6 +445,8 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
+Int4GroupwisePreshuffleTensor.__module__ = "torchao.quantization"
+
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with Int4GroupwisePreshuffleTensor weights to be loaded with `weights_only=True`
     torch.serialization.add_safe_globals([Int4GroupwisePreshuffleTensor])
