@@ -84,6 +84,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_7,
+    _is_fbgemm_genai_gpu_available,
     benchmark_model,
     check_cpu_version,
     check_xpu_version,
@@ -2082,6 +2083,9 @@ class TestExport(unittest.TestCase):
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm_gpu_genai to be >= 1.2.0"
     )
     def test_export_float8(self):
         class SimpleNetwork(torch.nn.Module):

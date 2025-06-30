@@ -480,7 +480,7 @@ class TestFloat8Linear:
         from torchao.quantization.quant_api import float8_weight_only, quantize_
 
         quantize_(m, float8_weight_only())
-        assert m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn, (
+        assert m[0].weight._data.dtype == torch.float8_e4m3fn, (
             "Post quantization dtype should be torch.float8_e4m3fn"
         )
         with torch.no_grad():

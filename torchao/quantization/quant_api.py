@@ -26,7 +26,9 @@ import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
-from torchao.core.config import AOBaseConfig
+from torchao.core.config import (
+    AOBaseConfig,
+)
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
@@ -67,8 +69,16 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
+from torchao.quantization.quantize_.common import (
+    GeneralKernelPreference,
+)
 from torchao.quantization.quantize_.workflows import (
+    Float8Tensor,
     Int4PreshuffledTensor,
+    QuantizeTensorToFloat8Kwargs,
+)
+from torchao.quantization.quantize_.workflows._utils import (
+    _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1489,16 +1499,10 @@ float8_weight_only = Float8WeightOnlyConfig
 
 
 def _float8_weight_only_quant_tensor(weight, config):
-    from torchao.dtypes import to_affine_quantized_floatx
+    float8_tensor_kwargs = None
 
-    block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
-    new_weight = to_affine_quantized_floatx(
-        input_float=weight,
-        block_size=block_size,
-        target_dtype=config.weight_dtype,
-        scale_dtype=None,
-        _layout=Float8Layout(mm_config=None),
-    )
+    float8_tensor_kwargs = QuantizeTensorToFloat8Kwargs(config.weight_dtype, PerRow())
+    new_weight = _choose_quant_func_and_quantize_tensor(weight, float8_tensor_kwargs)
     return new_weight
 
 
@@ -1596,12 +1600,15 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     Args:
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
-        granularity:
+        granularity (Optional[Union[FP8Granularity, List[FP8Granularity]]]):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple of two granularities (one for activations, one for weights).
             If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And
             only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+        activation_value_lb (Optional[float]): the lower bound for activation value for calculating scale
+        activation_value_ub (Optional[float]): the upper bound for activation value for calculating scale
+        general_kernel_preference (GeneralKernelPreference): kernel preference for ops like matmul, grouped matmul etc. by defalut (GeneralKernelPreference.DEFAULT) it will be chosen for user based on hardware or other information, this only needs to be set in weight
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
 
     """
@@ -1610,6 +1617,9 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
+    activation_value_lb: Optional[float] = None
+    activation_value_ub: Optional[float] = None
+    general_kernel_preference: GeneralKernelPreference = GeneralKernelPreference.DEFAULT
     set_inductor_config: bool = True
 
     def __post_init__(self):
@@ -1630,7 +1640,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
     granularity = config.granularity
-    mm_config = config.mm_config
+    activation_value_lb = config.activation_value_lb
+    activation_value_ub = config.activation_value_ub
+    general_kernel_preference = config.general_kernel_preference
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1645,25 +1657,22 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             "PerRow quantization only works for bfloat16 precision input weight"
         )
 
-    block_size = get_block_size(weight.shape[-2:], weight_granularity)
-    if weight.dim() == 3:
-        block_size = tuple([1] + list(block_size))
-    quantized_weight = to_affine_quantized_floatx(
-        input_float=weight,
-        block_size=block_size,
-        target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
-        _layout=Float8Layout(mm_config=mm_config),
+    act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+        activation_dtype,
+        activation_granularity,
+        hp_value_lb=activation_value_lb,
+        hp_value_ub=activation_value_ub,
     )
 
-    input_quant_func = _input_activation_quant_func_fp8
-    input_quant_kwargs = {
-        "activation_granularity": activation_granularity,
-        "activation_dtype": activation_dtype,
-    }
-
-    quantized_weight = to_linear_activation_quantized(
-        quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
+    weight_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+        weight_dtype,
+        weight_granularity,
+        general_kernel_preference=general_kernel_preference,
+    )
+    quantized_weight = Float8Tensor.to_float8(
+        weight,
+        weight_quant_kwargs,
+        act_quant_kwargs=act_quant_kwargs,
     )
     return quantized_weight
 
@@ -2063,7 +2072,7 @@ class FbgemmConfig(AOBaseConfig):
     weight_dtype: torch.dtype
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
-    activation_scale_ub: Optional[float] = None
+    activation_scale_ub: float = 1200.0
     preshuffle: bool = False
 
 
