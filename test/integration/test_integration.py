@@ -17,6 +17,7 @@ import torch.nn as nn
 from parameterized import parameterized
 from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 
 import torchao
 from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
@@ -37,6 +38,7 @@ from torchao.quantization.autoquant import (
 
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
 from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
     _replace_with_custom_fn_if_matches_filter,
     change_linear_weights_to_int4_woqtensors,
     change_linear_weights_to_int8_dqtensors,
@@ -86,6 +88,7 @@ from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
+    is_sm_at_least_89,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
 )
@@ -2076,6 +2079,31 @@ class TestExport(unittest.TestCase):
             self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
             self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
             self.assertFalse(torch.ops.aten.narrow.default in targets)
+
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    def test_export_float8(self):
+        class SimpleNetwork(torch.nn.Module):
+            def __init__(self):
+                super(SimpleNetwork, self).__init__()
+                self.linear = torch.nn.Linear(
+                    in_features=32, out_features=16, bias=False
+                )
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = SimpleNetwork().eval().cuda()
+        inp = torch.randn(2, 32).cuda()
+        config = Float8DynamicActivationFloat8WeightConfig()
+        quantize_(model, config)
+
+        ep = torch.export.export(model, (inp,))
+        print(ep)
+        FileCheck().check_count(
+            "torch.ops.torchao.choose_qparams_affine_float8.default", 1, exactly=True
+        ).run(str(ep.graph))
 
 
 class TestUtils(unittest.TestCase):
