@@ -737,6 +737,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         Verify that float8 quantization + torch.compile results in the
         expected number of kernels in the GPU trace.
         """
+        torch.compiler.reset()
 
         M, K, N = 128, 256, 512
         m = torch.nn.Sequential(
