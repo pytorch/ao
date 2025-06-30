@@ -46,4 +46,4 @@ jobs:
         pip install .
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        pytest test --verbose -s
+        pytest test --verbose -s --durations=100
