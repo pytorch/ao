@@ -356,7 +356,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
-    @common_utils.parametrize("block_size", [None, (1, 32), (2, 16), (4, 8)])
+    @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
 
