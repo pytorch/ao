@@ -26,47 +26,21 @@ HuggingFace Transformers provides seamless integration with torchao quantization
 
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+    from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 
     model_id = "microsoft/Phi-4-mini-instruct"
 
-    from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
     quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
     quantization_config = TorchAoConfig(quant_type=quant_config)
     quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Push to hub
+    # Push the model to hub
     USER_ID = "YOUR_USER_ID"
     MODEL_NAME = model_id.split("/")[-1]
     save_to = f"{USER_ID}/{MODEL_NAME}-float8dq"
     quantized_model.push_to_hub(save_to, safe_serialization=False)
     tokenizer.push_to_hub(save_to)
-
-    # Manual Testing
-    prompt = "Hey, are you conscious? Can you talk to me?"
-    messages = [
-        {
-            "role": "system",
-            "content": "",
-        },
-        {"role": "user", "content": prompt},
-    ]
-    templated_prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    print("Prompt:", prompt)
-    print("Templated prompt:", templated_prompt)
-    inputs = tokenizer(
-        templated_prompt,
-        return_tensors="pt",
-    ).to("cuda")
-    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
-    output_text = tokenizer.batch_decode(
-        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-    )
-    print("Response:", output_text[0][len(prompt):])
 
 .. note::
     For more information on supported quantization and sparsity configurations, see `HF-Torchao Docs <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`_.
@@ -86,6 +60,8 @@ First, install vLLM with torchao support:
     pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
     pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
 
+To serve in vLLM, we're using the model, we quantized and pushed to Hugging Face hub in the previous step :ref:`Post-training Quantization with HuggingFace`.
+
 .. code-block:: bash
 
     # Server
@@ -103,9 +79,15 @@ First, install vLLM with torchao support:
     "max_tokens": 32768
     }'
 
+Serving a float8 dynamic quantized model with vLLM shows 36% VRAM reduction, 1.15x-1.2x inference speedup and little to no accuracy impact on H100. :ref:`Memory Benchmarking` and :ref:`Performance Benchmarking` for more details.
+
 .. note::
     For more information on vLLM Integration, please refer to the detailed guide :ref:`torchao_vllm_integration`.
 
+Serving and Inference with SGLang
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+(Coming soon!)
 
 Inference with Transformers
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -162,28 +144,28 @@ Install the required packages:
 Mobile Deployment with ExecuTorch
 --------------------------------
 
-ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment.
+ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to executorch, we can fine-tune a model using QAT :doc:`finetuning` (Part 2), which has demonstrated some improvements in the quality of quantized models.
 
-Step 1: Untie Embedding Weights
+[Optional] Step 0: Untie Embedding Weights
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-We want to quantize the embedding and lm_head differently. Since those layers are tied, we first need to untie the model:
+Optionally, we can quantize the embedding and lm_head differently, since those layers are tied, we first need to untie the model:
 
 .. code-block:: python
 
     from transformers import (
-    AutoModelForCausalLM,
-    AutoProcessor,
-    AutoTokenizer,
+        AutoModelForCausalLM,
+        AutoProcessor,
+        AutoTokenizer,
     )
     import torch
+    from transformers.modeling_utils import find_tied_parameters
 
     model_id = "microsoft/Phi-4-mini-instruct"
     untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     print(untied_model)
-    from transformers.modeling_utils import find_tied_parameters
     print("tied weights:", find_tied_parameters(untied_model))
     if getattr(untied_model.config.get_text_config(decoder=True), "tie_word_embeddings"):
         setattr(untied_model.config.get_text_config(decoder=True), "tie_word_embeddings", False)
@@ -205,18 +187,18 @@ We want to quantize the embedding and lm_head differently. Since those layers ar
     untied_model.save_pretrained(save_to_local_path)
     tokenizer.save_pretrained(save_to)
 
-Step 2: Create Mobile-Optimized Quantization
+Step 1: Create Mobile-Optimized Quantization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivationIntxWeightConfig** configuration:
+Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivationIntxWeightConfig** configuration. If we've untied the embedding and lm-head following the previous step, we can quantize embedding using **IntxWeightOnlyConfig** configuration, and lm-head using **Int8DynamicActivationIntxWeightConfig** configuration.
 
 .. code-block:: python
 
     from transformers import (
-    AutoModelForCausalLM,
-    AutoProcessor,
-    AutoTokenizer,
-    TorchAoConfig,
+        AutoModelForCausalLM,
+        AutoProcessor,
+        AutoTokenizer,
+        TorchAoConfig,
     )
     from torchao.quantization.quant_api import (
         IntxWeightOnlyConfig,
@@ -234,6 +216,7 @@ Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivati
     untied_model_id = f"{USER_ID}/{MODEL_NAME}-untied-weights"
     untied_model_local_path = f"{MODEL_NAME}-untied-weights"
 
+    # embedding_config is required only if we untied the embedding and lm_head in the previous step, else we can use only linear config for quantization
     embedding_config = IntxWeightOnlyConfig(
         weight_dtype=torch.int8,
         granularity=PerAxis(0),
@@ -255,32 +238,6 @@ Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivati
     save_to = f"{USER_ID}/{MODEL_NAME}-8da4w"
     quantized_model.push_to_hub(save_to, safe_serialization=False)
     tokenizer.push_to_hub(save_to)
-
-    # Manual testing
-    prompt = "Hey, are you conscious? Can you talk to me?"
-    messages = [
-        {
-            "role": "system",
-            "content": "",
-        },
-        {"role": "user", "content": prompt},
-    ]
-    templated_prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    print("Prompt:", prompt)
-    print("Templated prompt:", templated_prompt)
-    inputs = tokenizer(
-        templated_prompt,
-        return_tensors="pt",
-    ).to("cuda")
-    generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
-    output_text = tokenizer.batch_decode(
-        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-    )
-    print("Response:", output_text[0][len(prompt):])
 
 
 Step 3: Export to ExecuTorch
@@ -344,6 +301,7 @@ Evaluate quantized models using lm-evaluation-harness:
 
 Memory Benchmarking
 ^^^^^^^^^^^^^^^^^
+For Phi-4-mini-instruct, when quantized with float8 dynamic quant, we can reduce the peak memory usage by 36% compared to the baseline model.
 
 .. code-block:: python
 
@@ -385,6 +343,14 @@ Memory Benchmarking
     mem = torch.cuda.max_memory_reserved() / 1e9
     print(f"Peak Memory Usage: {mem:.02f} GB")
 
+Output:
+.. code-block:: none
+
+    Prompt: Hey, are you conscious? Can you talk to me?
+    Templated prompt: <|system|><|end|><|user|>Hey, are you conscious? Can you talk to me?<|end|><|assistant|>
+    Response: Hello! Yes, I am a digital assistant, and I am fully operational and ready to assist you. How can I help you today?
+    Peak Memory Usage: 5.70 GB
+
 +-------------------+---------------------+------------------------------+
 | Benchmark         | Phi-4 mini-instruct | Phi-4-mini-instruct-float8dq |
 +===================+=====================+==============================+
@@ -406,7 +372,7 @@ Latency Benchmarking
     VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
 
 Serving Benchmarking
-"""""""""""""""""
+"""""""""""""""""""""
 
 We benchmarked the throughput in a serving environment.
 
