@@ -255,6 +255,35 @@ class FakeQuantizeConfig:
 
 @dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
+    """
+    Configuration for applying Quantization Aware Training (QAT) with fake quantization
+    to both weights and activations of linear layers.
+
+    This config allows separate control of quantization settings for weights and activations,
+    enabling flexible QAT schemes like int8 activations with int4 weights, or other combinations.
+
+    Args:
+        activation_config: Optional[FakeQuantizeConfig] = None - Configuration for fake quantizing
+            activations. If None, activations remain in their original precision.
+        weight_config: Optional[FakeQuantizeConfig] = None - Configuration for fake quantizing
+            weights. If None, weights remain in their original precision.
+
+    Example:
+        >>> from torchao.quantization.qat import FakeQuantizeConfig, IntXQuantizationAwareTrainingConfig
+        >>> from torchao.quantization import quantize_
+        >>>
+        >>> # Configure int8 activation and int4 weight QAT
+        >>> activation_config = FakeQuantizeConfig(dtype=torch.int8, granularity='per_token')
+        >>> weight_config = FakeQuantizeConfig(dtype=torch.int4, granularity='per_group', group_size=32)
+        >>> qat_config = IntXQuantizationAwareTrainingConfig(
+        ...     activation_config=activation_config,
+        ...     weight_config=weight_config
+        ... )
+        >>>
+        >>> # Apply to model
+        >>> quantize_(model, qat_config)
+    """
+
     activation_config: Optional[FakeQuantizeConfig] = None
     weight_config: Optional[FakeQuantizeConfig] = None
 
