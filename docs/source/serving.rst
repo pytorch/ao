@@ -147,7 +147,7 @@ Install the required packages:
 Mobile Deployment with ExecuTorch
 --------------------------------
 
-ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to executorch, we can finetune a model using QAT :doc:`finetuning`, which has demonstrated some improvements in the quality of quantized models.
+ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to ExecuTorch, we can finetune a model using QAT :doc:`finetuning`, which has demonstrated some improvements in the quality of quantized models.
 
 [Optional] Untie Embedding Weights
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -272,7 +272,7 @@ Convert the quantized model to .pte file, which can be run on mobile device.
         --max_context_length 128 \
         --output_name="phi4-mini-8da4w.pte"
 
-The pte file can be run with ExecuTorch on a mobile phone. Follow the `instructions <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_ for doing this on an iOS device.
+The .pte file can be run with ExecuTorch on a mobile phone. Follow the `instructions <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_ for doing this on an iOS device.
 
 Mobile Performance Characteristics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -284,7 +284,7 @@ The torchao-optimized 8da4w model provides:
 - **Accuracy**: Maintained within 5-10% of original model on most benchmarks
 
 .. note::
-    For detailed instructions on testing the executorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
+    For detailed instructions on testing the ExecuTorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
 
 Evaluation
 ---------
