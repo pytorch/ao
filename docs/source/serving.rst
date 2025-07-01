@@ -17,6 +17,7 @@ Post-training Quantization with HuggingFace
 HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading. For this example, we'll use `Float8DynamicActivationFloat8WeightConfig` on the Phi-4 mini-instruct model.
 
 .. code-block:: bash
+
     pip install git+https://github.com/huggingface/transformers@main
     pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
     pip install torch
@@ -69,7 +70,7 @@ To serve in vLLM, we're using the model, we quantized and pushed to Hugging Face
 
     # Client
     curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
-    "model": "appy1234/Phi-4-mini-instruct-float8dq",
+    "model": "pytorch/Phi-4-mini-instruct-float8dq",
     "messages": [
         {"role": "user", "content": "Give me a short introduction to large language models."}
     ],
@@ -146,7 +147,7 @@ Mobile Deployment with ExecuTorch
 
 ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to executorch, we can fine-tune a model using QAT :doc:`finetuning` (Part 2), which has demonstrated some improvements in the quality of quantized models.
 
-[Optional] Step 0: Untie Embedding Weights
+[Optional] Untie Embedding Weights
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Optionally, we can quantize the embedding and lm_head differently, since those layers are tied, we first need to untie the model:
@@ -240,8 +241,10 @@ Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivati
     tokenizer.push_to_hub(save_to)
 
 
-Step 3: Export to ExecuTorch
+Step 2: Export to ExecuTorch
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Convert the quantized model to .pte file, which can be run on mobile device.
 
 .. code-block:: bash
 
@@ -267,6 +270,7 @@ Step 3: Export to ExecuTorch
         --max_context_length 128 \
         --output_name="phi4-mini-8da4w.pte"
 
+Once you've the .pte file, follow thee instructions to run it on an `iOS device <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_.`
 
 Mobile Performance Characteristics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
