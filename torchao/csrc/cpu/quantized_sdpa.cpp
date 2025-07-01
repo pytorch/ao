@@ -4,6 +4,7 @@
 #include <ATen/core/Tensor.h>
 #include <ATen/cpu/vec/functional.h>
 #include <ATen/cpu/vec/vec.h>
+#include <ATen/cpu/vec/vec_quant.h>
 #include <ATen/cpu/Utils.h>
 #include <ATen/native/cpu/utils.h>
 #include <ATen/native/CPUBlas.h>
@@ -82,10 +83,53 @@ inline void _store(scalar_t* dst, at::vec::Vectorized<scalar_t> src, int size=at
 }
 
 template <typename scalar_t>
-inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char> || std::is_same_v<scalar_t, signed char>, void>
+inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char> || std::is_same_v<scalar_t, signed char> || std::is_same_v<scalar_t, at::Float8_e4m3fn>, void>
 _store(scalar_t* dst, at::vec::Vectorized<float> src, int size=at::vec::Vectorized<float>::size()) {
   auto res = at::vec::convert<scalar_t>(src);
   res.store(dst, size);
+}
+
+/*
+out = val * a + b
+is_b_stride_zero: If the stride of b is 0 (mask broadcasting case),
+                take b as a scalar pointer.
+*/
+template <bool is_b_stride_zero, typename T1, typename T2>
+inline void _scale_dequant_attn_mask_fusion_kernel(
+    T1* a,
+    T2* b,
+    const int& size,
+    T1* out,
+    const T1& val) {
+  const auto vec_size1 = at::vec::Vectorized<T1>::size();
+  const auto vec_size2 = at::vec::Vectorized<T2>::size();
+  constexpr int64_t T1_n =
+      (vec_size2 == vec_size1 * 2 && at::vec::is_reduced_floating_point_v<T2>) ? 2 : 1;
+  constexpr int64_t T2_n = 1;
+  auto vec_scale = at::vec::VectorizedN<T1, T1_n>(val);
+  int64_t i = 0;
+  for (; i < size - (size % vec_size2); i += vec_size2) {
+    auto a_n = at::vec::VectorizedN<T1, T1_n>::loadu(a + i);
+    at::vec::VectorizedN<T2, T2_n> b_n;
+    if constexpr(is_b_stride_zero) {
+      b_n = at::vec::VectorizedN<T2, T2_n>((T1)b[0]);
+    } else {
+      b_n = at::vec::VectorizedN<T2, T2_n>::loadu(b + i);
+    }
+    auto b_n_convert = at::vec::convert<T1, T1_n, T2, T2_n, true>(b_n);
+    auto res = a_n * vec_scale + b_n_convert;
+    res.store(out + i);
+  }
+  for (; i < size; i++) {
+    auto tmp0 = a[i];
+    T1 tmp1;
+    if constexpr(is_b_stride_zero) {
+      tmp1 = (T1)b[0];
+    } else {
+      tmp1 = (T1)b[i];
+    }
+    out[i] = tmp0 * val + tmp1;
+  }
 }
 
 /*
@@ -618,7 +662,7 @@ inline void _int_sum_a_contiguous_kernel(
 // do the transpose: [in_rows, in_cols] -> [in_cols, in_rows]
 template <typename scalar_t>
 inline void do_transpose(
-    scalar_t* src,
+    const scalar_t* src,
     scalar_t* dst,
     int64_t in_rows,
     int64_t in_cols,
@@ -673,7 +717,7 @@ inline void pad_remain_row_col(
 // copy value_ptr to dst_ptr with padding: [rows, cols] -> [prows, pcols]
 template <typename scalar_t>
 inline void copy_value_with_pad(
-    scalar_t* value_ptr,
+    const scalar_t* value_ptr,
     scalar_t* dst_ptr,
     int rows,
     int cols,
@@ -725,13 +769,122 @@ inline void copy_value_with_pad(
 
 }
 
+/*
+1. out = a * scale
+2. max = max(out)
+*/
+template <typename scalar_t>
+inline void _mul_reduce_max_fusion_kernel(
+    const scalar_t* a,
+    const scalar_t& scale,
+    const int& size,
+    scalar_t* out,
+    scalar_t& max) {
+  auto vec_size = at::vec::Vectorized<scalar_t>::size();
+  auto vec_scale = at::vec::Vectorized<scalar_t>(scale);
+  scalar_t tmp_max = -std::numeric_limits<scalar_t>::infinity();
+  auto vec_tmp_max = at::vec::Vectorized<scalar_t>(tmp_max);
+  for (long i = 0; i < vec_size * (size / vec_size); i += vec_size) {
+    auto tmp0 = at::vec::Vectorized<scalar_t>::loadu(a + i);
+    auto tmp1 = tmp0 * vec_scale;
+    vec_tmp_max = at::vec::maximum(vec_tmp_max, tmp1);
+    _store(out + i, tmp1);
+  }
+  for (long i = vec_size * (size / vec_size); i < size; i++) {
+    auto tmp0 = a[i];
+    auto tmp1 = tmp0 * scale;
+    tmp_max = std::max(tmp_max, tmp1);
+    out[i] = tmp1;
+  }
+  auto reduced_tmp_max = at::vec::vec_reduce_all<scalar_t>(
+      [](at::vec::Vectorized<scalar_t>& x, at::vec::Vectorized<scalar_t>& y) {
+        return at::vec::maximum(x, y);
+      },
+      vec_tmp_max);
+  // Guard against Q*K^T being NaN
+  max = std::isnan(reduced_tmp_max) ? std::numeric_limits<scalar_t>::quiet_NaN()
+                                    : std::max(tmp_max, reduced_tmp_max);
+}
+
+/*
+1. out = exp(a - val)
+2. val = sum(out)
+3. quant
+*/
+inline void _fp8_exp_reduce_sum_quant_fusion_kernel(
+    float* a,
+    const int& size,
+    at::Float8_e4m3fn* out,
+    float& val,
+    const float& scale) {
+  auto vec_size = at::vec::Vectorized<float>::size();
+  auto vec_max = at::vec::Vectorized<float>(val);
+  float tmp_sum = 0;
+  auto vec_tmp_sum = at::vec::Vectorized<float>(tmp_sum);
+  float min_val = -448;
+  float max_val = 448;
+  auto vec_min_val = at::vec::Vectorized<float>(min_val);
+  auto vec_max_val = at::vec::Vectorized<float>(max_val);
+  auto vec_scale = at::vec::Vectorized<float>(scale);
+  long i = 0;
+  for (; i < vec_size * (size / vec_size); i += vec_size) {
+    auto tmp0 = at::vec::Vectorized<float>::loadu(a + i);
+    auto tmp1 = tmp0 - vec_max;
+    auto tmp2 = tmp1.exp_u20();
+    vec_tmp_sum += tmp2;
+    auto tmp3 = tmp2 * vec_scale;
+    auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
+    _store(out + i, tmp4);
+  }
+  if (i < size) {
+    auto tmp0 = at::vec::Vectorized<float>::loadu(a + i, size - i);
+    auto tmp1 = tmp0 - vec_max;
+    auto tmp2 = tmp1.exp_u20();
+    vec_tmp_sum = at::vec::Vectorized<float>::set(vec_tmp_sum, vec_tmp_sum + tmp2, size - i);
+    auto tmp3 = tmp2 * vec_scale;
+    auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
+    _store(out + i, tmp4, size - i);
+  }
+  val = vec_tmp_sum.reduce_add();
+}
+
+/*
+1. dequant
+2. quant
+*/
+inline void _fp8_dequant_quant_fusion_kernel(
+    float* a,
+    const int& size,
+    at::Float8_e4m3fn* out,
+    const float& scale) {
+  auto vec_size = at::vec::Vectorized<float>::size();
+  float min_val = -448;
+  float max_val = 448;
+  auto vec_min_val = at::vec::Vectorized<float>(min_val);
+  auto vec_max_val = at::vec::Vectorized<float>(max_val);
+  auto vec_scale = at::vec::Vectorized<float>(scale);
+  long i = 0;
+  for (; i < vec_size * (size / vec_size); i += vec_size) {
+    auto tmp0 = at::vec::Vectorized<float>::loadu(a + i);
+    auto tmp1 = tmp0 * vec_scale;
+    auto tmp2 = at::vec::clamp(tmp1, vec_min_val, vec_max_val);
+    _store(out + i, tmp2);
+  }
+  if (i < size) {
+    auto tmp0 = at::vec::Vectorized<float>::loadu(a + i, size - i);
+    auto tmp1 = tmp0 * vec_scale;
+    auto tmp2 = at::vec::clamp(tmp1, vec_min_val, vec_max_val);
+    _store(out + i, tmp2, size - i);
+  }
+}
+
 // UINT8 - one parallel loop with u8u8s32 GEMM 
 template <typename scalar_t, typename mask_t,
           int64_t q_split_size, int64_t kv_split_size,
           bool use_one_parallel_loop,
           typename std::enable_if_t<use_one_parallel_loop, int> = 0>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
-sdpa_int8_fused_kernel_impl(
+int8_sdpa_fused_kernel_impl(
     const at::Tensor& output,
     const at::Tensor& q,
     const at::Tensor& k,
@@ -830,9 +983,9 @@ sdpa_int8_fused_kernel_impl(
   int av_gemm_K = kvSplitSize + av_gemm_K_padding;
 
   // Data ptrs
-  scalar_t* q_data = query.data_ptr<scalar_t>();
-  scalar_t* k_data = key.data_ptr<scalar_t>();
-  scalar_t* v_data = value.data_ptr<scalar_t>();
+  const scalar_t* q_data = query.data_ptr<scalar_t>();
+  const scalar_t* k_data = key.data_ptr<scalar_t>();
+  const scalar_t* v_data = value.data_ptr<scalar_t>();
   mask_t* mask_data = attention_mask.has_value()
       ? attention_mask.value().data_ptr<mask_t>()
       : nullptr;
@@ -931,7 +1084,7 @@ sdpa_int8_fused_kernel_impl(
               bool istail = kvBlockSize - b < block_64;
               int64_t trans_rows = istail ? kvBlockSize - b : block_64;
               do_transpose(
-                  k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN,
+                  reinterpret_cast<const uint8_t*>(k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN),
                   B_blocked_xform_u8,
                   trans_rows,
                   headSize,
@@ -1159,7 +1312,7 @@ template <typename scalar_t, typename mask_t,
           bool use_one_parallel_loop,
           typename std::enable_if_t<!use_one_parallel_loop, int> = 0>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
-sdpa_int8_fused_kernel_impl(
+int8_sdpa_fused_kernel_impl(
     const at::Tensor& output,
     const at::Tensor& q,
     const at::Tensor& k,
@@ -1622,10 +1775,371 @@ sdpa_int8_fused_kernel_impl(
   at::native::cpublas::brgemm_release();
 }
 
+// FP8 - one parallel loop with f8f8f8 GEMM 
+template <typename scalar_t, typename mask_t,
+          int64_t q_split_size, int64_t kv_split_size>
+inline typename std::enable_if_t<std::is_same_v<scalar_t, at::Float8_e4m3fn>, void>
+fp8_sdpa_fused_kernel_impl(
+    const at::Tensor& output,
+    const at::Tensor& q,
+    const at::Tensor& k,
+    const at::Tensor& v,
+    double dropout_p,
+    bool is_causal,
+    std::optional<at::Tensor> attn_mask,
+    std::optional<double> scale,
+    float q_scale,
+    float k_scale,
+    float v_scale,
+    float a_scale,
+    float o_scale) {
+  // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
+  //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
+  // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Value (Batch x Num_heads  x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  at::Tensor query = q.transpose(1, 2);
+  at::Tensor key = k.transpose(1, 2);
+  at::Tensor value = v.transpose(1, 2);
+
+  using accum_t = float;
+  using Vec = at::vec::Vectorized<accum_t>;
+  accum_t scaling_factor = calculate_scale(query, scale).expect_float();
+
+  // Sizes
+  TORCH_CHECK((query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
+        "scaled_dot_product_attention_flash_attention: Q/K/V should have the same head size");
+  int64_t batchSize = query.size(0);
+  int64_t qSize = query.size(1);
+  int64_t kvSize = value.size(1);
+  int64_t num_head = query.size(2);
+  int64_t headSize = query.size(3);
+
+  bool has_attn_mask = attn_mask.has_value() && attn_mask.value().numel();
+  if (has_attn_mask) {
+    reshape_attn_mask_to_4d(attn_mask.value(), batchSize, num_head, qSize, kvSize);
+  }
+
+  // Strides
+  int64_t qStrideB = query.stride(0);
+  int64_t qStrideM = query.stride(1);
+  int64_t qStrideH = query.stride(2);
+  int64_t kStrideB = key.stride(0);
+  int64_t kStrideN = key.stride(1);
+  int64_t kStrideH = key.stride(2);
+  int64_t vStrideB = value.stride(0);
+  int64_t vStrideN = value.stride(1);
+  int64_t vStrideH = value.stride(2);
+  int64_t oStrideB = output.stride(0);
+  int64_t oStrideM = output.stride(1);
+  int64_t oStrideH = output.stride(2);
+  int64_t mStrideB =
+      (has_attn_mask && attn_mask.value().size(0) > 1)
+      ? attn_mask.value().stride(0)
+      : 0;
+  int64_t mStrideH =
+      (has_attn_mask && attn_mask.value().size(1) > 1)
+      ? attn_mask.value().stride(1)
+      : 0;
+  int64_t mStrideM =
+      (has_attn_mask && attn_mask.value().size(2) > 1)
+      ? attn_mask.value().stride(2)
+      : 0;
+  int64_t mStrideN =
+      (has_attn_mask && attn_mask.value().size(3) > 1)
+      ? attn_mask.value().stride(3)
+      : 0;
+
+  int64_t qSplitSize = q_split_size > qSize ? qSize : q_split_size;
+  int64_t kvSplitSize = kv_split_size > kvSize ? kvSize : kv_split_size;
+  int64_t qSlice = (qSize + qSplitSize - 1) / qSplitSize;
+  int64_t kvSlice = (kvSize + kvSplitSize - 1) / kvSplitSize;
+  int64_t kvTail = (kvSize - 1) % kvSplitSize + 1;
+  int64_t num_thread = at::get_num_threads();
+
+  // Pad is needed for packing when K is not even
+  bool headSize_even = headSize % 4 == 0;
+  int64_t eheadSize = !headSize_even ? headSize + 4 - headSize % 4: headSize;
+  int64_t ekvSplitSize = (kvSplitSize % 4 != 0) ? kvSplitSize + 4 - kvSplitSize % 4 : kvSplitSize;
+  int64_t ekvTail = (kvTail % 4 != 0) ? kvTail + 4 - kvTail % 4 : kvTail;
+
+  // Allocate per thread temp buf (accumulate type)
+  int64_t size_per_thread =
+      /* qk     */ qSplitSize * kvSplitSize +
+      /* qk_max */ qSplitSize +
+      /* qk_sum */ qSplitSize +
+      /* dst    */ qSplitSize * headSize;
+
+  at::Tensor buf = at::empty({num_thread, size_per_thread}, query.options().dtype(at::kFloat));
+  at::Tensor buf_reduced = at::empty(
+    {num_thread,
+     qSplitSize,
+     ekvSplitSize},
+     query.options());
+
+  // Data ptrs
+  const scalar_t* q_data = query.const_data_ptr<scalar_t>();
+  const scalar_t* k_data = key.const_data_ptr<scalar_t>();
+  const scalar_t* v_data = value.const_data_ptr<scalar_t>();
+  mask_t* mask_data = has_attn_mask
+      ? attn_mask.value().data_ptr<mask_t>()
+      : nullptr;
+  scalar_t* out_data = output.data_ptr<scalar_t>();
+  // accum_t* lse_data = logsumexp.data_ptr<accum_t>();
+  accum_t* buf_data = buf.data_ptr<accum_t>();
+  scalar_t* buf_reduced_data = buf_reduced.data_ptr<scalar_t>();
+
+  // Buffer to store padding query and packing key/value
+  int64_t kv_padding_size = (kvSize - 1) / kvSplitSize * ekvSplitSize + ekvTail;
+  at::Tensor key_t_reorder = at::empty(
+    {batchSize, num_head, eheadSize, kvSize},
+    c10::CppTypeToScalarType<scalar_t>::value);
+  at::Tensor value_t_reorder = at::empty(
+    {batchSize, num_head, kv_padding_size, headSize},
+    c10::CppTypeToScalarType<scalar_t>::value);
+  scalar_t* key_reorder_ptr = key_t_reorder.data_ptr<scalar_t>();
+  scalar_t* value_reorder_ptr = value_t_reorder.data_ptr<scalar_t>();
+
+  scalar_t* query_padding_ptr = nullptr;
+  at::Tensor query_t_padding;
+  if (!headSize_even) {
+    query_t_padding = at::empty(
+      {num_thread, qSplitSize, eheadSize},
+      c10::CppTypeToScalarType<scalar_t>::value);
+    query_padding_ptr = query_t_padding.data_ptr<scalar_t>();
+  }
+
+  // Reorder K, V
+  at::Tensor tranpose_t_reorder = at::empty(
+    {num_thread, kvSplitSize, headSize},
+    c10::CppTypeToScalarType<scalar_t>::value);
+  scalar_t* transpose_buffer_ptr = tranpose_t_reorder.data_ptr<scalar_t>();
+  at::parallel_for(0, batchSize * num_head * kvSlice, 1, [&](int64_t begin, int64_t end) {
+      int ompIdx = at::get_thread_num();
+      int64_t i = 0, j = 0, l = 0, n = 0;
+      scalar_t* transpose_ptr = transpose_buffer_ptr + ompIdx * kvSplitSize * headSize;
+      at::native::data_index_init(begin, i, batchSize, j, num_head, l, kvSlice);
+      for ([[maybe_unused]] auto z : c10::irange(begin, end)) {
+        n = l * kvSplitSize;
+        int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
+
+        // transpose [kvBlockSize, headSize] -> [headSize, kvBlockSize]
+        at::native::utils::transpose<uint8_t>(
+            kvBlockSize,
+            headSize,
+            /* src */ reinterpret_cast<const uint8_t*>(k_data + i * kStrideB + j * kStrideH + n * kStrideN),
+            /* ld_src */ kStrideN,
+            /* dst */ reinterpret_cast<uint8_t*>(transpose_ptr),
+            /* ld_dst */ kvBlockSize);
+
+        // Pack [headSize, kvBlockSize]
+        at::vec::pack_vnni4(
+          /* src */ reinterpret_cast<const uint8_t*>(transpose_ptr),
+          /* dst */ reinterpret_cast<uint8_t*>(key_reorder_ptr + i * num_head * eheadSize * kvSize +
+                  j * eheadSize * kvSize + n * eheadSize),
+          /* ld_src */ kvBlockSize,
+          /* K */ headSize,
+          /* N */ kvBlockSize);
+
+        // Pack [kvBlockSize, headSize]
+        at::vec::pack_vnni4(
+          /* src */ reinterpret_cast<const uint8_t*>(v_data + i * vStrideB + j * vStrideH + n * vStrideN),
+          /* dst */ reinterpret_cast<uint8_t*>(value_reorder_ptr +
+                  i * num_head * kv_padding_size * headSize +
+                  j * kv_padding_size * headSize + n * headSize),
+          /* ld_src */ vStrideN,
+          /* K */ kvBlockSize,
+          /* N */ headSize);
+
+        // Move to the next query
+        at::native::data_index_step(i, batchSize, j, num_head, l, kvSlice);
+      }
+    });
+
+  at::parallel_for(0, batchSize * num_head * qSlice, 1, [&](int64_t begin, int64_t end) {
+    int64_t i = 0, j = 0, k = 0;
+    at::native::data_index_init(begin, i, batchSize, j, num_head, k, qSlice);
+    int ompIdx = at::get_thread_num();
+    accum_t* buf_ptr = buf_data + ompIdx * size_per_thread;
+    accum_t* qk_data = buf_ptr;
+    accum_t* qk_max_data = qk_data + qSplitSize * kvSplitSize;
+    accum_t* qk_sum_data = qk_max_data + qSplitSize;
+    accum_t* dst_data = qk_sum_data + qSplitSize;
+    scalar_t* qk_reduced_data = buf_reduced_data + ompIdx * qSplitSize * ekvSplitSize;
+    scalar_t* query_t_padding_ptr = !headSize_even
+            ? query_padding_ptr + ompIdx * qSplitSize * eheadSize
+            : nullptr;
+
+    for ([[maybe_unused]] auto z : c10::irange(begin, end)) {
+      int64_t m = k * qSplitSize;
+      int64_t qBlockSize = std::min(qSplitSize, qSize - m);
+      // Initialize max and sum
+      fill_stub(qk_max_data,
+          -std::numeric_limits<accum_t>::infinity(), qBlockSize);
+      fill_stub(qk_sum_data,
+          static_cast<accum_t>(0), qBlockSize);
+      int64_t num_keys = is_causal ? std::min(m + qBlockSize, kvSize) : kvSize;
+      if (!headSize_even) {
+        // Pad query if headSize is not even
+        // [qBlockSize, headSize] -> [qBlockSize, eheadSize]
+        copy_value_with_pad<scalar_t>(
+          q_data + i * qStrideB + j * qStrideH + m * qStrideM,
+          query_t_padding_ptr,
+          qBlockSize,
+          headSize,
+          qBlockSize,
+          eheadSize,
+          qStrideM
+        );
+      }
+      for (int64_t n = 0; n < num_keys; n += kvSplitSize) {
+        int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
+        int64_t ekvBlockSize = (kvBlockSize % 4 != 0) ? kvBlockSize + 4 - kvBlockSize % 4 : kvBlockSize;
+        // Calculate scale * q @ k.T
+        at::native::cpublas::brgemm(
+          qBlockSize,
+          kvBlockSize,
+          eheadSize,
+          headSize_even ? qStrideM : eheadSize,
+          kvBlockSize,
+          kvBlockSize,
+          false,
+          !headSize_even
+              ? query_t_padding_ptr
+              : q_data + i * qStrideB + j * qStrideH + m * qStrideM,
+          key_reorder_ptr + i * num_head * eheadSize * kvSize +
+              j * eheadSize * kvSize + n * eheadSize,
+          qk_data);
+        // Apply causal mask, fill unused with -inf
+        if (is_causal && num_keys - n <= kvSplitSize) {
+          for (const auto row : c10::irange(qBlockSize)) {
+            int64_t last_col = m + row - n;
+            accum_t* row_ptr = qk_data + row * kvBlockSize;
+            fill_stub(row_ptr + last_col + 1,
+                -std::numeric_limits<accum_t>::infinity(),
+                kvBlockSize - last_col - 1);
+          }
+        }
+        // Update attention weights with attention mask
+        // And apply scaling factor
+        // qk <- qk * scaling + attn_mask
+        if (has_attn_mask) {
+          for (int64_t row = 0; row < qBlockSize; ++row) {
+              if (mStrideN == 0) {
+                _scale_dequant_attn_mask_fusion_kernel</*is_stride_0*/ true>(
+                  qk_data + row * kvBlockSize,
+                  mask_data + i * mStrideB + j * mStrideH +
+                      (m + row) * mStrideM,
+                  kvBlockSize,
+                  qk_data + row * kvBlockSize,
+                  scaling_factor * q_scale * k_scale);
+              } else {
+                _scale_dequant_attn_mask_fusion_kernel</*is_stride_0*/ false>(
+                  qk_data + row * kvBlockSize,
+                  mask_data + i * mStrideB + j * mStrideH +
+                      (m + row) * mStrideM + n,
+                  kvBlockSize,
+                  qk_data + row * kvBlockSize,
+                  scaling_factor * q_scale * k_scale);
+              }
+          }
+        }
+        // Update coefficients with Softmax
+        accum_t tmp_max = 0, tmp_sum = 0, exp_tmp = 0;
+        for (int64_t row = 0; row < qBlockSize; ++row) {
+          if (has_attn_mask) {
+            // max per row
+            tmp_max = at::vec::reduce_all<accum_t>(
+                [](Vec& x, Vec& y) { return at::vec::maximum(x, y); },
+                qk_data + row * kvBlockSize,
+                kvBlockSize);
+          } else {
+            // apply scaling factor and max per row in fusion
+            _mul_reduce_max_fusion_kernel(
+                qk_data + row * kvBlockSize,
+                scaling_factor * q_scale * k_scale,
+                kvBlockSize,
+                qk_data + row * kvBlockSize,
+                tmp_max);
+          }
+          tmp_max = qk_max_data[row] > tmp_max ? qk_max_data[row] : tmp_max;
+          if (tmp_max == -std::numeric_limits<accum_t>::infinity()) {
+            // to avoid `nan = exp2f(-inf - (-inf))`
+            fill_stub(qk_reduced_data + row * ekvBlockSize,
+              static_cast<scalar_t>(0), kvBlockSize);
+          } else {
+            tmp_sum = tmp_max;
+            // qk <- exp(qk - max) and sum per row
+            _fp8_exp_reduce_sum_quant_fusion_kernel(
+                qk_data + row * kvBlockSize, kvBlockSize,
+                qk_reduced_data + row * ekvBlockSize,
+                tmp_sum,
+                1.0 / a_scale);
+            // exp_tmp <- exp(max[row] - max)
+            exp_tmp = std::exp(qk_max_data[row] - tmp_max);
+            // sum[row] <- sum + exp_tmp * sum[row]
+            qk_sum_data[row] = tmp_sum + exp_tmp * qk_sum_data[row];
+            // max[row] <- max
+            qk_max_data[row] = tmp_max;
+            // dst <- dst * exp_tmp
+            if (n > 0) {
+              at::vec::map<accum_t>(
+                [exp_tmp](Vec x) { return x * Vec(exp_tmp); },
+                dst_data + row * headSize,
+                dst_data + row * headSize,
+                headSize);
+            }
+          }
+          if (kvBlockSize % 4 != 0) {
+            // Pad: [qSplitSize, kvBlockSize] -> [qSplitSize, kvBlockSize + 4 - kvBlockSize / 4]
+            for (int64_t psize = kvBlockSize; psize < ekvBlockSize; ++psize) {
+              *(qk_reduced_data + row * ekvBlockSize + psize) = scalar_t(0);
+            }
+          }
+        }
+        // Calculate Softmax(q @ k.T) @ v
+        int64_t psize = n / kvSplitSize * ekvSplitSize;
+        at::native::cpublas::brgemm(
+          qBlockSize,
+          headSize,
+          ekvBlockSize,
+          ekvBlockSize,
+          headSize,
+          headSize,
+          n > 0,
+          qk_reduced_data,
+          value_reorder_ptr +
+              i * num_head * kv_padding_size * headSize +
+              j * kv_padding_size * headSize + psize * headSize,
+          dst_data);
+      }
+
+      // dst <- dst / sum[row]
+      // reorder MHA output with strides
+      for (int64_t row = 0; row < qBlockSize; ++row) {
+        // Row sums for full masked out rows are 0, we set them to 1
+        // in order to avoid NaNs in the output and instead set fully
+        // masked out rows to 0
+        qk_max_data[row] = qk_max_data[row] == -std::numeric_limits<accum_t>::infinity() ? 0 : qk_max_data[row];
+        qk_sum_data[row] = qk_sum_data[row] == 0 ? 1 : qk_sum_data[row];
+        accum_t sum_reciprocal = 1 / qk_sum_data[row];
+        _fp8_dequant_quant_fusion_kernel(
+          dst_data + row * headSize,
+          headSize,
+          out_data + i * oStrideB + j * oStrideH + m * oStrideM + row * oStrideM,
+          sum_reciprocal * a_scale * v_scale / o_scale);
+      }
+      // Move to the next query
+      at::native::data_index_step(i, batchSize, j, num_head, k, qSlice);
+    }
+    at::native::cpublas::brgemm_release();
+  });
+}
 
 template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_split_size>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
-sdpa_int8_fused_kernel_impl(
+int8_sdpa_fused_kernel_impl(
     bool use_one_parallel_loop,
     const at::Tensor& output,
     const at::Tensor& query,
@@ -1646,7 +2160,7 @@ sdpa_int8_fused_kernel_impl(
     float o_scale,
     int32_t o_zp) {
   if (use_one_parallel_loop) {
-    sdpa_int8_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
+    int8_sdpa_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
           /* use_one_parallel_loop */ true>(
       output, query, key, value,
       dropout_p, is_causal, attn_mask, scale,
@@ -1656,7 +2170,7 @@ sdpa_int8_fused_kernel_impl(
       a_scale, a_zp,
       o_scale, o_zp);
   } else {
-    sdpa_int8_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
+    int8_sdpa_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
           /* use_one_parallel_loop */ false>(
       output, query, key, value,
       dropout_p, is_causal, attn_mask, scale,
@@ -1667,7 +2181,6 @@ sdpa_int8_fused_kernel_impl(
       o_scale, o_zp);
   }
 }
-
 
 #define AT_DISPATCH_MASK_TYPES(TYPE, NAME, ...)            \
   AT_DISPATCH_SWITCH(                                      \
@@ -1684,7 +2197,7 @@ sdpa_int8_fused_kernel_impl(
       AT_PRIVATE_CASE_TYPE_USING_HINT(                     \
           at::ScalarType::Half, mask_t, __VA_ARGS__))
 
-void sdpa_int8_fused_kernel(
+void int8_sdpa_fused_kernel(
     const at::Tensor& output,
     const at::Tensor& query,
     const at::Tensor& key,
@@ -1724,7 +2237,7 @@ void sdpa_int8_fused_kernel(
       (attn_size > 1.5 * l2_cache_size);
   if (!attn_mask.has_value()) {
     if (q_split_size == 256) {
-      sdpa_int8_fused_kernel_impl<unsigned char, float, 256, 64>(
+      int8_sdpa_fused_kernel_impl<unsigned char, float, 256, 64>(
         use_one_parallel_loop,
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
@@ -1734,7 +2247,7 @@ void sdpa_int8_fused_kernel(
         a_scale, a_zp,
         o_scale, o_zp);
     } else if (q_split_size == 64) {
-      sdpa_int8_fused_kernel_impl<unsigned char, float, 64, 64>(
+      int8_sdpa_fused_kernel_impl<unsigned char, float, 64, 64>(
         use_one_parallel_loop,
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
@@ -1744,7 +2257,7 @@ void sdpa_int8_fused_kernel(
         a_scale, a_zp,
         o_scale, o_zp);
     } else {
-      sdpa_int8_fused_kernel_impl<unsigned char, float, 32, 64>(
+      int8_sdpa_fused_kernel_impl<unsigned char, float, 32, 64>(
         use_one_parallel_loop,
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
@@ -1757,7 +2270,7 @@ void sdpa_int8_fused_kernel(
   } else {
     AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
       if (q_split_size == 256) {
-        sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 256, 64>(
+        int8_sdpa_fused_kernel_impl<unsigned char, mask_t, 256, 64>(
           use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -1767,7 +2280,7 @@ void sdpa_int8_fused_kernel(
           a_scale, a_zp,
           o_scale, o_zp);
       } else if (q_split_size == 64) {
-        sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 64, 64>(
+        int8_sdpa_fused_kernel_impl<unsigned char, mask_t, 64, 64>(
           use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -1777,7 +2290,7 @@ void sdpa_int8_fused_kernel(
           a_scale, a_zp,
           o_scale, o_zp);
       } else {
-        sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 32, 64>(
+        int8_sdpa_fused_kernel_impl<unsigned char, mask_t, 32, 64>(
           use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -1790,9 +2303,86 @@ void sdpa_int8_fused_kernel(
     });
   }
 }
+
+void fp8_sdpa_fused_kernel(
+    const at::Tensor& output,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    double dropout_p,
+    bool is_causal,
+    std::optional<at::Tensor> attn_mask,
+    std::optional<double> scale,
+    float q_scale,
+    float k_scale,
+    float v_scale,
+    float a_scale,
+    float o_scale) {
+  TORCH_CHECK(query.scalar_type() == c10::kFloat8_e4m3fn);
+  int64_t batchSize = query.size(0);
+  int64_t num_head = query.size(1);
+  int64_t q_seq_len = query.size(2);
+  int64_t kv_seq_len = key.size(2);
+  int64_t q_split_size = 32;
+  if (q_seq_len >= 768) {
+    q_split_size = 256;
+  } else if (q_seq_len >= 192) {
+    q_split_size = 64;
+  }
+
+  if (!attn_mask.has_value()) {
+    if (q_split_size == 256) {
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 256, 64>(
+        output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_scale, k_scale,
+        v_scale, a_scale,
+        o_scale);
+    } else if (q_split_size == 64) {
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 64, 64>(
+        output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_scale, k_scale,
+        v_scale, a_scale,
+        o_scale);
+    } else {
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 32, 64>(
+        output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_scale, k_scale,
+        v_scale, a_scale,
+        o_scale);
+    }
+  } else {
+    AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
+      if (q_split_size == 256) {
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 256, 64>(
+          output, query, key, value,
+          dropout_p, is_causal, attn_mask, scale,
+          q_scale, k_scale,
+          v_scale, a_scale,
+          o_scale);
+      } else if (q_split_size == 64) {
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 64, 64>(
+          output, query, key, value,
+          dropout_p, is_causal, attn_mask, scale,
+          q_scale, k_scale,
+          v_scale, a_scale,
+          o_scale);
+      } else {
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 32, 64>(
+          output, query, key, value,
+          dropout_p, is_causal, attn_mask, scale,
+          q_scale, k_scale,
+          v_scale, a_scale,
+          o_scale);
+      }
+    });
+  }
+}
 #endif // CPU_CAPABILITY_AVX512
 
-at::Tensor sdpa_int8_math_kernel(
+at::Tensor int8_sdpa_math_kernel(
     const at::Tensor& query,
     const at::Tensor& key,
     const at::Tensor& value,
@@ -1834,6 +2424,43 @@ at::Tensor sdpa_int8_math_kernel(
   return output;
 }
 
+at::Tensor fp8_sdpa_math_kernel(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    double dropout_p,
+    bool is_causal,
+    std::optional<at::Tensor> attn_mask,
+    std::optional<double> scale,
+    float q_scale,
+    float k_scale,
+    float v_scale,
+    float a_scale,
+    float o_scale) {
+  // dequant q/k/v
+  auto q = query.to(at::kFloat) * q_scale;
+  auto k = key.to(at::kFloat) * k_scale;
+  auto v = value.to(at::kFloat) * v_scale;
+  const auto scaling_factor = calculate_scale(q, scale);
+  auto attn = at::matmul(q, k.transpose(-2, -1)) * scaling_factor;
+  if (attn_mask.has_value() && attn_mask.value().numel()) {
+    attn = attn.add(attn_mask.value().to(at::kFloat));
+  }
+  attn = at::softmax(attn, -1);
+  // quant attn
+  attn = at::clamp_max(
+      at::clamp_min(attn / a_scale, -448), 448
+  );
+  attn = attn.to(at::kFloat8_e4m3fn).to(at::kFloat);
+  // dequant attn
+  attn = attn * a_scale;
+  auto output = at::matmul(attn, v);
+  // quant output
+  output = at::clamp_max(
+      at::clamp_min(output / o_scale, -448), 448
+  ).to(at::kFloat8_e4m3fn);
+  return output;
+}
 
 at::Tensor _qscaled_dot_product_cpu(
     const at::Tensor& query,
@@ -1858,8 +2485,8 @@ at::Tensor _qscaled_dot_product_cpu(
     "_qscaled_dot_product_cpu: Only accept plain inputs");
   TORCH_CHECK(!is_causal,
     "_qscaled_dot_product_cpu: is_causal not supported.");
-  TORCH_CHECK(dtype == at::ScalarType::Byte,
-    "_qscaled_dot_product_cpu: Expected data type be U8, but got ", dtype, " instead.");
+  TORCH_CHECK(dtype == at::ScalarType::Byte || dtype == at::ScalarType::Float8_e4m3fn,
+    "_qscaled_dot_product_cpu: Expected data type be U8 or Float8_e4m3, but got ", dtype, " instead.");
   TORCH_CHECK(query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
     "_qscaled_dot_product_cpu: Accept only 4 dims inputs shape of {B, H, T, K}");
   TORCH_CHECK(dropout_p == 0.0,
@@ -1873,27 +2500,50 @@ at::Tensor _qscaled_dot_product_cpu(
   TORCH_CHECK(!attn_mask.has_value() ||
           (attn_mask.value().dim() == 2 || attn_mask.value().dim() == 4),
     "_qscaled_dot_product_cpu: Attention mask dim in {2, 4}");
+  if (dtype == at::ScalarType::Float8_e4m3fn) {
+    TORCH_CHECK(q_zp == 0 && k_zp == 0 && v_zp == 0 && a_zp == 0 && o_zp == 0,
+      "_qscaled_dot_product_cpu: Don't accept zero point for Float8_e4m3");
+  }
 
   #ifdef CPU_CAPABILITY_AVX512
     if (at::native::cpublas::could_pack(dtype)) {
         at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
-        sdpa_int8_fused_kernel(output, query, key, value,
+        if (dtype == at::ScalarType::Byte) {
+          int8_sdpa_fused_kernel(output, query, key, value,
             dropout_p, is_causal, attn_mask, scale,
             q_scale, q_zp,
             k_scale, k_zp,
             v_scale, v_zp,
             a_scale, a_zp,
             o_scale, o_zp);
+        } else if (dtype == at::ScalarType::Float8_e4m3fn) {
+          fp8_sdpa_fused_kernel(output, query, key, value,
+            dropout_p, is_causal, attn_mask, scale,
+            q_scale, k_scale,
+            v_scale, a_scale,
+            o_scale);
+        } else {
+          TORCH_CHECK(false, "_qscaled_dot_product_cpu: Unsupported data type ", dtype);
+        }
         return output.transpose(1, 2);
     } else {
   #endif // CPU_CAPABILITY_AVX512
-        return sdpa_int8_math_kernel(query, key, value,
+        if (dtype == at::ScalarType::Byte) {
+          return int8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, q_zp,
               k_scale, k_zp,
               v_scale, v_zp,
               a_scale, a_zp,
               o_scale, o_zp).transpose(1, 2).contiguous().transpose(1, 2);
+        } else if (dtype == at::ScalarType::Float8_e4m3fn) {
+          return fp8_sdpa_math_kernel(query, key, value,
+              dropout_p, is_causal, attn_mask, scale,
+              q_scale, k_scale,
+              v_scale, a_scale,
+              o_scale).transpose(1, 2).contiguous().transpose(1, 2);
+        }
+        TORCH_CHECK(false, "_qscaled_dot_product_cpu: Unsupported data type ", dtype);
   #ifdef CPU_CAPABILITY_AVX512
     }
   #endif // CPU_CAPABILITY_AVX512
