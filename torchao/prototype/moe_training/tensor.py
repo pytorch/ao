@@ -47,7 +47,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
         cls,
         tensor: torch.Tensor,
     ):
-        # logger.info(f"ScaledGroupedMMTensor __new__: tensor.dtype={tensor.dtype}, dtype: {dtype}, shape: {tensor.shape}")
         return torch.Tensor._make_wrapper_subclass(
             cls,
             tensor.size(),
@@ -155,9 +154,24 @@ class ScaledGroupedMMTensor(torch.Tensor):
     ):
         (data,) = all_gather_outputs
 
+        # For training step 1+, out=unsharded param, so we need to copy data to `out`
+        # if `self._data`` and `out` do not share the same storage.
+        # Otherwise, if they do share the same storage, we can just return directly.
         if out is not None:
+            assert isinstance(out, ScaledGroupedMMTensor), f"{type(out)}"
+            if data.dtype == param_dtype:
+                assert (
+                    data.untyped_storage().data_ptr()
+                    == out._data.untyped_storage().data_ptr()
+                )
+            else:
+                assert out._data.dtype == param_dtype, (
+                    f"{out._data.dtype} {param_dtype}"
+                )
+                out._data.copy_(data)
             return
 
+        # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
         output = ScaledGroupedMMTensor(data)
         inner_tensors = (data,)
         return output, inner_tensors
