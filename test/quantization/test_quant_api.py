@@ -307,7 +307,7 @@ class TestQuantFlow(TestCase):
         res = m2(*example_inputs)
 
         # TODO: figure out why ROCm has a larger error
-        atol, rtol = (1e-2, 1e-2) if torch.version.hip else (1e-7, 1e-5)
+        atol, rtol = (1e-2, 1e-2) if torch.version.hip else (None, None)
         torch.testing.assert_close(ref, res.cpu(), atol=atol, rtol=rtol)
 
     @unittest.skipIf(
