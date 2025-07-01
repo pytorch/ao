@@ -14,7 +14,7 @@ This tutorial demonstrates how to perform post-training quantization and deploy 
 Post-training Quantization with HuggingFace
 -------------------------------------------
 
-HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading. For this example, we'll use `Float8DynamicActivationFloat8WeightConfig` on the Phi-4 mini-instruct model.
+HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading.
 
 .. code-block:: bash
 
@@ -22,6 +22,8 @@ HuggingFace Transformers provides seamless integration with torchao quantization
     pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
     pip install torch
     pip install accelerate
+
+For this example, we'll use ``Float8DynamicActivationFloat8WeightConfig`` on the Phi-4 mini-instruct model.
 
 .. code-block:: python
 
@@ -61,7 +63,7 @@ First, install vLLM with torchao support:
     pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
     pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
 
-To serve in vLLM, we're using the model, we quantized and pushed to Hugging Face hub in the previous step :ref:`Post-training Quantization with HuggingFace`.
+To serve in vLLM, we're using the model we quantized and pushed to Hugging Face hub in the previous step :ref:`Post-training Quantization with HuggingFace`.
 
 .. code-block:: bash
 
@@ -70,14 +72,14 @@ To serve in vLLM, we're using the model, we quantized and pushed to Hugging Face
 
     # Client
     curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
-    "model": "pytorch/Phi-4-mini-instruct-float8dq",
-    "messages": [
-        {"role": "user", "content": "Give me a short introduction to large language models."}
-    ],
-    "temperature": 0.6,
-    "top_p": 0.95,
-    "top_k": 20,
-    "max_tokens": 32768
+        "model": "pytorch/Phi-4-mini-instruct-float8dq",
+        "messages": [
+            {"role": "user", "content": "Give me a short introduction to large language models."}
+        ],
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "max_tokens": 32768
     }'
 
 Serving a float8 dynamic quantized model with vLLM shows 36% VRAM reduction, 1.15x-1.2x inference speedup and little to no accuracy impact on H100. :ref:`Memory Benchmarking` and :ref:`Performance Benchmarking` for more details.
@@ -145,7 +147,7 @@ Install the required packages:
 Mobile Deployment with ExecuTorch
 --------------------------------
 
-ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to executorch, we can fine-tune a model using QAT :doc:`finetuning` (Part 2), which has demonstrated some improvements in the quality of quantized models.
+ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to executorch, we can finetune a model using QAT :doc:`finetuning`, which has demonstrated some improvements in the quality of quantized models.
 
 [Optional] Untie Embedding Weights
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -191,7 +193,7 @@ Optionally, we can quantize the embedding and lm_head differently, since those l
 Step 1: Create Mobile-Optimized Quantization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Quantizing the model for mobile deployment using TorchAO's **Int8DynamicActivationIntxWeightConfig** configuration. If we've untied the embedding and lm-head following the previous step, we can quantize embedding using **IntxWeightOnlyConfig** configuration, and lm-head using **Int8DynamicActivationIntxWeightConfig** configuration.
+Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivationIntxWeightConfig`` configuration. If we've untied the embedding and lm_head following the previous step, we can quantize embedding using ``IntxWeightOnlyConfig`` configuration, and lm_head using ``Int8DynamicActivationIntxWeightConfig`` configuration.
 
 .. code-block:: python
 
@@ -270,7 +272,7 @@ Convert the quantized model to .pte file, which can be run on mobile device.
         --max_context_length 128 \
         --output_name="phi4-mini-8da4w.pte"
 
-Once you've the .pte file, follow thee instructions to run it on an `iOS device <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_.`
+The pte file can be run with ExecuTorch on a mobile phone. Follow the `instructions <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_ for doing this on an iOS device.
 
 Mobile Performance Characteristics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -310,7 +312,7 @@ For Phi-4-mini-instruct, when quantized with float8 dynamic quant, we can reduce
 .. code-block:: python
 
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
     model_id = "pytorch/Phi-4-mini-instruct-float8dq"
@@ -348,7 +350,8 @@ For Phi-4-mini-instruct, when quantized with float8 dynamic quant, we can reduce
     print(f"Peak Memory Usage: {mem:.02f} GB")
 
 Output:
-.. code-block:: none
+
+.. code:: console
 
     Prompt: Hey, are you conscious? Can you talk to me?
     Templated prompt: <|system|><|end|><|user|>Hey, are you conscious? Can you talk to me?<|end|><|assistant|>
