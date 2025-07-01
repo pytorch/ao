@@ -2,7 +2,6 @@ name: Microbenchmarks-Perf-Nightly
 # Dashboard: https://hud.pytorch.org/benchmark/llms?repoName=pytorch%2Fao&benchmarkName=micro-benchmark+api
 
 on:
-  pull_request:
   push:
     tags:
       - ciflow/benchmark/*
