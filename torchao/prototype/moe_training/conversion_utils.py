@@ -84,7 +84,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data, module.data.dtype)
+            new_data = ScaledGroupedMMTensor(module.data)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -110,7 +110,7 @@ def _swap_params(
             for param_name, param in module.named_parameters(recurse=False):
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(param.data, param.data.dtype),
+                        ScaledGroupedMMTensor(param.data),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
