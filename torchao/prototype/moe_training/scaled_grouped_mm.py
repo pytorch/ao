@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 from typing import Optional
 
 import torch
@@ -17,6 +18,8 @@ from torchao.prototype.moe_training.kernels import (
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
 )
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _scaled_grouped_mm(
@@ -36,8 +39,8 @@ def _scaled_grouped_mm(
             and in column-major memory layout.
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
-        use_triton_for_per_group_scales (bool): Whether to use custom triton kernels to compute per-group scales. Default is True.
     """
+    # logger.info("Using scaled_grouped_mm")
     return _Float8GroupedMM.apply(
         A,
         B_t,
