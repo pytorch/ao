@@ -32,11 +32,15 @@ class MXGemmKernelChoice(Enum):
     # note: torch.compile does not work yet, see https://github.com/pytorch/pytorch/issues/147873
     CUBLAS = "cublas"
 
+    # available only on ROCm with HIPBLASLT support, require gfx950 and ROCm 7.0
+    HIPBLASLT = "hipblaslt"
+
 
 # Pre-made recipes for common configurations
 class MXLinearRecipeName(Enum):
     MXFP8_EMULATED = "mxfp8_emulated"
     MXFP8_CUBLAS = "mxfp8_cublas"
+    MXFP8_HIPBLASLT = "mxfp8_hipblaslt"
     MXFP4_EMULATED = "mxfp4_emulated"
     MXFP4_CUTLASS = "mxfp4_cutlass"
 
@@ -64,6 +68,15 @@ def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
         assert elem_dtype in valid_dtypes, (
             f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
         )
+    elif gemm_kernel_choice == MXGemmKernelChoice.HIPBLASLT:
+        assert block_size == 32, (
+            f"block_size must be 32 to use the HIPBLASLT MX gemm kernels, got {block_size}"
+        )
+        valid_dtypes = [torch.float8_e4m3fn]
+        assert elem_dtype in valid_dtypes, (
+            f"elem_dtype must be one of {valid_dtypes} to use the HIPBLASLT MX gemm kernels, got {elem_dtype}"
+        )
+        assert torch.version.hip is not None, "HIPBLASLT requires ROCm"
 
 
 @dataclass
@@ -124,6 +137,8 @@ class MXLinearConfig(AOBaseConfig):
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
+        elif recipe_name is MXLinearRecipeName.MXFP8_HIPBLASLT:
+            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.HIPBLASLT)
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
             return MXLinearConfig(elem_dtype=torch.float4_e2m1fn_x2)
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:

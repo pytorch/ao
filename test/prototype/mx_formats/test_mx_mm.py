@@ -10,10 +10,12 @@ import torch
 
 from torchao.float8.float8_utils import compute_error
 from torchao.ops import mx_fp4_bf16
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
+    is_ROCm_mx_supported,
     is_sm_at_least_100,
 )
 
@@ -55,6 +57,41 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
 
     return compute_error(out_hp, out).item()
+
+
+@pytest.mark.skipif(
+    not is_ROCm_mx_supported(),
+    reason="AMD mxfloat8 test requires ROCm 7.0 on gfx950 GPU",
+)
+def test_hipblaslt_fp8():
+    """Test HIPBLASLT backend for FP8 operations"""
+    a = torch.randn(128, 128, device="cuda")
+    b = torch.randn(128, 128, device="cuda")
+
+    a_mx = MXTensor.to_mx(
+        a, torch.float8_e4m3fn, gemm_kernel_choice=MXGemmKernelChoice.HIPBLASLT
+    )
+    b_mx = MXTensor.to_mx(
+        b, torch.float8_e4m3fn, gemm_kernel_choice=MXGemmKernelChoice.HIPBLASLT
+    )
+
+    # Compute reference result in high precision
+    out_hp = a_mx.to_dtype(torch.bfloat16) @ b_mx.to_dtype(torch.bfloat16).transpose(
+        -1, -2
+    )
+
+    # Compute result using HIPBLASLT backend with scaled_mm
+    out = torch._scaled_mm(
+        a_mx._data,
+        b_mx._data.transpose(-1, -2),
+        a_mx._scale_e8m0.view(torch.float8_e8m0fnu),
+        b_mx._scale_e8m0.view(torch.float8_e8m0fnu),
+        out_dtype=torch.bfloat16,
+    )
+
+    # Verify results TODO: ROCm specific threshold
+    sqnr = compute_error(out_hp, out).item()
+    assert sqnr > 80.0, f"SQNR {sqnr} below threshold 80.0"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")

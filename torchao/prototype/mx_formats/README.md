@@ -1,7 +1,8 @@
 # MX training and inference with native PyTorch
 
-This is a workflow for e2e training and inference with MX dtypes from the [MX OCP spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)
-in native PyTorch.  We are currently in prototype and are actively working on optimizing these workflows on the NVIDIA B200 hardware.
+This is a workflow for e2e training and inference with MX dtypes from the [MX OCP spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) 
+in native PyTorch.  We are currently in prototype and are actively working on optimizing these workflows on the NVIDIA B200 and AMD MI355x hardware.
+
 
 ## Overall status
 
@@ -28,6 +29,9 @@ from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice
 # on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
 gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
 # gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
+
+# on AMD MI355x GPUs with ROCm 6.5+ and gfx950, you can use HIPBLASLT mxfp8 kernels
+gemm_kernel_choice = MXGemmKernelChoice.HIPBLASLT
 
 # on older NVIDIA gpus, you can run training with emulated MX gemm
 # gemm_kernel_choice = MXGemmKernelChoice.EMULATED
@@ -96,6 +100,8 @@ on supported hardware, you can run the following command:
 > python benchmarks/float8/bench_matmul.py --recipe mxfp8_cublas
 // example output: https://gist.github.com/vkuzo/a1ddb782e6e1c2aef0c726b3df99efbc
 ```
+
+On AMD MI355x GPUs with ROCm 6.5+ and gfx950, we use HIPBLASLT for mxfp8 gemm. We are actively working on optimizing the end-to-end performance for AMD hardware.
 
 ## to_mx cast across dim0 and dim1
 
