@@ -13,7 +13,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.quantization import (
-    FbgemmConfig,
+    Int4WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.utils import compute_error
@@ -26,19 +26,12 @@ from torchao.utils import (
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
-class TestFbgemmInt4Tensor(TestCase):
+class TestInt4Tensor(TestCase):
     def setUp(self):
-        self.config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, 128],
-        )
-        self.bmm_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, 1, 128],
+        self.config = Int4WeightOnlyConfig(
+            group_size=128,
+            packing_format="plain",
+            VERSION=2,
         )
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
@@ -68,13 +61,9 @@ class TestFbgemmInt4Tensor(TestCase):
         quantize_(dummy, self.config)
         weight1 = dummy.weight.narrow(0, 0, 64)
         weight2 = dummy.weight.narrow(1, 0, 128)
-        self.assertEqual(
-            weight1.packed_weight, dummy.weight.packed_weight.narrow(0, 0, 64)
-        )
+        self.assertEqual(weight1._data, dummy.weight._data.narrow(0, 0, 64))
         self.assertEqual(weight1.scale, dummy.weight.scale.narrow(1, 0, 64))
-        self.assertEqual(
-            weight2.packed_weight, dummy.weight.packed_weight.narrow(1, 0, 64)
-        )
+        self.assertEqual(weight2._data, dummy.weight._data.narrow(1, 0, 64))
         self.assertEqual(weight2.scale, dummy.weight.scale.narrow(0, 0, 1))
 
         # check for sliced weight, before and after float8 quantization
@@ -100,12 +89,10 @@ class TestFbgemmInt4Tensor(TestCase):
         param = l.weight
         param_data = param.data
         param_data = param_data.narrow(0, 0, 512)
-        assert (
-            param.data.packed_weight.data_ptr() == param_data.packed_weight.data_ptr()
-        )
+        assert param.data._data.data_ptr() == param_data._data.data_ptr()
         assert param.data.scale.data_ptr() == param_data.scale.data_ptr()
         assert param.data.zero_point.data_ptr() == param_data.zero_point.data_ptr()
-        orig_value = param.data.packed_weight[0][0].item()
+        orig_value = param.data._data[0][0].item()
 
         # dummy_l has random input (shouldn't be 0)
         dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
@@ -116,7 +103,7 @@ class TestFbgemmInt4Tensor(TestCase):
         param_data.copy_(quantized)
 
         # making sure param.data is updated
-        assert param.data.packed_weight[0][0] != orig_value
+        assert param.data._data[0][0] != orig_value
 
     def test_bmm(self):
         class M(torch.nn.Module):
@@ -135,7 +122,7 @@ class TestFbgemmInt4Tensor(TestCase):
         original = m(input)
         # we need to transpose the weight first for bmm
         m.weight = torch.nn.Parameter(m.weight.transpose(1, 2).contiguous())
-        quantize_(m, self.bmm_config, filter_fn=lambda x, fqn: True)
+        quantize_(m, self.config, filter_fn=lambda x, fqn: True)
         quantized = m(input)
         self.assertTrue(compute_error(original, quantized) > 18)
 
