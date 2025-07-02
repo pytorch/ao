@@ -10,7 +10,7 @@ Utilities for scaling high precision tensors to float8.
 
 import torch
 
-from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
+from torchao.float8.float8_training_tensor import GemmInputRole, LinearMMConfig
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
     hp_to_fp8_col_major,
