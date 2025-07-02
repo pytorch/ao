@@ -180,7 +180,7 @@ class PT2ENumericDebuggerTestCase(TestCase):
             nonlocal prev_decomp_op_to_from_node_source_map
             if FROM_NODE_KEY in node.meta and node.meta[FROM_NODE_KEY] is not None:
                 prev_decomp_op = str(node.meta.get("nn_module_stack"))
-                from_node_source = node.meta[FROM_NODE_KEY]
+                from_node_source = _extract_node_source_debug_info(node)
                 if prev_decomp_op not in prev_decomp_op_to_from_node_source_map:
                     prev_decomp_op_to_from_node_source_map[prev_decomp_op] = (
                         from_node_source
@@ -189,8 +189,10 @@ class PT2ENumericDebuggerTestCase(TestCase):
                     assert (
                         prev_decomp_op_to_from_node_source_map[prev_decomp_op]
                         == from_node_source
-                    ), f"Node {node} has different from_node info {from_node_source}"
-                    "than previous node sharing the same decomp op {prev_decomp_op}"
+                    ), (
+                        f"Node {node} has different from_node info {from_node_source}"
+                        f"than previous node sharing the same decomp op {prev_decomp_op}"
+                    )
 
         bfs_trace_with_node_process(
             model, _extract_from_node_source_with_prev_decomp_op_from_node
