@@ -23,15 +23,17 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
 if TORCH_VERSION_AT_LEAST_2_8:
     from torch.export import export_for_training
 
+# Increase cache size limit to avoid FailOnRecompileLimitHit error when running multiple tests
+# that use export_for_training, which causes many dynamo recompilations
+if TORCH_VERSION_AT_LEAST_2_8:
+    torch._dynamo.config.cache_size_limit = 128
+
 
 @unittest.skipIf(
     not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8 and above, including nightly"
 )
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
 class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
-    @unittest.skip(
-        "torch._dynamo.exc.FailOnRecompileLimitHit: recompile_limit reached with one_graph=True. Excessive recompilations can degrade performance due to the compilation overhead of each recompilation. To monitor recom..."
-    )
     def test_simple(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
@@ -88,9 +90,6 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
             set(from_node_source_map.values()), set(from_node_source_map_ref.values())
         )
 
-    @unittest.skip(
-        "torch._dynamo.exc.FailOnRecompileLimitHit: recompile_limit reached with one_graph=True. Excessive recompilations can degrade performance due to the compilation overhead of each recompilation. To monitor recom..."
-    )
     def test_re_export_preserve_handle(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
@@ -108,9 +107,6 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
 
         self.assertEqual(from_node_source_map, from_node_source_map_ref)
 
-    @unittest.skip(
-        "torch._dynamo.exc.FailOnRecompileLimitHit: recompile_limit reached with one_graph=True. Excessive recompilations can degrade performance due to the compilation overhead of each recompilation. To monitor recom..."
-    )
     def test_run_decompositions_same_handle_id(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
@@ -132,9 +128,6 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
             set(from_node_source_map.values()), set(from_node_source_map_ref.values())
         )
 
-    @unittest.skip(
-        "torch._dynamo.exc.FailOnRecompileLimitHit: recompile_limit reached with one_graph=True. Excessive recompilations can degrade performance due to the compilation overhead of each recompilation. To monitor recom..."
-    )
     def test_run_decompositions_map_handle_to_new_nodes(self):
         test_models = [
             TestHelperModules.TwoLinearModule(),
