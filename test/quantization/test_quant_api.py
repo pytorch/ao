@@ -763,6 +763,65 @@ class TestQuantFlow(TestCase):
             assert torch.allclose(dqw1, dqw1_ref)
             assert torch.allclose(dqw2, dqw2_ref)
 
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
+        reason="cpp kernels not built",
+    )
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Test only enabled for 2.8+")
+    @common_utils.parametrize("x_dim", [2, 3])
+    @common_utils.parametrize("bias", [True, False])
+    def test_8da4w_concat_linear_cpu(self, x_dim, bias):
+        N, K = 64, 128
+
+        class Mod(torch.nn.Module):
+            def __init__(self, bias):
+                super().__init__()
+                self.linear1 = torch.nn.Linear(K, N, bias=bias)
+                self.linear2 = torch.nn.Linear(K, N, bias=bias)
+                self.linear3 = torch.nn.Linear(K, N, bias=bias)
+
+            def forward(self, x):
+                a = self.linear1(x)
+                b = self.linear2(x)
+                c = self.linear3(x)
+                return a + b + c
+
+        dtype = torch.bfloat16
+        device = "cpu"
+        m = Mod(bias).eval().to(dtype).to(device)
+        x_shape = [2] * x_dim
+        x_shape[-1] = K
+        x = torch.rand(x_shape, dtype=dtype, device=device)
+        with torch.no_grad():
+            quantize_(
+                m,
+                Int8DynamicActivationInt4WeightConfig(
+                    group_size=32,
+                    layout=Int8DynamicActInt4WeightCPULayout(),
+                    act_mapping_type=MappingType.SYMMETRIC,
+                ),
+            )
+            # Need to turn on freezing to get the pattern
+            # set enable_concat_linear to true to enable the fusion
+            with torch._inductor.config.patch(
+                {"freezing": True, "cpp.enable_concat_linear": True}
+            ):
+                y, code = torch._inductor.utils.run_and_get_code(
+                    torch.compile(m, fullgraph=True, dynamic=True),
+                    x,
+                )
+            # ensure the expected op occurs only once in the code after fusion
+            # The trailing "(" is to avoid matching the op in the comment
+            assert code[0].count("torch.ops.torchao.da8w4_linear_cpu.default(") == 1
+            with torch._inductor.config.patch(
+                {"freezing": True, "cpp.enable_concat_linear": False}
+            ):
+                y_ref, code = torch._inductor.utils.run_and_get_code(
+                    torch.compile(m, fullgraph=True, dynamic=True),
+                    x,
+                )
+            assert torch.allclose(y, y_ref)
+
     # TODO(#1690): move to new config names
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

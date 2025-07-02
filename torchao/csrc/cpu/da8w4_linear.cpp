@@ -65,6 +65,7 @@ da8w4_linear_prepack_impl(
   at::Tensor blocked_scales = new_scales.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
   at::Tensor blocked_qzeros = new_qzeros.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
   // Compensation = Σ(k)(W[k][n] - ZP[n]) for each block.
+  // Reorder compensation to [N/block_n, K/block_k, block_n]
   auto weight_sub_qzero = weight.view({Nc, block_n, G, -1}).to(at::kInt) - new_qzeros.view({Nc, block_n, G, -1});
   weight_sub_qzero = weight_sub_qzero.view({Nc, block_n, Kc, block_k});
   at::Tensor compensation = weight_sub_qzero.sum(-1);
