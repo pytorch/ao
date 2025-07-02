@@ -26,7 +26,9 @@ _MODEL_NAME_AND_VERSIONS = [
 class TestLoadingDeprecatedCheckpoint(TestCase):
     @common_utils.parametrize("model_name_and_version", _MODEL_NAME_AND_VERSIONS)
     def test_load_model_and_run(self, model_name_and_version):
-        """Test that we print correct warning message when loading a deprecated checkpoint"""
+        """Test that we print correct warning message when loading a deprecated checkpoint
+        and making sure the deprecated checkpoints can still be loaded
+        """
         # Load and quantize model
         model_name, version = model_name_and_version
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -41,6 +43,7 @@ class TestLoadingDeprecatedCheckpoint(TestCase):
                 for w in caught_warnings
             ), "Didn't get expected warning message for version mismatch"
 
+            # TODO: generalize when we test more checkpoints
             assert any(
                 "Models quantized with version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated"
                 in str(w.message)
