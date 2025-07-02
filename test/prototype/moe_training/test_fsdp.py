@@ -1,3 +1,16 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+######################################################################
+#
+# To run these unit tests, use the following command:
+#
+# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp.py
+#
+#######################################################################
+
 import copy
 import os
 
