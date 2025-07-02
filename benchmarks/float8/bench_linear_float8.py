@@ -23,7 +23,7 @@ from torchao.float8.config import (
     ScalingType,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_tensor import ScaledMMConfig
+from torchao.float8.float8_training_tensor import ScaledMMConfig
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
 # assuming A * B = C, with A being M * K, B being K * N, C being M * N

@@ -78,7 +78,7 @@ def addmm_float8_unwrapped_inference(
     use_fast_accum: bool = False,
 ) -> Tensor:
     """
-    This is the unwrapped version of addmm_float8, which does not take in Float8Tensors
+    This is the unwrapped version of addmm_float8, which does not take in Float8TrainingTensors
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """

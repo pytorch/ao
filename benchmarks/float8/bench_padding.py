@@ -12,7 +12,7 @@ from tabulate import tabulate
 from torch._inductor.utils import do_bench_using_profiling
 from tqdm import tqdm
 
-from torchao.float8.float8_tensor import (
+from torchao.float8.float8_training_tensor import (
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,

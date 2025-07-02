@@ -41,7 +41,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
-from torchao.float8.float8_tensor import GemmInputRole
+from torchao.float8.float8_training_tensor import GemmInputRole
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.training.fsdp2_utils import (
     check_parity_bf16_mp,
