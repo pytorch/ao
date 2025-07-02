@@ -98,11 +98,16 @@ Tensor linear_mps_kernel_out(
 
   LowBitQuantWeights<nbit>::linear(
       getMTLBufferStorage(A),
+      A.storage_offset() * A.element_size(),
       getMTLBufferStorage(B),
+      B.storage_offset() * B.element_size(),
       group_size,
       getMTLBufferStorage(S),
+      S.storage_offset() * S.element_size(),
       getMTLBufferStorage(Z),
+      Z.storage_offset() * Z.element_size(),
       getMTLBufferStorage(C),
+      C.storage_offset() * C.element_size(),
       M,
       K,
       N,
