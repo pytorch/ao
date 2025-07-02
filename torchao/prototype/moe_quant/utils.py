@@ -20,18 +20,7 @@ from torchao.quantization.quant_api import (
     dataclass,
     register_quantize_module_handler,
 )
-from torchao.utils import fill_defaults
-
-
-class DummyModule(torch.nn.Module):
-    """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
-    DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.
-    """
-
-    def __init__(self, weight: torch.Tensor, bias: Optional[torch.Tensor] = None):
-        super().__init__()
-        self.weight = weight
-        self.bias = bias
+from torchao.utils import DummyModule, fill_defaults
 
 
 class FakeExtraDimTensor(torch.Tensor):
