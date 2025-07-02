@@ -678,24 +678,8 @@
 
 <div class="viewcode-block" id="IntXQuantizationAwareTrainingConfig"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">IntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-    <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="n">intx_quantization_aware_training</span> <span class="o">=</span> <span class="n">IntXQuantizationAwareTrainingConfig</span>
-
-
-<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_intx_quantization_aware_training_transform</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
-    <span class="n">config</span><span class="p">:</span> <span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    THIS IS NOT A PUBLIC API - any usage of this outside of torchao</span>
-<span class="sd">    can break at any time.</span>
-
-<span class="sd">    Apply fake quantization to a `torch.nn.Module`.</span>
+<span class="sd">    Config for applying fake quantization to a `torch.nn.Module`.</span>
 <span class="sd">    to be used with :func:`~torchao.quantization.quant_api.quantize_`.</span>
 
 <span class="sd">    Example usage::</span>
@@ -713,11 +697,25 @@
 <span class="sd">            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),</span>
 <span class="sd">        )</span>
 
-<span class="sd">    Note: If the returned function is applied on a module that is not</span>
+<span class="sd">    Note: If the config is applied on a module that is not</span>
 <span class="sd">    `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on</span>
 <span class="sd">    `torch.nn.Embedding` with an activation config, then we will raise</span>
 <span class="sd">    ValueError as these are not supported.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<span class="c1"># for BC</span>
+<span class="n">intx_quantization_aware_training</span> <span class="o">=</span> <span class="n">IntXQuantizationAwareTrainingConfig</span>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_intx_quantization_aware_training_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">.embedding</span><span class="w"> </span><span class="kn">import</span> <span class="n">FakeQuantizedEmbedding</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">FakeQuantizedLinear</span>
 
@@ -743,7 +741,7 @@
 
 <div class="viewcode-block" id="FromIntXQuantizationAwareTrainingConfig"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FromIntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Object that knows how to convert a model with fake quantized modules,</span>
+<span class="sd">    Config for converting a model with fake quantized modules,</span>
 <span class="sd">    such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`</span>
 <span class="sd">    and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,</span>
 <span class="sd">    back to model with the original, corresponding modules without</span>
