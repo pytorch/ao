@@ -194,7 +194,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         if quantize_int4_preshuffle is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
-        assert all(x == 1 for x in block_size[:-1]), (
+        assert all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1, (
             "Only groupwise quant is supported right now"
         )
         group_size = block_size[-1]

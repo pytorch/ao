@@ -49,7 +49,6 @@ from torchao.dtypes import (
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_fbgemm_fp8,
-    to_fbgemm_int4,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -72,6 +71,8 @@ from torchao.quantization.observer import AffineQuantizedObserverBase, get_block
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4PreshuffledTensor,
+    Int4Tensor,
+    PackingFormat,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1108,6 +1109,8 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
         `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT
+        `packing_format`: the packing format for int4 tensor, this is the new structure we plan to use
+           existing layout based structure will use `_legacy`
     """
 
     group_size: int = 128
@@ -1116,6 +1119,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
     preserve_zero: Optional[bool] = None
+    # since not all tensors are migrated to the new structure yet,
+    # we use `_legacy' to represent the previous layout
+    packing_format: PackingFormat = "_legacy"
 
 
 # for BC
@@ -1133,6 +1139,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     layout = config.layout
     use_hqq = config.use_hqq
     zero_point_domain = config.zero_point_domain
+    packing_format = config.packing_format
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -1140,8 +1147,25 @@ def _int4_weight_only_quantize_tensor(weight, config):
         )
         return weight
 
+    block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
+
+    if packing_format == "preshuffled":
+        new_weight = Int4PreshuffledTensor.from_float(
+            weight,
+            block_size,
+            activation_dtype=torch.bfloat16,
+        )
+        return new_weight
+    elif packing_format == "plain":
+        new_weight = Int4Tensor.from_float(
+            weight,
+            block_size,
+        )
+        return new_weight
+
+    assert packing_format == "_legacy", f"Unsupported packing_format: {packing_format}"
+
     mapping_type = MappingType.ASYMMETRIC
-    block_size = tuple([1 for _ in range(weight.dim() - 1)] + [group_size])
     target_dtype = torch.int32
     quant_min = 0
     quant_max = 15
@@ -1208,6 +1232,38 @@ def _int4_weight_only_transform(
         + " but {module} does not have one"
     )
     new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class Float8ActivationInt4WeightConfig(AOBaseConfig):
+    group_size: int = 128
+    packing_format: PackingFormat = "preshuffled"
+
+
+@register_quantize_module_handler(Float8ActivationInt4WeightConfig)
+def _float8_activation_int4_weight_transform(
+    module: torch.nn.Module, config: Float8ActivationInt4WeightConfig
+) -> torch.nn.Module:
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    group_size = config.group_size
+    packing_format = config.packing_format
+
+    assert packing_format == "preshuffled", (
+        f"only preshuffled packing_format supported right now, got: {packing_format}"
+    )
+    weight = module.weight
+    block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
+    new_weight = Int4PreshuffledTensor.from_float(
+        module.weight,
+        block_size,
+        activation_dtype=torch.float8_e4m3fn,
+    )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -1484,6 +1540,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     """
 
     weight_dtype: torch.dtype = e4m3_dtype
+    packing_format: PackingFormat = "plain"
     set_inductor_config: bool = True
 
 
@@ -1493,6 +1550,10 @@ float8_weight_only = Float8WeightOnlyConfig
 
 def _float8_weight_only_quant_tensor(weight, config):
     block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
+    packing_format = config.packing_format
+    assert packing_format == "plain", (
+        f"Only plain packing_format is supported, got: {packing_format}"
+    )
     new_weight = Float8Tensor.from_float(
         weight,
         config.weight_dtype,
@@ -1610,6 +1671,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
     activation_scale_ub: float = 1200.0
+    packing_format: PackingFormat = "plain"
     set_inductor_config: bool = True
 
     def __post_init__(self):
@@ -1631,7 +1693,12 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mm_config = config.mm_config
+    packing_format = config.packing_format
     activation_scale_ub = config.activation_scale_ub
+
+    assert packing_format == "plain", (
+        f"Only plain packing_format is supported, got {packing_format}"
+    )
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1641,6 +1708,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight
+
     if isinstance(weight_granularity, PerRow):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
@@ -2083,7 +2151,7 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
                 activation_dtype=torch.bfloat16,
             )
         else:
-            weight = to_fbgemm_int4(
+            weight = Int4Tensor.from_float(
                 module.weight,
                 config.block_size,
             )

@@ -17,13 +17,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchao.utils import _is_fbgemm_genai_gpu_available, is_sm_at_least_90
 
 _MODEL_NAMES = [
-    "torchao-testing/opt-125m-float8dq-row-fbgemm",
+    "torchao-testing/opt-125m-float8dq-row-0.13-dev",
+    "torchao-testing/opt-125m-int4wo-preshuffled-0.13-dev",
 ]
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
-@unittest.skip("temporary skip since we have some refactor next")
 class TestSerializationBC(TestCase):
     """Test we can still load and run serialized model in previous AO versions
     we commit to have BC for 3 pytorch releases
