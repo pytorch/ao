@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import random
 from typing import Optional
 
 import fire
@@ -64,10 +65,8 @@ def run(
         # Run bf16 torch._grouped_mm baseline.
         A = torch.randn(M, K, device=device, dtype=dtype)
         B = torch.randn(E, K, N, device=device, dtype=dtype)
-        group_size = M // E
-        offs = torch.arange(
-            group_size, M + 1, group_size, dtype=torch.int32, device=device
-        )
+        offs = generate_jagged_offs(E, M)
+        print(f"offs: {offs}")
         ref_time_sec, ref_tops_sec, ref_pct_top_peak = do_benchmarks(
             tops,
             bf16_peak_tops,
@@ -145,6 +144,39 @@ def run(
 
     if out_filename is not None:
         data_df.to_csv(out_filename)
+
+
+def generate_jagged_offs(E, M, dtype=torch.int32, device="cuda"):
+    """
+    Generates a tensor of length E, containing random values divisible by 16,
+    from 0 to M, in sorted order, and where the final value in the tensor is always M.
+    Args:
+        E (int): The length of the tensor.
+        M (int): The maximum value in the tensor.
+    Returns:
+        torch.Tensor: A tensor of length E with the specified properties.
+    """
+    # Ensure M is divisible by 16
+    if M % 16 != 0:
+        raise ValueError("M must be divisible by 16")
+
+    # Generate a list of possible values
+    possible_values = [i for i in range(0, M + 1, 16)]
+
+    # If E is larger than the number of possible values, raise an error
+    if E > len(possible_values):
+        raise ValueError("E cannot be larger than the number of possible values")
+
+    # Randomly select E - 1 values from the possible values (excluding M)
+    selected_values = torch.tensor(random.sample(possible_values[:-1], E - 1))
+
+    # Append M to the selected values
+    selected_values = torch.cat((selected_values, torch.tensor([M])))
+
+    # Sort the selected values
+    selected_values, _ = torch.sort(selected_values)
+
+    return selected_values.to(dtype).to(device)
 
 
 def main() -> None:
