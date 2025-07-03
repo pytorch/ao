@@ -12,6 +12,19 @@ from typing import Any, ClassVar, Dict
 
 import torch
 
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+)
+
+__all__ = [
+    "AOBaseConfig",
+    "VersionMismatchError",
+    "GemmKernelChoice",
+    "config_from_dict",
+    "config_to_dict",
+    "ALLOWED_AO_MODULES",
+]
+
 
 class AOBaseConfig(abc.ABC):
     """
@@ -284,3 +297,13 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         return cls(**processed_data)
     except Exception as e:
         raise ValueError(f"Failed to create instance of {cls.__name__}: {e}")
+
+
+# TODO: use StrEnum after python 3.10 EoL in end of 2026
+class GemmKernelChoice(str, enum.Enum):
+    ATEN = "aten"
+    FBGEMM = "fbgemm"
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    torch.serialization.add_safe_globals([GemmKernelChoice])
