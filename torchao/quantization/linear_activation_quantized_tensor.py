@@ -288,47 +288,7 @@ def _(func, types, args, kwargs):
     )
 
 
-def to_linear_activation_quantized(
-    input_float: torch.Tensor,
-    input_quant_func: Callable,
-    quant_kwargs: Optional[Dict[str, Any]] = None,
-) -> LinearActivationQuantizedTensor:
-    """
-    Convert a floating-point tensor to a LinearActivationQuantizedTensor for dynamic activation quantization.
-
-    This function creates a tensor that applies quantization to activations during linear operations,
-    enabling dynamic quantization schemes where activations are quantized on-the-fly.
-
-    Args:
-        input_float: The original floating-point weight tensor to be wrapped.
-        input_quant_func: A callable that takes a high precision floating point tensor and returns
-            a quantized tensor. This function will be applied to activations during linear operations.
-        quant_kwargs: Optional dictionary of additional keyword arguments for the quantization function.
-            Must not contain tensor values.
-
-    Returns:
-        LinearActivationQuantizedTensor: A tensor subclass that applies activation quantization during
-        linear operations.
-
-    Example:
-        >>> import torch
-        >>> from torchao.quantization import to_linear_activation_quantized
-        >>>
-        >>> # Define a quantization function for int8 dynamic quantization
-        >>> def int8_dynamic_quant(x):
-        ...     return torch.quantize_per_tensor(x, scale=x.abs().max()/127, zero_point=0, dtype=torch.qint8)
-        >>>
-        >>> # Create quantized weight tensor
-        >>> weight = torch.randn(10, 5)
-        >>> quantized_weight = to_linear_activation_quantized(weight, int8_dynamic_quant)
-    """
-    return LinearActivationQuantizedTensor.from_float(
-        input_float, input_quant_func, quant_kwargs
-    )
-
-
-# Legacy alias for backward compatibility
-# to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
+to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float  # Converts a float tensor to LinearActivationQuantizedTensor for dynamic activation quantization
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
