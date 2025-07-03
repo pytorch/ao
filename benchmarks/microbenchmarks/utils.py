@@ -12,6 +12,21 @@ import torch
 from tabulate import tabulate
 from torch.utils.benchmark import Timer
 
+# H100 SXM specs: bottom of https://www.nvidia.com/en-us/data-center/h100/
+h100_peak_flops_float32 = 67e12
+h100_peak_flops_fp16_tc = 1979e12
+h100_peak_tops_float8_tc = 3958e12
+
+# Use strings as keys to avoid issues with torch.dtype objects
+dtype_to_peak_tops = {
+    "float32": h100_peak_flops_float32,
+    "float16": h100_peak_flops_fp16_tc,
+    "bfloat16": h100_peak_flops_fp16_tc,
+    "float8_e4m3fn": h100_peak_tops_float8_tc,
+    "float8_e5m2": h100_peak_tops_float8_tc,
+}
+# TODO: Add flops for other hardware (A100, MI300, etc.)
+
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
@@ -146,6 +161,144 @@ class BenchmarkResult:
             "memory_stats": self.memory_stats,
         }
         return result_dict
+
+
+class TrainingBenchmarkConfig(BenchmarkConfig):
+    """Extended configuration for training benchmarks"""
+
+    def __init__(
+        self,
+        quantization: Optional[str],
+        sparsity: Optional[str],
+        params: Dict[str, Any],
+        shape_name: str,
+        shape: List[int],
+        output_dir: str,
+        benchmark_mode: str,
+        scaling_type_input: str = "dynamic",
+        scaling_type_weight: str = "dynamic",
+        scaling_type_grad_output: str = "dynamic",
+        scaling_granularity: str = "tensorwise",
+        use_fast_accum: bool = True,
+        repeat_n: int = 100,
+    ):
+        # Initialize the parent class
+        super().__init__(
+            quantization=quantization,
+            sparsity=sparsity,
+            params=params,
+            shape_name=shape_name,
+            shape=shape,
+            output_dir=output_dir,
+            benchmark_mode=benchmark_mode,
+        )
+
+        # Initialize training-specific attributes
+        # Store the string values for compatibility with test files
+        self.scaling_type_input = scaling_type_input
+        self.scaling_type_weight = scaling_type_weight
+        self.scaling_type_grad_output = scaling_type_grad_output
+        self.scaling_granularity = scaling_granularity
+        self.use_fast_accum = use_fast_accum
+        self.repeat_n = repeat_n
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert config to dictionary for main function"""
+        result = super().to_dict()
+        result.update(
+            {
+                "scaling_type_input": self.scaling_type_input,
+                "scaling_type_weight": self.scaling_type_weight,
+                "scaling_type_grad_output": self.scaling_type_grad_output,
+                "scaling_granularity": self.scaling_granularity,
+                "use_fast_accum": self.use_fast_accum,
+                "repeat_n": self.repeat_n,
+            }
+        )
+        return result
+
+
+class TrainingBenchmarkResult(BenchmarkResult):
+    """Extended result for training benchmarks"""
+
+    def __init__(self, config: TrainingBenchmarkConfig):
+        super().__init__(config=config)
+        self.forward_time_ms = 0.0
+        self.backward_time_ms = 0.0
+        self.total_time_ms = 0.0
+        self.reference_forward_time_ms = 0.0
+        self.reference_backward_time_ms = 0.0
+        self.reference_total_time_ms = 0.0
+        self.speedup = 0.0
+        self.scaling_repr = ""
+        # TOPS metrics
+        self.ref_tops_sec = 0.0
+        self.ref_pct_top_peak = 0.0
+        self.tops_sec = 0.0
+        self.pct_top_peak = 0.0
+
+    def calculate_ref_tops_sec(self) -> float:
+        """Calculate reference TOPS (Tera Operations Per Second)"""
+        if self.reference_total_time_ms <= 0:
+            return 0.0
+        M, K, N = self.config.m, self.config.k, self.config.n
+        # 3 * (2 * M * K * N) accounts for forward and backward passes
+        # 3 = 1 (forward) + 2 (backward: gradient wrt input + gradient wrt weight)
+        # 2 * M * K * N is the number of FLOPs for a matrix multiplication
+        return float(3 * (2 * M * K * N)) / (self.reference_total_time_ms * 1e-3)
+
+    def calculate_ref_pct_top_peak(self) -> float:
+        """Calculate reference percentage of peak TOPS"""
+        ref_tops = self.calculate_ref_tops_sec()
+        if ref_tops <= 0:
+            return 0.0
+        # Convert torch.dtype to string
+        dtype_str = str(self.config.high_precision_dtype).split(".")[-1]
+        if dtype_str not in dtype_to_peak_tops:
+            return 0.0
+        return ref_tops / dtype_to_peak_tops[dtype_str]
+
+    def calculate_tops_sec(self) -> float:
+        """Calculate TOPS (Tera Operations Per Second)"""
+        if self.total_time_ms <= 0:
+            return 0.0
+        M, K, N = self.config.m, self.config.k, self.config.n
+        return float(3 * (2 * M * K * N)) / (self.total_time_ms * 1e-3)
+
+    def calculate_pct_top_peak(self) -> float:
+        """Calculate percentage of peak TOPS"""
+        tops = self.calculate_tops_sec()
+        if tops <= 0:
+            return 0.0
+        # For float8 models, use float8 peak TOPS
+        if self.config.quantization and "float8" in self.config.quantization:
+            return tops / dtype_to_peak_tops["float8_e4m3fn"]
+        # For other models, use the high precision dtype
+        dtype_str = str(self.config.high_precision_dtype).split(".")[-1]
+        if dtype_str not in dtype_to_peak_tops:
+            return 0.0
+        return tops / dtype_to_peak_tops[dtype_str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert result to dictionary for main function"""
+        result = super().to_dict()
+        result.update(
+            {
+                "forward_time_ms": self.forward_time_ms,
+                "backward_time_ms": self.backward_time_ms,
+                "total_time_ms": self.total_time_ms,
+                "reference_forward_time_ms": self.reference_forward_time_ms,
+                "reference_backward_time_ms": self.reference_backward_time_ms,
+                "reference_total_time_ms": self.reference_total_time_ms,
+                "speedup": self.speedup,
+                "scaling_repr": self.scaling_repr,
+                "ref_tops_sec": self.ref_tops_sec,
+                "ref_pct_top_peak": self.ref_pct_top_peak,
+                "tops_sec": self.tops_sec,
+                "pct_top_peak": self.pct_top_peak,
+            }
+        )
+        return result
 
 
 def string_to_config(
@@ -431,5 +584,73 @@ def print_results(results: List[BenchmarkResult]):
     if table_data:
         print("\nBenchmark Results:")
         print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    else:
+        print("\nNo valid results to display")
+
+
+def print_training_results(results: List[TrainingBenchmarkResult]):
+    """Print training benchmark results in a table format"""
+    if not results:
+        print("No results to display")
+        return
+
+    table_data = []
+    for result in results:
+        if result is None:
+            continue
+
+        # Shorten the shape name to reduce width
+        shape_name = result.config.shape_name
+        if len(shape_name) > 20:
+            shape_name = shape_name[:17] + "..."
+
+        # Format shape more compactly
+        shape_str = (
+            f"{shape_name}({result.config.m},{result.config.k},{result.config.n})"
+        )
+
+        # Shorten the scaling representation
+        scaling_repr = result.scaling_repr
+        if len(scaling_repr) > 30:
+            scaling_repr = scaling_repr[:27] + "..."
+
+        # Shorten the name
+        name = result.config.name
+        if len(name) > 15:
+            name = name.split("_")[-1]  # Just use the last part of the name
+
+        row = [
+            name,
+            result.config.quantization or "baseline",
+            shape_str,
+            f"{result.forward_time_ms:.2f}",
+            f"{result.backward_time_ms:.2f}",
+            f"{result.total_time_ms:.2f}",
+            f"{result.speedup:.2f}x" if result.speedup > 0 else "N/A",
+            f"{result.tops_sec / 1e12:.2f}",
+            f"{result.pct_top_peak * 100:.2f}%",
+            scaling_repr,
+        ]
+
+        table_data.append(row)
+
+    # Define headers with shorter names
+    headers = [
+        "Name",
+        "Quant",
+        "Shape",
+        "Forward (ms)",
+        "Backward (ms)",
+        "Total Time (ms)",
+        "Speedup",
+        "TOPS",
+        "% Peak",
+        "Scaling",
+    ]
+
+    if table_data:
+        print("\nTraining Benchmark Results:")
+        # Use simple table format to reduce spacing
+        print(tabulate(table_data, headers=headers, tablefmt="simple"))
     else:
         print("\nNo valid results to display")
