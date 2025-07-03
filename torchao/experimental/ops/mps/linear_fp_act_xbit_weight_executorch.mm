@@ -100,7 +100,7 @@ Tensor& linear_mps_kernel_et_ctx_out(
       group_size,
       {getMTLBufferStorage(S), S.storage_offset() * S.element_size()},
       {getMTLBufferStorage(Z), Z.storage_offset() * Z.element_size()},
-      {getMTLBufferStorage(C), C.storage_offset() * C.element_size()},
+      {getMTLBufferStorage(out), out.storage_offset() * out.element_size()},
       M,
       K,
       N,
