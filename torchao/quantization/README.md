@@ -2,8 +2,8 @@
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
 ## Benchmarks
-Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B.
-### CUDA backend
+Benchmarks and evaluation are gathered using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B.
+### CUDA backend |  NVIDIA-A100-80GB GPU
 | Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-2-7B  | Base (bfloat16)         | 12.212              |  107.38       | 1418.93                 | 13.88            | 13.21           |
@@ -29,7 +29,7 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 
 
 
-### CUDA backend
+### CUDA backend | NVIDIA-H100 GPU
 | Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-3.1-8B  | Base (bfloat16)         |  7.54               |  126.90       | 1904.75                 | 16.75            | 15.01           |
@@ -38,7 +38,8 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 |               | float8wo                |  7.60               |  178.46       | 1339.93                 | 12.09            |  7.51           |
 |               | float8dq (PerTensor)    |  7.62               |  116.40       |  873.58                 | 11.14            |  7.51           |
 |               | float8dq (Per Row)      |  7.61               |  154.63       | 1161.47                 | 11.14            |  7.51           |
-### XPU backend
+
+### XPU backend | Intel-Max1100
 | Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-3-8.1B  | Base (bfloat16)         |  7.441              |   40.36       | 605.77                 | 16.35            | 15.01           |
@@ -46,13 +47,29 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 |             | int8wo                  |  7.447              |  59.49       | 447.27                 | 18.60            |  7.52
 
 
-Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a machine with a single NVIDIA-H100 GPU or Intel-Max1100 using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
+Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are gathered using [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
 For int4 we make heavy use of [tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores
 
 And a quick crash course on inference quantization to help parse the above table. Int4 quantization is an ambiguous term because there's the dtype in which a layer is represented and then the dtype in which the computation is done. For example, if you're using Weight-Only (wo) int4 quantization that means that the layer will be upcasted to a larger dtype like fp16 so an int4 matrix multiplication is defined as `F.linear(input, weight.to(input.dtype))`. Dynamic quantization (DQ) primarily targets activations, enabling on-the-fly quantization from higher precision formats like bf16 to lower precision formats such as int8. This process, when supported by hardware, allows for direct computation, such as performing `F.linear(input, weight)`. Naive quantization algorithms are also notoriously sensitive to outliers so we also typically set a group size that applies a scale factor per group of 64 elements in the case of `int4wo-64`.
+
+## Evaluation
+
+You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
+quantized with post training quantization, by following these steps:
+
+1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
+2. Save your model to disk or upload to huggingface hub ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
+3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
+4. Run an evaluation. Example:
+
+```bash
+lm_eval --model hf --model_args pretrained=${HF_USER}/${MODEL_ID} --tasks hellaswag --device cuda:0 --batch_size 8
+```
+
+Check out the lm-eval [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) for more details.
 
 ## Autoquantization
 
@@ -364,7 +381,7 @@ We're trying to develop kernels for low bit quantization for intx quantization f
 
 You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
 
-### int8_dynamic_activation_intx_weight Quantization
+### Int8DynamicActivationIntxWeightConfig Quantization
 We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
 
 | Model         | Technique                                        | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
@@ -373,7 +390,7 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 |               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
 |               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
 
-You can try out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
+You can try out these apis with the `quantize_` api as above alongside the config `Int8DynamicActivationIntxWeightConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
 
 ### Codebook Quantization
 The benchmarks below were run on a single NVIDIA-A6000 GPU.
@@ -385,112 +402,17 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 | Llama-3.1-8B| Base (bfloat16)         |  7.713              |  32.16        |  482.70                 | 16.35            | 15.01           |
 |             | codebook-4-64           |  10.095             |  1.73         |  8.63                   | 23.11            |  4.98           |
 
-You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
+You try can out these apis with the `quantize_` api as above alongside the config `CodebookWeightOnlyConfig` an example can be found in  in `torchao/_models/llama/generate.py`.
+
+### GPTQ Quantization
+We have a GPTQ quantization workflow that can be used to quantize a model to int4. More details can be found in [GPTQ](./GPTQ/README.md),
+an example can be found in `torchao/_models/llama/eval.py`.
 
 ### Automatic Inductor Configuration
 
 :warning: <em>This functionality is being migrated from the top level `quantize_` API to individual workflows, see https://github.com/pytorch/ao/issues/1715 for more details.</em>
 
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
-
-## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
-
-```python
-from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-precision = torch.bfloat16
-device = "cuda"
-checkpoint_file_name = "../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"
-checkpoint_path = Path(checkpoint_file_name)
-model = Transformer.from_name(checkpoint_path.parent.name)
-checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-model.load_state_dict(checkpoint, assign=True)
-model = model.to(dtype=precision, device="cpu")
-model.eval()
-tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-assert tokenizer_path.is_file(), tokenizer_path
-tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
-    model_file=str(tokenizer_path)
-)
-blocksize = 128
-percdamp = 0.01
-groupsize = 128
-calibration_tasks = ["wikitext"]
-calibration_limit = 1
-calibration_seq_length = 100
-input_prep_func = prepare_inputs_for_model
-pad_calibration_inputs = False
-
-inputs = InputRecorder(
-    tokenizer,
-    calibration_seq_length,
-    input_prep_func,
-    pad_calibration_inputs,
-    model.config.vocab_size,
-    device="cpu",
-).record_inputs(
-    calibration_tasks,
-    calibration_limit,
-).get_inputs()
-
-quantizer = Int4WeightOnlyGPTQQuantizer(
-    blocksize,
-    percdamp,
-    groupsize,
-)
-model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-model = quantizer.quantize(model, inputs).cuda()
-
-```
-
-## (To be deprecated) A8W8 Dynamic Quantization
-
-```Python
-from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-quantizer = Int8DynActInt4WeightQuantizer(groupsize=128)
-model = quantizer.quantize(model)
-```
-
-This is used in [ExecuTorch](https://github.com/pytorch/executorch) to quantize llama model right now.
-
-## (To be moved to prototype) A8W8 Dynamic Quantization with Smoothquant
-
-We've also implemented a version of [smoothquant](https://arxiv.org/abs/2211.10438) with the same GEMM format as above. Due to requiring calibration, the API is more complicated.
-
-Example
-
-```Python
-import torch
-from torchao.quantization.smoothquant import swap_linear_with_smooth_fq_linear, smooth_fq_linear_to_inference
-
-# Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-
-# plug in your model
-model = get_model()
-
-# convert linear modules to smoothquant
-# linear module in calibration mode
-swap_linear_with_smooth_fq_linear(model)
-
-# Create a data loader for calibration
-calibration_data = get_calibration_data()
-calibration_dataset = MyDataset(calibration_data)
-calibration_loader = DataLoader(calibration_dataset, batch_size=32, shuffle=True)
-
-# Calibrate the model
-model.train()
-for batch in calibration_loader:
-    inputs = batch
-    model(inputs)
-
-# set it to inference mode
-smooth_fq_linear_to_inference(model)
-
-# compile the model to improve performance
-model = torch.compile(model, mode='max-autotune')
-model(input)
-```
 
 ## Notes
 

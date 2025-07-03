@@ -180,6 +180,7 @@ def generate(
     max_seq_length = (
         min(T + max_new_tokens, model.config.block_size) if not interactive else 350
     )
+    print(f"max_seq_length={max_seq_length}, prompt_length={T}")
     new_tokens = max_seq_length - T
 
     # format model input
@@ -242,11 +243,13 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
 
 
 def _load_model(checkpoint_path, device, precision):
-    checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+    checkpoint = torch.load(
+        str(checkpoint_path), mmap=True, weights_only=True, map_location="cpu"
+    )
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
     with torch.device("meta"):
-        model = Transformer.from_name(checkpoint_path.parent.name)
+        model = Transformer.from_name(checkpoint_path)
     model.load_state_dict(checkpoint, assign=True)
     model = model.to(device=device, dtype=precision)
 
@@ -363,34 +366,24 @@ def main(
             import os
             import pwd
 
-            from gemlite.core import GemLiteLinearTriton
+            import gemlite
+
+            gemlite.set_autotune("max")
+            config_file = f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
 
             _quant_args = quantization.split("-")
-            bit_width = int(_quant_args[-2])
-            group_size = None if _quant_args[-1] == "None" else int(_quant_args[-1])
-            try:
-                packing_bitwidth = int(_quant_args[-3])
-            except:
-                # if only 2 inputs found, use default value
-                packing_bitwidth = 32
+            bit_width = int(_quant_args[1])
+            group_size = None if _quant_args[2] == "None" else int(_quant_args[2])
+            mode = "dynamic" if _quant_args[3] == "dq" else "weight_only"
 
             quantize_(
                 model,
-                gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth),
+                gemlite_uintx_weight_only(
+                    bit_width=bit_width, group_size=group_size, mode=mode
+                ),
             )
 
-            # try to load gemlite kernel config
-            try:
-                GemLiteLinearTriton.load_config(
-                    f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-                )
-                print(
-                    f"loaded gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-                )
-            except:
-                print(
-                    f"unable to load gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-                )
+            gemlite.load_config(config_file)
 
             print("running gemlite warmup")
             generate(
@@ -402,9 +395,8 @@ def main(
                 temperature=temperature,
                 top_k=top_k,
             )
-            GemLiteLinearTriton.cache_config(
-                f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
-            )
+            gemlite.cache_config(config_file)
+
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -439,6 +431,25 @@ def main(
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
             quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+        elif "fbgemm" in quantization and "int4" in quantization:
+            from torchao.quantization import FbgemmConfig
+
+            _, precision, group_size = quantization.split("-")
+            group_size = int(group_size)
+            block_size = [1, group_size]
+            assert precision == "int4", f"FbegemmConfig({precision=}) not supported yet"
+            quantize_(
+                model,
+                FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, block_size),
+            )
+        elif "fbgemm" in quantization and "fp8" in quantization:
+            from torchao.float8.config import e4m3_dtype
+            from torchao.quantization import FbgemmConfig
+
+            quantize_(
+                model,
+                FbgemmConfig(e4m3_dtype, e4m3_dtype, torch.bfloat16),
+            )
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
@@ -574,7 +585,7 @@ def main(
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
             group_size = int(_quant_args[2])
             granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
-            is_asymmetric = bool(_quant_args[3])
+            is_asymmetric = bool(_quant_args[3].lower() == "true")
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
@@ -609,13 +620,13 @@ def main(
                     float8_dynamic_activation_float8_weight(granularity=granularity),
                 )
         elif "autoquant_v2" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._models._eval import LMEvalInputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
             inputs = (
-                InputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
@@ -627,7 +638,7 @@ def main(
                     ["wikitext"],
                     1,
                 )
-                .get_inputs()[0]
+                .get_recorded_inputs()[0]
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
@@ -699,12 +710,12 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._models._eval import LMEvalInputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
             inputs = (
-                InputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
@@ -716,7 +727,7 @@ def main(
                     ["wikitext"],
                     1,
                 )
-                .get_inputs()[0]
+                .get_recorded_inputs()[0]
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
@@ -1163,7 +1174,7 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>, fbgemm-int4-<group_size>"
         ),
     )
     parser.add_argument(

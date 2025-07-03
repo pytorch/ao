@@ -9,14 +9,15 @@ import copy
 import pytest
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from torchao.prototype.mx_formats.config import (
+    MXGemmKernelChoice,
     MXInferenceLinearConfig,
     MXLinearConfig,
     MXLinearRecipeName,
 )
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     SUPPORTED_ELEM_DTYPES,
@@ -25,10 +26,15 @@ from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
 )
+from torchao.prototype.mx_formats.mx_subclass import (
+    MXFPInferenceConfig,
+    NVFP4InferenceConfig,
+    NVFP4MMConfig,
+)
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -36,7 +42,7 @@ from torchao.utils import (
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_7:
+if not TORCH_VERSION_AT_LEAST_2_8:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -50,19 +56,28 @@ def run_around_tests():
     torch._dynamo.reset()
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize(
-    "elem_dtype",
-    (
+elem_dtypes = (
+    [
         # test each dtype
         (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn),
         (DTYPE_FP6_E3M2, DTYPE_FP6_E3M2, DTYPE_FP6_E3M2),
         (DTYPE_FP6_E2M3, DTYPE_FP6_E2M3, DTYPE_FP6_E2M3),
-        (DTYPE_FP4, DTYPE_FP4, DTYPE_FP4),
+        (torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2),
         # only test one type of mixed-dtype overrides, to save testing time
-        (torch.float8_e4m3fn, DTYPE_FP4, DTYPE_FP4),
-    ),
+        (torch.float8_e4m3fn, torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2),
+    ]
+    if TORCH_VERSION_AT_LEAST_2_8
+    else [
+        # test each dtype
+        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn),
+        (DTYPE_FP6_E3M2, DTYPE_FP6_E3M2, DTYPE_FP6_E3M2),
+        (DTYPE_FP6_E2M3, DTYPE_FP6_E2M3, DTYPE_FP6_E2M3),
+    ]
 )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("elem_dtype", elem_dtypes)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
 @pytest.mark.parametrize("use_fp8_dim1_cast_triton_kernel", [False, True])
@@ -137,7 +152,6 @@ def test_linear_eager_vs_hp(
     "recipe_name",
     [
         MXLinearRecipeName.MXFP8_CUBLAS,
-        MXLinearRecipeName.MXFP8_CUTLASS,
         MXLinearRecipeName.MXFP4_CUTLASS,
     ],
 )
@@ -155,7 +169,7 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
 
     elem_dtype = torch.float8_e4m3fn
     if recipe_name == MXLinearRecipeName.MXFP4_CUTLASS:
-        elem_dtype = DTYPE_FP4
+        elem_dtype = torch.float4_e2m1fn_x2
 
     config_emulated = MXLinearConfig(block_size=32, elem_dtype=elem_dtype)
     config_real = MXLinearConfig.from_recipe_name(recipe_name)
@@ -181,8 +195,8 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
 # TODO(future): enable compile support
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_activation_checkpointing():
-    input_shape = (2, 4)
-    grad_shape = (2, 8)
+    input_shape = (16, 4)
+    grad_shape = (16, 8)
     elem_dtype = torch.float8_e4m3fn
 
     m = nn.Sequential(
@@ -206,7 +220,6 @@ def test_activation_checkpointing():
         "mxfp8_emulated",
         "mxfp4_emulated",
         "mxfp8_cublas",
-        "mxfp8_cutlass",
         "mxfp4_cutlass",
     ],
 )
@@ -218,22 +231,22 @@ def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_ke
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
-    if recipe_name in ["mxfp8_emulated", "mxfp8_cutlass"]:
+    if recipe_name in ["mxfp8_emulated"]:
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
-    if recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
+    if recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
         if not TORCH_VERSION_AT_LEAST_2_8:
             pytest.skip("torch.compile requires PyTorch 2.8+")
         if not is_sm_at_least_100():
             pytest.skip("CUDA capability >= 10.0 required for MX gemms")
 
-    if bias and recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
+    if bias and recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
         # TODO(future PR): fix this, things are clearly broken with bias=True
         pytest.skip("this test is broken for non-emulated recipes with bias=True")
 
     if use_fp8_dim1_cast_triton_kernel:
-        if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas", "mxfp8_cutlass"):
+        if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas"):
             pytest.skip("unsupported configuration")
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
@@ -374,3 +387,195 @@ def test_inference_print_str():
     s = str(m)
     assert "bl_sz=32" in s
     assert "kernel=emulated" in s
+
+
+test_dtypes = (
+    [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
+    if TORCH_VERSION_AT_LEAST_2_8
+    else [
+        torch.float8_e4m3fn,
+    ]
+)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("compile", [True, False])
+@torch.no_grad()
+@skip_if_rocm(
+    "ROCm float4 gemm require gfx950"
+)  # TODO(future): deploy gfx950 in ROCM CI
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required")
+def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
+    """
+    Smoke test for inference compile
+    """
+    # TODO(future): figure out why these CUDA capability conditions are not properly
+    # applied when inside `pytest.mark.skipif` for this test
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        if not is_sm_at_least_89():
+            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for float4 gemm")
+
+    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m_mx = copy.deepcopy(m)
+    kernel_choice = (
+        MXGemmKernelChoice.CUTLASS
+        if elem_dtype == torch.float4_e2m1fn_x2
+        else MXGemmKernelChoice.CUBLAS
+    )
+    config = MXFPInferenceConfig(
+        activation_dtype=elem_dtype,
+        weight_dtype=elem_dtype,
+        gemm_kernel_choice=kernel_choice,
+    )
+    quantize_(m_mx, config=config)
+    if compile:
+        m_mx = torch.compile(m_mx, fullgraph=True)
+
+    x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    y_ref = m(x)
+    y_mx = m_mx(x)
+    sqnr = compute_error(y_ref, y_mx)
+    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("compile", [True, False])
+@pytest.mark.parametrize(
+    "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
+)
+@pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_inference_subclass_nvfp4(
+    bias: bool, compile: bool, mm_config: NVFP4MMConfig, inpt_dtype: torch.dtype
+):
+    """
+    Test NVFP4 recipe with scale_dtype=float8_e4m3fn and block_size=16
+    Tests both DYNAMIC and WEIGHT_ONLY mm_config modes
+    """
+    # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
+    if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
+        pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
+
+    if bias and inpt_dtype == torch.float32:
+        pytest.xfail("Bias is not supported when module weight is in fp32")
+
+    if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
+        pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+    m = nn.Linear(64, 256, bias=bias, dtype=inpt_dtype, device="cuda")
+    m_mx = copy.deepcopy(m)
+
+    config = NVFP4InferenceConfig(mm_config=mm_config)
+    quantize_(m_mx, config=config)
+
+    if compile:
+        m_mx = torch.compile(m_mx, fullgraph=True, backend="aot_eager")
+
+    x = torch.randn(128, 64, device="cuda", dtype=inpt_dtype)
+    y_ref = m(x)
+    y_mx = m_mx(x)
+    sqnr = compute_error(y_ref, y_mx)
+
+    if mm_config == NVFP4MMConfig.WEIGHT_ONLY:
+        SQNR_THRESHOLD = 18.0
+    else:
+        SQNR_THRESHOLD = 15.0
+
+    assert y_mx.dtype == inpt_dtype, f"Got {y_mx.dtype} for inpt_dtype={inpt_dtype}"
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("use_gelu", [True, False])
+@pytest.mark.parametrize(
+    "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
+)
+@pytest.mark.parametrize("compile", [False])
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_matmul_with_amax(
+    use_gelu: bool,
+    mm_config: NVFP4MMConfig,
+    compile: bool,
+    bias: bool,
+    inpt_dtype: torch.dtype,
+):
+    from torchao.prototype.mx_formats.nvfp4_tensor import (
+        NVFP4Tensor,
+        per_tensor_amax_to_scale,
+    )
+
+    # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
+    if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
+        pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
+
+    if bias and inpt_dtype == torch.float32:
+        pytest.xfail("Bias is not supported when module weight is in fp32")
+
+    if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
+        pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+
+    m, k, n = 64, 256, 128
+
+    # Create activation tensor
+    if use_gelu:
+        x = torch.randn(m, k, dtype=inpt_dtype, device="cuda")
+        A = torch.nn.functional.gelu(x)
+    else:
+        A = torch.randn(m, k, dtype=inpt_dtype, device="cuda")
+
+    B = torch.randn(n, k, dtype=inpt_dtype, device="cuda")
+    bias_tensor = torch.randn(n, dtype=inpt_dtype, device="cuda") if bias else None
+
+    # Compute reference
+    C_ref = F.linear(A, B, bias_tensor)
+
+    a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
+    b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
+    A_nvfp4 = NVFP4Tensor.to_nvfp4(
+        A,
+        per_tensor_scale=a_scale,
+        mm_config=mm_config,
+        is_swizzled_scales=True,
+    )
+    B_nvfp4 = NVFP4Tensor.to_nvfp4(
+        B,
+        per_tensor_scale=b_scale,
+        mm_config=mm_config,
+        is_swizzled_scales=True,
+    )
+
+    func = torch.compile(F.linear, fullgraph=True) if compile else F.linear
+
+    C_nvfp4 = func(A_nvfp4, B_nvfp4, bias_tensor)
+    assert C_nvfp4.dtype == inpt_dtype, (
+        f"Got {C_nvfp4.dtype} for inpt_dtype={inpt_dtype}"
+    )
+
+    sqnr = compute_error(C_ref, C_nvfp4)
+    SQNR_THRESHOLD = 16.0
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, mm_config={mm_config}, compile={compile}, bias={bias}"
+    )

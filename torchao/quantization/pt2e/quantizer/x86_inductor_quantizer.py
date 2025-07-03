@@ -49,7 +49,7 @@ FilterFn: TypeAlias = Callable[[list[Node]], bool]
 
 
 if TYPE_CHECKING:
-    from torchao.quantization.pt2e import _ObserverOrFakeQuantizeConstructor
+    from torchao.quantization.pt2e import ObserverOrFakeQuantizeConstructor
 
 __all__ = [
     "X86InductorQuantizer",
@@ -314,7 +314,7 @@ def get_default_x86_inductor_quantization_config(
         ),
     )
 
-    weight_observer_or_fake_quant_ctr: _ObserverOrFakeQuantizeConstructor = (
+    weight_observer_or_fake_quant_ctr: ObserverOrFakeQuantizeConstructor = (
         FusedMovingAvgObsFakeQuantize if is_qat else PerChannelMinMaxObserver
     )
 
@@ -1625,3 +1625,17 @@ class X86InductorQuantizer(Quantizer):
 
     def validate(self, model: torch.fx.GraphModule) -> None:
         pass
+
+
+# Register Inductor fusion passes
+import torch._inductor.config
+
+from torchao.quantization.pt2e.inductor_passes.x86 import (
+    _register_quantization_weight_pack_pass,
+    quant_lift_up,
+)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+
+if TORCH_VERSION_AT_LEAST_2_8:
+    torch._inductor.config.pre_grad_custom_pass = quant_lift_up
+    _register_quantization_weight_pack_pass()

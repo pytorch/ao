@@ -24,7 +24,9 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
+from torchao.float8.config import e4m3_dtype
 from torchao.quantization import (
+    FbgemmConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
@@ -45,6 +47,7 @@ from torchao.utils import (
     is_fbcode,
     is_ROCM,
     is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 is_cusparselt_available = (
@@ -98,6 +101,10 @@ def get_quantization_functions(
 
     if is_sm_at_least_89():
         base_functions.append(float8_weight_only())
+
+    if is_sm_at_least_90():
+        base_functions.append(FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16))
+        base_functions.append(FbgemmConfig(e4m3_dtype, e4m3_dtype, torch.bfloat16))
 
     return base_functions
 
@@ -345,6 +352,7 @@ class TestAffineQuantizedBasic(TestCase):
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
     @skip_if_no_cuda()
+    @skip_if_rocm("ROCm enablement in progress")
     def test_slice_int4wo(self, device, dtype):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8
@@ -363,11 +371,80 @@ class TestAffineQuantizedBasic(TestCase):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8
         # to test slice + padding for int4 weight only quantization
-        dummy = nn.Linear(256, 512, dtype=dtype, device=device)
-        quantize_(dummy, GemliteUIntXWeightOnlyConfig())
+        in_features, out_features, group_size, bit_width = 256, 512, 64, 4
+        orig_shape = [out_features, in_features]
+        dummy = nn.Linear(
+            in_features, out_features, bias=False, dtype=dtype, device=device
+        )
+        quantize_(
+            dummy,
+            GemliteUIntXWeightOnlyConfig(bit_width=bit_width, group_size=group_size),
+        )
+        W_group_mode = dummy.weight.tensor_impl.gemlite_kwargs["meta_args"][10]
+
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
+
+        # Dequant op
+        import gemlite
+
+        def dequant(input_layer, in_features, orig_shape):
+            int_data = input_layer.tensor_impl.packed_weight
+            scale = input_layer.tensor_impl.scale
+            zero_point = input_layer.tensor_impl.zero_point
+
+            W_q = (
+                gemlite.bitpack.unpack_over_rows(
+                    int_data,
+                    W_nbits=bit_width,
+                    num_output_rows=in_features,
+                    dtype=torch.uint8,
+                )
+                .T.contiguous()
+                .view([-1, group_size])
+            )
+
+            s = scale.t().contiguous().view(-1, 1)
+            z = zero_point.t().contiguous().view(-1, 1)
+
+            if W_group_mode == 4:  # FMA
+                W_deq = (W_q * s + z).view(orig_shape)
+            else:
+                W_deq = ((W_q - z) * s).view(orig_shape)
+
+            return W_deq
+
+        W_r = dequant(dummy.weight, dummy.in_features, orig_shape)
+
+        # Slicing in half
+        for slice_axis, start, end in [
+            (0, 0, 256),
+            (0, 256, 256),
+            (1, 0, 128),
+            (1, 128, 128),
+        ]:
+            layer_sliced = dummy.weight.narrow(slice_axis, start, end)
+
+            if slice_axis == 0:
+                num_rows, out_shape = (
+                    dummy.in_features,
+                    (orig_shape[0] // 2, orig_shape[1]),
+                )
+            else:
+                num_rows, out_shape = (
+                    dummy.in_features // 2,
+                    (orig_shape[0], orig_shape[1] // 2),
+                )
+
+            W_slice = dequant(layer_sliced, num_rows, out_shape)
+
+            W_slice_ref = (
+                W_r[start : start + end, :]
+                if slice_axis == 0
+                else W_r[:, start : start + end]
+            )
+            self.assertEqual((W_slice_ref - W_slice).abs().mean().item(), 0)
 
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
@@ -385,6 +462,58 @@ class TestAffineQuantizedBasic(TestCase):
         )
         # make sure it runs
         torch.matmul(x, w.t())
+
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    @skip_if_no_cuda()
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_slice_and_copy_int4wo(self, device, dtype):
+        l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
+        l.weight = torch.nn.Parameter(
+            torch.zeros(1024, 1024, dtype=torch.bfloat16, device="cuda")
+        )
+        quantize_(l, Int4WeightOnlyConfig())
+        param = l.weight
+        param_data = param.data
+        param_data = param_data.narrow(0, 0, 512)
+        assert (
+            param.data.tensor_impl.packed_weight.data_ptr()
+            == param_data.tensor_impl.packed_weight.data_ptr()
+        )
+        assert (
+            param.data.tensor_impl.scale_and_zero.data_ptr()
+            == param_data.tensor_impl.scale_and_zero.data_ptr()
+        )
+        assert param.data.dequantize()[0][0] == 0
+
+        # dummy_l has random input (shouldn't be 0)
+        dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
+        quantize_(dummy_l, Int4WeightOnlyConfig())
+        quantized = dummy_l.weight
+        quantized = quantized.narrow(0, 0, 512)
+
+        param_data.copy_(quantized)
+
+        # making sure param.data is updated
+        assert param.data.dequantize()[0][0] != 0
+
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    @skip_if_no_cuda()
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_mm_int4wo(self, device, dtype):
+        weight = torch.randn(512, 1024).to(device).to(dtype)
+        weight = weight.t()
+
+        l = torch.nn.Linear(512, 1024).to(device).to(dtype)
+        l.weight = torch.nn.Parameter(weight)
+        quantize_(l, Int4WeightOnlyConfig())
+        # weight shape: 1024 x 512
+        weight = l.weight
+
+        input = torch.randn(1, 512, device=device, dtype=dtype)
+        # make sure it runs
+        torch.nn.functional.linear(input, weight)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)

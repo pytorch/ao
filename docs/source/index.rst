@@ -30,12 +30,30 @@ for an overall introduction to the library and recent highlight and updates.
    api_ref_dtypes
    api_ref_quantization
    api_ref_sparsity
+   api_ref_float8
 
 .. toctree::
    :glob:
    :maxdepth: 1
-   :caption: Tutorials
+   :caption: Eager Quantization Tutorials
 
+   pretraining
+   finetuning
+   serving
+   torchao_vllm_integration
    serialization
+   static_quantization
    subclass_basic
    subclass_advanced
+
+.. toctree::
+   :glob:
+   :maxdepth: 1
+   :caption: PT2E Quantization Tutorials
+
+   tutorials_source/pt2e_quant_ptq
+   tutorials_source/pt2e_quant_qat
+   tutorials_source/pt2e_quant_x86_inductor
+   tutorials_source/pt2e_quant_xpu_inductor
+   tutorials_source/pt2e_quantizer
+   tutorials_source/openvino_quantizer

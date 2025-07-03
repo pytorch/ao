@@ -1248,7 +1248,7 @@ class HistogramObserver(UniformQuantizationObserverBase):
         # If the orig hist only has one value (i.e., the min and max are the same)
         # we can just add it into new histogram
         if orig_min == orig_max:
-            bin_value = torch.sum(update_hist)
+            bin_value = torch.sum(orig_hist)
             transformed_orig_hist = (
                 torch.histc(orig_min, bins=self.bins, min=update_min, max=update_max)  # type: ignore[arg-type]
                 * bin_value
@@ -1904,8 +1904,6 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                         self.eps,
                         self.scale_dtype,
                         self.zero_point_dtype,
-                        self.preserve_zero,
-                        self.zero_point_domain.name,
                     ),
                 )
                 scale_node = model.graph.call_function(
@@ -1933,7 +1931,6 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                     self.target_dtype,
                     self.quant_min,
                     self.quant_max,
-                    self.zero_point_domain.name,
                 ),
                 {},
             )
@@ -1947,7 +1944,6 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                     self.target_dtype,
                     self.quant_min,
                     self.quant_max,
-                    self.zero_point_domain.name,
                 ),
                 {"output_dtype": self.original_dtype},
             )

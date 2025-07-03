@@ -1,6 +1,6 @@
 # MX training and inference with native PyTorch
 
-This is a workflow for e2e training and inference with MX dtypes from the [MX OCP spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) 
+This is a workflow for e2e training and inference with MX dtypes from the [MX OCP spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)
 in native PyTorch.  We are currently in prototype and are actively working on optimizing these workflows on the NVIDIA B200 hardware.
 
 ## Overall status
@@ -34,8 +34,8 @@ gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 config = MXLinearConfig(
-    elem_dtype=torch.float8_e4m3fn, 
-    block_size=32, 
+    elem_dtype=torch.float8_e4m3fn,
+    block_size=32,
     gemm_kernel_choice=gemm_kernel_choice,
 )
 quantize_(m, config)
@@ -55,8 +55,8 @@ from torchao.prototype.mx_formats import MXInferenceLinearConfig, MXGemmKernelCh
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
 config = MXInferenceLinearConfig(
-    elem_dtype=torch.float8_e4m3fn, 
-    block_size=32, 
+    elem_dtype=torch.float8_e4m3fn,
+    block_size=32,
     gemm_kernel_choice=gemm_kernel_choice,
 )
 quantize_(m, config=config)
@@ -71,10 +71,10 @@ only `torch.float32` and `torch.bfloat16` are supported as high precision format
 ```python
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 # Note: MX int8 is not implemented yet
-from torchao.prototype.mx_formats.constants import DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4
+from torchao.prototype.mx_formats.constants import DTYPE_FP6_E2M3, DTYPE_FP6_E3M2
 x = torch.randn(32, 32, device='cuda')
 
-# elem_dtype can be torch.float8_e4m3fn, torch.float8_e5m2, DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4
+# elem_dtype can be torch.float8_e4m3fn, torch.float8_e5m2, DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, torch.float4_e2m1fn_x2
 elem_dtype = torch.float8_e4m3fn
 
 # high precision to MX, block size defaults to 32
@@ -88,7 +88,7 @@ x_hp = x_mx.to_dtype(torch.float)
 
 ## mxfp8 gemm
 
-On NVIDIA B200 machines, we use the cuBLAS mxfp8 gemm exposed via the `torch._scaled_mm` op. 
+On NVIDIA B200 machines, we use the cuBLAS mxfp8 gemm exposed via the `torch._scaled_mm` op.
 We observe a speedup of **2x to 3x** vs the bf16 baseline on common shapes.  To reproduce this
 on supported hardware, you can run the following command:
 

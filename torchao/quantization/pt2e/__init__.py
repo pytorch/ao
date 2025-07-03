@@ -7,6 +7,7 @@ from torch import Tensor
 
 from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
+    FROM_NODE_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
     compare_results,
     extract_results_from_loggers,
@@ -39,6 +40,8 @@ from .fake_quantize import (
     FusedMovingAvgObsFakeQuantize,
     default_dynamic_fake_quant,
     default_fake_quant,
+    disable_fake_quant,
+    disable_observer,
     enable_fake_quant,
     enable_observer,
 )
@@ -114,6 +117,8 @@ __all__ = [
     # utils
     "enable_fake_quant",
     "enable_observer",
+    "disable_fake_quant",
+    "disable_observer",
     # export_utils
     "move_exported_model_to_eval",
     "move_exported_model_to_train",
@@ -128,6 +133,7 @@ __all__ = [
     "generate_numeric_debug_handle",
     "CUSTOM_KEY",
     "NUMERIC_DEBUG_HANDLE_KEY",
+    "FROM_NODE_KEY",
     "prepare_for_propagation_comparison",
     "extract_results_from_loggers",
     "compare_results",

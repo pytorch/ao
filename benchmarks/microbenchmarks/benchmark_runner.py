@@ -78,6 +78,20 @@ def get_shapes_for_config(
                 val2 = 2**power_of_2 + 2 ** (power_of_2 - 1)
                 shapes.append((f"{name}_{idx * 2}", [val1, val1, val1]))
                 shapes.append((f"{name}_{idx * 2 + 1}", [val2, val2, val2]))
+        elif name == "small_sweep":
+            # Generate a small sweep of shapes with increasing powers of 2 for M, K, N
+            min_p2 = shape_config.get("min_power", 10)  # 1024
+            max_p2 = shape_config.get("max_power", 14)  # 16,384
+            counter = 0
+            for M_p2 in range(min_p2, max_p2 + 1):
+                M = 2**M_p2
+                for K_p2 in range(min_p2, max_p2 + 1):
+                    K = 2**K_p2
+                    for N_p2 in range(min_p2, max_p2 + 1):
+                        N = 2**N_p2
+                        if M <= K <= N:  # Ensure increasing order
+                            shapes.append((f"{name}_{counter}", [M, K, N]))
+                            counter += 1
         elif name == "sweep":
             # Generate a sweep of shapes with different powers of 2 for M, K, N
             min_p2 = shape_config.get("min_power", 8)  # 256
@@ -247,7 +261,7 @@ def run_inference_benchmarks_from_config(configs: List[Any]) -> None:
         print("----------------------------------------")
         try:
             print(
-                f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
+                f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity} for {config.shape_name}: {config.m, config.k, config.n}"
             )
             result = run_inference(config)  # Pass the config object directly
             if result is not None:  # Only add successful results

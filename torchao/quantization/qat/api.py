@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import torch
 
@@ -51,7 +51,8 @@ class FakeQuantizeConfig:
         zero_point_precision: zero point dtype (default torch.int32)
         zero_point_domain: whether zero point is in integer (default) or float domain
         is_dynamic: whether to use dynamic (default) or static scale and zero points
-        range_learning: whether to learn scale and zero points during training (coming soon)
+        range_learning (prototype): whether to learn scale and zero points during training
+            (default false), not compatible with `is_dynamic`.
 
     kwargs (optional):
         group_size: size of each group in per group fake quantization,
@@ -85,6 +86,7 @@ class FakeQuantizeConfig:
     zero_point_domain: ZeroPointDomain
     is_dynamic: bool = True
     range_learning: bool = False
+    eps: Optional[float] = None
 
     def __init__(
         self,
@@ -96,6 +98,7 @@ class FakeQuantizeConfig:
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         is_dynamic: bool = True,
         range_learning: bool = False,
+        eps: Optional[float] = None,
         *,
         group_size: Optional[int] = None,
         is_symmetric: Optional[bool] = None,
@@ -110,6 +113,7 @@ class FakeQuantizeConfig:
         self.zero_point_domain = zero_point_domain
         self.is_dynamic = is_dynamic
         self.range_learning = range_learning
+        self.eps = eps
 
         # Validate dtype
         all_dtypes = [torch.int8, torch.uint8]
@@ -119,6 +123,10 @@ class FakeQuantizeConfig:
             raise ValueError(
                 "Unsupported dtype '%s', choose from %s" % (dtype, all_dtypes)
             )
+
+        # Dynamic is not compatible with range learning
+        if is_dynamic and range_learning:
+            raise ValueError("`is_dynamic` is not compatible with `range_learning`")
 
     def _get_granularity(
         self,
@@ -247,24 +255,8 @@ class FakeQuantizeConfig:
 
 @dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
-    activation_config: Optional[FakeQuantizeConfig] = None
-    weight_config: Optional[FakeQuantizeConfig] = None
-
-
-# for BC
-intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
-
-
-@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
-def _intx_quantization_aware_training_transform(
-    module: torch.nn.Module,
-    config: IntXQuantizationAwareTrainingConfig,
-) -> torch.nn.Module:
     """
-    THIS IS NOT A PUBLIC API - any usage of this outside of torchao
-    can break at any time.
-
-    Apply fake quantization to a `torch.nn.Module`.
+    Config for applying fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
     Example usage::
@@ -282,11 +274,25 @@ def _intx_quantization_aware_training_transform(
             IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
         )
 
-    Note: If the returned function is applied on a module that is not
+    Note: If the config is applied on a module that is not
     `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
     `torch.nn.Embedding` with an activation config, then we will raise
     ValueError as these are not supported.
     """
+
+    activation_config: Optional[FakeQuantizeConfig] = None
+    weight_config: Optional[FakeQuantizeConfig] = None
+
+
+# for BC
+intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
+
+
+@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
+def _intx_quantization_aware_training_transform(
+    module: torch.nn.Module,
+    config: IntXQuantizationAwareTrainingConfig,
+) -> torch.nn.Module:
     from .embedding import FakeQuantizedEmbedding
     from .linear import FakeQuantizedLinear
 
@@ -312,7 +318,7 @@ def _intx_quantization_aware_training_transform(
 
 class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    Object that knows how to convert a model with fake quantized modules,
+    Config for converting a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
     and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
     back to model with the original, corresponding modules without
@@ -391,3 +397,23 @@ class ComposableQATQuantizer(TwoStepQuantizer):
         for quantizer in self.quantizers:
             model = quantizer.convert(model)
         return model
+
+
+def initialize_fake_quantizers(
+    model: torch.nn.Module,
+    example_inputs: Tuple[Any, ...],
+) -> None:
+    """
+    (Prototype) Initialize the scales and zero points on all
+    :class:`~`torchao.quantization.qat.fake_quantizer.FakeQuantizer`
+    in the model based on the provided example inputs.
+    """
+    # avoid circular dependencies
+    from torchao.quantization.qat.fake_quantizer import FakeQuantizer
+
+    def _set_initialized(m: torch.nn.Module):
+        if isinstance(m, FakeQuantizer):
+            m._initialized = True
+
+    model.apply(_set_initialized)
+    model(*example_inputs)

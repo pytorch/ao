@@ -18,15 +18,14 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
 """
 
 from enum import Enum, auto
-from typing import Dict, Union
+from typing import Callable, Dict, Union
 
 import torch
+from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
-    BF16_EXP_BIAS,
     BLOCK_SIZE_DEFAULT,
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     E8M0_EXPONENT_BIAS,
@@ -45,7 +44,7 @@ from torchao.prototype.mx_formats.constants import (
     F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
-from torchao.prototype.mx_formats.custom_cast import (
+from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
@@ -62,7 +61,6 @@ from torchao.prototype.mx_formats.custom_cast import (
 
 # TODO(later): read from somewhere else?
 SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
-EBITS_BF16, MBITS_BF16 = 8, 7
 EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
 EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
@@ -137,9 +135,7 @@ def _to_mx_rceil(
     )
 
     # scale and saturated cast the data elements to max of target dtype
-    data_lp = torch.clamp(
-        data_hp * descale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
-    )
+    data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
     return exponent, data_lp
 
 
@@ -160,24 +156,33 @@ def to_mx(
         torch.float,
     ), f"{data_hp.dtype} is not supported yet"
     # TODO(future PR): consider supporting padding
-    assert data_hp.numel() % block_size == 0, "unsupported"
+    assert data_hp.shape[-1] % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
     assert data_hp.is_contiguous(), "unsupported"
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
 
-    # calculate the scale in e8m0 format
-
     orig_shape = data_hp.shape
-    data_hp = data_hp.reshape(-1, block_size)
+    data_hp = data_hp.reshape(
+        *orig_shape[:-1], orig_shape[-1] // block_size, block_size
+    )
 
     # find max value of the data
     # Note: this only implements the `minimally supported` version of
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
-    max_abs = torch.amax(torch.abs(data_hp), 1)
+    max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
 
-    # Add an epsilon to prevent the log2 function call for returning -inf
-    # where the values are zero.
-    eps = F32_MIN_NORMAL * (max_abs == 0).type(max_abs.dtype)
+    # We cast to float32 here because
+    # in the `max_abs_int32 = max_abs.view(hp_int_dtype)` line below,
+    # if tensor parallel is enabled then the resulting shape is 2x larger
+    # than it should be under some conditions, likely because of a bug in
+    # the `view` op with DTensor and target dtype int16.  I reproduce in
+    # torchtitan but not in a unit test, so not enough info to file a good
+    # issue in pytorch/pytorch. For now, work around. In the future we should
+    # debug and fix this properly.
+    data_hp = data_hp.to(torch.float32)
+    max_abs = max_abs.to(torch.float32)
 
     # Set X to be the largest power-of-two less than or equal to
     # max_abs(v), divided by the largest power of two representable
@@ -198,7 +203,7 @@ def to_mx(
         target_max_pow2 = F6_E3M2_MAX_POW2
         mbits = MBITS_F6_E3M2
         max_pos = F6_E3M2_MAX
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         target_max_pow2 = F4_E2M1_MAX_POW2
         mbits = MBITS_F4_E2M1
         max_pos = F4_E2M1_MAX
@@ -208,17 +213,11 @@ def to_mx(
     if scaling_mode == ScaleCalculationMode.RCEIL:
         scale_e8m0_biased, data_lp = _to_mx_rceil(data_hp, max_abs, max_pos)
     else:
-        if data_hp.dtype is torch.float32:
-            hp_int_dtype = torch.int32
-            hp_mbits = MBITS_F32
-            hp_ebits = EBITS_F32
-            hp_exp_bias = F32_EXP_BIAS
-        else:
-            assert data_hp.dtype is torch.bfloat16
-            hp_int_dtype = torch.int16
-            hp_mbits = MBITS_BF16
-            hp_ebits = EBITS_BF16
-            hp_exp_bias = BF16_EXP_BIAS
+        assert data_hp.dtype is torch.float32
+        hp_int_dtype = torch.int32
+        hp_mbits = MBITS_F32
+        hp_ebits = EBITS_F32
+        hp_exp_bias = F32_EXP_BIAS
 
         # rounding before calculating the largest power of 2
         # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))
@@ -234,8 +233,12 @@ def to_mx(
             )
 
         # Calculate the scale for different modes
-        max_abs_int32 = (max_abs + eps).view(hp_int_dtype)
-        extracted_pow2 = ((max_abs_int32 >> hp_mbits) & 0b11111111) - hp_exp_bias
+        max_abs_int32 = max_abs.view(hp_int_dtype)
+        # For now, use `torch.bitwise_right_shift` instead of `>>` to support DTensor
+        # See https://github.com/pytorch/pytorch/issues/156533.
+        extracted_pow2 = (
+            (torch.bitwise_right_shift(max_abs_int32, hp_mbits)) & 0b11111111
+        ) - hp_exp_bias
 
         if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
             scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
@@ -267,9 +270,11 @@ def to_mx(
         )
 
         # For now, calculate the scale in floating point.
-        scale_fp32 = (scale_e8m0_biased.to(torch.int32) << MBITS_F32).view(
-            torch.float32
-        )
+        # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
+        # See https://github.com/pytorch/pytorch/issues/156533.
+        scale_fp32 = (
+            torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
+        ).view(torch.float32)
 
         # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
         # float32 denormal range. For now, manually adjust the fp scale. This is
@@ -281,7 +286,7 @@ def to_mx(
         scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
 
         # scale and saturated cast the data elements to max of target dtype
-        data_lp = data_hp / scale_fp32.unsqueeze(1)
+        data_lp = data_hp / scale_fp32
 
         if (
             elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
@@ -314,7 +319,7 @@ def to_mx(
             data_lp = pack_uint6(data_lp)
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         # can't reshape at the end without handling it in the packing code,
         # punt until later since we'll need to rethink the torch.compile
         # approach for fp4x2 in any case
@@ -394,7 +399,7 @@ def to_dtype(
         else:
             data_hp = f6_e3m2_unpacked_to_f32(data_lp)
             data_hp = data_hp.to(target_dtype).reshape(orig_shape)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         if use_fp4_custom_triton_dequant_kernel:
             data_hp_rescaled = triton_f4_to_scaled_bf16(
                 data_lp,
@@ -479,7 +484,7 @@ class MXTensor(torch.Tensor):
         pack_fp6,
     ):
         new_size = data_bits.size()
-        if elem_dtype == DTYPE_FP4:
+        if elem_dtype == torch.float4_e2m1fn_x2:
             # set the tensor size to what it would be without 2x4 packing
             # Note: `is_contiguous` is going to return True for a tensor of size
             # (M, 1) regardless or the order of dims, so this logic is currently
@@ -507,7 +512,6 @@ class MXTensor(torch.Tensor):
         assert scale_e8m0_bits.dtype == torch.float8_e8m0fnu, (
             f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
         )
-        assert len(scale_e8m0_bits.shape) == 1, "unsupported"
         assert data_bits.dtype in (
             torch.float8_e4m3fn,
             torch.float8_e5m2,
@@ -518,7 +522,7 @@ class MXTensor(torch.Tensor):
             torch.float8_e5m2,
         ):
             target_numel = scale_e8m0_bits.numel() * block_size
-        elif elem_dtype == DTYPE_FP4:
+        elif elem_dtype == torch.float4_e2m1fn_x2:
             assert data_bits.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size / 2
         elif elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
@@ -559,10 +563,17 @@ class MXTensor(torch.Tensor):
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         # avoid circular dependency
+        from torchao.prototype.mx_formats.mx_funcs import MX_FUNC_TABLE
         from torchao.prototype.mx_formats.mx_ops import MX_OPS_TABLE
 
         if func in MX_OPS_TABLE:
-            return MX_OPS_TABLE[func](func, args, kwargs)
+            return MX_OPS_TABLE[func](func, types, args, kwargs)
+
+        # TODO AO BASE_TENSOR doesn't respect dispatch and function modes
+        # We are calling nn.functional.linear from within LinearAct Tensor even though
+        # We are in a __torch__dispatch. This disables the decomposition and we get this op
+        if func == torch.ops.aten.linear.default:
+            return MX_FUNC_TABLE[func](func, types, args, kwargs)
 
         raise NotImplementedError(f"{func} not implemented")
 
@@ -591,6 +602,28 @@ class MXTensor(torch.Tensor):
         scale_e8m0_biased, data_lp = to_mx(
             data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
         )
+        if isinstance(scale_e8m0_biased, DTensor):
+            assert isinstance(data_lp, DTensor), "unsupported"
+            local_scale_e8m0_biased = scale_e8m0_biased.to_local()
+            local_data_lp = data_lp.to_local()
+            inner_mx_tensor = MXTensor(
+                local_scale_e8m0_biased,
+                local_data_lp,
+                elem_dtype,
+                block_size,
+                data_hp.dtype,
+                use_fp4_custom_triton_dequant_kernel,
+                gemm_kernel_choice,
+                pack_fp6,
+            )
+            return DTensor.from_local(
+                inner_mx_tensor,
+                data_lp.device_mesh,
+                data_lp.placements,
+                run_check=False,
+                shape=data_lp.size(),
+                stride=data_lp.stride(),
+            )
         return MXTensor(
             scale_e8m0_biased,
             data_lp,
@@ -631,5 +664,37 @@ class MXTensor(torch.Tensor):
             metadata["_pack_fp6"],
         )
 
+    def _apply_fn_to_data(self, fn: Callable):
+        """Applies a fn to all tensor components stored on this class"""
+        tensor_names, ctx = self.__tensor_flatten__()
+
+        # Apply the function to each tensor component
+        new_tensors = {}
+        for name in tensor_names:
+            new_tensors[name] = fn(getattr(self, name))
+
+        return self.__class__.__tensor_unflatten__(
+            new_tensors,
+            ctx,
+            None,  # outer_size parameter
+            None,  # outer_stride parameter
+        )
+
     # Do not force the MXTensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
+
+    @classmethod
+    def _same_metadata(cls, self: "MXTensor", src: "MXTensor") -> bool:
+        return (
+            isinstance(self, MXTensor)
+            and isinstance(src, MXTensor)
+            and self._elem_dtype == src._elem_dtype
+            and self._block_size == src._block_size
+            and self._orig_dtype == src._orig_dtype
+            and self._use_fp4_custom_triton_dequant_kernel
+            == src._use_fp4_custom_triton_dequant_kernel
+            and self._gemm_kernel_choice == src._gemm_kernel_choice
+            and self._pack_fp6 == src._pack_fp6
+            and self._scale_e8m0.shape == src._scale_e8m0.shape
+            and self._data.shape == src._data.shape
+        )

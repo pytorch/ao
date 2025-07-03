@@ -12,12 +12,12 @@ from torch.testing import FileCheck
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
+    F4_E2M1_MAX,
     SUPPORTED_ELEM_DTYPES,
 )
-from torchao.prototype.mx_formats.custom_cast import pack_uint4, pack_uint6
+from torchao.prototype.mx_formats.kernels import pack_uint4, pack_uint6
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,
@@ -67,13 +67,13 @@ def _test_mx(
     if elem_dtype is torch.float8_e4m3fn:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 18.0)
     else:
-        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 14.0)
+        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 13.0)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_hello_world(elem_dtype):
-    data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(8, 8, device="cuda", dtype=torch.bfloat16)
     block_size = 4
     _test_mx(data, elem_dtype, block_size)
 
@@ -363,7 +363,7 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         if pack_fp6:
             data_bits = data_bits.reshape(-1, block_size)
             data_bits = pack_uint6(data_bits)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
@@ -407,7 +407,7 @@ def test_block_sizes(elem_dtype, B):
     """
     Smoke test for various block sizes
     """
-    if B == 1 and elem_dtype == DTYPE_FP4:
+    if B == 1 and elem_dtype == torch.float4_e2m1fn_x2:
         pytest.skip("unsupported configuration")
     elif B % 4 != 0 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
         pytest.skip("unsupported configuration")
@@ -422,7 +422,7 @@ def test_transpose(elem_dtype, fp4_triton):
     """
     Verify that transposing an MX tensor works
     """
-    if elem_dtype != DTYPE_FP4 and fp4_triton:
+    if elem_dtype != torch.float4_e2m1fn_x2 and fp4_triton:
         pytest.skip("unsupported configuration")
 
     M, K = 128, 256
@@ -592,3 +592,366 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
     torch.testing.assert_close(
         data_in_range_f8_c, data_out_of_range_f8_c, atol=0, rtol=0
     )
+
+
+@pytest.mark.parametrize(
+    "dtype,shape,use_per_tensor_scale",
+    [
+        (torch.bfloat16, (32, 64), False),
+        (torch.float32, (64, 128), False),
+        (torch.bfloat16, (128, 256), False),
+        (torch.bfloat16, (64, 128), True),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
+    from torchao.prototype.mx_formats.nvfp4_tensor import (
+        NVFP4Tensor,
+        per_tensor_amax_to_scale,
+    )
+
+    x = torch.randn(shape, dtype=dtype, device="cuda")
+    if use_per_tensor_scale:
+        tensor_amax = torch.max(torch.abs(x))
+        scale = per_tensor_amax_to_scale(tensor_amax)
+    else:
+        scale = None
+
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
+    x_reconstructed = x_nvfp4.to_dtype(dtype)
+
+    def assert_sqnr_gt_threshold(orig, new, threshold):
+        sqnr = compute_error(orig, new)
+        if torch.all(torch.isnan(sqnr)):
+            # if both operands are full of zeroes, sqnr is nan and this is ok
+            # test for this explicitly
+            assert torch.all(orig == 0) and torch.all(new == 0)
+        else:
+            assert sqnr >= threshold
+
+    reconstructed_amax = x_nvfp4.get_hp_scales().view(shape[0], -1, 1) * F4_E2M1_MAX
+    max_abs = torch.amax(
+        torch.abs(x.reshape(shape[0], -1, x_nvfp4._block_size)), dim=-1
+    ).unsqueeze(-1)
+
+    assert_sqnr_gt_threshold(max_abs, reconstructed_amax, 30.0)
+    assert_sqnr_gt_threshold(x, x_reconstructed, 8.0)
+
+    assert x.shape == x_reconstructed.shape, (
+        f"Shape mismatch: {x.shape} vs {x_reconstructed.shape}"
+    )
+    assert x.dtype == x_reconstructed.dtype, (
+        f"Dtype mismatch: {x.dtype} vs {x_reconstructed.dtype}"
+    )
+
+    x_nvfp4_t = x_nvfp4.t()
+    x_reconstructed_t = x_nvfp4_t.to_dtype(dtype)
+    assert_sqnr_gt_threshold(x.t(), x_reconstructed_t, 8.0)
+
+    assert x.t().shape == x_reconstructed_t.shape, (
+        f"Transpose shape mismatch: {x.t().shape} vs {x_reconstructed_t.shape}"
+    )
+    assert x.t().dtype == x_reconstructed_t.dtype, (
+        f"Transpose dtype mismatch: {x.t().dtype} vs {x_reconstructed_t.dtype}"
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (128, 4),
+        (256, 8),
+        (100, 3),
+        (4, 4),
+        (50, 10),
+        (384, 12),
+    ],
+)
+@pytest.mark.parametrize(
+    "use_triton_kernel", [False, True] if torch.cuda.is_available() else [False]
+)
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
+    from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+
+    rows, cols = shape
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    original = torch.randint(0, 255, (rows, cols), device=device, dtype=torch.uint8)
+
+    blocked = to_blocked(original, use_triton_kernel=use_triton_kernel)
+    reconstructed = from_blocked(blocked, rows, cols)
+
+    torch.testing.assert_close(
+        original,
+        reconstructed,
+        atol=0.0,
+        rtol=0.0,
+        msg=f"Roundtrip failed for shape {shape} with use_triton_kernel={use_triton_kernel}",
+    )
+
+
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 64),
+        (16, 32),
+        (64, 128),
+        (384, 128),
+    ],
+)
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
+    """
+    Test that NVFP4Tensor can be constructed with swizzled scales and
+    that the _is_swizzled_scales flag is set correctly.
+    """
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    M, K = shape
+    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+
+    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
+    assert tensor._is_swizzled_scales == is_swizzled_scales
+    reconstructed = tensor.to_dtype(torch.bfloat16)
+    assert reconstructed.shape == data.shape
+
+
+@pytest.mark.parametrize(
+    "slice_dim,slice_spec",
+    [
+        # Row slicing - must align with 128-row boundaries
+        pytest.param(0, slice(0, 128), id="slice_rows[0:128]"),
+        pytest.param(0, slice(128, 256), id="slice_rows[128:256]"),
+        # Column slicing - must align with 64-column boundaries (4 scale columns * 16 block_size)
+        pytest.param(1, slice(0, 64), id="slice_cols[0:64]"),
+        pytest.param(1, slice(64, 128), id="slice_cols[64:128]"),
+        pytest.param(1, slice(0, 128), id="slice_cols[0:128]_full_width"),
+        # Test tensor parallelism patterns (half splits)
+        pytest.param(1, slice(0, 2048), id="slice_cols[0:2048]_tp_first_half"),
+        pytest.param(1, slice(2048, 4096), id="slice_cols[2048:4096]_tp_second_half"),
+        # Test quarter splits
+        pytest.param(1, slice(0, 1024), id="slice_cols[0:1024]_quarter"),
+        pytest.param(1, slice(1024, 2048), id="slice_cols[1024:2048]_quarter"),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
+    """
+    Test that slicing works correctly with swizzled scales and maintains
+    the swizzled state in the output tensor.
+    """
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    # Use larger tensor sizes that align with swizzled requirements
+    if slice_dim == 0:
+        # For row slicing, need at least 256 rows to test 128-row boundaries
+        M, K = 256, 4096
+    else:
+        # For column slicing, need multiples of 64 columns for alignment
+        M, K = 128, 4096
+
+    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+
+    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    assert tensor._is_swizzled_scales == True
+
+    if slice_dim == 0:
+        sliced_tensor = tensor[slice_spec, :]
+    else:
+        sliced_tensor = tensor[:, slice_spec]
+
+    # Verify sliced tensor maintains swizzled state
+    assert sliced_tensor._is_swizzled_scales == True
+
+    # Verify sliced tensor can be dequantized
+    sliced_reconstructed = sliced_tensor.to_dtype(torch.bfloat16)
+
+    # Compare with direct slicing of original data
+    original_reconstructed = tensor.to_dtype(torch.bfloat16)
+    if slice_dim == 0:
+        expected = original_reconstructed[slice_spec, :]
+    else:
+        expected = original_reconstructed[:, slice_spec]
+
+    torch.testing.assert_close(sliced_reconstructed, expected, atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "slice_dim,slice_spec,expected_error",
+    [
+        # Row slicing with misaligned boundaries
+        pytest.param(
+            0,
+            slice(0, 100),
+            "Row slicing of NVFP4Tensor with swizzled scales requires",
+            id="misaligned_row_end",
+        ),
+        pytest.param(
+            0,
+            slice(50, 150),
+            "Row slicing of NVFP4Tensor with swizzled scales requires",
+            id="misaligned_row_start",
+        ),
+        # Column slicing with misaligned boundaries
+        pytest.param(
+            1,
+            slice(0, 32),
+            "Column slicing of NVFP4Tensor with swizzled scales requires",
+            id="misaligned_col_32",
+        ),
+        pytest.param(
+            1,
+            slice(16, 80),
+            "Column slicing of NVFP4Tensor with swizzled scales requires",
+            id="misaligned_col_start",
+        ),
+        pytest.param(
+            1,
+            slice(0, 100),
+            "Column slicing of NVFP4Tensor with swizzled scales requires",
+            id="misaligned_col_end",
+        ),
+        # Odd column boundaries (FP4 packing requirement)
+        pytest.param(
+            1,
+            slice(1, 65),
+            "start index to be a multiple of 64, got 1",
+            id="odd_start",
+        ),
+        pytest.param(
+            1,
+            slice(0, 65),
+            " multiple of 64 or equal to tensor size 4096, got 65",
+            id="odd_end",
+        ),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_error):
+    """
+    Test that slicing raises appropriate errors for misaligned boundaries.
+    """
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    M, K = 256, 4096
+    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+
+    with pytest.raises(RuntimeError, match=expected_error):
+        if slice_dim == 0:
+            _ = tensor[slice_spec, :]
+        else:
+            _ = tensor[:, slice_spec]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_swizzled_scales_view_semantics():
+    """
+    Test that slicing maintains proper view semantics where possible.
+    """
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    M, K = 256, 4096
+    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+
+    # Test row slicing (should maintain views)
+    sliced_tensor = tensor[0:128, :]
+
+    # Test that the sliced tensor shares storage with original for data
+    # (Note: scales might not share storage due to swizzled layout complexity)
+    assert sliced_tensor._data.data_ptr() == tensor._data.data_ptr()
+
+    # Test full-width column slicing (should maintain views)
+    full_width_slice = tensor[:, 0:K]
+    assert full_width_slice._scale_e4m3.data_ptr() == tensor._scale_e4m3.data_ptr()
+    assert full_width_slice._data.data_ptr() == tensor._data.data_ptr()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_swizzled_scales_serialization():
+    """
+    Test that tensor flatten/unflatten preserves the swizzled scales state.
+    """
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    M, K = 32, 64
+    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+
+    # Create tensor with swizzled scales
+    original_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+
+    # Test serialization
+    tensor_list, ctx = original_tensor.__tensor_flatten__()
+
+    # Verify swizzled flag is preserved in context
+    assert "_is_swizzled_scales" in ctx
+    assert ctx["_is_swizzled_scales"] == True
+
+    # Test deserialization
+    inner_tensors = {}
+    for name in tensor_list:
+        inner_tensors[name] = getattr(original_tensor, name)
+
+    reconstructed_tensor = NVFP4Tensor.__tensor_unflatten__(
+        inner_tensors, ctx, None, None
+    )
+
+    # Verify the swizzled state is preserved
+    assert reconstructed_tensor._is_swizzled_scales == True
+
+    # Verify functionality is preserved
+    original_dq = original_tensor.to_dtype(torch.bfloat16)
+    reconstructed_dq = reconstructed_tensor.to_dtype(torch.bfloat16)
+
+    torch.testing.assert_close(original_dq, reconstructed_dq, atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_swizzled_scales_get_scales_method():
+    """
+    Test that the get_scales() method correctly unswizzles scales when needed.
+    """
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    M, K = 32, 64
+    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+
+    # Create tensors with both storage methods
+    regular_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=False)
+    swizzled_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+
+    # Get scales from both tensors and verify they are equal
+    regular_scales = regular_tensor.get_hp_scales()
+    swizzled_scales = swizzled_tensor.get_hp_scales()
+    torch.testing.assert_close(regular_scales, swizzled_scales, atol=0.0, rtol=0.0)
+
+    # Verify scales have the expected shape
+    expected_shape = (M, K // 16)
+    assert regular_scales.shape == expected_shape
+    assert swizzled_scales.shape == expected_shape

@@ -36,7 +36,7 @@ from torch.testing._internal.common_utils import (
 )
 
 import torchao
-from torchao.quantization.pt2e import ObserverOrFakeQuantize, observer
+from torchao.quantization.pt2e import FROM_NODE_KEY, ObserverOrFakeQuantize, observer
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
@@ -1499,7 +1499,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         for n in m.graph.nodes:
             if n.op == "get_attr" and "frozen_param" in n.target:
                 for key in n.meta:
-                    self.assertEqual(n.meta[key], weight_meta[key])
+                    if key != FROM_NODE_KEY:
+                        self.assertEqual(n.meta[key], weight_meta[key])
 
     def test_save_load(self):
         """Test save/load a quantized model"""
@@ -2385,6 +2386,310 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             node_list,
         )
 
+    def test_conv3d_bn_relu(self):
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                weight_qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_weight_observer,
+                )
+                bias_qspec = QuantizationSpec(
+                    dtype=torch.float32,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.PlaceholderObserver,
+                )
+                # conv_transpose + bn is fused automatically in PTQ (not configurable)
+                # so we just need to annotate conv + relu for conv + bn + relu
+                # pattern
+                for n in model.graph.nodes:
+                    if (
+                        n.op != "call_function"
+                        or n.target != torch.ops.aten.relu.default
+                    ):
+                        continue
+                    relu_node = n
+                    n = n.args[0]
+                    if (
+                        n.op != "call_function"
+                        and n.target != torch.ops.aten.conv3d.input
+                    ):
+                        continue
+                    conv_t_node = n
+                    input_act = conv_t_node.args[0]
+                    weight = conv_t_node.args[1]
+                    bias = conv_t_node.args[2]
+                    conv_t_node.meta["quantization_annotation"] = (
+                        QuantizationAnnotation(
+                            input_qspec_map={
+                                input_act: act_qspec,
+                                weight: weight_qspec,
+                                bias: bias_qspec,
+                            },
+                            _annotated=True,
+                        )
+                    )
+                    relu_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        output_qspec=act_qspec,
+                        _annotated=True,
+                    )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv3d(2, 2, 3, padding=1)
+                self.bn = torch.nn.BatchNorm3d(2)
+
+            def forward(self, x):
+                return torch.nn.functional.relu(self.bn(self.conv(x)))
+
+        example_inputs = (torch.randn(1, 2, 2, 5, 5),)
+        node_occurrence = {
+            # two for input of the first conv, one for output for the first conv
+            torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default: 3,
+        }
+        node_list = [
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.aten.conv3d.default,
+            torch.ops.aten.relu.default,
+            torch.ops.quantized_decomposed.quantize_per_tensor.default,
+        ]
+        model = M().eval()
+        self._test_quantizer(
+            model,
+            example_inputs,
+            BackendAQuantizer(),
+            node_occurrence,
+            node_list,
+        )
+
+    def test_conv_transpose3d_bn_relu(self):
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                weight_qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_weight_observer,
+                )
+                bias_qspec = QuantizationSpec(
+                    dtype=torch.float32,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.PlaceholderObserver,
+                )
+                # conv_transpose + bn is fused automatically in PTQ (not configurable)
+                # so we just need to annotate conv_transpose + relu for conv_transpose + bn + relu
+                # pattern
+                for n in model.graph.nodes:
+                    if (
+                        n.op != "call_function"
+                        or n.target != torch.ops.aten.relu.default
+                    ):
+                        continue
+                    relu_node = n
+                    n = n.args[0]
+                    if (
+                        n.op != "call_function"
+                        and n.target != torch.ops.aten.conv_transposed3d.input
+                    ):
+                        continue
+                    conv_t_node = n
+                    input_act = conv_t_node.args[0]
+                    weight = conv_t_node.args[1]
+                    bias = conv_t_node.args[2]
+                    conv_t_node.meta["quantization_annotation"] = (
+                        QuantizationAnnotation(
+                            input_qspec_map={
+                                input_act: act_qspec,
+                                weight: weight_qspec,
+                                bias: bias_qspec,
+                            },
+                            _annotated=True,
+                        )
+                    )
+                    relu_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        output_qspec=act_qspec,
+                        _annotated=True,
+                    )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv_t = torch.nn.ConvTranspose3d(2, 2, 3, padding=1)
+                self.bn = torch.nn.BatchNorm3d(2)
+
+            def forward(self, x):
+                return torch.nn.functional.relu(self.bn(self.conv_t(x)))
+
+        example_inputs = (torch.randn(1, 2, 2, 5, 5),)
+        node_occurrence = {
+            # two for input of the first conv, one for output for the first conv
+            torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default: 3,
+        }
+        node_list = [
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.aten.conv_transpose3d.input,
+            torch.ops.aten.relu.default,
+            torch.ops.quantized_decomposed.quantize_per_tensor.default,
+        ]
+        model = M().eval()
+        self._test_quantizer(
+            model,
+            example_inputs,
+            BackendAQuantizer(),
+            node_occurrence,
+            node_list,
+        )
+
+    def test_conv_padding_bn_relu(self):
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                weight_qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_weight_observer,
+                )
+                bias_qspec = QuantizationSpec(
+                    dtype=torch.float32,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.PlaceholderObserver,
+                )
+
+                for n in model.graph.nodes:
+                    if (
+                        n.op != "call_function"
+                        or n.target != torch.ops.aten.relu.default
+                    ):
+                        continue
+                    relu_node = n
+                    n = n.args[0]
+
+                    # Check for any of the conv operations
+                    conv_ops = [
+                        torch.ops.aten.conv1d.padding,
+                        torch.ops.aten.conv2d.padding,
+                        torch.ops.aten.conv3d.padding,
+                    ]
+                    if n.op != "call_function" or n.target not in conv_ops:
+                        continue
+
+                    conv_node = n
+                    input_act = conv_node.args[0]
+                    weight = conv_node.args[1]
+                    bias = conv_node.args[2]
+                    conv_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map={
+                            input_act: act_qspec,
+                            weight: weight_qspec,
+                            bias: bias_qspec,
+                        },
+                        _annotated=True,
+                    )
+                    relu_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        output_qspec=act_qspec,
+                        _annotated=True,
+                    )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        # Test cases for Conv1d, Conv2d, Conv3d
+        test_cases = [
+            {
+                "conv_type": torch.nn.Conv1d,
+                "bn_type": torch.nn.BatchNorm1d,
+                "example_input": (torch.randn(1, 3, 5),),
+                "conv_op": torch.ops.aten.conv1d.padding,
+            },
+            {
+                "conv_type": torch.nn.Conv2d,
+                "bn_type": torch.nn.BatchNorm2d,
+                "example_input": (torch.randn(1, 3, 5, 5),),
+                "conv_op": torch.ops.aten.conv2d.padding,
+            },
+            {
+                "conv_type": torch.nn.Conv3d,
+                "bn_type": torch.nn.BatchNorm3d,
+                "example_input": (torch.randn(1, 3, 5, 5, 5),),
+                "conv_op": torch.ops.aten.conv3d.padding,
+            },
+        ]
+
+        for test_case in test_cases:
+            with self.subTest(conv_type=test_case["conv_type"].__name__):
+
+                class M(torch.nn.Module):
+                    def __init__(self):
+                        super().__init__()
+                        self.conv = test_case["conv_type"](3, 3, 3, padding="same")
+                        self.bn = test_case["bn_type"](3)
+
+                    def forward(self, x):
+                        return torch.nn.functional.relu(self.bn(self.conv(x)))
+
+                node_occurrence = {
+                    torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default: 3,
+                }
+                node_list = [
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+                    test_case["conv_op"],
+                    torch.ops.aten.relu.default,
+                    torch.ops.quantized_decomposed.quantize_per_tensor.default,
+                ]
+
+                model = M().eval()
+                self._test_quantizer(
+                    model,
+                    test_case["example_input"],
+                    BackendAQuantizer(),
+                    node_occurrence,
+                    node_list,
+                )
+
     def test_multi_users_without_output_observer(self):
         """
         Test the case in which a node is used by multiple users,
@@ -2521,6 +2826,97 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         for node in m.conv_bn_relu.graph.nodes:
             if node.name == "mul":
                 check_nn_module(node)
+
+    def test_quantize_in_place_ops(self):
+        class TestQuantizer(Quantizer):
+            example_inputs = None
+
+            def set_example_inputs(self, example_inputs):
+                self.example_inputs = example_inputs
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                # Make a copy of the graph to ensure that we are using the
+                # return value of this function.
+                ep = torch.export.export(model, self.example_inputs)
+                ep = ep.run_decompositions({})
+                return ep.module()
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                for node in model.graph.nodes:
+                    if (
+                        node.op == "call_function"
+                        and node.target == torch.ops.aten.add.Tensor
+                    ):
+                        input_act0 = node.args[0]
+                        assert isinstance(input_act0, torch.fx.Node)
+                        input_act1 = node.args[1]
+                        assert isinstance(input_act1, torch.fx.Node)
+                        print("input_act1 is a node")
+                        node.meta["quantization_annotation"] = QuantizationAnnotation(
+                            input_qspec_map={
+                                input_act0: act_qspec,
+                                input_act1: act_qspec,
+                            },
+                            output_qspec=act_qspec,
+                            _annotated=True,
+                        )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("buf", torch.randn(1, 2, 3, 3))
+
+            def forward(self, x):
+                self.buf.add_(x)
+                return self.buf
+
+        def has_inplace_ops(graph_module: torch.fx.GraphModule) -> bool:
+            return (
+                len(
+                    [
+                        n
+                        for n in graph_module.graph.nodes
+                        if n.op == "call_function"
+                        and n.name.endswith("_")
+                        and n.name != "copy_"
+                    ]
+                )
+                > 0
+            )
+
+        m = M().eval()
+        quantizer = TestQuantizer()
+        example_inputs = (torch.randn(1, 2, 3, 3),)
+        quantizer.set_example_inputs(example_inputs)
+        m = export_for_training(m, example_inputs, strict=True).module()
+        # Check that the model has in-place ops
+        self.assertTrue(has_inplace_ops(m))
+        m = prepare_pt2e(m, quantizer)
+        # Check that the model no longer has in-place ops because the graph is funtionalized during annotate_to_tranform
+        self.assertFalse(has_inplace_ops(m))
+        m(*example_inputs)
+        m = convert_pt2e(m, fold_quantize=True)
+        for node in m.graph.nodes:
+            if node.name == "quantize_per_tensor_default":
+                # Ensure the quant node is not fused with the mutable buffer
+                self.assertTrue(node.op == "call_function")
+
+        # Verify the quantized model works
+        result = m(*example_inputs)
+        self.assertIsNotNone(result)
 
 
 @skipIfNoQNNPACK

@@ -35,6 +35,10 @@ from torchao.dtypes.uintx.cutlass_int4_packed_layout import (
     _linear_int8_act_int4_weight_cutlass_check,
     _linear_int8_act_int4_weight_cutlass_impl,
 )
+from torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
+    _linear_int8_act_int4_weight_cpu_check,
+    _linear_int8_act_int4_weight_cpu_impl,
+)
 from torchao.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
@@ -46,8 +50,8 @@ from torchao.dtypes.uintx.int4_cpu_layout import (
 from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_bf16_act_uint4_weight_float_zero_check,
     _linear_bf16_act_uint4_weight_float_zero_impl,
-    _linear_bf16_act_uint4_weight_int8_zero_check,
-    _linear_bf16_act_uint4_weight_int8_zero_impl,
+    _linear_fp_act_uint4_weight_int8_zero_check,
+    _linear_fp_act_uint4_weight_int8_zero_impl,
 )
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
@@ -90,7 +94,12 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.quantization.quant_primitives import dequantize_affine
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    _dequantize_affine_no_zero_point,
+    _dequantize_affine_tinygemm,
+    dequantize_affine,
+)
 from torchao.utils import (
     fill_defaults,
 )
@@ -125,8 +134,8 @@ def deregister_aqt_quantized_linear_dispatch(dispatch_condition):
     if dispatch_condition in _AQT_QLINEAR_DISPATCH_TABLE:
         del _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition]
     else:
-        logger.warn(
-            f"Attempting to remove non-existant dispatch condition {dispatch_condition}"
+        logger.warning(
+            f"Attempting to remove non-existent dispatch condition {dispatch_condition}"
         )
 
 
@@ -235,12 +244,16 @@ def _register_aqt_quantized_linear_dispatches():
             _linear_q_dq_impl,
         ),
         (
-            _linear_bf16_act_uint4_weight_int8_zero_check,
-            _linear_bf16_act_uint4_weight_int8_zero_impl,
+            _linear_fp_act_uint4_weight_int8_zero_check,
+            _linear_fp_act_uint4_weight_int8_zero_impl,
         ),
         (
             _linear_bf16_act_uint4_weight_float_zero_check,
             _linear_bf16_act_uint4_weight_float_zero_impl,
+        ),
+        (
+            _linear_int8_act_int4_weight_cpu_check,
+            _linear_int8_act_int4_weight_cpu_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
@@ -262,14 +275,13 @@ def _(func, types, args, kwargs):
         raise NotImplementedError(
             f"{func} is not implemented for non floating point input"
         )
-
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -313,7 +325,14 @@ def _(func, types, args, kwargs):
     # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
     # we need to increase block size to correct dim
     new_blocks = idx.dim() - 1
-    return dequantize_affine(
+    if args[1].zero_point_domain == ZeroPointDomain.FLOAT:
+        _dequantize_affine = _dequantize_affine_tinygemm
+    elif args[1].zero_point_domain == ZeroPointDomain.NONE:
+        _dequantize_affine = _dequantize_affine_no_zero_point
+    else:
+        _dequantize_affine = dequantize_affine
+
+    return _dequantize_affine(
         sliced_data,
         new_blocks * [1] + list(args[1].block_size),
         sliced_scale,
@@ -321,7 +340,6 @@ def _(func, types, args, kwargs):
         sliced_data.dtype,
         args[1].quant_min,
         args[1].quant_max,
-        args[1].zero_point_domain,
         output_dtype=sliced_scale.dtype,
     )
 
@@ -352,7 +370,7 @@ def _(func, types, args, kwargs):
             input_tensor, transposed_weight_tensor, bias
         )
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -386,7 +404,7 @@ def _(func, types, args, kwargs):
             input_tensor, transposed_weight_tensor, bias
         )
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -476,12 +494,15 @@ def _(func, types, args, kwargs):
     shape = list(self.shape)
     shape[dim] = end - start
     block_size = self.block_size
-    assert len(block_size) == 2, (
-        f"Slice only works for 2d block_size right now, got: {block_size}"
-    )
+    assert len(block_size) in [
+        2,
+        3,
+    ], f"Slice only works for 2 and 3d block_size right now, got: {block_size}"
     # with slice, some shape dimension might be smaller than block_size dimension, so
     # we need to make sure there is no overflow
-    block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
+    if len(block_size) == 2:
+        block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
+
     new = self.__class__(
         aten.slice.Tensor(self.tensor_impl, dim, start, end, step),
         block_size,
@@ -490,7 +511,53 @@ def _(func, types, args, kwargs):
         self.quant_max,
         self.zero_point_domain,
         dtype=self.dtype,
-        strides=self.stride(),
+        strides=self.stride() if len(block_size) == 2 else None,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.index.Tensor)
+def _(func, types, args, kwargs):
+    self, indices = args
+    assert len(indices) == 1, (
+        f"op {func} currently only implemented for single dimensional indexing but got indices: {indices}"
+    )
+    new_tensor_impl = aten.index.Tensor(self.tensor_impl, indices)
+    shape = tuple([indices[0].numel(), *self.shape[1:]])
+
+    block_size = self.block_size
+    new = self.__class__(
+        new_tensor_impl,
+        block_size,
+        shape,
+        self.quant_min,
+        self.quant_max,
+        self.zero_point_domain,
+        dtype=self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    self, dim, index = fill_defaults(args, 3, [0, 0])
+    assert dim == 0, f"op {func} currently only implemented for dim=0 but got dim={dim}"
+    assert self.dim() == 3, (
+        f"op {func} currently only implemented for 3 dimensional tensors but got shape={self.shape}"
+    )
+
+    new_tensor_impl = aten.select.int(self.tensor_impl, dim, index)
+
+    shape = self.shape[1:]
+    block_size = self.block_size[1:]
+    new = self.__class__(
+        new_tensor_impl,
+        block_size,
+        shape,
+        self.quant_min,
+        self.quant_max,
+        self.zero_point_domain,
+        dtype=self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
