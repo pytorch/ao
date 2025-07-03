@@ -623,9 +623,9 @@ void _da8w4_linear_impl(
     } else if (M < 64) {
       return 32;
     } else if (M < 96) {
-      return 48;
-    } else {
       return 64;
+    } else {
+      return 128;
     }
   }();
   int64_t Mc = (M + block_m - 1) / block_m;
