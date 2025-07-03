@@ -74,10 +74,15 @@ using DispatchFn =
 
 inline void linear_lowbit_quant_weights_mps_impl(
     id<MTLBuffer> a_buf,
+    size_t a_offset,
     id<MTLBuffer> b_buf,
+    size_t b_offset,
     id<MTLBuffer> s_buf,
+    size_t s_offset,
     id<MTLBuffer> z_buf,
+    size_t z_offset,
     id<MTLBuffer> out_buf,
+    size_t out_offset,
     int32_t M,
     int32_t K,
     int32_t N,
@@ -97,11 +102,11 @@ inline void linear_lowbit_quant_weights_mps_impl(
           metal_lowbit_quantized_lib.getPipelineStateForFunc(shader_func);
       const auto maxThreadsPerGroup = [cpl maxTotalThreadsPerThreadgroup];
       [computeEncoder setComputePipelineState:cpl];
-      [computeEncoder setBuffer:a_buf offset:0 atIndex:0];
-      [computeEncoder setBuffer:b_buf offset:0 atIndex:1];
-      [computeEncoder setBuffer:s_buf offset:0 atIndex:2];
-      [computeEncoder setBuffer:z_buf offset:0 atIndex:3];
-      [computeEncoder setBuffer:out_buf offset:0 atIndex:4];
+      [computeEncoder setBuffer:a_buf offset:a_offset atIndex:0];
+      [computeEncoder setBuffer:b_buf offset:b_offset atIndex:1];
+      [computeEncoder setBuffer:s_buf offset:s_offset atIndex:2];
+      [computeEncoder setBuffer:z_buf offset:z_offset atIndex:3];
+      [computeEncoder setBuffer:out_buf offset:out_offset atIndex:4];
       [computeEncoder setBytes:sizes.data()
                         length:sizeof(uint32_t) * sizes.size()
                        atIndex:5];
@@ -134,11 +139,16 @@ std::tuple<const std::string, DispatchFn> get_shader_func_and_dispatch(
 template <int nbit>
 void linear_lowbit_quant_weights_mps(
     id<MTLBuffer> a_buf,
+    size_t a_offset,
     id<MTLBuffer> b_buf,
+    size_t b_offset,
     int64_t qGroupSize,
     id<MTLBuffer> s_buf,
+    size_t s_offset,
     id<MTLBuffer> z_buf,
+    size_t z_offset,
     id<MTLBuffer> out_buf,
+    size_t out_offset,
     int32_t M,
     int32_t K,
     int32_t N,
@@ -155,10 +165,15 @@ void linear_lowbit_quant_weights_mps(
 
   return linear_lowbit_quant_weights_mps_impl(
       a_buf,
+      a_offset,
       b_buf,
+      b_offset,
       s_buf,
+      s_offset,
       z_buf,
+      z_offset,
       out_buf,
+      out_offset,
       M,
       K,
       N,
