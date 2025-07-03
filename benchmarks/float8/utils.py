@@ -353,5 +353,11 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
     # there is only 1 key, aten::mm or aten::_scaled_mm, with unit nanoseconds
     assert len(data) == 1
     key, value = next(iter(data.items()))
-    assert key in ("aten::mm", "aten::_scaled_mm", "torchao::mx_fp4_bf16")
+    assert key in (
+        "aten::mm",
+        "aten::_scaled_mm",
+        "torchao::mx_fp4_bf16",
+        "aten::_grouped_mm",
+        "aten::_scaled_grouped_mm",
+    )
     return value / 1e6 / n_iter
