@@ -13,6 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 _MODEL_NAMES = [
     "torchao-testing/opt-125m-float8dq-row-fbgemm",
+    "torchao-testing/opt-125m-int4wo-preshuffle",
 ]
 
 

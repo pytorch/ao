@@ -44,6 +44,7 @@ from .observer import (
 from .quant_api import (
     CutlassInt4PackedLayout,
     FbgemmConfig,
+    Float8ActivationInt4WeightConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
@@ -141,6 +142,7 @@ __all__ = [
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
     "Int4WeightOnlyConfig",
+    "Float8ActivationInt4WeightConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",

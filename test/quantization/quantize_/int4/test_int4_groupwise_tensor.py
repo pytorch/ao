@@ -13,7 +13,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.quantization import (
-    FbgemmConfig,
+    Int4WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.utils import compute_error
@@ -26,19 +26,12 @@ from torchao.utils import (
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
-class TestFbgemmInt4Tensor(TestCase):
+class TestInt4GroupwiseTensor(TestCase):
     def setUp(self):
-        self.config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, 128],
-        )
-        self.bmm_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, 1, 128],
+        self.config = Int4WeightOnlyConfig(
+            group_size=128,
+            use_preshuffle=False,
+            gemm_kernel_choice="fbgemm",
         )
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
@@ -135,7 +128,7 @@ class TestFbgemmInt4Tensor(TestCase):
         original = m(input)
         # we need to transpose the weight first for bmm
         m.weight = torch.nn.Parameter(m.weight.transpose(1, 2).contiguous())
-        quantize_(m, self.bmm_config, filter_fn=lambda x, fqn: True)
+        quantize_(m, self.config, filter_fn=lambda x, fqn: True)
         quantized = m(input)
         self.assertTrue(compute_error(original, quantized) > 18)
 

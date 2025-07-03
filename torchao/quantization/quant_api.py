@@ -50,7 +50,6 @@ from torchao.dtypes import (
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_fbgemm_fp8,
-    to_fbgemm_int4,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -73,6 +72,7 @@ from torchao.quantization.observer import AffineQuantizedObserverBase, get_block
 from torchao.quantization.quantize_ import (
     Float8Tensor,
     Int4GroupwisePreshuffleTensor,
+    Int4GroupwiseTensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1117,6 +1117,8 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
     preserve_zero: Optional[bool] = None
+    use_preshuffle: bool = False
+    gemm_kernel_choice: GemmKernelChoice = GemmKernelChoice.ATEN
 
 
 # for BC
@@ -1134,6 +1136,8 @@ def _int4_weight_only_quantize_tensor(weight, config):
     layout = config.layout
     use_hqq = config.use_hqq
     zero_point_domain = config.zero_point_domain
+    use_preshuffle = config.use_preshuffle
+    gemm_kernel_choice = config.gemm_kernel_choice
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -1141,8 +1145,29 @@ def _int4_weight_only_quantize_tensor(weight, config):
         )
         return weight
 
+    if use_preshuffle and gemm_kernel_choice != GemmKernelChoice.FBGEMM:
+        raise NotImplementedError(
+            f"use_preshuffle is only supported for fbgemm kernel, got: {gemm_kernel_choice}"
+        )
+
+    block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
+
+    if gemm_kernel_choice == GemmKernelChoice.FBGEMM:
+        if use_preshuffle:
+            new_weight = Int4GroupwisePreshuffleTensor.from_float(
+                weight,
+                block_size,
+                activation_dtype="bf16",
+            )
+            return new_weight
+        else:
+            new_weight = Int4GroupwiseTensor.from_float(
+                weight,
+                block_size,
+            )
+            return new_weight
+
     mapping_type = MappingType.ASYMMETRIC
-    block_size = tuple([1 for _ in range(weight.dim() - 1)] + [group_size])
     target_dtype = torch.int32
     quant_min = 0
     quant_max = 15
@@ -1209,6 +1234,39 @@ def _int4_weight_only_transform(
         + " but {module} does not have one"
     )
     new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class Float8ActivationInt4WeightConfig(AOBaseConfig):
+    group_size: int = 128
+    use_preshuffle: bool = False
+    kernel: str = "fbgemm"
+
+
+@register_quantize_module_handler(Float8ActivationInt4WeightConfig)
+def _(module: torch.nn.Module, config: Int4WeightOnlyConfig) -> torch.nn.Module:
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    group_size = config.group_size
+    use_preshuffle = config.use_preshuffle
+    kernel = config.kernel
+
+    assert use_preshuffle, (
+        f"only use_preshuffle == True is supported right now, got: {use_preshuffle}"
+    )
+    assert kernel == "fbgemm", f"only fbgemm kernel is supported, got: {kernel}"
+    weight = module.weight
+    block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
+    new_weight = Int4GroupwisePreshuffleTensor.from_float(
+        module.weight,
+        block_size,
+        activation_dtype="fp8",
+    )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -2078,7 +2136,7 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
                 activation_dtype="bf16",
             )
         else:
-            weight = to_fbgemm_int4(
+            weight = Int4GroupwiseTensor.from_float(
                 module.weight,
                 config.block_size,
             )

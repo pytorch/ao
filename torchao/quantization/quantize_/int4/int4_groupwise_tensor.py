@@ -17,8 +17,7 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "to_fbgemm_int4",
-    "FbgemmInt4Tensor",
+    "Int4GroupwiseTensor",
 ]
 
 aten = torch.ops.aten
@@ -31,7 +30,7 @@ except:
     pack_int4 = None
 
 
-class FbgemmInt4Tensor(TorchAOBaseTensor):
+class Int4GroupwiseTensor(TorchAOBaseTensor):
     tensor_data_attrs = ["packed_weight", "scale", "zero_point"]
     tensor_attributes = ["group_size", "shape"]
 
@@ -118,7 +117,7 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         zero_point = zero_point.to(w.dtype)
 
         del w
-        return FbgemmInt4Tensor(
+        return Int4GroupwiseTensor(
             packed_weight=wq,
             scale=scale,
             zero_point=zero_point,
@@ -127,7 +126,7 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         )
 
 
-implements = FbgemmInt4Tensor.implements
+implements = Int4GroupwiseTensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -143,8 +142,8 @@ def _(func, types, args, kwargs):
     res = torch.ops.fbgemm.bf16i4bf16_rowwise(
         input_tensor,
         weight_tensor.packed_weight.contiguous(),
-        weight_tensor.scale,
-        weight_tensor.zero_point,
+        weight_tensor.scale.contiguous(),
+        weight_tensor.zero_point.contiguous(),
     )
     res = res.reshape(*orig_act_size[:-1], orig_out_features)
     if bias is not None:
@@ -185,10 +184,10 @@ def _(func, types, args, kwargs):
     )
 
 
-def _same_metadata(self: "FbgemmInt4Tensor", src: "FbgemmInt4Tensor") -> bool:
+def _same_metadata(self: "Int4GroupwiseTensor", src: "Int4GroupwiseTensor") -> bool:
     return (
-        isinstance(self, FbgemmInt4Tensor)
-        and isinstance(src, FbgemmInt4Tensor)
+        isinstance(self, Int4GroupwiseTensor)
+        and isinstance(src, Int4GroupwiseTensor)
         and self.shape == src.shape
         and self.packed_weight.shape == src.packed_weight.shape
         and self.scale.shape == src.scale.shape
@@ -287,9 +286,6 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
-to_fbgemm_int4 = FbgemmInt4Tensor.from_float
-
-
 if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with FbgemmInt4Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([FbgemmInt4Tensor])
+    # Allow a model with Int4GroupwiseTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([Int4GroupwiseTensor])
