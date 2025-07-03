@@ -2047,7 +2047,6 @@ class FbgemmConfig(AOBaseConfig):
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
-    transpose_input: bool = False
     preshuffle: bool = False
 
 
@@ -2074,7 +2073,6 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
             weight = to_fbgemm_int4(
                 module.weight,
                 config.block_size,
-                config.transpose_input,
             )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
@@ -2087,7 +2085,6 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_fp8(
             module.weight,
             config.activation_scale_ub,
-            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
