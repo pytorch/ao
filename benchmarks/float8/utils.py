@@ -9,6 +9,7 @@ import json
 import re
 from typing import Optional
 
+import torch.utils.benchmark as benchmark
 from torch.profiler import ProfilerActivity, profile
 
 
@@ -211,6 +212,42 @@ def get_name_to_shapes_iter(
     raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
 
 
+def get_name_to_moe_shapes_iter(
+    shape_gen_name: str,
+    M: Optional[int] = None,
+    K: Optional[int] = None,
+    N: Optional[int] = None,
+    E: Optional[int] = None,
+):
+    M = 8192 if M is None else M
+    if shape_gen_name == "llama4_17bx16e":
+        # num_experts=16, dim=5120
+        names_to_shapes = {
+            # M, K, N, E
+            "moe.experts.w1": (M, 5120, 8192, 16),
+            "moe.experts.w2": (M, 8192, 5120, 16),
+        }
+        return names_to_shapes.items()
+    elif shape_gen_name == "llama4_17bx128e":
+        # num_experts=128, dim=5120
+        names_to_shapes = {
+            # M, K, N, E
+            "moe.experts.w1": (M, 5120, 8192, 128),
+            "moe.experts.w2": (M, 8192, 5120, 128),
+        }
+        return names_to_shapes.items()
+    elif shape_gen_name == "custom":
+        assert M is not None and K is not None and N is not None and E is not None, (
+            "M, K, N, E must be specified for custom shape_gen"
+        )
+        name_to_shapes = {
+            1: (M, K, N, E),
+        }
+        return name_to_shapes.items()
+
+    raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
+
+
 # copy-pasta from https://github.com/vkuzo/pytorch_scripts/blob/main/add_inductor_metadata_to_perf_trace.py
 def update_triton_kernels_in_prof_chome_trace_with_torch_logs(
     perf_trace_file: str,
@@ -361,3 +398,33 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
         "aten::_scaled_grouped_mm",
     )
     return value / 1e6 / n_iter
+
+
+def benchmark_fn_in_sec(f, *args, **kwargs):
+    # Manual warmup
+    for _ in range(4):
+        f(*args, **kwargs)
+    t0 = benchmark.Timer(
+        stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
+    )
+    measurement = t0.blocked_autorange()
+    return measurement.mean
+
+
+def do_benchmarks(
+    tops,
+    peak_tops,
+    use_gpu_kernel_time,
+    f,
+    *args,
+    **kwargs,
+):
+    if use_gpu_kernel_time:
+        # just the gemm GPU kernel
+        time_sec = get_gpu_kernel_gemm_time_s(f, *args, **kwargs)
+    else:
+        # e2e time including kernel launch overhead
+        time_sec = benchmark_fn_in_sec(f, *args, **kwargs)
+    tops_sec = float(tops) / time_sec
+    pct_top_peak = tops_sec / peak_tops
+    return time_sec, tops_sec, pct_top_peak

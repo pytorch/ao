@@ -8,42 +8,9 @@ from typing import Optional
 import fire
 import pandas as pd
 import torch
-import torch.utils.benchmark as benchmark
-from utils import (
-    get_gpu_kernel_gemm_time_s,
-)
+from utils import do_benchmarks, get_name_to_moe_shapes_iter
 
 from torchao.testing.training.roofline_utils import get_specs
-
-
-def benchmark_fn_in_sec(f, *args, **kwargs):
-    # Manual warmup
-    for _ in range(4):
-        f(*args, **kwargs)
-    t0 = benchmark.Timer(
-        stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
-    )
-    measurement = t0.blocked_autorange()
-    return measurement.mean
-
-
-def do_benchmarks(
-    tops,
-    peak_tops,
-    use_gpu_kernel_time,
-    f,
-    *args,
-    **kwargs,
-):
-    if use_gpu_kernel_time:
-        # just the gemm GPU kernel
-        time_sec = get_gpu_kernel_gemm_time_s(f, *args, **kwargs)
-    else:
-        # e2e time including kernel launch overhead
-        time_sec = benchmark_fn_in_sec(f, *args, **kwargs)
-    tops_sec = float(tops) / time_sec
-    pct_top_peak = tops_sec / peak_tops
-    return time_sec, tops_sec, pct_top_peak
 
 
 @torch.inference_mode()
@@ -69,6 +36,7 @@ def run(
     print(f"peak tops: bf16 {bf16_peak_tops:.2e}, fp8 {fp8_peak_tops:.2e}")
     headers = (
         "name",
+        "recipe",
         "M",
         "K",
         "N",
@@ -80,7 +48,7 @@ def run(
     results = []
 
     dtype = torch.bfloat16
-    name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N, E)
+    name_to_shapes = get_name_to_moe_shapes_iter(shape_gen_name, M, K, N, E)
 
     for idx, (name, (M, K, N, E)) in enumerate(
         name_to_shapes,
@@ -161,6 +129,7 @@ def run(
         results.append(
             [
                 name,
+                recipe,
                 M,
                 K,
                 N,
@@ -176,42 +145,6 @@ def run(
 
     if out_filename is not None:
         data_df.to_csv(out_filename)
-
-
-def get_name_to_shapes_iter(
-    shape_gen_name: str,
-    M: Optional[int] = None,
-    K: Optional[int] = None,
-    N: Optional[int] = None,
-    E: Optional[int] = None,
-):
-    M = 8192 if M is None else M
-    if shape_gen_name == "llama4_17bx16e":
-        # num_experts=16, dim=5120
-        names_to_shapes = {
-            # M, K, N, E
-            "moe.experts.w1": (M, 5120, 8192, 16),
-            "moe.experts.w2": (M, 8192, 5120, 16),
-        }
-        return names_to_shapes.items()
-    elif shape_gen_name == "llama4_17bx128e":
-        # num_experts=128, dim=5120
-        names_to_shapes = {
-            # M, K, N, E
-            "moe.experts.w1": (M, 5120, 8192, 128),
-            "moe.experts.w2": (M, 8192, 5120, 128),
-        }
-        return names_to_shapes.items()
-    elif shape_gen_name == "custom":
-        assert M is not None and K is not None and N is not None and E is not None, (
-            "M, K, N, E must be specified for custom shape_gen"
-        )
-        name_to_shapes = {
-            1: (M, K, N, E),
-        }
-        return name_to_shapes.items()
-
-    raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
 
 
 def main() -> None:
