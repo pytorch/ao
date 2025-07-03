@@ -19,7 +19,7 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noq
 from torchao import quantize_
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
-from torchao.float8.float8_tensor import LinearMMConfig
+from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
@@ -1696,7 +1696,7 @@ class TestQAT(unittest.TestCase):
 
     def test_float8_rowwise_fake_quantize(self):
         """
-        Test that `_Float8RowwiseFakeQuantize` is numerically close to `Float8Tensor`.
+        Test that `_Float8RowwiseFakeQuantize` is numerically close to `Float8TrainingTensor`.
         """
         torch.manual_seed(self.SEED)
         dtype = torch.float8_e4m3fn

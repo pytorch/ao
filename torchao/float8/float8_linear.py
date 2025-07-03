@@ -17,7 +17,7 @@ from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
+from torchao.float8.float8_training_tensor import (
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
