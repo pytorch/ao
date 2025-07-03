@@ -215,7 +215,7 @@ model_params:
         ]
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
-    torch_compile_mode: "max-autotune"
+    torch_compile_mode: "default"
     device: "cuda"
     model_type: "linear"
     enable_profiler: true
@@ -232,9 +232,9 @@ model_params:
 
 #### Float8 Training Specific Options
 
-- `scaling_type_input`: Scaling type for input tensors ("dynamic" or "static")
-- `scaling_type_weight`: Scaling type for weight tensors ("dynamic" or "static")
-- `scaling_type_grad_output`: Scaling type for gradient output tensors ("dynamic" or "static")
+- `scaling_type_input`: Scaling type for input tensors ("dynamic" or "disabled")
+- `scaling_type_weight`: Scaling type for weight tensors ("dynamic" or "disabled")
+- `scaling_type_grad_output`: Scaling type for gradient output tensors ("dynamic" or "disabled")
 - `scaling_granularity`: Scaling granularity ("tensorwise", "rowwise", or "columnwise")
 - `use_fast_accum`: Whether to use fast accumulation (boolean)
 - `repeat_n`: Number of iterations for benchmarking
