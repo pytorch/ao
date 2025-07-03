@@ -118,12 +118,12 @@ class LowBitTester {
 
   void linear() {
     LowBitQuantWeights<nbit>::linear(
-        buf_A,
-        buf_B,
+        {buf_A, 0},
+        {buf_B, 0},
         qGroupSize,
-        buf_S,
-        buf_Z,
-        buf_C,
+        {buf_S, 0},
+        {buf_Z, 0},
+        {buf_C, 0},
         M,
         K,
         N,
