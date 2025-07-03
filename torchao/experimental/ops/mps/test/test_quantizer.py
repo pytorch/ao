@@ -120,7 +120,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
                 ep,
                 inductor_configs={
                     "aot_inductor.custom_ops_to_c_shims": torchao_op_c_shim,
-                    "aot_inductor.custom_op_libs": [(libdir, libname)],
+                    "aot_inductor.custom_op_libs": [libname],
                 },
             )
             compiled_model = torch._inductor.aoti_load_package(path)
