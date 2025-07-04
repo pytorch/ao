@@ -6,7 +6,7 @@
 
 
 import importlib.util
-from typing import List
+from typing import List, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -26,8 +26,12 @@ aten = torch.ops.aten
 
 if importlib.util.find_spec("fbgemm_gpu") is None:
     quantize_int4_preshuffle = None
+    quantize_fp8_row = None
 else:
-    from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
+    from fbgemm_gpu.experimental.gen_ai.quantize import (
+        quantize_fp8_row,
+        quantize_int4_preshuffle,
+    )
 
 
 class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
@@ -36,10 +40,16 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
 
     Tensor Attributes:
         packed_weight: packed int4 weight, either 2D (N, K/2) or 3D (B, N, K/2), last dimension is packed
-        group_scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
-               dtype is the same as the original Tensor dtype
-        group_zero: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
-               dtype is the same as the original Tensor dtype
+        for bf16 activation:
+            group_scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
+                   dtype is the same as the original Tensor dtype
+            group_zero: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
+                   dtype is the same as the original Tensor dtype
+        for float8 activation:
+            group_scale: (K/group_size/8, 8, N) for 2D Tensor, (B, K/group_size/8, 8, N) for 3D Tensor
+                   dtype is float8
+            row_scale: (N,) for 2D Tensor, (B, N) for 3D Tensor
+                   dtype is the same as the original Tensor dtype
 
     Non-Tensor Attributes:
         group_size: the group size for groupwise quantization
@@ -48,8 +58,7 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
         a 2D tensor, the shape_multiplier will be [1, 2]
         shape: shape of the original Tensor
 
-    Note:
-      Details for preshuffle for fbgemm kernel:
+    Note on Details for preshuffle for fbgemm kernel:
 
       We use WGMMA instruction for efficient matrix multiplication in H100 Tensor Core.
       To address a major inefficiency in how WGMMA tiles are loaded into shared memory before
@@ -61,13 +70,26 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
       loads so having to load all four groups is wasteful. We can optimize weight loading by shuffling
       the order of elements such that all 4 groups are sequential in memory. This allows us to
       perform a single 64 bit load to move all needed weights for the thread into register memory.
+
+    Note for float8 activation int4 weight kernel:
+      float8 activation int4 weight kernel doesn't work with zero_point, since it use table lookup approach which
+      requires symmetric quantization
     """
 
-    tensor_data_attrs = ["packed_weight", "group_scale", "group_zero"]
+    tensor_data_attrs = ["packed_weight", "group_scale"]
+    optional_tensor_data_attr1 = "group_zero"
+    optional_tensor_data_attr2 = "row_scale"
     tensor_attributes = ["group_size", "shape_multiplier", "shape"]
 
     def __new__(
-        cls, packed_weight, group_scale, group_zero, group_size, shape_multiplier, shape
+        cls,
+        packed_weight,
+        group_scale,
+        group_zero,
+        row_scale,
+        group_size,
+        shape_multiplier,
+        shape,
     ):
         kwargs = {}
         kwargs["device"] = packed_weight.device
@@ -77,36 +99,53 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
 
     def __init__(
         self,
-        packed_weight,
-        group_scale,
-        group_zero,
-        group_size,
-        shape_multiplier,
-        shape,
+        packed_weight: torch.Tensor,
+        group_scale: torch.Tensor,
+        group_zero: Optional[torch.Tensor],
+        row_scale: Optional[torch.Tensor],
+        group_size: int,
+        shape_multiplier: List[int],
+        shape: List[int],
     ):
         self.packed_weight = packed_weight
         self.group_scale = group_scale
         self.group_zero = group_zero
+        self.row_scale = row_scale
         self.shape_multiplier = shape_multiplier
         self.group_size = group_size
 
     def __tensor_flatten__(self):
-        return self.tensor_data_attrs, [
-            getattr(self, attr) for attr in self.tensor_attributes
-        ]
+        if getattr(self, self.optional_tensor_data_attr1) is None:
+            assert getattr(self, self.optional_tensor_data_attr2) is not None
+            return self.tensor_data_attrs + [self.optional_tensor_data_attr2], [
+                getattr(self, attr) for attr in self.tensor_attributes
+            ]
+        else:
+            assert getattr(self, self.optional_tensor_data_attr1) is not None
+            return self.tensor_data_attrs + [self.optional_tensor_data_attr1], [
+                getattr(self, attr) for attr in self.tensor_attributes
+            ]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
+        tensors = [tensor_data_dict[name] for name in cls.tensor_data_attrs]
+        tensors.append(tensor_data_dict.get(cls.optional_tensor_data_attr1, None))
+        tensors.append(tensor_data_dict.get(cls.optional_tensor_data_attr2, None))
         return cls(
-            *[tensor_data_dict[name] for name in cls.tensor_data_attrs],
+            *tensors,
             *tensor_attributes,
         )
 
     def _apply_fn_to_data(self, fn):
+        tensors = [fn(getattr(self, name)) for name in self.tensor_data_attrs]
+        t1 = getattr(self, self.optional_tensor_data_attr1)
+        tensors.append(fn(t1) if t1 is not None else None)
+        t2 = getattr(self, self.optional_tensor_data_attr2)
+        tensors.append(fn(t2) if t2 is not None else None)
         return self.__class__(
-            *[fn(getattr(self, attr)) for attr in self.tensor_data_attrs],
+            *tensors,
             *[getattr(self, attr) for attr in self.tensor_attributes],
         )
 
@@ -126,7 +165,8 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
         return self.__class__(
             self.packed_weight.to(device),
             self.group_scale.to(device),
-            self.group_zero.to(device),
+            self.group_zero.to(device) if self.group_zero is not None else None,
+            self.row_scale.to(device) if self.row_scale is not None else None,
             self.group_size,
             self.shape_multiplier,
             self.shape,
@@ -137,10 +177,17 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
         cls,
         w: torch.Tensor,
         block_size: List[int],
+        activation_dtype: str = "bf16",
     ):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
+
+        _SUPPORTED_ACT_DTYPES = ["fp8", "bf16"]
+        assert activation_dtype in _SUPPORTED_ACT_DTYPES, (
+            f"activation dtype {activation_dtype} is not supported, supported ones are: {_SUPPORTED_ACT_DTYPES}"
+        )
+
         if quantize_int4_preshuffle is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
@@ -149,16 +196,25 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
 
         if w.ndim >= 3:
             wq, scales = zip(
-                *[quantize_int4_preshuffle(i.cuda(), dtype="bf16") for i in w]
+                *[quantize_int4_preshuffle(i.cuda(), dtype=activation_dtype) for i in w]
             )
             wq = torch.stack(wq, dim=0)
-            group_scale, group_zero = zip(*scales)
-            group_zero = torch.stack(group_zero, dim=0).contiguous()
+            group_scale, group_zero_or_row_scale = zip(*scales)
+            group_zero_or_row_scale = torch.stack(
+                group_zero_or_row_scale, dim=0
+            ).contiguous()
             group_scale = torch.stack(group_scale, dim=0).contiguous()
         else:
-            wq, (group_scale, group_zero) = quantize_int4_preshuffle(
-                w.cuda(), dtype="bf16"
+            wq, (group_scale, group_zero_or_row_scale) = quantize_int4_preshuffle(
+                w.cuda(), dtype=activation_dtype
             )
+
+        if activation_dtype == "bf16":
+            group_zero = group_zero_or_row_scale
+            row_scale = None
+        else:
+            group_zero = None
+            row_scale = group_zero_or_row_scale
 
         shape_multiplier = [1] * wq.ndim
         shape_multiplier[-1] = 2
@@ -168,6 +224,7 @@ class Int4GroupwisePreshuffleTensor(TorchAOBaseTensor):
             packed_weight=wq,
             group_scale=group_scale,
             group_zero=group_zero,
+            row_scale=row_scale,
             group_size=group_size,
             shape_multiplier=shape_multiplier,
             shape=original_shape,
@@ -189,21 +246,42 @@ def _(func, types, args, kwargs):
 
     wq = weight_tensor.packed_weight.contiguous()
     group_scale = weight_tensor.group_scale.contiguous()
-    group_zero = weight_tensor.group_zero.contiguous()
-
-    if input_tensor.dim() == 3:
-        B, M, _ = input_tensor.shape
-        _, N, _ = wq.shape
-        res = torch.empty((B, M, N), device=input_tensor.device, dtype=torch.bfloat16)
-        for i in range(B):
-            res[i] = torch.ops.fbgemm.bf16i4bf16_shuffled(
-                input_tensor[i], wq[i], group_scale[i], group_zero[i]
+    # bf16 activation
+    if weight_tensor.group_zero is not None:
+        group_zero = weight_tensor.group_zero.contiguous()
+        if input_tensor.ndim == 3 and wq.ndim == 3:
+            B, M, _ = input_tensor.shape
+            _, N, _ = wq.shape
+            res = torch.empty(
+                (B, M, N), device=input_tensor.device, dtype=torch.bfloat16
+            )
+            for i in range(B):
+                res[i] = torch.ops.fbgemm.bf16i4bf16_shuffled(
+                    input_tensor[i], wq[i], group_scale[i], group_zero[i]
+                )
+        else:
+            # Otherwise run gemm normally.
+            res = torch.ops.fbgemm.bf16i4bf16_shuffled(
+                input_tensor, wq, group_scale, group_zero
             )
     else:
-        # Otherwise run gemm normally.
-        res = torch.ops.fbgemm.bf16i4bf16_shuffled(
-            input_tensor, wq, group_scale, group_zero
-        )
+        assert weight_tensor.row_scale is not None
+        row_scale = weight_tensor.row_scale.contiguous()
+        xq, x_scale = quantize_fp8_row(input_tensor)
+        # From: https://github.com/pytorch/FBGEMM/blob/ba8f2b7adb90e096cff8818716f7cc3587030f70/fbgemm_gpu/experimental/gen_ai/bench/quantize_ops.py#L1654
+        if xq.dim() == 3:
+            B, M, _ = xq.shape
+            _, N, _ = wq.shape
+            res = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
+            for i in range(B):
+                res[i] = torch.ops.fbgemm.f8i4bf16_shuffled(
+                    xq[i], wq[i], x_scale[i], row_scale[i], group_scale[i]
+                )
+        else:
+            # Otherwise run gemm normally.
+            res = torch.ops.fbgemm.f8i4bf16_shuffled(
+                xq, wq, x_scale, row_scale, group_scale
+            )
 
     res = res.reshape(*orig_input_size[:-1], orig_out_features)
     if bias is not None:
@@ -221,17 +299,27 @@ def _(func, types, args, kwargs):
     orig_out_features = weight_tensor.shape[-2]
     assert weight_tensor.shape_multiplier[-1] == 2
 
-    wq = weight_tensor.packed_weight
-    group_scale = weight_tensor.group_scale
-    group_zero = weight_tensor.group_zero
-    # from https://github.com/pytorch/FBGEMM/blob/ba8f2b7adb90e096cff8818716f7cc3587030f70/fbgemm_gpu/experimental/gen_ai/bench/quantize_ops.py#L1715-L1722
-    B, M, _ = input_tensor.shape
-    _, N, _ = wq.shape
-    res = torch.empty((B, M, N), device=input_tensor.device, dtype=torch.bfloat16)
-    for i in range(B):
-        res[i] = torch.ops.fbgemm.bf16i4bf16_shuffled(
-            input_tensor[i], wq[i], group_scale[i], group_zero[i]
+    wq = weight_tensor.packed_weight.contiguous()
+    group_scale = weight_tensor.group_scale.contiguous()
+    if weight_tensor.group_zero is not None:
+        group_zero = weight_tensor.group_zero.contiguous()
+        res = torch.ops.fbgemm.bf16i4bf16_shuffled_batched(
+            input_tensor, wq, group_scale, group_zero
         )
+    else:
+        assert weight_tensor.row_scale is not None
+        row_scale = weight_tensor.row_scale.contiguous()
+        xq, x_scale = quantize_fp8_row(input_tensor)
+        # From: https://github.com/pytorch/FBGEMM/blob/ba8f2b7adb90e096cff8818716f7cc3587030f70/fbgemm_gpu/experimental/gen_ai/bench/quantize_ops.py#L1654
+        assert xq.dim() == 3
+        B, M, _ = xq.shape
+        _, N, _ = wq.shape
+        res = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
+        for i in range(B):
+            res[i] = torch.ops.fbgemm.f8i4bf16_shuffled(
+                xq[i], wq[i], x_scale[i], row_scale[i], group_scale[i]
+            )
+
     res = res.reshape(*orig_input_size[:-1], orig_out_features)
     return res
 
@@ -259,7 +347,16 @@ def _same_metadata(
         and self.shape == src.shape
         and self.packed_weight.shape == src.packed_weight.shape
         and self.group_scale.shape == src.group_scale.shape
-        and self.group_zero.shape == src.group_zero.shape
+        and (
+            self.group_zero.shape == src.group_zero.shape
+            if self.group_zero is not None
+            else src.group_zero is None
+        )
+        and (
+            self.row_scale.shape == src.row_scale.shape
+            if self.row_scale is not None
+            else src.row_scale is None
+        )
         and self.group_size == src.group_size
         and self.shape_multiplier == src.shape_multiplier
     )
