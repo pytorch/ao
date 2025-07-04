@@ -54,6 +54,12 @@ def addmm_float8_unwrapped(
         a_inverse_scale = a_inverse_scale.new_ones(())
         b_inverse_scale = a_inverse_scale.new_ones(())
 
+    # work around torch._scaled_mm not having float32 output type
+    # TODO(pytorch/pytorch#156771): remove this once torch._scaled_mm supports float32 output
+    orig_dtype = output_dtype
+    if orig_dtype in (torch.float16, torch.float32) and is_rowwise_scaling:
+        output_dtype = torch.bfloat16
+
     post_bias = None
     if output_dtype == torch.float32:
         # Bias is not supported by _scaled_mm when output is fp32
@@ -75,6 +81,9 @@ def addmm_float8_unwrapped(
         output *= post_inverse_scale
     if post_bias is not None:
         output += post_bias
+
+    if orig_dtype in (torch.float16, torch.float32) and is_rowwise_scaling:
+        output = output.to(orig_dtype)
 
     return output
 
