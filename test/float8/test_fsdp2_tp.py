@@ -61,7 +61,7 @@ def _test_fp8_mlp_tensor_parallelism_base(
         enable_fsdp_float8_all_gather=True,
     )
 
-    toy_model = ToyModel().to(device)
+    toy_model = ToyModel(size).to(device)
 
     tp_model = copy.deepcopy(toy_model)
     tp_model = convert_to_float8_training(tp_model, config=config)
@@ -94,11 +94,11 @@ def _test_fp8_mlp_tensor_parallelism_base(
     # TODO(future PR): test numerics, and add more cases
 
 
-def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=32):
     _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=False)
 
 
-def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=32):
     _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=True)
 
 
