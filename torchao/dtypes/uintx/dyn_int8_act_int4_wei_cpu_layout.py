@@ -310,3 +310,9 @@ def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
     return y.to(orig_dtype)
+
+
+# Register the concat linear fusion pass
+from ...Inductor_passes.cpu import register_da8w4_concat_linear_pass
+
+register_da8w4_concat_linear_pass()
