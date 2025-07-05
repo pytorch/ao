@@ -8,10 +8,6 @@ import operator
 
 import torch
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
-)
-
 
 # Inductor FX passes for concat linear for DA8W4
 def _is_valid_concat_linear_da8w4_fusion(computation_nodes):
@@ -60,7 +56,7 @@ def _is_valid_concat_linear_da8w4_fusion(computation_nodes):
     )
 
 
-def _concat_linear_dq8w4_cpu(gm: torch.fx.GraphModule):
+def _concat_linear_dq8w4_cpu(graph: torch.fx.Graph):
     """
     Concat Linear optimization pass for DA8W4 on CPU
     This pass fuses the original pattern:
@@ -74,10 +70,15 @@ def _concat_linear_dq8w4_cpu(gm: torch.fx.GraphModule):
     if "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"):
         # cpp kernels not built
         return
+    from torch._inductor import config as inductor_config
+
+    if not inductor_config.cpp.enable_concat_linear:
+        # only concat linear if the flag is set
+        return
+    gm = graph.owning_module
     computation_op = torch.ops.torchao.da8w4_linear_cpu.default
     # OP schema:
     # da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor
-    graph = gm.graph
     for node in graph.find_nodes(op="call_function", target=computation_op):
         if (
             not node._erased
@@ -212,40 +213,4 @@ def _concat_linear_dq8w4_cpu(gm: torch.fx.GraphModule):
 def register_da8w4_concat_linear_pass():
     from torch._inductor import config as inductor_config
 
-    if TORCH_VERSION_AT_LEAST_2_8:
-        from torch._inductor.codegen.common import (
-            get_scheduling_for_device,
-            get_wrapper_codegen_for_device,
-            init_backend_registration,
-            register_backend_for_device,
-        )
-        from torch._inductor.custom_graph_pass import (
-            CustomGraphModulePass,
-            get_hash_for_files,
-        )
-
-        class DA8W4ConcatLinearCpuPass(CustomGraphModulePass):
-            def __init__(self):
-                super().__init__()
-
-            def __call__(self, gm: torch.fx.GraphModule) -> None:
-                if inductor_config.cpp.enable_concat_linear:
-                    _concat_linear_dq8w4_cpu(gm)
-
-            def uuid(self) -> bytes:
-                return get_hash_for_files((__file__,))
-
-        da8w4_concat_linear_pass = DA8W4ConcatLinearCpuPass()
-        device = "cpu"
-        init_backend_registration()
-        device_scheduling = get_scheduling_for_device(device)
-        device_python_wrapper = get_wrapper_codegen_for_device(device, False)
-        device_cpp_wrapper = get_wrapper_codegen_for_device(device, True)
-        device_custom_pass = da8w4_concat_linear_pass
-        register_backend_for_device(
-            device,
-            device_scheduling,
-            device_python_wrapper,
-            device_cpp_wrapper,
-            device_custom_pass,
-        )
+    inductor_config.post_grad_custom_post_pass = _concat_linear_dq8w4_cpu
