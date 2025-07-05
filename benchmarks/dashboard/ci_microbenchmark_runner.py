@@ -39,6 +39,8 @@ def create_benchmark_result(
     metric_values: List[float],
     quant_type: str,
     device: str,
+    torch_compile_mode: str,
+    metric_extra_info: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
     """Create a benchmark result in the PyTorch OSS benchmark database format.
 
@@ -77,6 +79,7 @@ def create_benchmark_result(
             "extra_info": {
                 "device": device,
                 "arch": benchmark_device,
+                "torch_compile_mode": torch_compile_mode,
             },
         },
         "model": {
@@ -88,6 +91,9 @@ def create_benchmark_result(
             "name": f"{metric_name}(wrt bf16)",  # name with unit
             "benchmark_values": metric_values,  # benchmark_values
             "target_value": 0.0,  # TODO: Will need to define the target value
+            "extra_info": {
+                **metric_extra_info,
+            },
         },
         "runners": [],
         "dependencies": {},
@@ -122,6 +128,12 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 metric_values=[result.speedup],
                 quant_type=config.quantization,
                 device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
+                metric_extra_info={
+                    "baseline_model_inference_time": result.baseline_inference_time_in_ms,
+                    "quantized_model_inference_time": result.model_inference_time_in_ms,
+                    "unit": "ms",
+                },
             )
             results.append(benchmark_result)
 
