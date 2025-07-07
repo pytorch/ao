@@ -11,89 +11,39 @@ This tutorial will guide you through using the TorchAO microbenchmarking framewo
 1. Add an API to Benchmarking Recipes
 --------------------------------------
 
-To add a new quantization API to the benchmarking system, you need to ensure your quantization method is available in the TorchAO quantization recipes.
+The framework currently supports quantization and sparsity recipes, which can be run using the quantize_() or sparsity_() functions:
 
-1.1 Supported Quantization Methods
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To add a new recipe, add the corresponding string configuration to the function ``string_to_config()`` in ``benchmarks/microbenchmarks/utils.py``.
 
-The framework currently supports these quantization types:
+.. code-block:: python
 
-- ``baseline``: No quantization (bfloat16 reference)
-- ``int8wo``: 8-bit weight-only quantization
-- ``int8dq``: 8-bit dynamic quantization
-- ``int4wo-{group_size}``: 4-bit weight-only quantization with specified group size
-- ``int4wo-{group_size}-hqq``: 4-bit weight-only quantization with HQQ
-- ``float8wo``: Float8 weight-only quantization
-- ``float8dq-tensor``: Float8 dynamic quantization (tensor-wise)
-- ``float8dq-row``: Float8 dynamic quantization (row-wise)
-- ``gemlitewo-{bit_width}-{group_size}``: 4 or 8 bit integer quantization with gemlite triton kernel
+  def string_to_config(
+    quantization: Optional[str], sparsity: Optional[str], **kwargs
+  ) -> AOBaseConfig:
 
-1.2 Adding a New Quantization Recipe
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # ... existing code ...
 
-To add a new quantization method:
+  elif quantization == "my_new_quantization":
+    # If additional information needs to be passed as kwargs, process it here
+    return MyNewQuantizationConfig(**kwargs)
+  elif sparsity == "my_new_sparsity":
+    return MyNewSparsityConfig(**kwargs)
 
-1. **Implement your quantization function** in the appropriate TorchAO module (e.g., ``torchao/quantization/``)
+  # ... rest of existing code ...
 
-2. **Add the recipe to the quantization system** by ensuring it can be called with the same interface as existing methods
+Now we can use this recipe throughout the benchmarking framework.
 
-3. **Test your quantization method** with a simple benchmark configuration:
+.. note::
 
-.. code-block:: yaml
-
-    # test_my_quantization.yml
-    benchmark_mode: "inference"
-    quantization_config_recipe_names:
-      - "baseline"
-      - "my_new_quantization"  # Your new method
-
-    output_dir: "test_results"
-
-    model_params:
-      - name: "test_linear"
-        matrix_shapes:
-          - name: "custom"
-            shapes: [[1024, 1024, 1024]]
-        high_precision_dtype: "torch.bfloat16"
-        use_torch_compile: false
-        device: "cuda"
-        model_type: "linear"
-
-4. **Verify the integration** by running:
-
-.. code-block:: bash
-
-    python -m benchmarks.microbenchmarks.benchmark_runner --config test_my_quantization.yml
+  If the ``AOBaseConfig`` uses input parameters, like bit-width, group-size etc, you can pass them appended to the string config in input
+  For example, for ``GemliteUIntXWeightOnlyConfig`` we can pass it-width and group-size as ``gemlitewo-<bit_width>-<group_size>``
 
 2. Add a Model to Benchmarking Recipes
 ---------------------------------------
 
 To add a new model architecture to the benchmarking system, you need to modify ``torchao/testing/model_architectures.py``.
 
-2.1 Current Model Types
-~~~~~~~~~~~~~~~~~~~~~~~
-
-The framework supports these model types:
-
-- ``linear``: Simple linear layer (``ToyLinearModel``)
-- ``ln_linear_<activation>``: LayerNorm + Linear + Activation (``LNLinearActivationModel``)
-
-  - ``ln_linear_sigmoid``: LayerNorm + Linear + Sigmoid
-  - ``ln_linear_relu``: LayerNorm + Linear + ReLU
-  - ``ln_linear_gelu``: LayerNorm + Linear + GELU
-  - ``ln_linear_silu``: LayerNorm + Linear + SiLU
-  - ``ln_linear_leakyrelu``: LayerNorm + Linear + LeakyReLU
-  - ``ln_linear_relu6``: LayerNorm + Linear + ReLU6
-  - ``ln_linear_hardswish``: LayerNorm + Linear + Hardswish
-
-- ``transformer_block``: Transformer block with self-attention and MLP (``TransformerBlock``)
-
-2.2 Adding a New Model Architecture
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-To add a new model type:
-
-1. **Define your model class** in ``torchao/testing/model_architectures.py``:
+1. To add a new model type, define your model class in ``torchao/testing/model_architectures.py``:
 
 .. code-block:: python
 
@@ -111,7 +61,7 @@ To add a new model type:
             x = self.layer2(x)
             return x
 
-2. **Update the** ``create_model_and_input_data`` **function** to handle your new model type:
+2. Update the ``create_model_and_input_data`` function to handle your new model type:
 
 .. code-block:: python
 
@@ -132,36 +82,7 @@ To add a new model type:
 
         # ... rest of existing code ...
 
-3. **Test your new model** with a benchmark configuration:
-
-.. code-block:: yaml
-
-    # test_my_model.yml
-    benchmark_mode: "inference"
-    quantization_config_recipe_names:
-      - "baseline"
-      - "int8wo"
-
-    output_dir: "test_results"
-
-    model_params:
-      - name: "test_my_custom_model"
-        matrix_shapes:
-          - name: "custom"
-            shapes: [[1024, 1024, 1024]]
-        high_precision_dtype: "torch.bfloat16"
-        use_torch_compile: false
-        device: "cuda"
-        model_type: "my_custom_model"  # Your new model type
-
-4. **Verify the integration**:
-
-.. code-block:: bash
-
-    python -m benchmarks.microbenchmarks.benchmark_runner --config test_my_model.yml
-
-2.3 Model Design Considerations
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Model Design Considerations**
 
 When adding new models:
 
@@ -194,18 +115,25 @@ Create a minimal configuration for local testing:
     quantization_config_recipe_names:
       - "baseline"
       - "int8wo"
+      # Add your recipe here
 
-    output_dir: "local_results"
+    output_dir: "local_results" # Add your output directory here
 
     model_params:
+      # Add your model configurations here
       - name: "quick_test"
         matrix_shapes:
+          # Define a custom shape, or use one of the predefined shape generators
           - name: "custom"
             shapes: [[1024, 1024, 1024]]
         high_precision_dtype: "torch.bfloat16"
-        use_torch_compile: false  # Disable for faster iteration
+        use_torch_compile: true
         device: "cuda"
         model_type: "linear"
+
+.. note::
+  - For a list of latest supported config recipes for quantization or sparsity, please refer to ``benchmarks/microbenchmarks/README.md``.
+  - For a list of all model types, please refer to ``torchao/testing/model_architectures.py``.
 
 3.2 Run Local Benchmark
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -213,106 +141,6 @@ Create a minimal configuration for local testing:
 .. code-block:: bash
 
     python -m benchmarks.microbenchmarks.benchmark_runner --config local_test.yml
-
-3.3 Shape Generation Options
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-You can use different shape generation strategies:
-
-**Custom Shapes:**
-
-.. code-block:: yaml
-
-    matrix_shapes:
-      - name: "custom"
-        shapes: [
-          [1024, 1024, 1024],  # [m, k, n]
-          [2048, 4096, 1024]
-        ]
-
-**LLaMa Model Shapes:**
-
-.. code-block:: yaml
-
-    matrix_shapes:
-      - name: "llama"  # Uses LLaMa 2 70B single-node weight shapes
-
-**Power of 2 Shapes:**
-
-.. code-block:: yaml
-
-    matrix_shapes:
-      - name: "pow2"
-        min_power: 10  # 2^10 = 1024
-        max_power: 12  # 2^12 = 4096
-
-**Extended Power of 2 Shapes:**
-
-.. code-block:: yaml
-
-    matrix_shapes:
-      - name: "pow2_extended"
-        min_power: 10  # Generates: 1024, 1536, 2048, 3072, etc.
-        max_power: 11
-
-**Small Sweep (for heatmaps):**
-
-.. code-block:: yaml
-
-    matrix_shapes:
-      - name: "small_sweep"
-        min_power: 10
-        max_power: 15
-
-**Full Sweep:**
-
-.. code-block:: yaml
-
-    matrix_shapes:
-      - name: "sweep"
-        min_power: 8
-        max_power: 9
-
-3.4 Enable Profiling for Debugging
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-For detailed performance analysis, enable profiling:
-
-.. code-block:: yaml
-
-    model_params:
-      - name: "debug_model"
-        # ... other parameters ...
-        enable_profiler: true        # Enable standard profiling
-        enable_memory_profiler: true # Enable CUDA memory profiling
-
-This will generate:
-
-- Standard PyTorch profiler traces
-- CUDA memory snapshots and visualizations
-- Memory usage analysis in the ``memory_profiler`` subdirectory
-
-3.5 Device Options
-~~~~~~~~~~~~~~~~~~
-
-Test on different devices:
-
-.. code-block:: yaml
-
-    device: "cuda"  # NVIDIA GPU
-    # device: "xpu"   # Intel GPU
-    # device: "mps"   # Apple Silicon GPU
-    # device: "cpu"   # CPU fallback
-
-3.6 Compilation Options
-~~~~~~~~~~~~~~~~~~~~~~
-
-Control PyTorch compilation for performance tuning:
-
-.. code-block:: yaml
-
-    use_torch_compile: true
-    torch_compile_mode: "max-autotune"  # Options: "default", "max-autotune", "false"
 
 4. Add an API to Benchmarking CI Dashboard
 ------------------------------------------
