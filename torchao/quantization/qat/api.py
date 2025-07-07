@@ -255,24 +255,8 @@ class FakeQuantizeConfig:
 
 @dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
-    activation_config: Optional[FakeQuantizeConfig] = None
-    weight_config: Optional[FakeQuantizeConfig] = None
-
-
-# for BC
-intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
-
-
-@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
-def _intx_quantization_aware_training_transform(
-    module: torch.nn.Module,
-    config: IntXQuantizationAwareTrainingConfig,
-) -> torch.nn.Module:
     """
-    THIS IS NOT A PUBLIC API - any usage of this outside of torchao
-    can break at any time.
-
-    Apply fake quantization to a `torch.nn.Module`.
+    Config for applying fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
     Example usage::
@@ -290,11 +274,25 @@ def _intx_quantization_aware_training_transform(
             IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
         )
 
-    Note: If the returned function is applied on a module that is not
+    Note: If the config is applied on a module that is not
     `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
     `torch.nn.Embedding` with an activation config, then we will raise
     ValueError as these are not supported.
     """
+
+    activation_config: Optional[FakeQuantizeConfig] = None
+    weight_config: Optional[FakeQuantizeConfig] = None
+
+
+# for BC
+intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
+
+
+@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
+def _intx_quantization_aware_training_transform(
+    module: torch.nn.Module,
+    config: IntXQuantizationAwareTrainingConfig,
+) -> torch.nn.Module:
     from .embedding import FakeQuantizedEmbedding
     from .linear import FakeQuantizedLinear
 
@@ -320,7 +318,7 @@ def _intx_quantization_aware_training_transform(
 
 class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    Object that knows how to convert a model with fake quantized modules,
+    Config for converting a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
     and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
     back to model with the original, corresponding modules without

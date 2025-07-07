@@ -15,7 +15,6 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
-import importlib.util
 import logging
 import types
 import warnings
@@ -35,6 +34,7 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
@@ -46,7 +46,8 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-    to_fbgemm_quantized,
+    to_fbgemm_fp8,
+    to_fbgemm_int4,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -66,6 +67,9 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
+from torchao.quantization.quantize_ import (
+    Int4GroupwisePreshuffleTensor,
+)
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
@@ -77,6 +81,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    _is_fbgemm_genai_gpu_available,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -537,6 +542,9 @@ def _quantization_type(weight: torch.Tensor):
     if isinstance(weight, LinearActivationQuantizedTensor):
         return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
 
+    if hasattr(weight, "_quantization_type"):
+        return f"{weight.__class__.__name__}({weight._quantization_type()})"
+
     if type(weight) is torch.Tensor:
         return "not quantized"
 
@@ -655,6 +663,38 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
         )
 
 
+def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.uint8
+    scale_dtype = torch.float32
+    eps = torch.finfo(torch.float32).eps
+    zero_point_dtype = torch.int32
+    quant_min = 0
+    quant_max = 255
+    if TORCH_VERSION_AT_LEAST_2_6:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    else:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+    return out
+
+
 def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
@@ -726,7 +766,10 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
-        input_quant_func = _int8_asymm_per_token_quant
+        if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+            input_quant_func = _uint8_asymm_per_token_quant
+        else:
+            input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant
@@ -743,6 +786,16 @@ def _int8_dynamic_activation_int4_weight_transform(
         )
     elif isinstance(layout, CutlassInt4PackedLayout):
         weight = _int4_symm_cutlass_quant(weight)
+    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype=torch.uint8,
+            quant_min=0,
+            quant_max=15,
+            _layout=layout,
+        )
     else:
         weight = to_affine_quantized_intx(
             weight,
@@ -982,12 +1035,14 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
          size is more fine grained
         `bit_width`: bit width of the quantized weight.
         `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+        `mode`: if set to "dynamic", activations are quantized at runtime; default is "weight_only" (weight-only quantization).
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
     """
 
-    group_size: Optional[int] = 64
+    group_size: Optional[int] = 128
     bit_width: int = 4
+    packing_bitwidth: Optional[int] = None
+    mode: Optional[str] = "weight_only"
     set_inductor_config: bool = True
 
 
@@ -1001,6 +1056,8 @@ def _gemlite_uintx_weight_only_transform(
 ):
     group_size = config.group_size
     bit_width = config.bit_width
+    packing_bitwidth = config.packing_bitwidth
+    mode = config.mode
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1011,7 +1068,14 @@ def _gemlite_uintx_weight_only_transform(
     use_hqq = True if bit_width == 4 else False
     new_weight = to_affine_quantized_intx(
         weight,
-        **get_gemlite_aqt_kwargs(weight, group_size, bit_width, use_hqq),
+        **get_gemlite_aqt_kwargs(
+            weight,
+            group_size=group_size,
+            bit_width=bit_width,
+            packing_bitwidth=packing_bitwidth,
+            mode=mode,
+            use_hqq=use_hqq,
+        ),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
@@ -1981,39 +2045,50 @@ class FbgemmConfig(AOBaseConfig):
     input_dtype: torch.dtype
     weight_dtype: torch.dtype
     output_dtype: torch.dtype
-    block_size: List[int]
+    block_size: Optional[List[int]] = None
+    activation_scale_ub: Optional[float] = None
+    preshuffle: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
 def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
-    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
-    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if importlib.util.find_spec("fbgemm_gpu") is None:
-        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
-
-    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
-    if fbgemm_gpu.__version__ < "1.2.0":
+    if not _is_fbgemm_genai_gpu_available():
         raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
     _SUPPORTED_DTYPES = {
         (torch.bfloat16, torch.int4, torch.bfloat16),
+        (e4m3_dtype, e4m3_dtype, torch.bfloat16),
     }
 
     if (
-        config.input_dtype,
-        config.weight_dtype,
-        config.output_dtype,
-    ) in _SUPPORTED_DTYPES:
-        weight = to_fbgemm_quantized(
+        (config.input_dtype == torch.bfloat16)
+        and (config.weight_dtype == torch.int4)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        if config.preshuffle:
+            weight = Int4GroupwisePreshuffleTensor.from_float(
+                module.weight, config.block_size
+            )
+        else:
+            weight = to_fbgemm_int4(
+                module.weight,
+                config.block_size,
+            )
+        module.weight = torch.nn.Parameter(weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
+    elif (
+        (config.input_dtype == e4m3_dtype)
+        and (config.weight_dtype == e4m3_dtype)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        weight = to_fbgemm_fp8(
             module.weight,
-            config.input_dtype,
-            config.weight_dtype,
-            config.output_dtype,
-            config.block_size,
+            config.activation_scale_ub,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
     else:
         raise NotImplementedError(
             f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"

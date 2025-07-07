@@ -95,10 +95,10 @@ struct SparseRowwiseKernel<cutlass::float_e4m3_t> {
           float,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           cutlass::epilogue::TmaWarpSpecializedCooperative,
           EpilogueEVT>::CollectiveOp;
 
@@ -132,9 +132,6 @@ struct SparseRowwiseKernel<cutlass::float_e4m3_t> {
 
 template <>
 struct SparseRowwiseKernel<cutlass::bfloat16_t> {
-  static constexpr auto kElementOutAt = at::ScalarType::BFloat16;
-  static constexpr auto kElementAAt = at::ScalarType::BFloat16;
-
   using ElementA = cutlass::bfloat16_t;
   using ElementB = cutlass::bfloat16_t;
   using ElementOut = cutlass::bfloat16_t;
@@ -175,10 +172,10 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           float,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           cutlass::epilogue::TmaWarpSpecializedCooperative,
           EpilogueEVT>::CollectiveOp;
 
@@ -209,7 +206,6 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
   using ElementE = CollectiveMainloop::ElementE;
 };
 
-template <bool kIsMeta>
 Tensor _sparse24_fp8_sm90_cutlass_gemm(
     const Tensor& tensor_a,
     const Tensor& tensor_e, // metadata for `A`
@@ -221,20 +217,16 @@ Tensor _sparse24_fp8_sm90_cutlass_gemm(
     std::string swizzle_axis,
     int64_t sm_count) {
   std::optional<at::cuda::CUDAGuard> device_guard;
-  if (!kIsMeta) {
-    device_guard.emplace(tensor_a.device());
-  }
+  device_guard.emplace(tensor_a.device());
 
   using K = SparseRowwiseKernel<cutlass::float_e4m3_t>;
 
   // For now, only CC 9.x devices are supported.
-  if (!kIsMeta) {
-    const auto dprops = at::cuda::getCurrentDeviceProperties();
-    TORCH_CHECK(
-        dprops && dprops->major == 9,
-        "_sparse24_gemm_fp8_sm90: Supported only on GPUs with "
-        "compute capability 9.x");
-  }
+  const auto dprops = at::cuda::getCurrentDeviceProperties();
+  TORCH_CHECK(
+      dprops && dprops->major == 9,
+      "_sparse24_gemm_fp8_sm90: Supported only on GPUs with "
+      "compute capability 9.x");
 
   // Validate layouts of input tensors.
   TORCH_CHECK(tensor_a.device() == tensor_b.device());
@@ -340,12 +332,7 @@ Tensor _sparse24_fp8_sm90_cutlass_gemm(
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
-      TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<false>));
+      TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm));
 }
 
-TORCH_LIBRARY_IMPL(torchao, Meta, m) {
-  m.impl(
-      TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
-      TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<true>));
-}
 #endif

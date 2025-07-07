@@ -63,7 +63,7 @@ from torchao.float8 import (
 )
 from torchao.prototype.mx_formats import MXLinearConfig
 from torchao.quantization import quantize_
-from torchao.testing.float8.roofline_utils import (
+from torchao.testing.training.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )

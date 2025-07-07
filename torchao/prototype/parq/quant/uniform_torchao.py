@@ -14,15 +14,15 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
+    _choose_qparams_affine_dont_preserve_zero,
+    _choose_qparams_affine_tinygemm,
+    _dequantize_affine_no_zero_point,
+    _dequantize_affine_tinygemm,
+    _quantize_affine_no_zero_point,
+    _quantize_affine_tinygemm,
     choose_qparams_affine,
-    choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_tinygemm,
     dequantize_affine,
-    dequantize_affine_float_zero_point,
-    dequantize_affine_no_zero_point,
     quantize_affine,
-    quantize_affine_float_zero_point,
-    quantize_affine_no_zero_point,
 )
 
 from .quantizer import Quantizer
@@ -50,8 +50,23 @@ class UnifTorchaoQuantizer(Quantizer):
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.eps = eps
-        self.preserve_zero = preserve_zero
-        self.zero_point_domain = zero_point_domain
+
+        # defaults: zero_point_domain=ZeroPointDomain.INT, preserve_zero=True
+        self._choose_qparams = choose_qparams_affine
+        self._quantize = quantize_affine
+        self._dequantize = dequantize_affine
+
+        if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
+            self._choose_qparams = _choose_qparams_affine_tinygemm
+            self._quantize = _quantize_affine_tinygemm
+            self._dequantize = _dequantize_affine_tinygemm
+        elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
+            self._choose_qparams = _choose_qparams_affine_dont_preserve_zero
+            self._quantize = quantize_affine
+            self._dequantize = dequantize_affine
+        elif zero_point_domain == ZeroPointDomain.NONE:
+            self._quantize = _quantize_affine_no_zero_point
+            self._dequantize = _dequantize_affine_no_zero_point
 
     def _init_quant_min_max(self, b: int) -> None:
         if self.quant_min is None or self.quant_max is None:
@@ -74,24 +89,7 @@ class UnifTorchaoQuantizer(Quantizer):
         # assume that p has already been grouped in QuantOptimizer.step
         block_size = (1, p.size(-1)) if dim is not None else p.size()
 
-        if self.zero_point_domain == ZeroPointDomain.FLOAT and not self.preserve_zero:
-            _choose_qparams_affine = choose_qparams_affine_tinygemm
-            _quantize_affine = quantize_affine_float_zero_point
-            _dequantize_affine = dequantize_affine_float_zero_point
-        elif self.zero_point_domain == ZeroPointDomain.INT and not self.preserve_zero:
-            _choose_qparams_affine = choose_qparams_affine_dont_preserve_zero
-            _quantize_affine = quantize_affine
-            _dequantize_affine = dequantize_affine
-        else:  # Default case: zero_point_domain == ZeroPointDomain.INT/NONE and preserve_zero
-            _choose_qparams_affine = choose_qparams_affine
-            if self.zero_point_domain == ZeroPointDomain.INT:
-                _quantize_affine = quantize_affine
-                _dequantize_affine = dequantize_affine
-            else:
-                _quantize_affine = quantize_affine_no_zero_point
-                _dequantize_affine = dequantize_affine_no_zero_point
-
-        s, zero_point = _choose_qparams_affine(
+        s, zero_point = self._choose_qparams(
             p,
             self.mapping_type,
             block_size,
@@ -101,13 +99,13 @@ class UnifTorchaoQuantizer(Quantizer):
             quant_max=self.quant_max,
         )
         q_args = (block_size, s, zero_point, self.target_dtype)
-        q = _quantize_affine(
+        q = self._quantize(
             p,
             *q_args,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
         )
-        q = _dequantize_affine(
+        q = self._dequantize(
             q,
             *q_args,
             output_dtype=p.dtype,
@@ -124,7 +122,7 @@ class UnifTorchaoQuantizer(Quantizer):
         else:
             block_size = Q.shape
 
-        Q = _dequantize_affine(
+        Q = self._dequantize(
             Q,
             block_size,
             *q_args[1:],
