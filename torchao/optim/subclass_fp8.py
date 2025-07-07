@@ -12,8 +12,8 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
 
 aten = torch.ops.aten
-c10d_functional = torch.ops.c10d_functional
-_c10d_functional = torch.ops._c10d_functional
+# c10d_functional = torch.ops.c10d_functional
+# _c10d_functional = torch.ops._c10d_functional
 
 DTYPE = torch.float8_e4m3fn
 
@@ -134,10 +134,10 @@ def _(func, types, args, kwargs):
 @OptimStateFp8.implements(
     [
         # required by DTensor.full_tensor()
-        c10d_functional.all_gather_into_tensor.default,
-        _c10d_functional.all_gather_into_tensor.default,
-        c10d_functional.wait_tensor.default,
-        _c10d_functional.wait_tensor.default,
+        # c10d_functional.all_gather_into_tensor.default,
+        # _c10d_functional.all_gather_into_tensor.default,
+        # c10d_functional.wait_tensor.default,
+        # _c10d_functional.wait_tensor.default,
         # required by torch.distributed.checkpoint.save
         aten.detach.default,
     ]

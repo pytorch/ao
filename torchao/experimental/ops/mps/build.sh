@@ -7,7 +7,8 @@
 
 cd "$(dirname "$BASH_SOURCE")"
 
-export CMAKE_PREFIX_PATH=$(python -c 'from distutils.sysconfig import get_python_lib; print(get_python_lib())')
+# export CMAKE_PREFIX_PATH=$(python -c 'from distutils.sysconfig import get_python_lib; print(get_python_lib())')
+export CMAKE_PREFIX_PATH="~/Projects/pytorch/torch"
 echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
 export CMAKE_OUT=${PWD}/cmake-out
 echo "CMAKE_OUT: ${CMAKE_OUT}"

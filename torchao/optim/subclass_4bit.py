@@ -23,8 +23,8 @@ from .quant_utils import (
 )
 
 aten = torch.ops.aten
-c10d_functional = torch.ops.c10d_functional
-_c10d_functional = torch.ops._c10d_functional
+# c10d_functional = torch.ops.c10d_functional
+# _c10d_functional = torch.ops._c10d_functional
 
 # https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
 # NOTE: power-1 is linear
@@ -198,10 +198,10 @@ def _(func, types, args, kwargs):
 @OptimState4bit.implements(
     [
         # required by DTensor.full_tensor()
-        c10d_functional.all_gather_into_tensor.default,
-        _c10d_functional.all_gather_into_tensor.default,
-        c10d_functional.wait_tensor.default,
-        _c10d_functional.wait_tensor.default,
+        # c10d_functional.all_gather_into_tensor.default,
+        # _c10d_functional.all_gather_into_tensor.default,
+        # c10d_functional.wait_tensor.default,
+        # _c10d_functional.wait_tensor.default,
         # required by torch.distributed.checkpoint.save
         aten.detach.default,
     ]

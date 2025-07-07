@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-import torch.distributed._functional_collectives as funcol
-from torch.distributed._tensor import DTensor
 
+# import torch.distributed._functional_collectives as funcol
+# from torch.distributed._tensor import DTensor
 from torchao.float8.float8_tensor import Float8Tensor
 
 

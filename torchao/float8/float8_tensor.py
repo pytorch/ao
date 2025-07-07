@@ -7,8 +7,8 @@ import enum
 from typing import Dict, NamedTuple, Optional
 
 import torch
-from torch.distributed._tensor import DTensor
 
+# from torch.distributed._tensor import DTensor
 from torchao.float8.float8_utils import (
     to_fp8_saturated,
 )
