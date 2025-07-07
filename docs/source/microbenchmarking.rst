@@ -142,10 +142,19 @@ Create a minimal configuration for local testing:
 
     python -m benchmarks.microbenchmarks.benchmark_runner --config local_test.yml
 
+3.3 Analysing the Output
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The output generated after running the benchmarking script, is the form of a csv. It'll contain the following:
+ - time for inference for running baseline model and quantized model
+ - speedup in inference time in quantized model
+ - compile or eager mode
+ - if enabled, memory snapshot and gpu chrome trace
+
 4. Add an API to Benchmarking CI Dashboard
 ------------------------------------------
 
-To integrate your API with the continuous integration dashboard:
+To integrate your API with the CI `dashboard <https://hud.pytorch.org/benchmark/llms?repoName=pytorch%2Fao&benchmarkName=micro-benchmark+api>`_:
 
 4.1 Modify Existing CI Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
