@@ -13,11 +13,11 @@ import torch
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+    _choose_qparams_affine_tinygemm,
+    _fake_quantize_affine,
+    _fake_quantize_affine_cachemask,
     choose_qparams_affine,
-    choose_qparams_affine_tinygemm,
     dequantize_affine,
-    fake_quantize_affine,
-    fake_quantize_affine_cachemask,
     quantize_affine,
 )
 
@@ -672,7 +672,7 @@ class TestQuantPrimitives(unittest.TestCase):
                 zero_point_domain=zero_point_domain,
             )
             if zero_point_domain == ZeroPointDomain.FLOAT:
-                scale, zero_point = choose_qparams_affine_tinygemm(
+                scale, zero_point = _choose_qparams_affine_tinygemm(
                     input,
                     mapping_type,
                     block_size,
@@ -780,7 +780,7 @@ class TestQuantPrimitives(unittest.TestCase):
         dequantized = dequantize_affine(
             quantized, block_size, scale, zero_point, dtype, quant_min, quant_max
         )
-        fake_quantized = fake_quantize_affine(
+        fake_quantized = _fake_quantize_affine(
             input, block_size, scale, zero_point, dtype, quant_min, quant_max
         )
         torch.testing.assert_close(dequantized, fake_quantized)
@@ -816,7 +816,7 @@ class TestQuantPrimitives(unittest.TestCase):
         dequantized = dequantize_affine(
             quantized, block_size, scale, zero_point, dtype, quant_min, quant_max
         )
-        (fake_quantized, mask) = fake_quantize_affine_cachemask(
+        (fake_quantized, mask) = _fake_quantize_affine_cachemask(
             input,
             block_size,
             scale,

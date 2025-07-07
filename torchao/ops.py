@@ -64,6 +64,12 @@ lib.define(
 lib.define(
     "qscaled_dot_product(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float? scale=None, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
 )
+lib.define(
+    "da8w4_linear_prepack_cpu(Tensor weight, Tensor scales, Tensor qzeros) -> (Tensor, Tensor, Tensor, Tensor)"
+)
+lib.define(
+    "da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor"
+)
 
 
 def register_custom_op(name):
@@ -843,15 +849,39 @@ def sparse24_sm90_sparsify(
     )
 
 
+@register_custom_op("torchao::sparse24_sm90_sparsify")
+def _(
+    input_tensor: Tensor,
+    metadata_format: str,
+    activation: str,
+    algorithm: str,
+    dtype=None,
+    scale=None,
+):
+    out_dtype = dtype if dtype is not None else input_tensor.dtype
+    return (
+        torch.empty(
+            (input_tensor.shape[0], input_tensor.shape[1] // 2),
+            dtype=out_dtype,
+            device=input_tensor.device,
+        ),
+        torch.empty(
+            (input_tensor.shape[0], input_tensor.shape[1] // 8),
+            dtype=torch.uint8,
+            device=input_tensor.device,
+        ),
+    )
+
+
 def sparse24_fp8_sm90_cutlass_gemm(
     a: Tensor,
     meta: Tensor,
     b: Tensor,
-    a_scale: Optional[Tensor],
-    b_scale: Optional[Tensor],
-    swizzle_size: int,
-    swizzle_axis: str,
-    sm_count: int,
+    a_scale: Optional[Tensor] = None,
+    b_scale: Optional[Tensor] = None,
+    swizzle_size: int = 8,
+    swizzle_axis: str = "n",
+    sm_count: int = 128,
 ) -> Tensor:
     return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         a,
@@ -863,6 +893,20 @@ def sparse24_fp8_sm90_cutlass_gemm(
         swizzle_axis=swizzle_axis,
         sm_count=sm_count,
     )
+
+
+@register_custom_op("torchao::sparse24_fp8_sm90_cutlass_gemm")
+def _(
+    a: Tensor,
+    meta: Tensor,
+    b: Tensor,
+    a_scale: Optional[Tensor] = None,
+    b_scale: Optional[Tensor] = None,
+    swizzle_size: int = 8,
+    swizzle_axis: str = "n",
+    sm_count: int = 128,
+):
+    return torch.empty((a.shape[0], b.shape[1]), dtype=torch.bfloat16, device=a.device)
 
 
 def swizzle_mm(
@@ -984,3 +1028,81 @@ def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Meta impl for mx_fp4_bf16"""
     # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
     return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
+
+
+def da8w4_linear_prepack_cpu(
+    weight: Tensor,
+    scales: Tensor,
+    qzeros: Tensor,
+) -> Tensor:
+    """
+    Prepack weights for DA8W4 linear operator on CPU.
+    Args:
+        weight: weight tensor.
+        scales: scales for weight tensor.
+        qzeros: zero points for weight tensor.
+    Returns:
+        packed weight, scales, and zero points.
+    """
+    return torch.ops.torchao.da8w4_linear_prepack_cpu.default(weight, scales, qzeros)
+
+
+@register_custom_op("torchao::da8w4_linear_prepack_cpu")
+def _(weight: Tensor, scales: Tensor, qzeros: Tensor) -> Tensor:
+    return weight, scales, qzeros, torch.Tensor()
+
+
+def da8w4_linear_cpu(
+    input: Tensor,
+    input_scales: Tensor,
+    input_qzeros: Tensor,
+    weight: Tensor,
+    weight_scales: Tensor,
+    weight_qzeros: Tensor,
+    compensation: Tensor,
+    bias: Optional[Tensor],
+    out_dtype: torch.dtype,
+):
+    """
+    DA8W4 linear operator on CPU.
+    Args:
+        input: input tensor.
+        input_scales: scales for input tensor.
+        input_qzeros: zero points for input tensor.
+        weight: weight tensor.
+        weight_scales: scales for weight tensor.
+        weight_qzeros: zero points for weight tensor.
+        compensation: compensation tensor for weight.
+        bias: optional bias tensor.
+        out_dtype: output data type.
+    Returns:
+        output tensor in out_dtype.
+    """
+    return torch.ops.torchao.da8w4_linear_cpu.default(
+        input,
+        input_scales,
+        input_qzeros,
+        weight,
+        weight_scales,
+        weight_qzeros,
+        compensation,
+        bias,
+        out_dtype,
+    )
+
+
+@register_custom_op("torchao::da8w4_linear_cpu")
+def _(
+    input: Tensor,
+    input_scales: Tensor,
+    input_qzeros: Tensor,
+    weight: Tensor,
+    weight_scales: Tensor,
+    weight_qzeros: Tensor,
+    compensation: Tensor,
+    bias: Optional[Tensor],
+    out_dtype: torch.dtype,
+) -> Tensor:
+    assert weight.dim() == 4
+    N = weight.size(0) * weight.size(3) * 2
+    return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)
