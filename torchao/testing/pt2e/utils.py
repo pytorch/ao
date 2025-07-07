@@ -19,13 +19,17 @@ from torch.testing._internal.common_quantization import (
     NodeSpec,
     QuantizationTestCase,
 )
+from torch.testing._internal.common_utils import TestCase
 
+from torchao.quantization.pt2e import FROM_NODE_KEY
+from torchao.quantization.pt2e._numeric_debugger import _extract_node_source_debug_info
+from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.export import export_for_training
@@ -78,6 +82,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             m,
             example_inputs,
             dynamic_shapes=dynamic_shapes if export_with_dynamic_shape else None,
+            strict=True,
         ).module()
 
         if is_qat:
@@ -132,3 +137,70 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             fx_quant_output = m_fx(*example_inputs)
             self.assertEqual(fx_quant_output, pt2_quant_output)
         return m
+
+
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+class PT2ENumericDebuggerTestCase(TestCase):
+    """
+    Base test case class for PT2E numeric debugger tests containing common utility functions
+    for numeric debugging functionality.
+    """
+
+    def _assert_each_node_has_from_node_source(self, model) -> None:
+        def _assert_node_has_from_node_source(node):
+            if node.op == "placeholder" or node.op == "output":
+                return
+            self.assertIn(
+                FROM_NODE_KEY,
+                node.meta,
+                f"Node {node} doesn't have from_node info",
+            )
+
+        bfs_trace_with_node_process(model, _assert_node_has_from_node_source)
+
+    def _extract_from_node_source(self, model) -> dict[str, any]:
+        from_node_source_map: dict[str, any] = {}
+
+        def _extract_from_node_source_from_node(node):
+            nonlocal from_node_source_map
+            if (root_node_source := _extract_node_source_debug_info(node)) is not None:
+                from_node_source_map[str(node)] = (
+                    root_node_source.name,
+                    root_node_source.graph_id,
+                )
+
+        bfs_trace_with_node_process(model, _extract_from_node_source_from_node)
+
+        return from_node_source_map
+
+    def _extract_from_node_source_with_prev_decomp_op(self, model) -> dict[str, any]:
+        prev_decomp_op_to_from_node_source_map: dict[str, any] = {}
+
+        def _extract_from_node_source_with_prev_decomp_op_from_node(node):
+            nonlocal prev_decomp_op_to_from_node_source_map
+            if FROM_NODE_KEY in node.meta and node.meta[FROM_NODE_KEY] is not None:
+                prev_decomp_op = str(node.meta.get("nn_module_stack"))
+                from_node_source = _extract_node_source_debug_info(node)
+                if prev_decomp_op not in prev_decomp_op_to_from_node_source_map:
+                    prev_decomp_op_to_from_node_source_map[prev_decomp_op] = (
+                        from_node_source
+                    )
+                else:
+                    assert (
+                        prev_decomp_op_to_from_node_source_map[prev_decomp_op]
+                        == from_node_source
+                    ), (
+                        f"Node {node} has different from_node info {from_node_source}"
+                        f"than previous node sharing the same decomp op {prev_decomp_op}"
+                    )
+
+        bfs_trace_with_node_process(
+            model, _extract_from_node_source_with_prev_decomp_op_from_node
+        )
+        return prev_decomp_op_to_from_node_source_map
+
+    def assertNodeSourcesEqual(self, node_source_1, node_source_2):
+        self.assertTrue(
+            node_source_1.name == node_source_2.name
+            and node_source_1.graph_id == node_source_2.graph_id
+        )

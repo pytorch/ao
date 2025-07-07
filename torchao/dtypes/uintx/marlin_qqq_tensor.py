@@ -24,8 +24,8 @@ from torchao.dtypes.uintx.plain_layout import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
-    choose_qparams_and_quantize_affine_qqq,
-    dequantize_affine_qqq,
+    _choose_qparams_and_quantize_affine_qqq,
+    _dequantize_affine_qqq,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,9 +36,9 @@ aten = torch.ops.aten
 class MarlinQQQTensor(AffineQuantizedTensor):
     """MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
 
-    To see what happens during choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,
+    To see what happens during _choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,
     please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
-    and check the two quant primitive ops: choose_qparams_and_quantize_affine_qqq and dequantize_affine_qqq
+    and check the two quant primitive ops: _choose_qparams_and_quantize_affine_qqq and _dequantize_affine_qqq
     """
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -48,7 +48,7 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         int_data, s_group, s_channel = self.tensor_impl.get_plain()
         nbits = int(math.log2(self.quant_max - self.quant_min + 1))
         group_size = max(self.block_size)
-        return dequantize_affine_qqq(
+        return _dequantize_affine_qqq(
             int_data, s_group, s_channel, nbits, group_size, output_dtype
         )
 
@@ -69,7 +69,7 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         input_float = _layout.pre_process(input_float)
         nbits = int(math.log2(quant_max - quant_min + 1))
         group_size = max(block_size)
-        data, s_group, s_channel, _ = choose_qparams_and_quantize_affine_qqq(
+        data, s_group, s_channel, _ = _choose_qparams_and_quantize_affine_qqq(
             input_float, nbits, group_size
         )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))

@@ -467,7 +467,7 @@ class FloatxTensorCoreLayout(Layout):
 class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
     """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
     it has a internal tensor field of "packed_floatx_data", which is packed from the
-    uint8 unpacked data (the output of `quantize_affine_floatx` operator)
+    uint8 unpacked data (the output of `_quantize_affine_floatx` operator)
 
     The packing is optimized for TensorCore, from the fp6-llm paper: https://arxiv.org/abs/2401.14112
     github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm

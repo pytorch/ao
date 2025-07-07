@@ -83,17 +83,12 @@ from .quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
     choose_qparams_affine,
-    choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_floatx,
-    choose_qparams_affine_tinygemm,
     choose_qparams_affine_with_min_max,
-    choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
-    dequantize_affine_floatx,
-    fake_quantize_affine,
-    fake_quantize_affine_cachemask,
     quantize_affine,
-    quantize_affine_floatx,
+)
+from .quantize_ import (
+    Int4GroupwisePreshuffleTensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -157,6 +152,8 @@ __all__ = [
     "AOPerModuleConfig",
     "ModuleFqnToConfig",
     "FbgemmConfig",
+    # tensor subclasses
+    "Int4GroupwisePreshuffleTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -172,17 +169,9 @@ __all__ = [
     "AffineQuantizedObserverBase",
     # quant primitive ops
     "choose_qparams_affine",
-    "choose_qparams_affine_tinygemm",
-    "choose_qparams_affine_dont_preserve_zero",
     "choose_qparams_affine_with_min_max",
-    "choose_qparams_affine_floatx",
     "quantize_affine",
-    "quantize_affine_floatx",
     "dequantize_affine",
-    "dequantize_affine_floatx",
-    "choose_qparams_and_quantize_affine_hqq",
-    "fake_quantize_affine",
-    "fake_quantize_affine_cachemask",
     # operators/kernels
     "safe_int_mm",
     "int_scaled_matmul",

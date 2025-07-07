@@ -4,4 +4,6 @@ sphinx_design
 sphinx_copybutton
 sphinx-tabs
 matplotlib
+myst-parser
+sphinxcontrib-mermaid==1.0.0
 -e git+https://github.com/pytorch/pytorch_sphinx_theme.git#egg=pytorch_sphinx_theme
