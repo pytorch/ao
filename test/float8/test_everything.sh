@@ -12,6 +12,7 @@ IS_ROCM=$(rocm-smi --version || true)
 pytest test/float8/test_base.py
 pytest test/float8/test_compile.py
 pytest test/float8/test_numerics_integration.py
+pytest test/float8/test_auto_filter.py
 
 # These tests do not work on ROCm yet
 if [ -z "$IS_ROCM" ]

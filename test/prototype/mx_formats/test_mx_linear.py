@@ -37,6 +37,7 @@ from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
+    is_sm_at_least_90,
     is_sm_at_least_100,
 )
 
@@ -459,10 +460,29 @@ def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
     "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
 )
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        (128, 64, 256),
+        (256, 128, 512),
+        (145, 64, 256),
+        (128, 96, 256),
+        (128, 160, 256),
+        (64, 64, 256),
+        (200, 192, 256),
+    ],
+    ids=lambda s: f"{s[0]}x{s[1]}x{s[2]}",
+)
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
 def test_inference_subclass_nvfp4(
-    bias: bool, compile: bool, mm_config: NVFP4MMConfig, inpt_dtype: torch.dtype
+    bias: bool,
+    compile: bool,
+    mm_config: NVFP4MMConfig,
+    inpt_dtype: torch.dtype,
+    use_triton_kernel: bool,
+    shapes: tuple,
 ):
     """
     Test NVFP4 recipe with scale_dtype=float8_e4m3fn and block_size=16
@@ -477,16 +497,20 @@ def test_inference_subclass_nvfp4(
 
     if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
         pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
-    m = nn.Linear(64, 256, bias=bias, dtype=inpt_dtype, device="cuda")
+    batch_size, in_features, out_features = shapes
+
+    m = nn.Linear(in_features, out_features, bias=bias, dtype=inpt_dtype, device="cuda")
     m_mx = copy.deepcopy(m)
 
-    config = NVFP4InferenceConfig(mm_config=mm_config)
+    config = NVFP4InferenceConfig(
+        mm_config=mm_config, use_triton_kernel=use_triton_kernel
+    )
     quantize_(m_mx, config=config)
 
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True, backend="aot_eager")
 
-    x = torch.randn(128, 64, device="cuda", dtype=inpt_dtype)
+    x = torch.randn(batch_size, in_features, device="cuda", dtype=inpt_dtype)
     y_ref = m(x)
     y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
@@ -513,14 +537,33 @@ def test_inference_subclass_nvfp4(
 @pytest.mark.parametrize("compile", [False])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        (128, 64, 256),
+        (256, 128, 512),
+        (157, 64, 256),
+        (128, 96, 256),
+        (128, 160, 256),
+        (64, 64, 256),
+        (200, 192, 256),
+    ],
+    ids=lambda s: f"{s[0]}x{s[1]}x{s[2]}",
+)
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
+@pytest.mark.skipif(
+    not is_sm_at_least_90(), reason="CUDA capability >= 9.0 required for fp8e4nv"
+)
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
     mm_config: NVFP4MMConfig,
     compile: bool,
     bias: bool,
     inpt_dtype: torch.dtype,
+    use_triton_kernel: bool,
+    shapes: tuple,
 ):
     from torchao.prototype.mx_formats.nvfp4_tensor import (
         NVFP4Tensor,
@@ -537,7 +580,7 @@ def test_nvfp4_matmul_with_amax(
     if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
         pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
 
-    m, k, n = 64, 256, 128
+    m, k, n = shapes
 
     # Create activation tensor
     if use_gelu:
@@ -558,11 +601,15 @@ def test_nvfp4_matmul_with_amax(
         A,
         per_tensor_scale=a_scale,
         mm_config=mm_config,
+        is_swizzled_scales=True,
+        use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
         mm_config=mm_config,
+        is_swizzled_scales=True,
+        use_triton_kernel=use_triton_kernel,
     )
 
     func = torch.compile(F.linear, fullgraph=True) if compile else F.linear

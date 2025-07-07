@@ -30,6 +30,21 @@ FROM_NODE_KEY = "from_node"
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class NodeSourceDebugInfo:
+    """
+    Contains node source information for locating the node in the original graph.
+    This replaces the numeric debug handle approach with direct node source info.
+    """
+
+    # The name of the node in the graph, e.g. "conv2d"
+    name: str
+
+    # The unique id of the graph that the node belongs to.
+    graph_id: int
+
+
+# This function is no longer used for torchao debug flow, but is kept here for backward compatibility.
 def generate_numeric_debug_handle(ep: ExportedProgram) -> None:
     """
     Attach numeric_debug_handle_id for all nodes in the graph module of the given
@@ -84,53 +99,48 @@ def generate_numeric_debug_handle(ep: ExportedProgram) -> None:
     bfs_trace_with_node_process(ep, _assign_debug_handle)
 
 
-def _get_greatest_ancestor_node_source(node: Node) -> Optional["NodeSource"]:
-    if (node_source := node.meta.get(FROM_NODE_KEY)) is None:
-        return None
-
-    node_source = node_source[-1]
-
-    while len(node_source.from_node) > 0:
-        node_source = node_source.from_node[-1]
-
-    return node_source
-
-
-def _generate_debug_handle_from_node(node: Node) -> Optional[int]:
+def _extract_node_source_debug_info(node: Node) -> Optional[NodeSourceDebugInfo]:
     """
-    Generate a debug handle based on node's oldest ancestor node's name
-    and graph id, or return None if the node does not need to be traced.
+    Extract node source debug info from a node, or return None if the node
+    does not need to be traced.
 
-    This is a temporary function for migrating node tracing infra from
-    using debug handle to node.meta["from_node"]. The infrastructure will
-    depend on node.meta["from_node"] directly in the future, without the need
-    of debug handle as intermediate variable.
+    Returns NodeSourceDebugInfo containing the name and graph_id from the
+    node's greatest ancestor node source, or None if the node is not in
+    the original graph.
     """
+
+    def _get_greatest_ancestor_node_source(node: Node) -> "NodeSource":
+        node_source = node.meta.get(FROM_NODE_KEY)[-1]
+
+        while len(node_source.from_node) > 0:
+            node_source = node_source.from_node[-1]
+
+        return node_source
+
+    def _is_node_in_original_graph(node: Node) -> bool:
+        if (
+            FROM_NODE_KEY not in node.meta
+            or node.meta[FROM_NODE_KEY] is None
+            or node.meta[FROM_NODE_KEY][-1].pass_name
+            == "ExportedProgram.module().unlift()"
+        ):
+            # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
+            return False
+
+        return True
 
     if node.op == "placeholder" or node.op == "output":
-        # placeholder and output nodes don't have debug handle
+        # placeholder and output nodes don't have debug info
         return None
 
-    if (
-        FROM_NODE_KEY not in node.meta
-        or node.meta[FROM_NODE_KEY] is None
-        or node.meta[FROM_NODE_KEY][-1].pass_name == "ExportedProgram.module().unlift()"
-    ):
-        # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
+    if not _is_node_in_original_graph(node):
         return None
 
     greatest_ancestor_node_source = _get_greatest_ancestor_node_source(node)
 
-    if greatest_ancestor_node_source is None:
-        # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
-        return None
-
-    if greatest_ancestor_node_source.pass_name == "ExportedProgram.module().unlift()":
-        # uplifted nodes don't have debug handle
-        return None
-
-    return hash(
-        greatest_ancestor_node_source.name + str(greatest_ancestor_node_source.graph_id)
+    return NodeSourceDebugInfo(
+        name=greatest_ancestor_node_source.name,
+        graph_id=greatest_ancestor_node_source.graph_id,
     )
 
 
@@ -192,14 +202,14 @@ class OutputLogger(torch.nn.Module):
 
     def __init__(
         self,
-        debug_handle: int,
+        debug_info: NodeSourceDebugInfo,
         node_name: Optional[str] = None,
         nn_module_stack: Optional[object] = None,
     ) -> None:
         super().__init__()
         self.node_name = node_name
         self.nn_module_stack = nn_module_stack
-        self.debug_handle = debug_handle
+        self.debug_info = debug_info
         self.stats: list[object] = []
 
     def forward(self, x: object) -> object:
@@ -208,15 +218,17 @@ class OutputLogger(torch.nn.Module):
 
     def __extra_repr__(self) -> str:
         return (
-            f"debug_handle={self.debug_handle}, node_name={self.node_name}, "
+            f"debug_info={self.debug_info}, node_name={self.node_name}, "
             "nn_module_stack={self.nn_module_stack}, num_stats={len(self.stats)})"
         )
 
 
-def _insert_logger(model: GraphModule, node: Node, debug_handle: int) -> Node:
+def _insert_logger(
+    model: GraphModule, node: Node, debug_info: NodeSourceDebugInfo
+) -> Node:
     """For a given node, adds an OutputLogger that observes the output of that node,
     and all its users use the OutputLogger output instead.
-    The OutputLogger will contain the debug_handle which can be used to compare
+    The OutputLogger will contain the debug_info which can be used to compare
     graphs after transforms"""
 
     # to avoid circular dep
@@ -229,7 +241,7 @@ def _insert_logger(model: GraphModule, node: Node, debug_handle: int) -> Node:
         setattr(
             model,
             logger_name,
-            OutputLogger(debug_handle, node.name, node.meta.get("nn_module_stack")),
+            OutputLogger(debug_info, node.name, node.meta.get("nn_module_stack")),
         )
         logger_node = model.graph.call_module(logger_name, (node,), {})
 
@@ -259,8 +271,8 @@ def prepare_for_propagation_comparison(model: GraphModule) -> GraphModule:
     # don't change the original model
     model = copy.deepcopy(model)
     for n in model.graph.nodes:
-        if (numeric_debug_handle := _generate_debug_handle_from_node(n)) is not None:
-            _insert_logger(model, n, numeric_debug_handle)
+        if (debug_info := _extract_node_source_debug_info(n)) is not None:
+            _insert_logger(model, n, debug_info)
 
     model.recompile()
     return model
@@ -310,7 +322,7 @@ class QuantizationComparisonResult:
 
 @dataclass(frozen=True)
 class NodeAccuracySummary:
-    handle: int
+    debug_info: NodeSourceDebugInfo
     actual_node_name: str
     actual_module_stack: str
     ref_node_name: str
@@ -334,21 +346,21 @@ def _module_stack_to_str(module_stack: object) -> str:
 
 def extract_results_from_loggers(
     model: GraphModule,
-) -> dict[int, tuple[Optional[str], object, list[object]]]:
-    """For a given model, extract the tensors stats and related information for each debug handle.
+) -> dict[NodeSourceDebugInfo, tuple[Optional[str], object, list[object]]]:
+    """For a given model, extract the tensors stats and related information for each debug info.
     The reason we have a list of object, instead of Tensor is because the output of node may not be
     a Tensor, it could be (nested) list, tuple or dict as well.
 
     Returns:
-        A dict is keyed by the debug_handle id and the values are a list of object recorded
+        A dict is keyed by the NodeSourceDebugInfo and the values are a list of object recorded
         in loggers
 
     """
-    # Results maps debug handle to a tensor list for each model being compared.
-    handles: dict[int, tuple[Optional[str], object, list[object]]] = {}
-    for _name, module in model.named_children():
+    # Results maps debug info to a tensor list for each model being compared.
+    handles: dict[NodeSourceDebugInfo, tuple[Optional[str], object, list[object]]] = {}
+    for _, module in model.named_children():
         if isinstance(module, OutputLogger) and len(module.stats) > 0:
-            handles[module.debug_handle] = (
+            handles[module.debug_info] = (
                 module.node_name,
                 module.nn_module_stack,
                 module.stats,
@@ -358,29 +370,33 @@ def extract_results_from_loggers(
 
 
 def compare_results(
-    ref_results: dict[int, tuple[Optional[str], object, list[torch.Tensor]]],
-    actual_results: dict[int, tuple[Optional[str], object, list[torch.Tensor]]],
-) -> dict[int, NodeAccuracySummary]:
-    """Given two dict mapping from `debug_handle_id` (int) to list of tensors
-    return a map from `debug_handle_id` to `NodeAccuracySummary` that contains
+    ref_results: dict[
+        NodeSourceDebugInfo, tuple[Optional[str], object, list[torch.Tensor]]
+    ],
+    actual_results: dict[
+        NodeSourceDebugInfo, tuple[Optional[str], object, list[torch.Tensor]]
+    ],
+) -> dict[NodeSourceDebugInfo, NodeAccuracySummary]:
+    """Given two dict mapping from `NodeSourceDebugInfo` to list of tensors
+    return a map from `NodeSourceDebugInfo` to `NodeAccuracySummary` that contains
     comparison information like SQNR, MSE etc.
 
     Args:
-        ref_results (Dict[int, Tuple[str, object, List[torch.Tensor]]]): reference results for each debug_handle_id
-        actual_results (Dict[int, Tuple[str, object, List[torch.Tensor]]]): actual results for each debug_handle_id
+        ref_results (Dict[NodeSourceDebugInfo, Tuple[str, object, List[torch.Tensor]]]): reference results for each debug info
+        actual_results (Dict[NodeSourceDebugInfo, Tuple[str, object, List[torch.Tensor]]]): actual results for each debug info
 
     Returns:
-        Dict[int, NodeAccuracySummary]
+        Dict[NodeSourceDebugInfo, NodeAccuracySummary]
     """
     comparisons = {}
-    for debug_handle, (ref_name, ref_stack, ref_stats) in ref_results.items():
-        if debug_handle not in actual_results:
+    for debug_info, (ref_name, ref_stack, ref_stats) in ref_results.items():
+        if debug_info not in actual_results:
             log.debug(
-                "Cannot compare for handle %s because it wasn't found in the transformed model",
-                debug_handle,
+                "Cannot compare for debug info %s because it wasn't found in the transformed model",
+                debug_info,
             )
             continue
-        actual_name, actual_stack, actual_stats = actual_results[debug_handle]
+        actual_name, actual_stack, actual_stats = actual_results[debug_info]
         try:
             results = [
                 QuantizationComparisonResult(actual=a, ref=b)
@@ -388,13 +404,13 @@ def compare_results(
             ]
         except Exception as e:
             # Add extra information for an exception from QuantizationComparisonResult
-            # if the shapes didn't match, to include the handle and the node names.
+            # if the shapes didn't match, to include the debug info and the node names.
             raise ValueError(
-                f"For numeric_debug_handle={debug_handle} from ref node {ref_name} and actual node {actual_name}"
+                f"For debug_info={debug_info} from ref node {ref_name} and actual node {actual_name}"
             ) from e
 
-        comparisons[debug_handle] = NodeAccuracySummary(
-            handle=debug_handle,
+        comparisons[debug_info] = NodeAccuracySummary(
+            debug_info=debug_info,
             actual_node_name=actual_name or "",
             actual_module_stack=_module_stack_to_str(actual_stack),
             ref_node_name=ref_name or "",

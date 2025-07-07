@@ -13,8 +13,9 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
 from torchao.quantization.quant_api import quantize_
+
+from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
@@ -108,33 +109,3 @@ def test_moe_float8_training(target_fqns: list[str]):
         assert param_grad_sqnr.item() >= 25.0, (
             f"SQNR must be >= 25.0, got {param_grad_sqnr.item()}."
         )
-
-
-def _validate_model_conversion(
-    root_module: nn.Module,
-    target_fqns: list[str],
-):
-    def _recursive_validate(
-        module: nn.Module,
-        cur_fqn: str,
-    ):
-        is_allowed_module = cur_fqn in target_fqns
-
-        # check current module params
-        for param_name, param in module.named_parameters(recurse=False):
-            is_converted_type = isinstance(param, ScaledGroupedMMTensor)
-            if is_converted_type:
-                assert is_allowed_module, (
-                    f"Module {cur_fqn} is not in target_fqns, but has converted param {param_name}."
-                )
-            if not is_allowed_module:
-                assert not is_converted_type, (
-                    f"Module {cur_fqn} is not in target_fqns, but has converted param {param_name}."
-                )
-
-        # recursively check child modules
-        for child_name, child_module in module.named_children():
-            child_fqn = f"{cur_fqn}.{child_name}" if cur_fqn else child_name
-            _recursive_validate(child_module, child_fqn)
-
-    _recursive_validate(root_module, "")
