@@ -141,10 +141,11 @@ class FP8QDQLinear(torch.nn.Module):
         out = torch.nn.functional.linear(dq_input, weight, self.bias)
         return out
 
-def fp8_convert_(model):
 
+def fp8_convert_(model):
     def generate_model_info(model):
         from collections import namedtuple
+
         mod_inst_info = namedtuple("ModInstInfo", ["name", "parent"])
         parent_child_mod_dict = {}
 
@@ -185,12 +186,17 @@ def fp8_convert_(model):
 
 
 def _generate_qdq_quantized_model(
-    mod, inputs, is_qat=False, is_dynamic=False, quantizer=None, is_fp8=False,
+    mod,
+    inputs,
+    is_qat=False,
+    is_dynamic=False,
+    quantizer=None,
+    is_fp8=False,
 ):
     maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
     with maybe_no_grad:
         if is_fp8:
-            assert(not is_qat)
+            assert not is_qat
             fp8_convert_(mod)
             return mod
         else:
@@ -336,7 +342,9 @@ class TestPatternMatcherBase(TestCase):
         with torch.no_grad():
             clone_inputs = self._clone_inputs(inputs)
             if check_quantization:
-                mod = _generate_qdq_quantized_model(mod, inputs, quantizer=quantizer, is_fp8=is_fp8)
+                mod = _generate_qdq_quantized_model(
+                    mod, inputs, quantizer=quantizer, is_fp8=is_fp8
+                )
             expected = mod(*inputs)
             actual, (source_code,) = run_and_get_code(
                 torch.compile(mod, fullgraph=True, dynamic=check_dynamic),
@@ -1430,7 +1438,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         bias=True,
         is_dynamic=False,
         is_qat=False,
-        is_fp8=False
+        is_fp8=False,
     ):
         class M(torch.nn.Module):
             def __init__(self, use_bias, do_permute=False):
@@ -1480,7 +1488,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         for is_fp8 in [True, False]:
             for bias in [True, False]:
-                self._qlinear_test_helper((torch.randn((2, 4)),), bias=bias, is_fp8=is_fp8)
+                self._qlinear_test_helper(
+                    (torch.randn((2, 4)),), bias=bias, is_fp8=is_fp8
+                )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -1536,7 +1546,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         for is_fp8 in [True, False]:
             for bias in [True, False]:
-                self._qlinear_test_helper((torch.randn((2, 3, 4)),), bias=bias, is_fp8=is_fp8)
+                self._qlinear_test_helper(
+                    (torch.randn((2, 3, 4)),), bias=bias, is_fp8=is_fp8
+                )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -1559,8 +1571,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
         * Input dim exceeds 2
         * Input not contiguous
         """
-        for is_fp8 in [True, ]:
-            for bias in [False, ]:
+        for is_fp8 in [
+            True,
+        ]:
+            for bias in [
+                False,
+            ]:
 
                 def matcher_check_fn():
                     self.assertEqual(
@@ -1610,7 +1626,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 )
 
     def _qlinear_unary_test_helper(
-        self, inputs, unary_op=torch.nn.ReLU(), device="cpu", mixed_bf16=False, is_fp8=False
+        self,
+        inputs,
+        unary_op=torch.nn.ReLU(),
+        device="cpu",
+        mixed_bf16=False,
+        is_fp8=False,
     ):
         class M(torch.nn.Module):
             def __init__(self, use_bias):
@@ -1669,7 +1690,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
         This testcase will quantize a Linear->ReLU pattern with mixed_bf16 quantization.
         """
         for is_fp8 in [True, False]:
-            self._qlinear_unary_test_helper((torch.randn((2, 4)),), mixed_bf16=True, is_fp8=is_fp8)
+            self._qlinear_unary_test_helper(
+                (torch.randn((2, 4)),), mixed_bf16=True, is_fp8=is_fp8
+            )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -1688,7 +1711,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize a Linear->ReLU pattern with mixed_bf16 quantization.
         """
-        self._qlinear_unary_test_helper((torch.randn((2, 3, 4)),), mixed_bf16=True, is_fp8=is_fp8)
+        self._qlinear_unary_test_helper(
+            (torch.randn((2, 3, 4)),), mixed_bf16=True, is_fp8=is_fp8
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -1903,7 +1928,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_dynamic=is_dynamic,
         )
 
-
     def _fp8_qlinear_add_test_helper(
         self,
         device="cpu",
@@ -1965,7 +1989,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             lambda x, y: x.add_(y),
             lambda x, y: y.add_(x),
         ]
-        is_fp8=True
+        is_fp8 = True
         shape_list = [(4, 4), (4, 4, 4)]
         cases = itertools.product(add_fn_list, shape_list)
         for add_fn, shape in cases:
@@ -1998,9 +2022,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 # matched patter1 = [qlinear, add, (convert dtype), (relu), quantize_per_tensor]
                 # matched patter2 = [qlinear, add, (convert dtype), (relu)]
                 # If add_fn is x.add_(y), x is bf16 and y is fp32, there is a to_bf16 node after binary
-                expected_matcher_nodes = (
-                    5 + 2 * use_relu
-                )
+                expected_matcher_nodes = 5 + 2 * use_relu
                 self.assertEqual(
                     counters["inductor"]["qlinear_binary_matcher_nodes"],
                     0 if TEST_ACL else expected_matcher_nodes,
@@ -2050,7 +2072,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     num_include_ops=[2, 2],
                     is_fp8=True,
                 )
-
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -2128,7 +2149,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
                   |
                   Y
         """
-        self._qlinear_dequant_promotion_test_helper((torch.randn((2, 4)),), is_fp8=is_fp8)
+        self._qlinear_dequant_promotion_test_helper(
+            (torch.randn((2, 4)),), is_fp8=is_fp8
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -2168,7 +2191,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
                   |
                   Y
         """
-        self._qlinear_dequant_promotion_test_helper((torch.randn((2, 3, 4)),), is_fp8=is_fp8)
+        self._qlinear_dequant_promotion_test_helper(
+            (torch.randn((2, 3, 4)),), is_fp8=is_fp8
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -2208,6 +2233,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                   |
                   Y
         """
+
         def matcher_check_fn():
             # 1. Dequant pattern matcher for dequant promotion * 1
             self.assertEqual(counters["inductor"]["dequant_promotion_matcher_count"], 1)
@@ -2695,7 +2721,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("input_dim_exceeds_two", [True, False])
     @parametrize("check_reuse_input", [True, False])
-    def test_fp8_qlinear(self, has_bias, dtype, input_dim_exceeds_two, check_reuse_input):
+    def test_fp8_qlinear(
+        self, has_bias, dtype, input_dim_exceeds_two, check_reuse_input
+    ):
         class Mod(torch.nn.Module):
             def __init__(self, in_features, out_features, check_reuse_input):
                 super().__init__()
@@ -2721,7 +2749,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
         def matcher_check_fn():
             counter = 2 if check_reuse_input else 1
-            self.assertEqual(counters["inductor"]["qlinear_weight_prepack_matcher_count"], counter)
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], counter
+            )
 
         self._test_common(mod, (v,), matcher_check_fn, check_autocast=dtype)
 

@@ -63,7 +63,13 @@ def _get_pattern_output_dtype(match: Match):
     output_node = pattern_output_nodes[0]
     assert isinstance(output_node, torch.fx.Node)
     output_dtype = output_node.meta["val"].dtype
-    assert output_dtype in [torch.int8, torch.uint8, torch.float32, torch.bfloat16, torch.float8_e4m3fn]
+    assert output_dtype in [
+        torch.int8,
+        torch.uint8,
+        torch.float32,
+        torch.bfloat16,
+        torch.float8_e4m3fn,
+    ]
     return output_dtype
 
 
@@ -328,7 +334,9 @@ def generate_pattern_with_unary(computation_call, unary_post_op):
     return computation_call
 
 
-def generate_pattern_with_output_quant(computation_call, with_dtype_convert=False, is_fp8=False):
+def generate_pattern_with_output_quant(
+    computation_call, with_dtype_convert=False, is_fp8=False
+):
     may_generate_pattern_with_dtype_convert = _may_generate_pattern_with_dtype_convert(
         computation_call,
         Arg(),
@@ -456,7 +464,8 @@ def _is_valid_quantized_op_binary_optimization_pattern(
             if extra_input_from_dequant and (
                 (not isinstance(extra_input_of_binary_node, torch.fx.Node))
                 or (
-                    extra_input_of_binary_node.target not in [
+                    extra_input_of_binary_node.target
+                    not in [
                         quantized_decomposed.dequantize_per_tensor.default,
                         torch.ops.torchao.dequantize_affine_float8.default,
                     ]
@@ -743,12 +752,10 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
             )
             dequant_per_channel = weight_to_bf16_node.args[0]  # type: ignore[union-attr]
 
-        assert (
-            dequant_per_channel.target in [ # type: ignore[union-attr]
-                quantized_decomposed.dequantize_per_channel.default,
-                torch.ops.torchao.dequantize_affine_float8.default,
-            ]
-        )
+        assert dequant_per_channel.target in [  # type: ignore[union-attr]
+            quantized_decomposed.dequantize_per_channel.default,
+            torch.ops.torchao.dequantize_affine_float8.default,
+        ]
 
         # Activation QParams
         qx, x_zp, x_scale = (
@@ -1074,12 +1081,10 @@ def _register_qlinear_weight_prepack_pass(
         else:
             weight_to_bf16_node = t_node.args[0]
             dequant = weight_to_bf16_node.args[0]
-        assert (
-            dequant.target in [
-                quantized_decomposed.dequantize_per_channel.default,
-                torch.ops.torchao.dequantize_affine_float8.default,
-            ]
-        )
+        assert dequant.target in [
+            quantized_decomposed.dequantize_per_channel.default,
+            torch.ops.torchao.dequantize_affine_float8.default,
+        ]
 
         # Activation QParams
         qx, x_scale = (
@@ -1200,7 +1205,9 @@ def _generate_dequant_linear_node_pattern(
             KeywordArg("b"),
             _may_generate_pattern_with_reshape(
                 _may_generate_pattern_with_dtype_convert(
-                    get_dequantize_per_tensor_activation_pattern(is_tensor_overload, is_fp8),
+                    get_dequantize_per_tensor_activation_pattern(
+                        is_tensor_overload, is_fp8
+                    ),
                     KeywordArg("autocast_act_dtype"),
                     dtype == torch.bfloat16,
                 ),
@@ -1217,7 +1224,9 @@ def _generate_dequant_linear_node_pattern(
             aten.mm.default,
             _may_generate_pattern_with_reshape(
                 _may_generate_pattern_with_dtype_convert(
-                    get_dequantize_per_tensor_activation_pattern(is_tensor_overload, is_fp8),
+                    get_dequantize_per_tensor_activation_pattern(
+                        is_tensor_overload, is_fp8
+                    ),
                     KeywordArg("autocast_act_dtype"),
                     dtype == torch.bfloat16,
                 ),
@@ -1248,7 +1257,9 @@ def _generate_dequant_bmm_node_pattern(
         CallFunction(
             aten.expand.default,
             _may_generate_pattern_with_dtype_convert(
-                get_dequantize_per_tensor_activation_pattern(is_tensor_overload, is_fp8),
+                get_dequantize_per_tensor_activation_pattern(
+                    is_tensor_overload, is_fp8
+                ),
                 KeywordArg("autocast_act_dtype"),
                 dtype == torch.bfloat16,
             ),
@@ -1479,7 +1490,12 @@ def _register_qlinear_weight_prepack():
     )
 
     # Step 1: register patterns from mm and addmm
-    for dtype, input_dim_exceeds_two, is_tensor_overload, is_fp8 in linear_weight_prepack_cases:
+    for (
+        dtype,
+        input_dim_exceeds_two,
+        is_tensor_overload,
+        is_fp8,
+    ) in linear_weight_prepack_cases:
         if is_fp8 and not is_tensor_overload:
             continue
         weight_prepack_patterns = _generate_qlinear_weight_prepack_patterns(
@@ -2549,9 +2565,9 @@ def _register_qlinear_unary_fusion():
 
                 # Priority 2 to match: QLinear Unary pattern with FP32/BF16 output
                 linear_unary_replace_float_out_patterns = {
-                    PostOpAttr("none", None, "relu", [], ""): generate_pattern_with_unary(
-                        qlinear_pattern, aten.relu.default
-                    ),
+                    PostOpAttr(
+                        "none", None, "relu", [], ""
+                    ): generate_pattern_with_unary(qlinear_pattern, aten.relu.default),
                     PostOpAttr(
                         "none", None, "gelu", [], "none"
                     ): _may_generate_pattern_with_dtype_convert(
@@ -2582,7 +2598,10 @@ def _register_qlinear_unary_fusion():
                     ),
                 }
 
-                for unary_attr, patterns in linear_unary_replace_float_out_patterns.items():
+                for (
+                    unary_attr,
+                    patterns,
+                ) in linear_unary_replace_float_out_patterns.items():
                     _register_qlinear_post_op_fusion_pass(
                         patterns,
                         4,  # pass_number
@@ -2663,7 +2682,13 @@ def _register_qlinear_binary_fusion():
             is_fp8_list,
         )
         qlinear_binary_replace_patterns = {}
-        for unary_op, int8_mixed_bf16, swap_inputs, cvt_dtype_binary, is_fp8 in combinations:
+        for (
+            unary_op,
+            int8_mixed_bf16,
+            swap_inputs,
+            cvt_dtype_binary,
+            is_fp8,
+        ) in combinations:
             if not int8_mixed_bf16 and cvt_dtype_binary:
                 # No convert node after binary node if dtypes are all fp32
                 continue
