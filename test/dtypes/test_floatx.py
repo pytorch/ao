@@ -91,13 +91,13 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     def test_to_copy_device(self, ebits, mbits):
         from torchao.quantization.quant_primitives import (
-            choose_qparams_affine_floatx,
-            quantize_affine_floatx,
+            _choose_qparams_affine_floatx,
+            _quantize_affine_floatx,
         )
 
         x = torch.randn(256, 64)
-        scale = choose_qparams_affine_floatx(x, ebits, mbits)
-        x = quantize_affine_floatx(x, scale, ebits, mbits)
+        scale = _choose_qparams_affine_floatx(x, ebits, mbits)
+        x = _quantize_affine_floatx(x, scale, ebits, mbits)
         _layout = FloatxTensorCoreLayout(ebits, mbits)
         floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(
             x, scale, None, _layout

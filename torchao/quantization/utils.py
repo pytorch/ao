@@ -15,15 +15,15 @@ from torchao.kernel import (
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+    _choose_qparams_affine_dont_preserve_zero,
+    _choose_qparams_affine_tinygemm,
+    _dequantize_affine_no_zero_point,
+    _dequantize_affine_tinygemm,
+    _quantize_affine_no_zero_point,
+    _quantize_affine_tinygemm,
     choose_qparams_affine,
-    choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_tinygemm,
     dequantize_affine,
-    dequantize_affine_float_zero_point,
-    dequantize_affine_no_zero_point,
     quantize_affine,
-    quantize_affine_float_zero_point,
-    quantize_affine_no_zero_point,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -357,7 +357,7 @@ def get_groupwise_affine_qparams(
     )
 
     if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-        scale, zero_point = choose_qparams_affine_tinygemm(
+        scale, zero_point = _choose_qparams_affine_tinygemm(
             w,
             mapping_type,
             block_size,
@@ -369,7 +369,7 @@ def get_groupwise_affine_qparams(
             zero_point_dtype=zero_point_dtype,
         )
     elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
-        scale, zero_point = choose_qparams_affine_dont_preserve_zero(
+        scale, zero_point = _choose_qparams_affine_dont_preserve_zero(
             w,
             mapping_type,
             block_size,
@@ -439,9 +439,9 @@ def groupwise_affine_quantize_tensor_from_qparams(
     if zero_point_domain == ZeroPointDomain.INT:
         _quantize_affine = quantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _quantize_affine = quantize_affine_float_zero_point
+        _quantize_affine = _quantize_affine_tinygemm
     elif ZeroPointDomain == ZeroPointDomain.NONE:
-        _quantize_affine = quantize_affine_no_zero_point
+        _quantize_affine = _quantize_affine_no_zero_point
     else:
         raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
 
@@ -508,9 +508,9 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     if zero_point_domain == ZeroPointDomain.INT:
         _dequantize_affine = dequantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        _dequantize_affine = dequantize_affine_float_zero_point
+        _dequantize_affine = _dequantize_affine_tinygemm
     else:
-        _dequantize_affine = dequantize_affine_no_zero_point
+        _dequantize_affine = _dequantize_affine_no_zero_point
     return _dequantize_affine(
         w_int32,
         block_size,

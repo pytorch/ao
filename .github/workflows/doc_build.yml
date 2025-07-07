@@ -12,7 +12,6 @@ on:
   pull_request:
     paths:
       - 'docs/**'
-      - '!docs/**'
   workflow_dispatch:
 
 concurrency:

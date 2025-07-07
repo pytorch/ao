@@ -226,11 +226,10 @@ def _to_marlin_weights(
 
     # Pack
     pack_factor = utils.get_pack_factor(num_bits)
-    orig_device = q_w.device
 
     # Original implementation uses numpy + uint32 but we need to use int64 because torch.uint32
     # does not support rshift_cpu.
-    q_w = q_w.cpu().to(torch.int64)
+    q_w = q_w.to(torch.int64)
     q_packed = torch.zeros(
         (q_w.shape[0], q_w.shape[1] // pack_factor),
         dtype=torch.int64,
@@ -239,7 +238,7 @@ def _to_marlin_weights(
     for i in range(pack_factor):
         q_packed |= q_w[:, i::pack_factor] << (num_bits * i)
 
-    q_packed = q_packed.to(orig_device, dtype=torch.int32)
+    q_packed = q_packed.to(dtype=torch.int32)
     return q_packed
 
 
@@ -259,12 +258,11 @@ def _from_marlin_weights(
     perm_24, _, _ = utils.get_reverse_perms_24(num_bits)
 
     pack_factor = utils.get_pack_factor(num_bits)
-    orig_device = q_packed.device
 
     # Unpack from marlin format.
     # Original implementation uses numpy + uint32 but we need to use int64 because torch.uint32
     # does not support rshift_cpu.
-    q_packed = q_packed.cpu().to(torch.int64)
+    q_packed = q_packed.to(torch.int64)
     q_w_unpacked = torch.zeros(
         (q_packed.shape[0], q_packed.shape[1] * pack_factor),
         dtype=torch.int64,
@@ -275,7 +273,7 @@ def _from_marlin_weights(
             (1 << num_bits) - 1
         )
 
-    q_w_unpacked = q_w_unpacked.to(orig_device, dtype=torch.int32)
+    q_w_unpacked = q_w_unpacked.to(dtype=torch.int32)
 
     q_w_comp = utils.reverse_marlin_permute_weights(
         q_w_unpacked, size_k, size_n, perm_24
