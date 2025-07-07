@@ -21,10 +21,9 @@ try:
         getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
 except AttributeError:
     try:
-        libname = "libtorchao_ops_mps_aten.dylib"
-        libpath = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
-        )
+        libname = "torchao_ops_mps_aten"
+        libdir = os.path.join(os.path.dirname(__file__), "../cmake-out/lib")
+        libpath = os.path.abspath(os.path.join(libdir, f"lib{libname}.dylib"))
         torch.ops.load_library(libpath)
     except:
         raise RuntimeError(f"Failed to load library {libpath}")
@@ -35,6 +34,8 @@ except AttributeError:
                 getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
         except AttributeError as e:
             raise e
+
+from torchao.experimental.ops.mps.cshim import torchao_op_c_shim
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
@@ -85,6 +86,48 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
                     str(node.target)
                     == f"torchao._linear_fp_act_{nbit}bit_weight.default"
                 )
+
+    @parameterized.expand(BITWIDTHS)
+    def test_export_accuracy(self, nbit):
+        group_size = 32
+        m = 3
+        n = 12
+        k = 64
+        with torch.no_grad():
+            activations = torch.rand(m, k, dtype=torch.float32, device="mps")
+            model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
+
+            # Compute expected result
+            weight_cpu = model[0].weight.data
+            weight_qvals_cpu, weight_scales_cpu, weight_zeros_cpu = _quantize(
+                weight_cpu, group_size, nbit, True, torch.uint8
+            )
+            weight_zeros_cpu = -weight_zeros_cpu * weight_scales_cpu
+            expected = self._reference_linear_lowbit_quant_weights(
+                activations.cpu(),
+                weight_qvals_cpu,
+                group_size,
+                weight_scales_cpu,
+                weight_zeros_cpu,
+            )
+
+            quantized_model = self._quantize_model(
+                model, torch.float32, nbit, group_size
+            )
+
+            ep = torch.export.export(quantized_model, (activations,), strict=True)
+            path = torch._inductor.aoti_compile_and_package(
+                ep,
+                inductor_configs={
+                    "aot_inductor.custom_ops_to_c_shims": torchao_op_c_shim,
+                    "aot_inductor.custom_op_libs": [libname],
+                },
+            )
+            compiled_model = torch._inductor.aoti_load_package(path)
+            result = compiled_model(activations)
+
+            # Compare results
+            torch.testing.assert_close(result.cpu(), expected, rtol=0.001, atol=0.001)
 
     @parameterized.expand(BITWIDTHS)
     def test_2d_output_device_and_shape(self, nbit):
