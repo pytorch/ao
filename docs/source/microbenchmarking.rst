@@ -3,10 +3,10 @@ Microbenchmarking Tutorial
 
 This tutorial will guide you through using the TorchAO microbenchmarking framework. The tutorial contains different use cases for benchmarking your API and integrating with the dashboard.
 
-1. Add an API to benchmarking recipes
-2. Add a model to benchmarking recipes
-3. Benchmark your API locally
-4. Add an API to benchmarking CI dashboard
+1. :ref:`Add an API to benchmarking recipes`
+2. :ref:`Add a model to benchmarking recipes`
+3. :ref:`Benchmark your API locally`
+4. :ref:`Add an API to benchmarking CI dashboard`
 
 1. Add an API to Benchmarking Recipes
 --------------------------------------
