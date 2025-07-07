@@ -82,6 +82,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     _is_fbgemm_genai_gpu_available,
+    check_cpu_version,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -1545,6 +1546,22 @@ def _input_activation_quant_func_fp8(
     return activation
 
 
+def _input_activation_quant_cpu_fp8(
+    x: torch.Tensor,
+    activation_granularity: FP8Granularity,
+    activation_dtype: torch.dtype,
+):
+    """Dynamic quantize activation to fp8 for CPU."""
+    block_size = get_block_size(x.shape, activation_granularity)
+    return to_affine_quantized_floatx(
+        input_float=x,
+        block_size=block_size,
+        target_dtype=activation_dtype,
+        scale_dtype=torch.float32,
+        _layout=PlainLayout(),
+    )
+
+
 def _fp8_mm_compat(weight: torch.Tensor) -> bool:
     """
     Check if a weight tensor meets float8 quantization requirements.
@@ -1595,10 +1612,13 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
+    layout: Optional[Layout] = None
 
     def __post_init__(self):
-        if self.mm_config is None:
-            self.mm_config = Float8MMConfig(use_fast_accum=True)
+        if self.layout is None:
+            if self.mm_config is None:
+                self.mm_config = Float8MMConfig(use_fast_accum=True)
+            self.layout = Float8Layout(self.mm_config)
 
         activation_granularity, weight_granularity = _normalize_granularity(
             self.granularity
@@ -1614,17 +1634,23 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
     granularity = config.granularity
-    mm_config = config.mm_config
 
     # Ensure works on device
-    _check_hardware_support(granularity)
     activation_granularity, weight_granularity = granularity
+    is_cpu = weight.device.type == "cpu"
+    if is_cpu:
+        assert not (
+            isinstance(activation_granularity, PerTensor)
+            or isinstance(weight_granularity, PerTensor)
+        ), "PerTensor quantization is not supported for CPU float8 quantization"
+    else:
+        _check_hardware_support(granularity)
 
-    if not _fp8_mm_compat(weight):
+    if not is_cpu and not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight
-    if isinstance(weight_granularity, PerRow):
+    if not is_cpu and isinstance(weight_granularity, PerRow):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
@@ -1637,10 +1663,14 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         block_size=block_size,
         target_dtype=weight_dtype,
         scale_dtype=torch.float32,
-        _layout=Float8Layout(mm_config=mm_config),
+        _layout=config.layout,
     )
 
-    input_quant_func = _input_activation_quant_func_fp8
+    input_quant_func = (
+        _input_activation_quant_func_fp8
+        if isinstance(config.layout, Float8Layout)
+        else _input_activation_quant_cpu_fp8
+    )
     input_quant_kwargs = {
         "activation_granularity": activation_granularity,
         "activation_dtype": activation_dtype,
@@ -1656,16 +1686,21 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
     assert hasattr(module, "weight"), (
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
     )
+
+    assert (
+        check_cpu_version(module.weight.device, "2.6.0")
+        or is_sm_at_least_89()
+        or is_MI300()
+    ), (
+        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+ or on CPU with PyTorch >= 2.6.0"
+    )
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
         module.weight, config
     )

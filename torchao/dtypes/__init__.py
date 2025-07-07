@@ -12,6 +12,7 @@ from .fbgemm_fp8_tensor import FbgemmFp8Tensor, to_fbgemm_fp8
 from .fbgemm_int4_tensor import FbgemmInt4Tensor, to_fbgemm_int4
 from .floatx import (
     CutlassSemiSparseLayout,
+    Float8DynamicActFloat8WeightCPULayout,
     Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
@@ -70,4 +71,5 @@ __all__ = [
     "FbgemmFp8Tensor",
     "Int8DynamicActInt4WeightCPULayout",
     "Int4GroupwisePreshuffleTensor",
+    "Float8DynamicActFloat8WeightCPULayout",
 ]
