@@ -24,6 +24,9 @@ from torchao.quantization.pt2e.utils import (
     remove_tensor_overload_for_qdq_ops,
 )
 
+from torchao.quantization.quant_primitives import _DTYPE_TO_QVALUE_BOUNDS, MappingType
+from torchao.quantization.utils import _get_per_token_block_size
+
 try:
     from torch._export.utils import _disable_aten_to_metadata_assertions
 except:
@@ -32,6 +35,8 @@ except:
 
 __all__ = [
     "reference_representation_rewrite",
+    "_qdq_dynamic_quantized_linear_4bit_groupwise",
+    "_reference_dynamic_quantized_linear_4bit_groupwise",
 ]
 
 
@@ -200,6 +205,185 @@ def _reference_dynamic_quantized_linear(
     bias_i32 = out_dtype(torch.ops.aten.div.Tensor, torch.int32, bias_fp32, bias_scale)
     acc_i32 = acc_i32 + bias_i32
     out_fp32 = acc_i32 * (x_scale * weight_scale)
+    return out_fp32
+
+
+def _qdq_dynamic_quantized_linear_4bit_groupwise(
+    x_fp32,
+    x_quant_min,
+    x_quant_max,
+    x_eps,
+    x_scales_type,
+    x_zero_points_type,
+    weight_i4,
+    weight_scale,
+    weight_zero_point,
+    weight_quant_min,
+    weight_quant_max,
+    bias_fp32,
+    group_size,
+):
+    # Dynamic quantization of activation
+    x_mapping_type = MappingType.ASYMMETRIC
+    per_token_block_size = _get_per_token_block_size(x_fp32)
+    x_scale, x_zero_point = torch.ops.torchao.choose_qparams_affine(
+        x_fp32,
+        x_mapping_type.name,
+        per_token_block_size,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+        x_eps,
+        x_scales_type,
+        x_zero_points_type,
+    )
+    x_i8 = torch.ops.torchao.quantize_affine(
+        x_fp32,
+        per_token_block_size,
+        x_scale,
+        x_zero_point,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+    )
+    x_fp32 = torch.ops.torchao.dequantize_affine(
+        x_i8,
+        per_token_block_size,
+        x_scale,
+        x_zero_point,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+        torch.float32,
+    )
+
+    assert group_size > 0, "Group size must be positive"
+    assert (
+        weight_i4.shape[1] % group_size == 0
+    ), "Weight must be divisible by group_size"
+    assert weight_i4.dim() == 2, "Weight must be 2D tensor"
+    block_size = (1, group_size)
+    weight_fp32 = torch.ops.torchao.dequantize_affine(
+        weight_i4,
+        block_size,
+        weight_scale,
+        weight_zero_point,
+        torch.int8,
+        weight_quant_min,
+        weight_quant_max,
+        torch.float32,
+    )
+
+    out_fp32 = torch.ops.aten.linear.default(x_fp32, weight_fp32, bias_fp32)
+    return out_fp32
+
+
+def _reference_dynamic_quantized_linear_4bit_groupwise(
+    x_fp32,
+    x_quant_min,
+    x_quant_max,
+    x_eps,
+    x_scales_type,
+    x_zero_points_type,
+    weight_i4,
+    weight_scale,
+    weight_zero_point,  # Not used because assuming weight is symmetric
+    weight_quant_min,
+    weight_quant_max,
+    bias_fp32,
+    group_size,
+):
+    # Dynamic quantization of activation
+    x_mapping_type = MappingType.ASYMMETRIC
+    per_token_block_size = _get_per_token_block_size(x_fp32)
+    x_scale, x_zero_point = torch.ops.torchao.choose_qparams_affine(
+        x_fp32,
+        x_mapping_type.name,
+        per_token_block_size,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+        x_eps,
+        x_scales_type,
+        x_zero_points_type,
+    )
+    x_i8 = torch.ops.torchao.quantize_affine(
+        x_fp32,
+        per_token_block_size,
+        x_scale,
+        x_zero_point,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+    )
+
+    # For groupwise quantization, we need to handle the computation differently
+    # weight_i4 shape: [out_features, in_features]
+    # weight_scale shape: [out_features, in_features // group_size]
+    # weight_zero_point shape: [out_features, in_features // group_size]
+    out_features, in_features = weight_i4.shape
+    num_groups = in_features // group_size
+
+    # scales in xnnpack are stored as bf16 and converted to fp32 for computation
+    weight_scale = weight_scale.to(torch.bfloat16).to(torch.float32)
+
+    assert x_i8.dim() == 2, "x_i8 must be 2D tensor"
+    # Reshape for group-wise processing
+    # x: [batch_size, in_features] -> [batch_size, num_groups, group_size]
+    batch_size = x_i8.shape[0]
+    x_i8_grouped = x_i8.view(batch_size, num_groups, group_size)
+
+    # weight: [out_features, in_features] -> [out_features, num_groups, group_size]
+    weight_i4_grouped = weight_i4.view(out_features, num_groups, group_size)
+
+    # Convert to int16 for computation
+    x_i32_grouped = x_i8_grouped.to(torch.int32)
+    weight_i32_grouped = weight_i4_grouped.to(torch.int32)
+
+    # Perform groupwise integer linear operation
+    acc_fp32 = torch.zeros(
+        batch_size, out_features, dtype=torch.float32, device=x_fp32.device
+    )
+
+    for group_idx in range(num_groups):
+        # Extract current group
+        x_group = x_i32_grouped[:, group_idx, :]  # [batch_size, group_size]
+        weight_group = weight_i32_grouped[:, group_idx, :]  # [out_features, group_size]
+        weight_group_col_sum = weight_group.sum(dim=-1)  # [out_features]
+
+        # Get scale for this group
+        weight_scale_group = weight_scale[:, group_idx]  # [out_features]
+
+        # Integer matmul: [batch_size, group_size] @ [group_size, out_features] -> [batch_size, out_features]
+        group_acc = out_dtype(
+            torch.ops.aten.linear.default,
+            torch.int32,
+            x_group,
+            weight_group,
+            None,
+        )
+
+        # Output has to be scaled by x_scale * weight_scale_group
+        # However we will first scale by weight_scale_group, that is accounting
+        # only for scale of weight, and then scale by x_scale at the end because
+        # x_scale applies to all groups
+        acc_fp32 = acc_fp32 + group_acc.to(torch.float32) * weight_scale_group.view(
+            1, -1
+        )
+
+        # we must also subtract x_zero_point * weight_group_sum
+        # since (X - x_zero_point) * W = X * W - x_zero_point * W
+        weights_col_sum_adjusted = (
+            weight_group_col_sum.to(torch.float32).view(1, -1)
+            * x_zero_point.view(-1, 1)
+            * weight_scale_group.view(1, -1)
+        )
+        acc_fp32 = acc_fp32 - weights_col_sum_adjusted
+    x_scale_multiplier = x_scale.view(-1, 1)
+    out_fp32 = acc_fp32 * x_scale_multiplier
+    if bias_fp32 is not None:
+        out_fp32 = out_fp32 + bias_fp32
+
     return out_fp32
 
 
@@ -738,6 +922,22 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
         127,
     )
 
+    _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS = (
+        torch.randn((2, 32), dtype=torch.float),  # x_fp32
+        -128,  # x_quant_min
+        127,  # x_quant_max
+        torch.finfo(torch.float32).eps,  # x_eps
+        torch.randint(-8, 7, (8, 32), dtype=torch.int8),  # weight_i4 (stored as int8)
+        torch.randn(8, 4, dtype=torch.float),  # weight_scale [out_features, num_groups]
+        torch.zeros(
+            8, 4, dtype=torch.int
+        ),  # weight_zero_point [out_features, num_groups]
+        torch.tensor([-8], dtype=torch.int),  # weight_quant_min (4-bit range)
+        torch.tensor([7], dtype=torch.int),  # weight_quant_max (4-bit range)
+        torch.randn(8, dtype=torch.float),  # bias_fp32
+        8,  # group_size
+    )
+
     _REWRITE_INFO_LIST = [
         _RewriteInfo(
             _DYNAMIC_QUANTIZED_LINEAR_EXAMPLE_INPUTS,
@@ -750,6 +950,33 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
             partial(
                 _replace_literals_with_existing_placeholders,
                 literal_to_ph_idx={-128: 1, 127: 2, torch.finfo(torch.float32).eps: 3},
+            ),
+        ),
+        _RewriteInfo(
+            _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS,
+            WrapperModule(_qdq_dynamic_quantized_linear_4bit_groupwise),
+            WrapperModule(_reference_dynamic_quantized_linear_4bit_groupwise),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    -128: 1,
+                    127: 2,
+                    torch.finfo(torch.float32).eps: 3,
+                    -8: 7,
+                    7: 8,
+                    8: 10,
+                },
+            ),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    -128: 1,
+                    127: 2,
+                    torch.finfo(torch.float32).eps: 3,
+                    -8: 7,
+                    7: 8,
+                    8: 10,
+                },
             ),
         ),
         _RewriteInfo(
