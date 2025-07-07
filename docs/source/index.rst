@@ -21,6 +21,7 @@ for an overall introduction to the library and recent highlight and updates.
    quantization
    sparsity
    contributor_guide
+   microbenchmarking
 
 .. toctree::
    :glob:
