@@ -69,4 +69,5 @@ __all__ = [
     "to_fbgemm_fp8",
     "FbgemmFp8Tensor",
     "Int8DynamicActInt4WeightCPULayout",
+    "Int4GroupwisePreshuffleTensor",
 ]
