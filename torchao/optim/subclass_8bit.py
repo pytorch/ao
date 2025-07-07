@@ -23,8 +23,8 @@ from .quant_utils import (
 )
 
 aten = torch.ops.aten
-c10d_functional = torch.ops.c10d_functional
-_c10d_functional = torch.ops._c10d_functional
+# c10d_functional = torch.ops.c10d_functional
+# _c10d_functional = torch.ops._c10d_functional
 
 # Lazy initialization to avoid meta device issues during import
 from functools import lru_cache
@@ -171,10 +171,10 @@ def _(func, types, args, kwargs):
 @OptimState8bit.implements(
     [
         # required by DTensor.full_tensor()
-        c10d_functional.all_gather_into_tensor.default,
-        _c10d_functional.all_gather_into_tensor.default,
-        c10d_functional.wait_tensor.default,
-        _c10d_functional.wait_tensor.default,
+        # c10d_functional.all_gather_into_tensor.default,
+        # _c10d_functional.all_gather_into_tensor.default,
+        # c10d_functional.wait_tensor.default,
+        # _c10d_functional.wait_tensor.default,
         # required by torch.distributed.checkpoint.save
         aten.detach.default,
     ]

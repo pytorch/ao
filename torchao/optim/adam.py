@@ -7,7 +7,8 @@ from typing import Optional
 
 import torch
 from torch import Tensor
-from torch.distributed._tensor import DTensor
+
+# from torch.distributed._tensor import DTensor
 from torch.optim import Optimizer
 
 from .quant_utils import _fp32_to_bf16_sr
