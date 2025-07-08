@@ -15,7 +15,6 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
-import importlib.util
 import logging
 import types
 import warnings
@@ -35,6 +34,7 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
@@ -67,6 +67,9 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
+from torchao.quantization.quantize_ import (
+    Int4GroupwisePreshuffleTensor,
+)
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
@@ -78,6 +81,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    _is_fbgemm_genai_gpu_available,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -659,6 +663,38 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
         )
 
 
+def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.uint8
+    scale_dtype = torch.float32
+    eps = torch.finfo(torch.float32).eps
+    zero_point_dtype = torch.int32
+    quant_min = 0
+    quant_max = 255
+    if TORCH_VERSION_AT_LEAST_2_6:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    else:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+    return out
+
+
 def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
@@ -730,7 +766,10 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
-        input_quant_func = _int8_asymm_per_token_quant
+        if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+            input_quant_func = _uint8_asymm_per_token_quant
+        else:
+            input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant
@@ -747,6 +786,16 @@ def _int8_dynamic_activation_int4_weight_transform(
         )
     elif isinstance(layout, CutlassInt4PackedLayout):
         weight = _int4_symm_cutlass_quant(weight)
+    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype=torch.uint8,
+            quant_min=0,
+            quant_max=15,
+            _layout=layout,
+        )
     else:
         weight = to_affine_quantized_intx(
             weight,
@@ -1998,19 +2047,12 @@ class FbgemmConfig(AOBaseConfig):
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
     activation_scale_ub: Optional[float] = None
-    transpose_input: bool = False
+    preshuffle: bool = False
 
 
 @register_quantize_module_handler(FbgemmConfig)
 def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
-    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
-    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if importlib.util.find_spec("fbgemm_gpu") is None:
-        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
-
-    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
-    if fbgemm_gpu.__version__ < "1.2.0":
+    if not _is_fbgemm_genai_gpu_available():
         raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
     _SUPPORTED_DTYPES = {
@@ -2023,11 +2065,15 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         and (config.weight_dtype == torch.int4)
         and (config.output_dtype == torch.bfloat16)
     ):
-        weight = to_fbgemm_int4(
-            module.weight,
-            config.block_size,
-            config.transpose_input,
-        )
+        if config.preshuffle:
+            weight = Int4GroupwisePreshuffleTensor.from_float(
+                module.weight, config.block_size
+            )
+        else:
+            weight = to_fbgemm_int4(
+                module.weight,
+                config.block_size,
+            )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
         return module
@@ -2039,7 +2085,6 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         weight = to_fbgemm_fp8(
             module.weight,
             config.activation_scale_ub,
-            config.transpose_input,
         )
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)

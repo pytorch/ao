@@ -32,7 +32,7 @@ from torchao.float8.float8_tensor_parallel import (
     Float8ColwiseParallel,
     Float8RowwiseParallel,
 )
-from torchao.testing.float8.dtensor_utils import ToyModel
+from torchao.testing.training.dtensor_utils import ToyModel
 
 
 def setup_distributed():
@@ -46,6 +46,8 @@ def setup_distributed():
     )
     # seed must be the same in all processes
     torch.manual_seed(1)
+    local_rank = torch.distributed.get_rank()
+    torch.cuda.set_device(local_rank)
     return device_mesh
 
 

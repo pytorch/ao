@@ -71,6 +71,7 @@ Currently, quantization string is in same format as the one being passed in llam
 - `int8wo`: 8-bit weight-only quantization
 - `int4wo-{group_size}`: 4-bit weight-only quantization with specified group size
 - `int4wo-{group_size}-hqq`: 4-bit weight-only quantization with HQQ
+- `gemlitewo-{bit_width}-{group_size}`: 4 or 8 bit integer quantization and utilizes the gemlite triton kernel
 
 ### Model Types
 - `linear`: Simple linear layer

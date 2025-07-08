@@ -85,8 +85,6 @@ build_macos_arm_auto = use_cpp == "1" and is_arm64 and is_macos
 #       └── TORCHAO_PARALLEL_BACKEND → Backend selection (aten_openmp, executorch, etc.)
 
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
-
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
 version = (
@@ -388,14 +386,26 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        if use_cpu_kernels and is_linux and TORCH_VERSION_AT_LEAST_2_7:
-            if torch._C._cpu._is_avx512_supported():
+        if use_cpu_kernels and is_linux:
+            if (
+                hasattr(torch._C._cpu, "_is_avx512_supported")
+                and torch._C._cpu._is_avx512_supported()
+            ):
                 extra_compile_args["cxx"].extend(
                     [
                         "-DCPU_CAPABILITY_AVX512",
                         "-march=native",
                         "-mfma",
                         "-fopenmp",
+                    ]
+                )
+            if (
+                hasattr(torch._C._cpu, "_is_avx512_vnni_supported")
+                and torch._C._cpu._is_avx512_vnni_supported()
+            ):
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512_VNNI",
                     ]
                 )
 
@@ -491,6 +501,13 @@ def get_extensions():
             print("Currently only gfx942 is supported. Compiling only for gfx942.")
         extra_compile_args["nvcc"].append("--offload-arch=gfx942")
         sources += rocm_sources
+    else:
+        # Remove ROCm-based sources from the sources list.
+        extensions_rocm_dir = os.path.join(extensions_dir, "rocm")
+        rocm_sources = list(
+            glob.glob(os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in rocm_sources]
 
     use_cutlass = False
     cutlass_90a_sources = None
