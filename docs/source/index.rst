@@ -55,5 +55,5 @@ for an overall introduction to the library and recent highlight and updates.
    tutorials_source/pt2e_quant_qat
    tutorials_source/pt2e_quant_x86_inductor
    tutorials_source/pt2e_quant_xpu_inductor
+   tutorials_source/pt2e_quant_openvino_inductor
    tutorials_source/pt2e_quantizer
-   tutorials_source/openvino_quantizer
