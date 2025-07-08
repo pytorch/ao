@@ -121,7 +121,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
 
         if result is not None:
             # Create benchmark result in OSS format
-            benchmark_result = create_benchmark_result(
+            speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
                 metric_name="speedup",
@@ -129,13 +129,34 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 quant_type=config.quantization,
                 device=config.device,
                 torch_compile_mode=config.torch_compile_mode,
+            )
+            results.append(speedup_result)
+            baseline_time_result = create_benchmark_result(
+                benchmark_name="TorchAO Quantization Benchmark",
+                shape=[config.m, config.k, config.n],
+                metric_name="baseline_time_ms",
+                metric_values=[result.baseline_inference_time_in_ms],
+                quant_type=config.quantization,
+                device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
                 metric_extra_info={
-                    "baseline_model_inference_time": result.baseline_inference_time_in_ms,
-                    "quantized_model_inference_time": result.model_inference_time_in_ms,
                     "unit": "ms",
                 },
             )
-            results.append(benchmark_result)
+            results.append(baseline_time_result)
+            quantize_time_result = create_benchmark_result(
+                benchmark_name="TorchAO Quantization Benchmark",
+                shape=[config.m, config.k, config.n],
+                metric_name="quantized_time_ms",
+                metric_values=[result.model_inference_time_in_ms],
+                quant_type=config.quantization,
+                device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
+                metric_extra_info={
+                    "unit": "ms",
+                },
+            )
+            results.append(quantize_time_result)
 
     return results
 
