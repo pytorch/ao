@@ -161,7 +161,7 @@ def generate_jagged_offs(E, M, dtype=torch.int32, device="cuda"):
         raise ValueError("M must be divisible by 16")
 
     # Generate a list of possible values
-    possible_values = [i for i in range(0, M + 1, 16)]
+    possible_values = [i for i in range(16, M + 1, 16)]
 
     # If E is larger than the number of possible values, raise an error
     if E > len(possible_values):
