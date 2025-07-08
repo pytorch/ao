@@ -43,8 +43,6 @@ def _scaled_grouped_mm(
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
     """
-    # TODO: Remove once prototype is more mature. This is currently very useful for development and debugging.
-    logger.info("Using scaled_grouped_mm")
     return _Float8GroupedMM.apply(
         A,
         B_t,

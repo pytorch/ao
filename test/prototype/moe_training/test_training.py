@@ -34,7 +34,10 @@ except ImportError:
         ["does.not.exist"],
     ],
 )
-def test_moe_float8_training(target_fqns: list[str]):
+@pytest.mark.parametrize(
+    "compile", [False, True]
+)
+def test_moe_float8_training(target_fqns: list[str], compile: bool):
     model_args = TransformerModelArgs(
         moe_enabled=True,
         num_experts=8,
@@ -71,6 +74,10 @@ def test_moe_float8_training(target_fqns: list[str]):
         model,
         target_fqns=target_fqns,
     )
+
+    if compile:
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
 
     # inputs
     batch, seq, dim = 8, 2048, 256
