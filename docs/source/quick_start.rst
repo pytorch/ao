@@ -191,16 +191,16 @@ Please follow these tutorials to get started on PyTorch 2 Export Quantization:
 
 Modeling Users:
 
-- `PyTorch 2 Export Post Training Quantization <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html>`_
-- `PyTorch 2 Export Quantization Aware Training <ttps://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_qat.html>`_
-- `PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_x86_inductor.html>`_
-- `PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_xpu_inductor.html>`_
-- `PyTorch 2 Export Quantization for OpenVINO torch.compile Backend <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_openvino.html>`_
+- `PyTorch 2 Export Post Training Quantization <tutorials_source/pt2e_quant_ptq.html>`__
+- `PyTorch 2 Export Quantization Aware Training <tutorials_source/pt2e_quant_qat.html>`__
+- `PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor <tutorials_source/pt2e_quant_x86_inductor.html>`__
+- `PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor <tutorials_source/pt2e_quant_xpu_inductor.html>`__
+- `PyTorch 2 Export Quantization for OpenVINO torch.compile Backend <tutorials_source/pt2e_quant_openvino_inductor.html>`__
 
 
 Backend Developers (please check out all Modeling Users docs as well):
 
-- `How to Write a Quantizer for PyTorch 2 Export Quantization <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quantizer.html>`_
+- `How to Write a Quantizer for PyTorch 2 Export Quantization <tutorials_source/pt2e_quantizer.html>`_
 
 
 Next Steps
