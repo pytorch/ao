@@ -90,7 +90,6 @@ class FbgemmFp8Tensor(TorchAOBaseTensor):
         cls,
         w: torch.Tensor,
         activation_scale_ub: Optional[float] = None,
-        transpose_input: bool = False,
     ):
         if activation_scale_ub is None:
             activation_scale_ub = 1200.0
@@ -100,12 +99,6 @@ class FbgemmFp8Tensor(TorchAOBaseTensor):
             dtype=torch.float,
             device=w.device,
         )
-        if transpose_input:
-            if w.ndim == 3:
-                w = w.transpose(-1, -2)
-            else:
-                w = w.t()
-
         wq, w_scale = torch.ops.triton.quantize_fp8_row(w)
         # wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
         dtype = w.dtype

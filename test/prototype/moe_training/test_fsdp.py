@@ -1,3 +1,16 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+######################################################################
+#
+# To run these unit tests, use the following command:
+#
+# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp.py
+#
+#######################################################################
+
 import copy
 import os
 
@@ -16,8 +29,9 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
 from torchao.quantization.quant_api import quantize_
+
+from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
@@ -117,36 +131,6 @@ def test_moe_float8_training_fsdp():
         )
 
     dist.destroy_process_group()
-
-
-def _validate_model_conversion(
-    root_module: nn.Module,
-    target_fqns: list[str],
-):
-    def _recursive_validate(
-        module: nn.Module,
-        cur_fqn: str,
-    ):
-        is_allowed_module = cur_fqn in target_fqns
-
-        # check current module params
-        for param_name, param in module.named_parameters(recurse=False):
-            is_converted_type = isinstance(param, ScaledGroupedMMTensor)
-            if is_converted_type:
-                assert is_allowed_module, (
-                    f"Module {cur_fqn} is not in target_fqns, but has converted param {param_name}."
-                )
-            if not is_allowed_module:
-                assert not is_converted_type, (
-                    f"Module {cur_fqn} is not in target_fqns, but has converted param {param_name}."
-                )
-
-        # recursively check child modules
-        for child_name, child_module in module.named_children():
-            child_fqn = f"{cur_fqn}.{child_name}" if cur_fqn else child_name
-            _recursive_validate(child_module, child_fqn)
-
-    _recursive_validate(root_module, "")
 
 
 def setup_distributed():

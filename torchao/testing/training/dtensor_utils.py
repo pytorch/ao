@@ -151,8 +151,8 @@ def _test_lowp_mlp_tensor_parallelism_base(
         sp_model = torch.compile(sp_model)
         sp_model2 = torch.compile(sp_model2)
 
-    x_fp32 = torch.rand(1, size * 2, size, device=device, requires_grad=False)
-    go_fp32 = torch.rand(1, size * 2, size, device=device, requires_grad=False)
+    x_fp32 = torch.rand(2, size * 2, size, device=device, requires_grad=False)
+    go_fp32 = torch.rand(2, size * 2, size, device=device, requires_grad=False)
     x_fp32_tp_input = x_fp32.clone()
     go_fp32_tp = go_fp32.clone()
     x_fp32_sp_input = distribute_tensor(x_fp32.clone(), mesh, [Shard(0)])

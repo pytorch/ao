@@ -356,7 +356,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
-    @common_utils.parametrize("block_size", [None, (1, 32), (2, 16), (4, 8)])
+    @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
 
@@ -674,6 +674,46 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         result = preprocess_scale(scale_4d, (2, 2, 2, 8))
         expected_shape = (8, 1)  # Flattened (2*2*2, 1)
         self.assertEqual(result.shape, expected_shape)
+
+    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @common_utils.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
+    def test_quantize_dequantize_fp8_inductor(self, float8_dtype, hp_dtype):
+        quantize_affine_float8 = torch.ops.torchao.quantize_affine_float8
+        dequantize_affine_float8 = torch.ops.torchao.dequantize_affine_float8
+        input = torch.randn(10, 10)
+        with torch.no_grad():
+            torch._dynamo.reset()
+            expected_scale = torch.tensor(2.0)
+            expected_quantized = quantize_affine_float8(
+                input,
+                expected_scale,
+                float8_dtype=float8_dtype,
+            )
+            expected_dequantized = dequantize_affine_float8(
+                expected_quantized,
+                expected_scale,
+                output_dtype=hp_dtype,
+            )
+            test_q, (code_q,) = torch._inductor.utils.run_and_get_code(
+                torch.compile(quantize_affine_float8),
+                input,
+                expected_scale,
+                float8_dtype=float8_dtype,
+            )
+            torch.testing.FileCheck().check(
+                "torch.ops.torchao.quantize_affine_float8.default"
+            ).run(code_q)
+            test_dq, (code_dq,) = torch._inductor.utils.run_and_get_code(
+                torch.compile(dequantize_affine_float8),
+                test_q,
+                expected_scale,
+                hp_dtype,
+            )
+            torch.testing.FileCheck().check(
+                "torch.ops.torchao.dequantize_affine_float8.default"
+            ).run(code_dq)
+            torch.testing.assert_close(expected_quantized, test_q)
+            torch.testing.assert_close(expected_dequantized, test_dq)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)

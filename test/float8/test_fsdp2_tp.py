@@ -34,6 +34,8 @@ from torchao.float8.float8_tensor_parallel import (
 )
 from torchao.testing.training.dtensor_utils import ToyModel
 
+torch.set_float32_matmul_precision("high")
+
 
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
