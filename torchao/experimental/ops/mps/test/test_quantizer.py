@@ -21,9 +21,10 @@ try:
         getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
 except AttributeError:
     try:
-        libname = "torchao_ops_mps_aten"
-        libdir = os.path.join(os.path.dirname(__file__), "../cmake-out/lib")
-        libpath = os.path.abspath(os.path.join(libdir, f"lib{libname}.dylib"))
+        libname = "libtorchao_ops_mps_aten.dylib"
+        libpath = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
+        )
         torch.ops.load_library(libpath)
     except:
         raise RuntimeError(f"Failed to load library {libpath}")
@@ -34,8 +35,6 @@ except AttributeError:
                 getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
         except AttributeError as e:
             raise e
-
-from torchao.experimental.ops.mps.cshim import torchao_op_c_shim
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
@@ -116,13 +115,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
             )
 
             ep = torch.export.export(quantized_model, (activations,), strict=True)
-            path = torch._inductor.aoti_compile_and_package(
-                ep,
-                inductor_configs={
-                    "aot_inductor.custom_ops_to_c_shims": torchao_op_c_shim,
-                    "aot_inductor.custom_op_libs": [libname],
-                },
-            )
+            path = torch._inductor.aoti_compile_and_package(ep)
             compiled_model = torch._inductor.aoti_load_package(path)
             result = compiled_model(activations)
 
