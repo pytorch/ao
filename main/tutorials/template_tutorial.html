@@ -346,6 +346,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
 </ul>
 
@@ -457,11 +458,11 @@ to download the full example code.</p>
 <span class="nb">print</span><span class="p">(</span><a href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="torch.Tensor" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">x</span></a><span class="p">)</span>
 </pre></div>
 </div>
-<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.7388, 0.9672, 0.1289],
-        [0.9587, 0.8919, 0.7539],
-        [0.2782, 0.6630, 0.8569],
-        [0.8696, 0.8025, 0.1258],
-        [0.2088, 0.3358, 0.7048]])
+<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.4107, 0.7833, 0.0105],
+        [0.9564, 0.7981, 0.7676],
+        [0.4628, 0.8005, 0.3761],
+        [0.6306, 0.1746, 0.8670],
+        [0.6029, 0.5118, 0.6909]])
 </pre></div>
 </div>
 </section>

@@ -40,7 +40,7 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="How to Write a Quantizer for PyTorch 2 Export Quantization" href="pt2e_quantizer.html" />
+    <link rel="next" title="PyTorch 2 Export Quantization for OpenVINO torch.compile Backend" href="pt2e_quant_openvino_inductor.html" />
     <link rel="prev" title="PyTorch 2 Export Quantization with X86 Backend through Inductor" href="pt2e_quant_x86_inductor.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -348,6 +348,7 @@
 <li class="toctree-l1"><a class="reference internal" href="pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
 </ul>
 
@@ -451,7 +452,33 @@ performing the prepared model’s calibration, and converting the prepared model
 <li><p>Step 3: Lower the quantized model into inductor with the API <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, which would call Triton kernels or oneDNN GEMM/Convolution kernels.</p></li>
 </ul>
 <p>The high-level architecture of this flow could look like this:</p>
-<img alt="_static/img/pt2e_quant_xpu_inductor.png" class="align-center" src="_static/img/pt2e_quant_xpu_inductor.png" />
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>float_model(Python)                          Example Input
+    \                                              /
+     \                                            /
+—--------------------------------------------------------
+|                         export                       |
+—--------------------------------------------------------
+                            |
+                    FX Graph in ATen
+                            |            X86InductorQuantizer
+                            |                 /
+—--------------------------------------------------------
+|                      prepare_pt2e                     |
+|                           |                           |
+|                     Calibrate/Train                   |
+|                           |                           |
+|                      convert_pt2e                     |
+—--------------------------------------------------------
+                            |
+                     Quantized Model
+                            |
+—--------------------------------------------------------
+|                    Lower into Inductor                |
+—--------------------------------------------------------
+                            |
+       OneDNN kernels                Triton Kernels
+</pre></div>
+</div>
 </section>
 <section id="post-training-quantization">
 <h2>Post Training Quantization<a class="headerlink" href="#post-training-quantization" title="Permalink to this heading">¶</a></h2>
@@ -636,7 +663,7 @@ especially when using <code class="docutils literal notranslate"><span class="pr
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="pt2e_quantizer.html" class="btn btn-neutral float-right" title="How to Write a Quantizer for PyTorch 2 Export Quantization" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="pt2e_quant_openvino_inductor.html" class="btn btn-neutral float-right" title="PyTorch 2 Export Quantization for OpenVINO torch.compile Backend" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="pt2e_quant_x86_inductor.html" class="btn btn-neutral" title="PyTorch 2 Export Quantization with X86 Backend through Inductor" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
