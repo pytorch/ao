@@ -1596,7 +1596,7 @@
     <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">:</span>
         <span class="n">_quantize_affine</span> <span class="o">=</span> <span class="n">_quantize_affine_tinygemm_no_dtype_cast</span>
         <span class="n">_dequantize_affine</span> <span class="o">=</span> <span class="n">_dequantize_affine_tinygemm_no_dtype_check</span>
-    <span class="k">elif</span> <span class="n">ZeroPointDomain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
         <span class="n">_quantize_affine</span> <span class="o">=</span> <span class="n">_quantize_affine_no_zero_point_no_dtype_cast</span>
         <span class="n">_dequantize_affine</span> <span class="o">=</span> <span class="n">_dequantize_affine_no_zero_point_no_dtype_check</span>
     <span class="k">else</span><span class="p">:</span>
