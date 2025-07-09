@@ -157,14 +157,19 @@ class NVFP4InferenceConfig(AOBaseConfig):
     NVIDIA FP4 (NVFP4) Inference Quantization Configuration
 
     This is a specialized configuration for NVIDIA's FP4 format.
-    All parameters are fixed in the NVFP4 implementation except mm_config:
+    Configuration parameters:
     - mm_config: NVFP4MMConfig, which can be set to DYNAMIC or WEIGHT_ONLY (emulated mm in high precision)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: False)
     - Data: float4_e2m1fn_x2
     - Scales: float8_e4m3fn
     - Block size: 16 along the reduction dim
+
+    Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions
+    must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.
     """
 
     mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC
+    use_triton_kernel: bool = True
 
     def __post_init__(self):
         # Validate PyTorch version
@@ -199,7 +204,10 @@ def _nvfp4_inference_linear_transform(
         weight,
         mm_config=config.mm_config,
         is_swizzled_scales=True,
+        use_triton_kernel=False,  # Always use traditional construction for weights
     )
+    # Set triton preference after construction
+    quantized_weight.use_triton_kernel = config.use_triton_kernel
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -215,3 +223,37 @@ if TORCH_VERSION_AT_LEAST_2_5:
             _input_activation_quant_func_mxfp,
         ]
     )
+
+
+import torch.nn as nn
+
+
+def _auto_filter_for_nfp4(mod: nn.Module, fqn: str) -> bool:
+    """Generic Filter fn for NVFP4 that is best practice for most models."""
+    # Define any FQNs you want to exclude directly in the function
+    filter_fqns = ["embedder", "embed", "embedding", "time_text_embed"]
+
+    # Only support Linear modules
+    if not isinstance(mod, nn.Linear):
+        return False
+
+    # If the fqn matches any filtered fqn, then we should not convert this module
+    is_filtered_fqn = any(filter_fqn in fqn for filter_fqn in filter_fqns)
+    if is_filtered_fqn:
+        return False
+
+    # All dims must be divisible by 16 due to float8 hardware requirements.
+    N, K = mod.weight.shape
+    dims_multiples_of_16 = K % 16 == 0 and N % 16 == 0
+    if not dims_multiples_of_16:
+        return False
+    if N <= 64:
+        print("skiping small linear layer")
+        # TODO cublas doesn't like this one
+        return False
+
+    # Dims below these thresholds may result in worse performance
+    if K <= 1024 and N <= 1024:
+        print("skiping small linear layer")
+        return False
+    return True

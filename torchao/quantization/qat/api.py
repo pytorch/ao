@@ -256,52 +256,7 @@ class FakeQuantizeConfig:
 @dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    Configuration for applying Quantization Aware Training (QAT) with fake quantization
-    to both weights and activations of linear layers.
-
-    This config allows separate control of quantization settings for weights and activations,
-    enabling flexible QAT schemes like int8 activations with int4 weights, or other combinations.
-
-    Args:
-        activation_config: Optional[FakeQuantizeConfig] = None - Configuration for fake quantizing
-            activations. If None, activations remain in their original precision.
-        weight_config: Optional[FakeQuantizeConfig] = None - Configuration for fake quantizing
-            weights. If None, weights remain in their original precision.
-
-    Example:
-        >>> from torchao.quantization.qat import FakeQuantizeConfig, IntXQuantizationAwareTrainingConfig
-        >>> from torchao.quantization import quantize_
-        >>>
-        >>> # Configure int8 activation and int4 weight QAT
-        >>> activation_config = FakeQuantizeConfig(dtype=torch.int8, granularity='per_token')
-        >>> weight_config = FakeQuantizeConfig(dtype=torch.int4, granularity='per_group', group_size=32)
-        >>> qat_config = IntXQuantizationAwareTrainingConfig(
-        ...     activation_config=activation_config,
-        ...     weight_config=weight_config
-        ... )
-        >>>
-        >>> # Apply to model
-        >>> quantize_(model, qat_config)
-    """
-
-    activation_config: Optional[FakeQuantizeConfig] = None
-    weight_config: Optional[FakeQuantizeConfig] = None
-
-
-# for BC
-intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
-
-
-@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
-def _intx_quantization_aware_training_transform(
-    module: torch.nn.Module,
-    config: IntXQuantizationAwareTrainingConfig,
-) -> torch.nn.Module:
-    """
-    THIS IS NOT A PUBLIC API - any usage of this outside of torchao
-    can break at any time.
-
-    Apply fake quantization to a `torch.nn.Module`.
+    Config for applying fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
     Example usage::
@@ -319,11 +274,25 @@ def _intx_quantization_aware_training_transform(
             IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
         )
 
-    Note: If the returned function is applied on a module that is not
+    Note: If the config is applied on a module that is not
     `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
     `torch.nn.Embedding` with an activation config, then we will raise
     ValueError as these are not supported.
     """
+
+    activation_config: Optional[FakeQuantizeConfig] = None
+    weight_config: Optional[FakeQuantizeConfig] = None
+
+
+# for BC
+intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
+
+
+@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
+def _intx_quantization_aware_training_transform(
+    module: torch.nn.Module,
+    config: IntXQuantizationAwareTrainingConfig,
+) -> torch.nn.Module:
     from .embedding import FakeQuantizedEmbedding
     from .linear import FakeQuantizedLinear
 
@@ -349,7 +318,7 @@ def _intx_quantization_aware_training_transform(
 
 class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    Object that knows how to convert a model with fake quantized modules,
+    Config for converting a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
     and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
     back to model with the original, corresponding modules without
