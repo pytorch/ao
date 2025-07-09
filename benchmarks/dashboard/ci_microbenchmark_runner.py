@@ -88,7 +88,7 @@ def create_benchmark_result(
             "origins": ["torchao"],
         },
         "metric": {
-            "name": f"{metric_name}(wrt bf16)",  # name with unit
+            "name": f"{metric_name}",  # name with unit
             "benchmark_values": metric_values,  # benchmark_values
             "target_value": 0.0,  # TODO: Will need to define the target value
             "extra_info": {
@@ -124,7 +124,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="speedup",
+                metric_name="Fwd Speedup (x)",
                 metric_values=[result.speedup],
                 quant_type=config.quantization,
                 device=config.device,
@@ -134,7 +134,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             baseline_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="baseline_time_ms",
+                metric_name="Bfloat16 Fwd Time (ms)",
                 metric_values=[result.baseline_inference_time_in_ms],
                 quant_type=config.quantization,
                 device=config.device,
@@ -147,7 +147,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             quantize_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="quantized_time_ms",
+                metric_name="Quantized Fwd Time (ms)",
                 metric_values=[result.model_inference_time_in_ms],
                 quant_type=config.quantization,
                 device=config.device,
@@ -157,6 +157,19 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 },
             )
             results.append(quantize_time_result)
+            allocated_memory_result = create_benchmark_result(
+                benchmark_name="TorchAO Quantization Benchmark",
+                shape=[config.m, config.k, config.n],
+                metric_name="Allocated Memory (GB)",
+                metric_values=[result.memory_stats["allocated_bytes.all.peak"]],
+                quant_type=config.quantization,
+                device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
+                metric_extra_info={
+                    "unit": "GB",
+                },
+            )
+            results.append(allocated_memory_result)
 
     return results
 
