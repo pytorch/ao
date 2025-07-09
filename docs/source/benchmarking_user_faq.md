@@ -2,7 +2,13 @@
 
 This guide is intended to provide instructions for the most fequent benchmarking use-case. If you have any use-case that is not answered here, please create an issue here: [TorchAO Issues](https://github.com/pytorch/ao/issues)
 
-## Run the benchmarking on your PR
+## Table of Contents
+- [Run the performance benchmarking on your PR](#run-the-performance-benchmarking-on-your-pr)
+- [Benchmark Your API Locally](#benchmark-your-api-locally)
+- [Generate evaluation metrics for your quantized model](#generate-evaluation-metrics-for-your-quantized-model)
+- [Advanced Usage](#advanced-usage)
+
+## Run the performance benchmarking on your PR
 
 ### 1. Add label to your PR
 To trigger the benchmarking CI workflow on your pull request, you need to add a specific label to your PR. Follow these steps:
@@ -77,6 +83,9 @@ The output generated after running the benchmarking script, is the form of a csv
  - compile or eager mode
  - if enabled, memory snapshot and gpu chrome trace
 
+
+## Generate evaluation metrics for your quantized model
+(Coming soon!!!)
 
 ## Advanced Usage
 
