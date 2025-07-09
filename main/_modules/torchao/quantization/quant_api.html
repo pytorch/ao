@@ -1638,6 +1638,12 @@
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        group_size: Optional[int] = None - Controls the granularity of quantization. If None, applies per-channel quantization.</span>
+<span class="sd">            Otherwise, applies per-group quantization with the specified group size.</span>
+<span class="sd">        set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values</span>
+<span class="sd">            for better performance with this quantization scheme.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
@@ -1781,7 +1787,17 @@
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationInt8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight</span>
-<span class="sd">    quantization to linear layers</span>
+<span class="sd">    quantization to linear layers.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the</span>
+<span class="sd">            quantized data is stored and accessed.</span>
+<span class="sd">        act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.</span>
+<span class="sd">            SYMMETRIC uses symmetric quantization around zero.</span>
+<span class="sd">        weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations</span>
+<span class="sd">            in original precision during decode operations.</span>
+<span class="sd">        set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values</span>
+<span class="sd">            for better performance with this quantization scheme.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">layout</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Layout</span><span class="p">]</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">()</span>
