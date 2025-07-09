@@ -1172,7 +1172,7 @@ def _do_fake_quantize_affine(
     elif zero_point_domain == ZeroPointDomain.FLOAT:
         _quantize_affine = _quantize_affine_tinygemm_no_dtype_cast
         _dequantize_affine = _dequantize_affine_tinygemm_no_dtype_check
-    elif ZeroPointDomain == ZeroPointDomain.NONE:
+    elif zero_point_domain == ZeroPointDomain.NONE:
         _quantize_affine = _quantize_affine_no_zero_point_no_dtype_cast
         _dequantize_affine = _dequantize_affine_no_zero_point_no_dtype_check
     else:
