@@ -3,32 +3,34 @@
 This guide is intended to provide instructions for the most fequent benchmarking use-case. If you have any use-case that is not answered here, please create an issue here: [TorchAO Issues](https://github.com/pytorch/ao/issues)
 
 ## Table of Contents
-- [Run the performance benchmarking on your PR](#run-the-performance-benchmarking-on-your-pr)
+- [Run the performance benchmarking in CI](#run-the-performance-benchmarking-in-ci)
 - [Benchmark Your API Locally](#benchmark-your-api-locally)
 - [Generate evaluation metrics for your quantized model](#generate-evaluation-metrics-for-your-quantized-model)
 - [Advanced Usage](#advanced-usage)
 
-## Run the performance benchmarking on your PR
+## Run the performance benchmarking in CI
 
-### 1. Add label to your PR
-To trigger the benchmarking CI workflow on your pull request, you need to add a specific label to your PR. Follow these steps:
+### 1. Run the performance benchmarking on every commit in PR
 
-1. Go to your pull request on GitHub.
-2. On the right sidebar, find the "Labels" section.
-3. Click on the "Labels" dropdown and select "ciflow/benchmark" from the list of available labels.
+To trigger the benchmarking CI workflow on your pull request, add the `ciflow/benchmark` label:
 
-Adding this label will automatically trigger the benchmarking CI workflow for your pull request.
+1. Open your pull request on GitHub.
+2. In the right sidebar, locate the "Labels" section.
+3. Click "Labels" and select `ciflow/benchmark`.
 
-### 2. Manually trigger benchmarking workflow on your github branch
+This will automatically run the benchmarking workflow for every commit in your PR.
+
+### 2. Run performance benchmarking on the last commit in a GitHub branch
+
 To manually trigger the benchmarking workflow for your branch, follow these steps:
 
 1. Navigate to the "Actions" tab in your GitHub repository.
 2. Select the benchmarking workflow from the list of available workflows. For microbenchmarks, it's `Microbenchmarks-Perf-Nightly`.
 3. Click on the "Run workflow" button.
-4. In the dropdown menu, select the branch.
+4. In the dropdown menu, select the branch you want to benchmark.
 5. Click the "Run workflow" button to start the benchmarking process.
 
-This will execute the benchmarking workflow on the specified branch, allowing you to evaluate the performance of your changes.
+This will execute the benchmarking workflow on the last commit of the specified branch, allowing you to evaluate the performance of your changes.
 
 ## Benchmark Your API Locally
 
