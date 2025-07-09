@@ -429,6 +429,7 @@ def get_extensions():
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
         found_vec_ext = False
+        found_outer_vec = False
         print("ROCM_HOME", ROCM_HOME)
         hipblaslt_headers = list(
             glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h"))
@@ -441,12 +442,17 @@ def get_extensions():
                     found_col16 = True
                 if "HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER_VEC_EXT" in text:
                     found_vec_ext = True
+                if "HIPBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F" in text:
+                    found_outer_vec = True
         if found_col16:
             extra_compile_args["cxx"].append("-DHIPBLASLT_HAS_ORDER_COL16")
             print("hipblaslt found extended col order enums")
         else:
             print("hipblaslt does not have extended col order enums")
-        if found_vec_ext:
+        if found_outer_vec:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_OUTER_VEC")
+            print("hipblaslt found outer vec")
+        elif found_vec_ext:
             extra_compile_args["cxx"].append("-DHIPBLASLT_VEC_EXT")
             print("hipblaslt found vec ext")
         else:
