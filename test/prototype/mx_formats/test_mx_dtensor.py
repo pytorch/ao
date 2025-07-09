@@ -68,9 +68,9 @@ def _test_dtensor_cast_to_mxfp8(mesh: DeviceMesh, size=4):
     )
 
 
-def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=16):
+def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
     config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
-    config.block_size = 16
+    config.block_size = 32
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
     )
@@ -79,11 +79,26 @@ def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=16):
     )
 
 
+def _test_mxfp8_mlp_tensor_parallelism_dim1_triton(mesh: DeviceMesh, size=128):
+    config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
+    config.block_size = 32
+    config.use_fp8_dim1_cast_triton_kernel = True
+    _test_lowp_mlp_tensor_parallelism_base(
+        mesh, config, size, compile=False, allgather_in_lowp=False
+    )
+    # TODO(future PR): enable compile here, currently seeing
+    # https://www.internalfb.com/phabricator/paste/view/P1851219639
+    # _test_lowp_mlp_tensor_parallelism_base(
+    #     mesh, config, size, compile=True, allgather_in_lowp=False
+    # )
+
+
 if __name__ == "__main__":
     device_mesh = setup_distributed()
     tests = [
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism,
+        _test_mxfp8_mlp_tensor_parallelism_dim1_triton,
     ]
 
     for test in tqdm(tests, desc="Running tests"):
