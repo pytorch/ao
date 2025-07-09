@@ -18,3 +18,4 @@ model_params:
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
+    enable_memory_profiler: true
