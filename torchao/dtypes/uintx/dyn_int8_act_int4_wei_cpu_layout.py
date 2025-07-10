@@ -313,6 +313,6 @@ def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
 
 
 # Register the concat linear fusion pass
-from ...prototype.inductor.fx_passes import register_da8w4_concat_linear_cpu_pass
+# from ...prototype.inductor.fx_passes import register_da8w4_concat_linear_cpu_pass
 
-register_da8w4_concat_linear_cpu_pass()
+# register_da8w4_concat_linear_cpu_pass()
