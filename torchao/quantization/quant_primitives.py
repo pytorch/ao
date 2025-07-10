@@ -1172,7 +1172,7 @@ def _do_fake_quantize_affine(
     elif zero_point_domain == ZeroPointDomain.FLOAT:
         _quantize_affine = _quantize_affine_tinygemm_no_dtype_cast
         _dequantize_affine = _dequantize_affine_tinygemm_no_dtype_check
-    elif ZeroPointDomain == ZeroPointDomain.NONE:
+    elif zero_point_domain == ZeroPointDomain.NONE:
         _quantize_affine = _quantize_affine_no_zero_point_no_dtype_cast
         _dequantize_affine = _dequantize_affine_no_zero_point_no_dtype_check
     else:
@@ -2178,11 +2178,12 @@ def _dequantize_affine_floatx(
     return tensor
 
 
+@register_custom_op
 def _choose_qparams_affine_float8(
     tensor: torch.Tensor,
+    block_size: List[int],
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
     scale_dtype: torch.dtype = torch.float32,
-    block_size: Optional[Tuple[int, ...]] = None,
 ) -> torch.Tensor:
     """
     Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
@@ -2195,7 +2196,7 @@ def _choose_qparams_affine_float8(
     """
     quant_max = torch.finfo(float8_dtype).max
     # only tensorwise scaling is supported for now:
-    if block_size is None:
+    if len(block_size) == 0:
         max_abs = tensor.abs().max()
         scale = max_abs / quant_max
     else:
@@ -2270,6 +2271,7 @@ def _expand_scale_to_tensor_shape(
     return expanded_scale
 
 
+@_register_custom_op(quant_lib, False)
 def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2290,6 +2292,16 @@ def _quantize_affine_float8(
     return fp8_tensor
 
 
+@torch.library.impl(quant_lib, "quantize_affine_float8", "Meta")
+def _quantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=float8_dtype)
+
+
+@_register_custom_op(quant_lib, False)
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2305,3 +2317,12 @@ def _dequantize_affine_float8(
 
     hp_tensor = fp8_tensor * scale_expanded
     return hp_tensor.to(output_dtype)
+
+
+@torch.library.impl(quant_lib, "dequantize_affine_float8", "Meta")
+def _dequantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=output_dtype)

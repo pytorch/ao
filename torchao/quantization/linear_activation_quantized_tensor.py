@@ -288,7 +288,7 @@ def _(func, types, args, kwargs):
     )
 
 
-to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
+to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float  # Converts a float tensor to LinearActivationQuantizedTensor for dynamic activation quantization
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
