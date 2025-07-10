@@ -31,7 +31,7 @@ elif sparsity == "my_new_sparsity":
 
 Now we can use this recipe throughout the benchmarking framework.
 
-> **Note:** If the `AOBaseConfig` uses input parameters, like bit-width, group-size etc, you can pass them appended to the string config in input. For example, for `GemliteUIntXWeightOnlyConfig` we can pass bit-width and group-size as `gemlitewo-<bit_width>-<group_size>`
+**Note:** If the `AOBaseConfig` uses input parameters, like bit-width, group-size etc, you can pass them appended to the string config in input. For example, for `GemliteUIntXWeightOnlyConfig` we can pass bit-width and group-size as `gemlitewo-<bit_width>-<group_size>`
 
 ## Add a Model to Benchmarking Recipes
 
