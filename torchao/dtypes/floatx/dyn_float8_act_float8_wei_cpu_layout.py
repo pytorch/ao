@@ -105,8 +105,9 @@ class Float8DynActFloat8WeiCpuAQTTensorImpl(AQTTensorImpl):
 
         K = data.size(-1)
         if K % 32 == 0:
-            # weight is packed to [N / block_n, K / block_k, block_k, block_n]
-            # The inner block [block_k, block_n] are packed to VNNI layout if AMX is available.
+            # Pack weight from [N, K] to [N / block_n, K / block_k, block_k, block_n].
+            # Pack inner blocks [block_k, block_n] to VNNI layout if AMX is available.
+            # Pack scales from [N, num_groups] to [N / block_n, num_groups, block_n].
             weight_packed, scales = torch.ops.torchao.float8_linear_prepack_cpu(
                 data, scale
             )
