@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>TensorCoreTiledLayout &mdash; torchao main documentation</title>
+  <title>Benchmarking User Guide &mdash; torchao main documentation</title>
   
 
   
@@ -27,21 +27,21 @@
 
   
 
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery-binder.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery-dataframe.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sg_gallery-rendered-html.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
-    <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Float8Layout" href="torchao.dtypes.Float8Layout.html" />
-    <link rel="prev" title="SemiSparseLayout" href="torchao.dtypes.SemiSparseLayout.html" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="torchao.dtypes" href="api_ref_dtypes.html" />
+    <link rel="prev" title="Benchmarking API Guide" href="benchmarking_api_guide.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -52,16 +52,16 @@
   
 
   
-  <script src="../_static/js/modernizr.min.js"></script>
+  <script src="_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -299,7 +299,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -316,42 +316,42 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../benchmarking_api_guide.html">Benchmarking API Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../benchmarking_user_guide.html">Benchmarking User Guide</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Benchmarking User Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../pretraining.html">(Part 1) Pre-training with float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../static_quantization.html">Static Quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
 </ul>
 
             
@@ -384,7 +384,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="../index.html">
+        <a href="index.html">
           
             Docs
           
@@ -392,15 +392,13 @@
       </li>
 
         
-          <li><a href="../api_ref_dtypes.html">torchao.dtypes</a> &gt;</li>
-        
-      <li>TensorCoreTiledLayout</li>
+      <li>Benchmarking User Guide</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.dtypes.TensorCoreTiledLayout.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="_sources/benchmarking_user_guide.md.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -430,19 +428,10 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="tensorcoretiledlayout">
-<h1>TensorCoreTiledLayout<a class="headerlink" href="#tensorcoretiledlayout" title="Permalink to this heading">¶</a></h1>
-<dl class="py class">
-<dt class="sig sig-object py" id="torchao.dtypes.TensorCoreTiledLayout">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">TensorCoreTiledLayout</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inner_k_tiles</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">8</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/dtypes/uintx/tensor_core_tiled_layout.html#TensorCoreTiledLayout"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.TensorCoreTiledLayout" title="Permalink to this definition">¶</a></dt>
-<dd><p>TensorCoreTiledLayout is a layout class for handling tensor core tiled layouts in affine quantized tensors. It provides methods for pre-processing and post-processing tensors to fit the required layout for efficient computation on tensor cores.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Variables<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>inner_k_tiles</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – An internal argument for the packing function of tensor core tiled layout that can affect the performance of the matmul kernel. Defaults to 8.</p>
-</dd>
-</dl>
-</dd></dl>
-
+  <section id="benchmarking-user-guide">
+<h1>Benchmarking User Guide<a class="headerlink" href="#benchmarking-user-guide" title="Permalink to this heading">¶</a></h1>
+<p>This guide is intended to provide instructions for the most fequent benchmarking use-case. If you have any use-case that is not answered here, please create an issue here: <a class="reference external" href="https://github.com/pytorch/ao/issues">TorchAO Issues</a></p>
+<p>[Coming Soon !!!]</p>
 </section>
 
 
@@ -453,10 +442,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.dtypes.Float8Layout.html" class="btn btn-neutral float-right" title="Float8Layout" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="api_ref_dtypes.html" class="btn btn-neutral float-right" title="torchao.dtypes" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.dtypes.SemiSparseLayout.html" class="btn btn-neutral" title="SemiSparseLayout" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="benchmarking_api_guide.html" class="btn btn-neutral" title="Benchmarking API Guide" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -488,7 +477,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">TensorCoreTiledLayout</a></li>
+<li><a class="reference internal" href="#">Benchmarking User Guide</a></li>
 </ul>
 
             </div>
@@ -503,23 +492,23 @@
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
-         <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
-         <script src="../_static/doctools.js"></script>
-         <script src="../_static/clipboard.min.js"></script>
-         <script src="../_static/copybutton.js"></script>
-         <script src="../_static/design-tabs.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+         <script src="_static/jquery.js"></script>
+         <script src="_static/underscore.js"></script>
+         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="_static/doctools.js"></script>
+         <script src="_static/clipboard.min.js"></script>
+         <script src="_static/copybutton.js"></script>
+         <script src="_static/design-tabs.js"></script>
      
 
   
 
-  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="../_static/js/theme.js"></script>
+  <script type="text/javascript" src="_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -647,7 +636,7 @@
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../_static/images/pytorch-x.svg">
+    <img class="close-button" src="_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -798,7 +787,7 @@
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {
