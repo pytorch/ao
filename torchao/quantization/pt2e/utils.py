@@ -1031,6 +1031,8 @@ def _replace_literals_with_existing_placeholders(
             continue
         new_args = []
         for arg in node.args:
+            if isinstance(arg, list):
+                arg = tuple(arg)  # type: ignore[assignment]
             if (
                 _is_literal(arg)
                 and arg not in exclude_literals
