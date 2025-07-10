@@ -124,6 +124,10 @@ class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
         if zero_point.dim() == 1:
             zero_point.unsqueeze_(-1)
 
+        # Pack weight from [N, K] to [N / block_n, K / block_k, block_k, block_n].
+        # Pack the inner blocks [block_k, block_n] to VNNI layout if AMX is available.
+        # Pack scales/qzeros from [N, num_groups] to [N / block_n, num_groups, block_n].
+        # Compensation shape = [N / block_n, K / block_k, block_n].
         weight_int4, scales, qzeros, compensation = (
             torch.ops.torchao.da8w4_linear_prepack_cpu(int_data, scale, zero_point)
         )
