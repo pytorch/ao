@@ -160,13 +160,13 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             allocated_memory_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="Allocated Memory (GB)",
+                metric_name="Allocated Memory (MB)",
                 metric_values=[result.memory_stats["allocated_bytes.all.peak"]],
                 quant_type=config.quantization,
                 device=config.device,
                 torch_compile_mode=config.torch_compile_mode,
                 metric_extra_info={
-                    "unit": "GB",
+                    "unit": "MB",
                 },
             )
             results.append(allocated_memory_result)

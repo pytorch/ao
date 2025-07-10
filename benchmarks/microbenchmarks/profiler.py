@@ -134,9 +134,9 @@ def generate_memory_profile(model, input_data, profile_file_path):
         # Record memory stats
         _memory_stats = torch.cuda.memory_stats()
         memory_stats = {
-            "allocated_bytes.all.peak": _memory_stats["allocated_bytes.all.peak"] / 1e9,
-            "active_bytes.all.peak": _memory_stats["active_bytes.all.peak"] / 1e9,
-            "reserved_bytes.all.peak": _memory_stats["reserved_bytes.all.peak"] / 1e9,
+            "allocated_bytes.all.peak": _memory_stats["allocated_bytes.all.peak"] / 1e6,
+            "active_bytes.all.peak": _memory_stats["active_bytes.all.peak"] / 1e6,
+            "reserved_bytes.all.peak": _memory_stats["reserved_bytes.all.peak"] / 1e6,
         }
 
     except Exception as e:
