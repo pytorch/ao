@@ -178,7 +178,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
         )
 
         # Generate memory profile
-        result_path = generate_memory_profile(
+        result_path, memory_stats = generate_memory_profile(
             self.model, self.input_data, memory_profile_path
         )
 
@@ -271,7 +271,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
             )
 
             # Generate memory profile
-            result = generate_memory_profile(
+            result, memory_stats = generate_memory_profile(
                 self.model, self.input_data, memory_profile_path
             )
 
