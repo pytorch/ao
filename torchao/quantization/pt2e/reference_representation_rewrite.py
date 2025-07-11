@@ -23,7 +23,6 @@ from torchao.quantization.pt2e.utils import (
     _replace_literals_with_new_placeholders,
     remove_tensor_overload_for_qdq_ops,
 )
-
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import _get_per_token_block_size
 from torchao.utils import _register_custom_op
@@ -1086,6 +1085,12 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
                 replacement = replacement_post_trans(replacement)
             pattern.recompile()  # type: ignore[attr-defined]
             replacement.recompile()  # type: ignore[attr-defined]
-            replace_pattern_with_filters(model, pattern, replacement, match_filters=None, ignore_literals=rewrite_info.ignore_literals)  # type: ignore[arg-type]
+            replace_pattern_with_filters(
+                model,
+                pattern,
+                replacement,
+                match_filters=None,
+                ignore_literals=rewrite_info.ignore_literals,
+            )  # type: ignore[arg-type]
 
     return model

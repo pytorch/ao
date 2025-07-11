@@ -9,8 +9,8 @@ import unittest
 
 import torch
 import torch.nn as nn
-from torchao.quantization import int8_dynamic_activation_int4_weight, quantize_
 
+from torchao.quantization import int8_dynamic_activation_int4_weight, quantize_
 from torchao.quantization.pt2e.reference_representation_rewrite import (
     _qdq_dynamic_quantized_linear_4bit_groupwise,
     _reference_dynamic_quantized_linear_4bit_groupwise,
