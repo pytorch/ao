@@ -42,6 +42,7 @@ __all__ = [
     "is_sm_at_least_89",
     "is_sm_at_least_90",
     "is_package_at_least",
+    "get_backend",
 ]
 
 
@@ -732,3 +733,12 @@ def _is_fbgemm_genai_gpu_available():
         return False
 
     return True
+
+def get_backend():
+    """
+    Get device specific backend
+    """
+    if torch.accelerator.current_accelerator().type == "hpu":
+        return "hpu_backend"
+    else:
+        return "inductor"
