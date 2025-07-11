@@ -831,6 +831,12 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
                 replacement = replacement_post_trans(replacement)
             pattern.recompile()  # type: ignore[attr-defined]
             replacement.recompile()  # type: ignore[attr-defined]
-            replace_pattern_with_filters(model, pattern, replacement, match_filters=None, ignore_literals=rewrite_info.ignore_literals)  # type: ignore[arg-type]
+            replace_pattern_with_filters(
+                model,
+                pattern,
+                replacement,
+                match_filters=None,
+                ignore_literals=rewrite_info.ignore_literals,
+            )  # type: ignore[arg-type]
 
     return model
