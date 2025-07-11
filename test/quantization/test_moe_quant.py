@@ -31,7 +31,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_sm_at_least_90,
+    auto_detect_device,
 )
+
+_DEVICE = auto_detect_device()
 
 if torch.version.hip is not None:
     pytest.skip(
@@ -52,7 +55,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         base_class=AffineQuantizedTensor,
         tensor_impl_class=None,
         dtype=torch.bfloat16,
-        device="cuda",
+        device=_DEVICE,
         fullgraph=False,
     ):
         """
@@ -114,8 +117,6 @@ class TestMoEQuantCompile(unittest.TestCase):
         ]
     )
     def test_int4wo_fake_dim(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
@@ -138,10 +139,6 @@ class TestMoEQuantCompile(unittest.TestCase):
         ]
     )
     def test_int4wo_base(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-        if not is_sm_at_least_90():
-            self.skipTest("Requires CUDA capability >= 9.0")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
