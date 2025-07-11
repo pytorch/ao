@@ -37,8 +37,6 @@ register_custom_op = _register_custom_op(quant_lib)
 
 __all__ = [
     "reference_representation_rewrite",
-    "_qdq_dynamic_quantized_linear_4bit_groupwise",
-    "_reference_dynamic_quantized_linear_4bit_groupwise",
 ]
 
 
