@@ -121,18 +121,18 @@ class FP8QDQLinear(torch.nn.Module):
             self.bias = torch.randn((out_features,))
 
     def forward(self, input):
-        weight = torch.ops.torchao.dequantize_affine_float8(
+        weight = torch.ops.torchao.dequantize_affine_float8.default(
             tensor=self.weight.data,
             scale=torch.tensor([self.weight_scale]),
             output_dtype=torch.float,
         )
 
-        q_input = torch.ops.torchao.quantize_affine_float8(
+        q_input = torch.ops.torchao.quantize_affine_float8.default(
             tensor=input,
             scale=torch.tensor([self.scale]),
             float8_dtype=self.qtype,
         )
-        dq_input = torch.ops.torchao.dequantize_affine_float8(
+        dq_input = torch.ops.torchao.dequantize_affine_float8.default(
             tensor=q_input,
             scale=torch.tensor([self.scale]),
             output_dtype=torch.float,
@@ -140,6 +140,20 @@ class FP8QDQLinear(torch.nn.Module):
 
         out = torch.nn.functional.linear(dq_input, weight, self.bias)
         return out
+
+def qdq(input, scale):
+    dtype = input.dtype
+    q_input = torch.ops.torchao.quantize_affine_float8.default(
+        input,
+        torch.tensor([scale]),
+        torch.float8_e4m3fn,
+    )
+    dq_input = torch.ops.torchao.dequantize_affine_float8.default(
+        q_input,
+        torch.tensor([scale]),
+        dtype,
+    )
+    return dq_input
 
 
 def fp8_convert_(model):
@@ -2856,6 +2870,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 transpose_for_score=False,
                 num_attention_heads=None,
                 attention_head_size=None,
+                annotate_matmul=False,
             ) -> None:
                 super().__init__()
                 self.input_dim = input_dim
@@ -2864,6 +2879,12 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 self.v_proj = torch.nn.Linear(input_dim, input_dim, bias=False)
                 self.softmax = torch.nn.Softmax(dim=-1)
                 self.transpose_for_score = transpose_for_score
+                self.annotate_matmul = annotate_matmul
+                if self.annotate_matmul:
+                    self.q_out_scale = 0.5
+                    self.k_out_scale = 0.6
+                    self.v_out_scale = 0.7
+                    self.attn_weights_scale = 0.8
                 if self.transpose_for_score:
                     assert num_attention_heads is not None
                     assert attention_head_size is not None
@@ -2886,43 +2907,53 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     q = self.transpose_for_scores(q)
                     k = self.transpose_for_scores(k)
                     v = self.transpose_for_scores(v)
-                scores = torch.matmul(q, k.transpose(-1, -2)) / (self.input_dim**0.5)
+                k = k.transpose(-1, -2)
+                if self.annotate_matmul:
+                    q = qdq(q, self.q_out_scale)
+                    k = qdq(k, self.k_out_scale)
+                scores = torch.matmul(q, k) / (self.input_dim**0.5)
                 attention = self.softmax(scores)
+                if self.annotate_matmul:
+                    attention = qdq(attention, self.attn_weights_scale)
+                    v = qdq(v, self.v_out_scale)
                 weighted = torch.matmul(attention, v)
                 return weighted
 
-        for annotate_matmul in [False, True]:
-            mod = SelfAttnLikeModule(
-                input_dim=64 * 16,
-                transpose_for_score=True,
-                num_attention_heads=16,
-                attention_head_size=64,
-            ).eval()
-            v = torch.randn(2, 384, 1024)
+        for is_fp8 in [True, False]:
+            for annotate_matmul in [True, False]:
+                mod = SelfAttnLikeModule(
+                    input_dim=64 * 16,
+                    transpose_for_score=True,
+                    num_attention_heads=16,
+                    attention_head_size=64,
+                    annotate_matmul=annotate_matmul and is_fp8,
+                ).eval()
+                v = torch.randn(2, 384, 1024)
 
-            def matcher_check_fn():
-                self.assertEqual(
-                    counters["inductor"]["qlinear_weight_prepack_matcher_count"], 3
-                )
-                self.assertEqual(
-                    counters["inductor"]["qlinear_unary_matcher_count"],
-                    3 if annotate_matmul and not TEST_ACL else 0,
-                )
+                def matcher_check_fn():
+                    self.assertEqual(
+                        counters["inductor"]["qlinear_weight_prepack_matcher_count"], 3
+                    )
+                    self.assertEqual(
+                        counters["inductor"]["qlinear_unary_matcher_count"],
+                        3 if annotate_matmul and not TEST_ACL else 0,
+                    )
 
-            quantizer = X86InductorQuantizer()
-            quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
-            if annotate_matmul:
-                quantizer.set_function_type_qconfig(
-                    torch.matmul, quantizer.get_global_quantization_config()
-                )
+                quantizer = X86InductorQuantizer()
+                quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
+                if annotate_matmul:
+                    quantizer.set_function_type_qconfig(
+                        torch.matmul, quantizer.get_global_quantization_config()
+                    )
 
-            self._test_common(
-                mod,
-                (v,),
-                matcher_check_fn,
-                check_quantization=True,
-                quantizer=quantizer,
-            )
+                self._test_common(
+                    mod,
+                    (v,),
+                    matcher_check_fn,
+                    check_quantization=True,
+                    quantizer=quantizer,
+                    is_fp8=is_fp8,
+                )
 
 
 instantiate_parametrized_tests(TestPatternMatcher)

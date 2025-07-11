@@ -30,10 +30,16 @@ _PER_TENSOR_QUANTIZE_OPS = [
     torch.ops.torchao.quantize_affine_float8.default,
 ]
 
-_VIEW_OPS = [
+_VIEW_FUNCTION_OPS = [
     aten.transpose.int,
     aten.permute.default,
     aten.view.default,
+]
+
+_VIEW_METHOD_OPS = [
+    'transpose',
+    'permute',
+    'view',
 ]
 
 """
@@ -2896,7 +2902,8 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
     """
 
     def is_view_op(node):
-        return node.op == "call_function" and node.target in _VIEW_OPS
+        return (node.op == "call_function" and node.target in _VIEW_FUNCTION_OPS) or \
+            (node.op == "call_method" and node.target in _VIEW_METHOD_OPS)
 
     for node in module_graph.nodes:
         # <TODO> Leslie: Here we verify that the quant node has exactly
@@ -2907,7 +2914,8 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
         if (
             node.op == "call_function"
             and node.target in _PER_TENSOR_QUANTIZE_OPS
-            and len(node.all_input_nodes) == 1
+            # TODO: len(node.all_input_nodes) == 2 for fp8 quant
+            #and len(node.all_input_nodes) == 1
             and is_view_op(node.all_input_nodes[0])
         ):
             quant_node = node
