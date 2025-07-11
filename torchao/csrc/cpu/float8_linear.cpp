@@ -429,6 +429,7 @@ void _float8_linear_impl(
 
   // scales shape = [Nc, G, block_n]
   int64_t num_groups = weight_scales.size(1);
+  TORCH_CHECK(K % num_groups == 0, "K should be divisible by num_groups");
   int64_t group_size = K / num_groups;
   TORCH_CHECK(group_size % block_k == 0,
               "Float8 linear: group_size should be divisible by block_k");
