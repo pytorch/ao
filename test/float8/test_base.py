@@ -34,9 +34,7 @@ from torchao.float8.config import (
     e5m2_dtype,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import (
-    convert_to_float8_training,
-)
+from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_ops import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
@@ -381,20 +379,21 @@ class TestFloat8Linear:
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize("linear_bias", [True, False])
-    @unittest.skipIf(not torch.accelerator.is_available() or 
-                    (not is_sm_at_least_90() and torch.accelerator.current_accelerator().type == "cuda"), 
-                    "Accelerator not available or If CUDA, Requires CUDA capability >= 9.0")
+    @pytest.mark.parametrize(
+        "linear_dtype", [torch.bfloat16, torch.float16, torch.float32]
+    )
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
         recipe_name,
         x_shape,
+        linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
 
-        linear_dtype = torch.bfloat16
         x = torch.randn(*x_shape, device=torch.accelerator.current_accelerator().type, dtype=linear_dtype)
-        m_ref = nn.Linear(16, 32, bias=linear_bias, device=torch.accelerator.current_accelerator().type, dtype=linear_dtype)
+        m_ref = nn.Linear(16, 32, bias=linear_bias, device=torch.accelerator.current_accelerator().type, dtype=linear_dtye
         config = Float8LinearConfig.from_recipe_name(recipe_name)
         self._test_linear_impl(
             x,

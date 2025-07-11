@@ -28,7 +28,7 @@ function(target_link_torchao_parallel_backend target_name torchao_parallel_backe
         message(STATUS "EXECUTORCH_INCLUDE_DIRS: ${EXECUTORCH_INCLUDE_DIRS}")
         message(STATUS "EXECUTORCH_LIBRARIES: ${EXECUTORCH_LIBRARIES}")
         target_include_directories(${target_name} PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
-        target_link_libraries(${target_name} PRIVATE "${EXECUTORCH_LIBRARIES}")
+        target_link_libraries(${target_name} PRIVATE executorch_core)
         target_compile_definitions(${target_name} PRIVATE TORCHAO_PARALLEL_EXECUTORCH=1)
 
     elseif(TORCHAO_PARALLEL_BACKEND_TOUPPER STREQUAL "OPENMP")

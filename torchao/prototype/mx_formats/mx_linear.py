@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import torch
 import torch.nn.functional as F
+from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import (
     MXGemmKernelChoice,
@@ -23,6 +24,46 @@ from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+
+
+def _triton_to_mxfp8_dim1_wrapper(
+    a, block_size, elem_dtype, hp_dtype, gemm_kernel_choice
+):
+    a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
+    if isinstance(a_data, DTensor):
+        assert isinstance(a_scale, DTensor)
+        a_data_local = a_data.to_local()
+        a_scale_local = a_scale.to_local()
+        inner = MXTensor(
+            a_scale_local,
+            a_data_local.t(),
+            elem_dtype,
+            block_size,
+            hp_dtype,
+            False,
+            gemm_kernel_choice,
+            False,
+        )
+        mx_tensor = DTensor.from_local(
+            inner,
+            a_data.device_mesh,
+            a_data.placements,
+            run_check=False,
+            shape=a_data.t().size(),
+            stride=a_data.t().stride(),
+        )
+    else:
+        mx_tensor = MXTensor(
+            a_scale,
+            a_data.t(),
+            elem_dtype,
+            block_size,
+            hp_dtype,
+            False,
+            gemm_kernel_choice,
+            False,
+        )
+    return mx_tensor
 
 
 @torch._dynamo.allow_in_graph
@@ -95,20 +136,9 @@ class mx_mm(torch.autograd.Function):
         )
 
         if use_fp8_dim1_cast_triton_kernel:
-            weight_mx_dim1_data, weight_mx_dim1_scale = triton_to_mxfp8_dim1(
-                weight_hp, block_size
+            weight_mx_dim1 = _triton_to_mxfp8_dim1_wrapper(
+                weight_hp, block_size, w_elem_dtype, weight_hp.dtype, gemm_kernel_choice
             )
-            weight_mx_dim1 = MXTensor(
-                weight_mx_dim1_scale.reshape(-1),
-                weight_mx_dim1_data.t(),
-                w_elem_dtype,
-                block_size,
-                weight_hp.dtype,
-                False,
-                gemm_kernel_choice,
-                False,
-            )
-
         else:
             weight_hp_t_c = weight_hp.t().contiguous()
             weight_mx_dim1 = MXTensor.to_mx(
@@ -124,18 +154,12 @@ class mx_mm(torch.autograd.Function):
 
         # input_t @ grad_output = grad_weight
         if use_fp8_dim1_cast_triton_kernel:
-            grad_output_mx_dim1_data, grad_output_mx_dim1_scale = triton_to_mxfp8_dim1(
-                grad_output_hp_r, block_size
-            )
-            grad_output_mx_dim1 = MXTensor(
-                grad_output_mx_dim1_scale.reshape(-1),
-                grad_output_mx_dim1_data.t(),
-                grad_elem_dtype,
+            grad_output_mx_dim1 = _triton_to_mxfp8_dim1_wrapper(
+                grad_output_hp_r,
                 block_size,
+                grad_elem_dtype,
                 grad_output_hp_r.dtype,
-                False,
                 gemm_kernel_choice,
-                False,
             )
         else:
             grad_output_mx_dim1 = MXTensor.to_mx(
@@ -146,18 +170,12 @@ class mx_mm(torch.autograd.Function):
             )
 
         if use_fp8_dim1_cast_triton_kernel:
-            input_t_mx_dim0_tmp_data, input_t_mx_dim0_tmp_scale = triton_to_mxfp8_dim1(
-                input_hp_r, block_size
-            )
-            input_t_mx_dim0_tmp = MXTensor(
-                input_t_mx_dim0_tmp_scale.reshape(-1),
-                input_t_mx_dim0_tmp_data.t(),
-                in_elem_dtype,
+            input_t_mx_dim0_tmp = _triton_to_mxfp8_dim1_wrapper(
+                input_hp_r,
                 block_size,
+                in_elem_dtype,
                 input_hp_r.dtype,
-                False,
                 gemm_kernel_choice,
-                False,
             )
             input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         else:

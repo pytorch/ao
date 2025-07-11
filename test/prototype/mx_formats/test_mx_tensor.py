@@ -70,6 +70,14 @@ def _test_mx(
     else:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 13.0)
 
+    # verify that if data.shape is (M, K) then scale.shape is (M, K // block_size)
+    prev_dims, K = data_hp.shape[:-1], data_hp.shape[-1]
+    if elem_dtype is torch.float4_e2m1fn_x2:
+        assert data_mx._data.shape == (*prev_dims, K // 2)
+    else:
+        assert data_mx._data.shape == (*prev_dims, K)
+    assert data_mx._scale_e8m0.shape == (*prev_dims, K // block_size)
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
