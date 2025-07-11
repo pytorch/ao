@@ -12,13 +12,10 @@ import torch
 from torch.fx.node import map_arg
 from torch.fx.passes.infra.pass_base import PassBase, PassResult
 
-from torchao.quantization.pt2e.utils import (
-    _filter_sym_size_users,
-)
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
+from torchao.quantization.pt2e.utils import _filter_sym_size_users
 
-from .utils import (
-    is_valid_annotation,
-)
+from .utils import is_valid_annotation
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -41,7 +38,7 @@ _DEQUANTIZE_OPS = [
 def _maybe_duplicate_dq(
     gm: torch.fx.GraphModule, dq_node: torch.fx.Node, user: torch.fx.Node
 ):
-    annotation = user.meta.get("quantization_annotation", None)
+    annotation = user.meta.get(Q_ANNOTATION_KEY, None)
     if not is_valid_annotation(annotation):
         return
     with gm.graph.inserting_after(dq_node):
