@@ -96,6 +96,7 @@ if (NOT TARGET cpuinfo)
     # For some reason cpuinfo package has unused functions/variables
     # TODO (T215533422): fix upstream
     add_compile_options(-Wno-unused-function -Wno-unused-variable)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     include(FetchContent)
     FetchContent_Declare(cpuinfo
         GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
@@ -163,7 +164,6 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     target_link_torchao_parallel_backend(torchao_ops_executorch executorch)
     target_include_directories(torchao_ops_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
     target_compile_definitions(torchao_ops_executorch PRIVATE USE_EXECUTORCH=1)
-    target_link_libraries(torchao_ops_executorch PRIVATE "${EXECUTORCH_LIBRARIES}")
     if (TORCHAO_BUILD_CPU_AARCH64)
         target_link_libraries(torchao_ops_executorch PRIVATE torchao_kernels_aarch64)
     endif()
