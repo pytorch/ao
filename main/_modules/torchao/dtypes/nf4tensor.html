@@ -1369,7 +1369,7 @@
             <span class="sa">f</span><span class="s2">&quot;NF4Tensor dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
-    <span class="c1"># Do not force the Float8Tensor type on the returned tensor</span>
+    <span class="c1"># Do not force the Float8TrainingTensor type on the returned tensor</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__torch_function__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>

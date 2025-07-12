@@ -441,8 +441,8 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_scaling_utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">hp_tensor_to_float8_dynamic</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Float8Tensor</span><span class="p">,</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_training_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Float8TrainingTensor</span><span class="p">,</span>
     <span class="n">GemmInputRole</span><span class="p">,</span>
     <span class="n">LinearMMConfig</span><span class="p">,</span>
     <span class="n">hp_tensor_and_scale_to_float8</span><span class="p">,</span>
@@ -643,7 +643,7 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">fsdp_pre_all_gather</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mesh</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_precomputed_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">float8_tensor</span> <span class="o">=</span> <span class="n">hp_tensor_and_scale_to_float8</span><span class="p">(</span>
+            <span class="n">float8_training_tensor</span> <span class="o">=</span> <span class="n">hp_tensor_and_scale_to_float8</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_tensor</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_precomputed_scale</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_dtype</span><span class="p">,</span>
@@ -651,7 +651,7 @@
                 <span class="n">GemmInputRole</span><span class="o">.</span><span class="n">WEIGHT</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">float8_tensor</span> <span class="o">=</span> <span class="n">hp_tensor_to_float8_dynamic</span><span class="p">(</span>
+            <span class="n">float8_training_tensor</span> <span class="o">=</span> <span class="n">hp_tensor_to_float8_dynamic</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_tensor</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_dtype</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_linear_mm_config</span><span class="p">,</span>
@@ -659,7 +659,7 @@
                 <span class="n">gemm_input_role</span><span class="o">=</span><span class="n">GemmInputRole</span><span class="o">.</span><span class="n">WEIGHT</span><span class="p">,</span>
                 <span class="n">device_mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
             <span class="p">)</span>
-        <span class="k">return</span> <span class="p">(</span><span class="n">float8_tensor</span><span class="o">.</span><span class="n">_data</span><span class="p">,),</span> <span class="p">(</span><span class="n">float8_tensor</span><span class="o">.</span><span class="n">_scale</span><span class="p">,)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">float8_training_tensor</span><span class="o">.</span><span class="n">_data</span><span class="p">,),</span> <span class="p">(</span><span class="n">float8_training_tensor</span><span class="o">.</span><span class="n">_scale</span><span class="p">,)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">fsdp_post_all_gather</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -674,18 +674,18 @@
         <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed._tensor</span><span class="w"> </span><span class="kn">import</span> <span class="n">DTensor</span>
 
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">Float8Tensor</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">Float8TrainingTensor</span><span class="p">):</span>
                 <span class="n">out</span><span class="o">.</span><span class="n">_scale</span> <span class="o">=</span> <span class="n">scale</span>
             <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">DTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
-                <span class="n">out</span><span class="o">.</span><span class="n">_local_tensor</span><span class="p">,</span> <span class="n">Float8Tensor</span>
+                <span class="n">out</span><span class="o">.</span><span class="n">_local_tensor</span><span class="p">,</span> <span class="n">Float8TrainingTensor</span>
             <span class="p">):</span>
                 <span class="n">out</span><span class="o">.</span><span class="n">_local_tensor</span><span class="o">.</span><span class="n">_scale</span> <span class="o">=</span> <span class="n">scale</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got </span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;out must be a Float8TrainingTensor or DTensor(_local_tensor=Float8TrainingTensor), but got </span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
             <span class="k">return</span>
-        <span class="k">return</span> <span class="n">Float8Tensor</span><span class="p">(</span>
+        <span class="k">return</span> <span class="n">Float8TrainingTensor</span><span class="p">(</span>
             <span class="n">data</span><span class="p">,</span>
             <span class="n">scale</span><span class="p">,</span>
             <span class="n">param_dtype</span><span class="p">,</span>
