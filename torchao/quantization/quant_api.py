@@ -26,7 +26,9 @@ import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
-from torchao.core.config import AOBaseConfig
+from torchao.core.config import (
+    AOBaseConfig,
+)
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
@@ -68,6 +70,7 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
 from torchao.quantization.quantize_.workflows import (
+    Float8Tensor,
     Int4PreshuffledTensor,
 )
 from torchao.quantization.transform_module import (
@@ -1489,15 +1492,11 @@ float8_weight_only = Float8WeightOnlyConfig
 
 
 def _float8_weight_only_quant_tensor(weight, config):
-    from torchao.dtypes import to_affine_quantized_floatx
-
     block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
-    new_weight = to_affine_quantized_floatx(
-        input_float=weight,
-        block_size=block_size,
-        target_dtype=config.weight_dtype,
-        scale_dtype=None,
-        _layout=Float8Layout(mm_config=None),
+    new_weight = Float8Tensor.from_float(
+        weight,
+        config.weight_dtype,
+        block_size,
     )
     return new_weight
 
@@ -1610,6 +1609,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
+    activation_scale_ub: float = 1200.0
     set_inductor_config: bool = True
 
     def __post_init__(self):
@@ -1631,6 +1631,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mm_config = config.mm_config
+    activation_scale_ub = config.activation_scale_ub
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1648,22 +1649,15 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     block_size = get_block_size(weight.shape[-2:], weight_granularity)
     if weight.dim() == 3:
         block_size = tuple([1] + list(block_size))
-    quantized_weight = to_affine_quantized_floatx(
-        input_float=weight,
-        block_size=block_size,
-        target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
-        _layout=Float8Layout(mm_config=mm_config),
-    )
 
-    input_quant_func = _input_activation_quant_func_fp8
-    input_quant_kwargs = {
-        "activation_granularity": activation_granularity,
-        "activation_dtype": activation_dtype,
-    }
-
-    quantized_weight = to_linear_activation_quantized(
-        quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
+    quantized_weight = Float8Tensor.from_float(
+        weight,
+        weight_dtype,
+        block_size,
+        activation_dtype,
+        activation_granularity,
+        activation_scale_ub,
+        mm_config,
     )
     return quantized_weight
 
@@ -2063,7 +2057,7 @@ class FbgemmConfig(AOBaseConfig):
     weight_dtype: torch.dtype
     output_dtype: torch.dtype
     block_size: Optional[List[int]] = None
-    activation_scale_ub: Optional[float] = None
+    activation_scale_ub: float = 1200.0
     preshuffle: bool = False
 
 
