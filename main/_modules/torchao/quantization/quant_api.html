@@ -493,8 +493,8 @@
     <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span><span class="p">,</span> <span class="n">get_block_size</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Int4GroupwisePreshuffleTensor</span><span class="p">,</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.workflows</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Int4PreshuffledTensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.transform_module</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">,</span>
@@ -2482,6 +2482,7 @@
 <span class="sd">       weight_dtype (torch.dtype): weight dtype of the kernel</span>
 <span class="sd">       output_dtype (torch.dtype): output dtype of the kernel</span>
 <span class="sd">       group_size (int): The group size for weight</span>
+<span class="sd">       preshuffle (bool): whether preshuffle the weights or not</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">input_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
@@ -2499,7 +2500,7 @@
 
     <span class="n">_SUPPORTED_DTYPES</span> <span class="o">=</span> <span class="p">{</span>
         <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">),</span>
-        <span class="p">(</span><span class="n">e4m3_dtype</span><span class="p">,</span> <span class="n">e4m3_dtype</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">),</span>
+        <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">),</span>
     <span class="p">}</span>
 
     <span class="k">if</span> <span class="p">(</span>
@@ -2508,8 +2509,10 @@
         <span class="ow">and</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">output_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
     <span class="p">):</span>
         <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">preshuffle</span><span class="p">:</span>
-            <span class="n">weight</span> <span class="o">=</span> <span class="n">Int4GroupwisePreshuffleTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
-                <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">block_size</span>
+            <span class="n">weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+                <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+                <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">weight</span> <span class="o">=</span> <span class="n">to_fbgemm_int4</span><span class="p">(</span>
@@ -2519,6 +2522,20 @@
         <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">module</span>
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">input_dtype</span> <span class="o">==</span> <span class="n">e4m3_dtype</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">output_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">preshuffle</span><span class="p">:</span>
+            <span class="n">weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+                <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+                <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">module</span>
     <span class="k">elif</span> <span class="p">(</span>
         <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">input_dtype</span> <span class="o">==</span> <span class="n">e4m3_dtype</span><span class="p">)</span>
         <span class="ow">and</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="o">==</span> <span class="n">e4m3_dtype</span><span class="p">)</span>
