@@ -1375,17 +1375,21 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size,
+        scaling_mode="FLOOR",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A reference version of `to_mxfp8_dim1`.
         """
-        from torchao.prototype.mx_formats.mx_tensor import to_mx
+        from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
+
+        scale_mode = ScaleCalculationMode[scaling_mode]
 
         # cast across dim1
         x_hp_d1 = x_hp.t().contiguous()
         scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
-            x_hp_d1, torch.float8_e4m3fn, block_size
+            x_hp_d1, torch.float8_e4m3fn, block_size, scaling_mode=scale_mode
         )
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
@@ -1718,7 +1722,7 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor, block_size, scaling_mode
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
