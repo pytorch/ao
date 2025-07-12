@@ -14,6 +14,7 @@ import torch
 from torch._higher_order_ops.out_dtype import out_dtype
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torch.fx import GraphModule
+from torch.fx.passes.utils.matcher_with_name_node_map_utils import InternalMatch
 from torch.fx.subgraph_rewriter import replace_pattern_with_filters
 
 from torchao.quantization.pt2e.export_utils import WrapperModule
@@ -254,9 +255,9 @@ def _qdq_dynamic_quantized_linear_4bit_groupwise(
     )
 
     assert group_size > 0, "Group size must be positive"
-    assert weight_i4.shape[1] % group_size == 0, (
-        "Weight must be divisible by group_size"
-    )
+    assert (
+        weight_i4.shape[1] % group_size == 0
+    ), "Weight must be divisible by group_size"
     assert weight_i4.dim() == 2, "Weight must be 2D tensor"
     block_size = (1, group_size)
     weight_fp32 = torch.ops.torchao.dequantize_affine(
@@ -336,9 +337,11 @@ def _reference_dqlinear_int4(
     # scales in xnnpack are stored as bf16 and converted to fp32 for computation
     weight_scale = weight_scale.to(torch.bfloat16).to(torch.float32)
 
-    assert x_i8.dim() == 2, "x_i8 must be 2D tensor"
     # Reshape for group-wise processing
     # x: [batch_size, in_features] -> [batch_size, num_groups, group_size]
+    x_orig_shape = x_i8.shape
+    k_dim = x_i8.shape[-1]
+    x_i8 = x_i8.view(-1, k_dim)
     batch_size = x_i8.shape[0]
     x_i8_grouped = x_i8.view(batch_size, num_groups, group_size)
 
@@ -353,6 +356,8 @@ def _reference_dqlinear_int4(
     acc_fp32 = torch.zeros(
         batch_size, out_features, dtype=torch.float32, device=x_fp32.device
     )
+    out_shape = list(x_orig_shape)
+    out_shape[-1] = out_features
 
     if weight_scale.ndim == 1:
         weight_scale = weight_scale.unsqueeze(0)
@@ -396,7 +401,7 @@ def _reference_dqlinear_int4(
     if bias_fp32 is not None:
         out_fp32 = out_fp32 + bias_fp32
 
-    return out_fp32
+    return out_fp32.view(out_shape)
 
 
 def _reference_dynamic_quantized_linear_4bit_groupwise(
@@ -421,6 +426,33 @@ def _reference_dynamic_quantized_linear_4bit_groupwise(
         bias_fp32,
         (1, group_size),
     )
+
+
+def _filter_fn_for_dynamic_quantized_linear_4bit_groupwise(
+    match,
+    original_graph,
+    pattern_graph,
+) -> bool:
+    weight_is_int4 = False
+    act_quant_is_int8 = False
+    for node in match.nodes_map.values():
+        if (
+            isinstance(node, torch.fx.Node)
+            and node.op == "call_function"
+            and node.target == torch.ops.torchao.dequantize_affine.default
+        ):
+            args = node.args
+            if len(args) >= 7:
+                weight_is_int4 = args[5] == -8 and args[6] == 7
+        if (
+            isinstance(node, torch.fx.Node)
+            and node.op == "call_function"
+            and node.target == torch.ops.torchao.quantize_affine.default
+        ):
+            args = node.args
+            if len(args) >= 5:
+                act_quant_is_int8 = args[4] == torch.int8
+    return weight_is_int4 and act_quant_is_int8
 
 
 def _qdq_quantized_conv2d(
@@ -847,6 +879,9 @@ class _RewriteInfo:
     # post transformation on the exported pattern and replacement GraphModule
     pattern_post_trans: Optional[Callable[[GraphModule], GraphModule]] = None
     replacement_post_trans: Optional[Callable[[GraphModule], GraphModule]] = None
+    filter_fn: Optional[
+        list[Callable[["InternalMatch", torch.fx.Graph, torch.fx.Graph], bool]]
+    ] = None
     ignore_literals: bool = False
 
 
@@ -959,8 +994,21 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
         127,
     )
 
-    _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS = (
-        torch.randn((2, 32), dtype=torch.float),  # x_fp32
+    _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_1 = (
+        torch.randn((1, 32), dtype=torch.float),  # x_fp32
+        torch.finfo(torch.float32).eps,  # x_eps
+        torch.randint(-8, 7, (8, 32), dtype=torch.int8),  # weight_i4 (stored as int8)
+        torch.randn(8, 4, dtype=torch.float),  # weight_scale [out_features, num_groups]
+        torch.zeros(
+            8, 4, dtype=torch.int
+        ),  # weight_zero_point [out_features, num_groups]
+        torch.randn(8, dtype=torch.float),  # bias_fp32
+        8,  # group_size
+    )
+
+    # just saw that we can match again > 2 dim input. Hacky.
+    _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_2 = (
+        torch.randn((1, 1, 32), dtype=torch.float),  # x_fp32
         torch.finfo(torch.float32).eps,  # x_eps
         torch.randint(-8, 7, (8, 32), dtype=torch.int8),  # weight_i4 (stored as int8)
         torch.randn(8, 4, dtype=torch.float),  # weight_scale [out_features, num_groups]
@@ -986,7 +1034,7 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
             ),
         ),
         _RewriteInfo(
-            _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS,
+            _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_1,
             WrapperModule(_qdq_dynamic_quantized_linear_4bit_groupwise),
             WrapperModule(_reference_dynamic_quantized_linear_4bit_groupwise),
             partial(
@@ -1003,6 +1051,28 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
                     (1, 8): 6,
                 },
             ),
+            filter_fn=[_filter_fn_for_dynamic_quantized_linear_4bit_groupwise],
+            ignore_literals=True,
+        ),
+        _RewriteInfo(
+            _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_2,
+            WrapperModule(_qdq_dynamic_quantized_linear_4bit_groupwise),
+            WrapperModule(_reference_dynamic_quantized_linear_4bit_groupwise),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    torch.finfo(torch.float32).eps: 1,
+                    (1, 8): 6,
+                },
+            ),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    torch.finfo(torch.float32).eps: 1,
+                    (1, 8): 6,
+                },
+            ),
+            filter_fn=[_filter_fn_for_dynamic_quantized_linear_4bit_groupwise],
             ignore_literals=True,
         ),
         _RewriteInfo(
@@ -1087,7 +1157,7 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
                 model,
                 pattern,
                 replacement,
-                match_filters=None,
+                match_filters=rewrite_info.filter_fn,
                 ignore_literals=rewrite_info.ignore_literals,
             )  # type: ignore[arg-type]
 

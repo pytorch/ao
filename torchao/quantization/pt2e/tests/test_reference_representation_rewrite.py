@@ -356,7 +356,7 @@ class TestModelRewrite(unittest.TestCase):
             with self.subTest(group_size=group_size):
                 # Create model
                 model = SimpleLinearModel(input_size=64, hidden_size=32, output_size=16)
-                example_input = torch.randn(1, 64)
+                example_input = torch.randn(1, 2, 64)
 
                 # Apply quantization with specific group size
                 quantize_(
