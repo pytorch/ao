@@ -24,7 +24,7 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
 )
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
-from torchao.float8.float8_tensor import LinearMMConfig
+from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _scaled_grouped_mm,
