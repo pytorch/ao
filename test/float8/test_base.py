@@ -40,8 +40,8 @@ from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
@@ -60,13 +60,13 @@ random.seed(0)
 torch.manual_seed(0)
 
 
-def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
+def bitwise_identical(a: Float8TrainingTensor, b: Float8TrainingTensor) -> bool:
     assert torch.all(a._scale == b._scale).item(), "scales are not identical"
     assert torch.all(a._data == b._data).item(), "data is not identical"
     return True
 
 
-class TestFloat8Tensor:
+class TestFloat8TrainingTensor:
     def test_preserves_dtype(self) -> None:
         # hp means high precision, lp means low precision
         hp_dtypes = (torch.float32, torch.float16, torch.bfloat16)
@@ -128,7 +128,7 @@ class TestFloat8Tensor:
         with pytest.raises(RuntimeError):
             fp8_a.copy_(b)  # Should fail
 
-        fp8_b = Float8Tensor(
+        fp8_b = Float8TrainingTensor(
             torch.empty(16, dtype=e4m3_dtype),
             scale_a,
             torch.bfloat16,
