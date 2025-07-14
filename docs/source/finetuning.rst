@@ -284,10 +284,123 @@ schemes, but these are not customizable unlike the above example.
 Quantized Low-Rank Adaptation (QLoRA)
 #####################################
 
-(Coming soon!)
+Low-Rank Adaptation (LoRA) refers to freezing the original model,
+and instead training a set of new "adapter" parameters that are a
+small fraction of the original parameters, thereby significantly
+reducing the memory footprint during training. QLoRA is an extension
+of LoRA that additionally quantizes the frozen original model
+parameters to 4-bits, thereby further reducing the memory footprint.
+
+TorchAO offers an implementation of the NF4 data type proposed in
+the original `QLoRA paper <https://arxiv.org/pdf/2305.14314>`__.
+This implementation expresses NF4 as a tensor subclass through the
+`NF4Tensor <https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.NF4Tensor.html>`__,
+which composes cleanly with other PyTorch features like `torch.compile`
+and FSDP2. Users can convert a high precision tensor to NF4 simply
+by calling `torchao.dtypes.to_nf4 <https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.to_nf4.html>`__.
+For example:
+
+.. code::
+
+  class FrozenNF4Linear(nn.Linear):
+      def __init__(
+          self,
+          in_dim: int,
+          out_dim: int,
+          bias: bool = False,
+          device: Optional[torch.device] = None,
+          dtype: Optional[torch.dtype] = None,
+          **quantization_kwargs,
+      ):
+          super().__init__(in_dim, out_dim, bias=bias, device=device, dtype=dtype)
+          # No need to train these in QLoRA
+          self.weight.requires_grad_(False)
+          if self.bias is not None:
+              self.bias.requires_grad_(False)
+          nf4_weight = to_nf4(self.weight, **quantization_kwargs)
+          self.weight = torch.nn.Parameter(nf4_weight, requires_grad=False)
+
+QLoRA need not work with NF4 specifically, though NF4 has been
+shown to achieve competitive results compared to bf16 baselines
+while significantly reducing the memory required for training.
+This technique can also compose with other lower bit dtypes
+such as regular INT4 or even newer `MXFP4 or NVFP4 <https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats>`__
+targeting Blackwell GPUs to reap similar memory benefits with
+varying tradeoffs.
+
+Option 1: TorchTune Integration
+===============================
+
+TorchTune incorporates the `NF4Tensor` in its QLoRA fine-tuning
+recipe through their implementation of `LoRALinear <https://github.com/pytorch/torchtune/blob/a6290a5b40758f13bca61c386bc8756a49ef417e/torchtune/modules/peft/lora.py#L19>`__.
+You can also try it out by running the following command,
+or refer to their `QLoRA tutorial <https://docs.pytorch.org/torchtune/stable/tutorials/qlora_finetune.html>`__
+for more details.
+
+.. code::
+
+  tune run lora_finetune_single_device --config llama3_2/3B_qlora_single_device.yaml
+
+Option 2: HuggingFace PEFT Integration
+======================================
+
+`HuggingFace PEFT <https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization>`__
+also has a limited version of QLoRA leveraging TorchAO's INT8
+quantization, though INT4 or NF4 are not supported yet. Users
+can invoke this functionality by preparing their models as follows.
+For full details, please refer to `this tutorial <https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization>`__.
+
+.. code::
+
+  from peft import LoraConfig, get_peft_model
+  from transformers import AutoModelForCausalLM, TorchAoConfig
+  from torchao.quantization import Int8WeightOnlyConfig
+
+  base_model = AutoModelForCausalLM.from_pretrained(
+      "meta-llama/Llama-3.2-1B",
+      quantization_config=TorchAoConfig(Int8WeightOnlyConfig()),
+  )
+  peft_config = LoraConfig()
+  model = get_peft_model(base_model, peft_config)
 
 
 Float8 Quantized Fine-tuning
 ############################
 
-(Coming soon!)
+Similar to `pre-training <pretraining.html>`__, we can also
+leverage float8 in fine-tuning for higher training throughput
+with no accuracy degradation and no increase in memory usage.
+Float8 training is integrated into TorchTune's distributed
+full fine-tuning recipe, leveraging the same APIs as our
+integration with TorchTitan. Users can invoke this fine-tuning
+recipe as follows:
+
+.. code::
+
+  tune run --nnodes 1 --nproc_per_node 4 full_finetune_distributed --config llama3_2/3B_full
+    enable_fp8_training=true \
+    fp8_recipe_name=tensorwise \
+    compile=True
+
+Initial experiments saw up to 16.5% throughput improvement
+for fine-tuning Llama3.2-3B in float8:
+
+.. code::
+
+  experiment_name         tok/s                 peak_mem_reserved
+  ----------------------  -------------------   -------------------
+  bf16                    6502.143 (+0.000%)    30.090 (+0.000%)
+  fp8_noname              7205.386 (+10.816%)   30.010 (-0.266%)
+  fp8_tensorwise          7222.198 (+11.074%)   30.010 (-0.266%)
+  fp8_rowwise             6387.968 (-1.756%)    29.158 (-3.096%)
+  fp8_rowwise_with_gw_hp  7573.698 (+16.480%)   29.516 (-1.908%)
+  
+  experiment_name         hellaswag_acc    wikitext_word_perplexity
+  ----------------------  ---------------  --------------------------
+  bf16                    0.533 (+0.000)   12.407 (+0.000)
+  fp8_noname              0.533 (+0.000)   12.414 (+0.007)
+  fp8_tensorwise          0.533 (+0.000)   12.412 (+0.005)
+  fp8_rowwise             0.533 (-0.000)   12.420 (+0.013)
+  fp8_rowwise_with_gw_hp  0.534 (+0.001)   12.416 (+0.009)
+
+Please refer to the `pre-training <pretraining.html>`__ tutorial for more details.
