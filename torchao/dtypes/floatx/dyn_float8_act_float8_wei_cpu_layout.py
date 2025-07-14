@@ -84,7 +84,7 @@ class Float8DynActFloat8WeiCpuAQTTensorImpl(AQTTensorImpl):
             tensor_data_dict["packed_weight"],
             tensor_data_dict["scales"],
         )
-        (_layout, transposed) = tensor_attributes
+        (transposed, _layout) = tensor_attributes
         return cls(packed_weight, scales, transposed, _layout)
 
     @classmethod
@@ -103,8 +103,9 @@ class Float8DynActFloat8WeiCpuAQTTensorImpl(AQTTensorImpl):
             scale.unsqueeze_(-1)
         scale = scale.to(torch.float)
 
+        N = data.size(0)
         K = data.size(-1)
-        if K % 32 == 0:
+        if N % 32 == 0 and K % 32 == 0:
             # Pack weight from [N, K] to [N / block_n, K / block_k, block_k, block_n].
             # Pack inner blocks [block_k, block_n] to VNNI layout if AMX is available.
             # Pack scales from [N, num_groups] to [N / block_n, num_groups, block_n].
@@ -178,7 +179,7 @@ class Float8DynActFloat8WeiCpuAQTTensorImpl(AQTTensorImpl):
         return (1, group_size)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        if self._layout == PlainLayout:
+        if isinstance(self._layout, PlainLayout):
             # If the layout is PlainLayout, return the packed weight and scales directly
             return (
                 self.packed_weight,

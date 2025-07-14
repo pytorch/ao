@@ -44,6 +44,7 @@ float8_linear_prepack_impl(
   int N = weight.size(0);
   int K = weight.size(1);
   int G = scales.size(1);
+  TORCH_CHECK(K % G == 0, "K should be divisible by num_groups");
   int group_size = K / G;
   int block_k = group_size > 128 ? 128 : group_size;
   while (K % block_k != 0) {
@@ -52,6 +53,7 @@ float8_linear_prepack_impl(
   TORCH_CHECK(block_k > 0 && block_k <= group_size,
               "Float8 linear CPU: Invalid block_k size, should be in (0, group_size]");
   constexpr int block_n = BLOCK_N;
+  TORCH_CHECK(N % block_n == 0, "N should be divisible by 32");
   int Nc = N / block_n;
   int Kc = K / block_k;
 
