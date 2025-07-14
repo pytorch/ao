@@ -33,6 +33,10 @@ from torchao.prototype.mx_formats.constants import (
     F32_EXP_BIAS,
 )
 
+from torchao.utils import (
+    is_sm_at_least_100,
+)
+
 
 def get_bits(x: torch.Tensor) -> str:
     bits_per_byte = 8
@@ -1730,3 +1734,92 @@ else:
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
+
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs torch version 2.8+ and CUDA extension mxfp8_cuda")
+
+# Kernels built only sm100+
+if is_sm_at_least_100():
+    from torchao.prototype import mxfp8_cuda
+    @torch.library.custom_op("torchaoao::mxfp8_quantize_cuda", mutates_args=())
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert x.ndim == 2
+        rows, cols = x.shape
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+        output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
+            mxfp8_cuda.quantize(
+                x, rowwise=rowwise, colwise=colwise, scaling_mode=scaling_mode
+            )
+        )
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @mxfp8_quantize_cuda.register_fake
+    def _(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert x.ndim == 2
+        rows, cols = x.shape
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+        num_row_blocks = rows // 32
+        num_col_blocks = cols // 32
+
+        if rowwise:
+            output_rowwise = x.new_empty(rows, cols, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(
+                rows, num_col_blocks, 1, dtype=torch.float8_e8m0fnu
+            )
+        else:
+            output_rowwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        # colwise scaled output tensor and scales written in column-major memory layout.
+        if colwise:
+            output_colwise = torch.empty_strided(
+                (rows, cols), (1, rows), dtype=torch.float8_e4m3fn, device=x.device
+            )
+            scales_colwise = torch.empty_strided(
+                (cols, num_row_blocks),
+                (1, cols),
+                dtype=torch.float8_e8m0fnu,
+                device=x.device,
+            )
+        else:
+            output_colwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_colwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    def custom_mxfp8_quantize_cuda_sharding(x, inner_block_size=32):
+        replicate = ([Replicate(), Replicate()], [Replicate(), None])
+        # Note that the data is returned transposed, which is why
+        # we flip the sharding dim below
+        shard_dim0 = ([Shard(1), Shard(1)], [Shard(0), None])
+        shard_dim1 = ([Shard(0), Shard(0)], [Shard(1), None])
+        acceptable_shardings = [replicate, shard_dim0, shard_dim1]
+        return acceptable_shardings
+else:
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs torch version 2.8+ and CUDA extension mxfp8_cuda")
