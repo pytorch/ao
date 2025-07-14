@@ -20,6 +20,8 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"  # In case this logic breaks don't break the build
 
+logger = logging.getLogger(__name__)
+
 try:
     from pathlib import Path
 
@@ -36,7 +38,7 @@ try:
     # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
     from torchao.experimental.op_lib import *  # noqa: F403
 except Exception as e:
-    logging.debug(f"Skipping import of cpp extensions: {e}")
+    logger.debug(f"Skipping import of cpp extensions: {e}")
 
 from torchao.quantization import (
     autoquant,
