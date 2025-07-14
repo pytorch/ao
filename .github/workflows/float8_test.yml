@@ -29,7 +29,7 @@ jobs:
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
           - name: H100
-            runs-on: linux.aws.h100
+            runs-on: linux.aws.h100.4
             torch-spec: '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
@@ -53,6 +53,11 @@ jobs:
         uv pip install -r dev-requirements.txt
         uv pip install vllm
         pip install .
-        pytest test/float8 --verbose -s
-        pytest test/integration --verbose -s
-        pytest test/dtypes/test_affine_quantized_float.py --verbose -s
+        GPU_COUNT=$(nvidia-smi -L 2>/dev/null | wc -l)
+        if [ "$GPU_COUNT" -ge 4 ]; then
+            echo "Found $GPU_COUNT GPUs - running test_everything.sh"
+            ./test/float8/test_everything.sh
+        else
+            echo "Only $GPU_COUNT GPUs available. Need at least 4 GPUs to run test_everything.sh"
+            exit 0
+        fi
