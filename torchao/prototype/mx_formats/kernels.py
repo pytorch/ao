@@ -1718,7 +1718,8 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
