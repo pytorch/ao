@@ -1812,6 +1812,25 @@ if is_sm_at_least_100():
 
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
+    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    def custom_mxfp8_quantize_cuda_dim1_sharding(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ):
+        # This function signature can be used to understand the shardings:
+        # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
+        replicate = (
+            [None, Replicate(), None, Replicate()],
+            [None, Replicate(), None, None],
+        )
+        # Note that the data is returned transposed, which is why
+        # we flip the sharding dim below
+        shard_dim0 = ([None, Shard(1), None, Shard(1)], [None, Shard(0), None, None])
+        shard_dim1 = ([None, Shard(0), None, Shard(0)], [None, Shard(1), None, None])
+        acceptable_shardings = [replicate, shard_dim0, shard_dim1]
+        return acceptable_shardings
 else:
 
     def mxfp8_quantize_cuda(
