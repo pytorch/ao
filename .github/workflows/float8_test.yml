@@ -53,6 +53,9 @@ jobs:
         uv pip install -r dev-requirements.txt
         uv pip install vllm
         pip install .
+        pytest test/float8 --verbose -s
+        pytest test/integration --verbose -s
+        pytest test/dtypes/test_affine_quantized_float.py --verbose -s
         GPU_COUNT=$(nvidia-smi -L 2>/dev/null | wc -l)
         if [ "$GPU_COUNT" -ge 4 ]; then
             echo "Found $GPU_COUNT GPUs - running test_everything.sh"
