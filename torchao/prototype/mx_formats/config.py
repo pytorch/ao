@@ -33,6 +33,17 @@ class MXGemmKernelChoice(Enum):
     CUBLAS = "cublas"
 
 
+class MXFP8Dim1CastKernelChoice(Enum):
+    """
+    Defines which kernel to use for mxfp8 casting. Currently custom casting kernels are
+    only for scaling along dim1, and torch native code is always used for scaling along dim0.
+    """
+
+    TRITON = "triton"
+    CUDA = "cuda"
+    TORCH = "torch"
+
+
 # Pre-made recipes for common configurations
 class MXLinearRecipeName(Enum):
     MXFP8_EMULATED = "mxfp8_emulated"
@@ -85,10 +96,12 @@ class MXLinearConfig(AOBaseConfig):
     # on the given hardware an exception will be thrown
     gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
 
-    # If True, uses a custom triton kernel for cast to mxfp8 across dim1
+    # define which kernel to use for mxfp8 casting
     # TODO(1945): remove this config option once torch.compile gives us
     # a fast kernel
-    use_fp8_dim1_cast_triton_kernel: bool = False
+    mxfp8_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
+        MXFP8Dim1CastKernelChoice.TORCH
+    )
 
     # If True, uses a custom triton kernel for fp4 dequantize
     use_fp4_custom_triton_dequant_kernel: bool = False
@@ -146,8 +159,7 @@ class MXLinearConfig(AOBaseConfig):
         if self.elem_dtype_grad_output_override is not None:
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
         s += f", kernel={self.gemm_kernel_choice.value}"
-        if self.use_fp8_dim1_cast_triton_kernel:
-            s += ", use_fp8_dim1_cast_triton_kernel=True"
+        s += f", mxfp8_cast_kernel_choice={self.mxfp8_cast_kernel_choice.value}"
         if self.use_fp4_custom_triton_dequant_kernel:
             s += ", use_fp4_custom_triton_dequant_kernel=True"
         return s
