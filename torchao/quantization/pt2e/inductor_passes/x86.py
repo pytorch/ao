@@ -40,6 +40,7 @@ _VIEW_METHOD_OPS = [
     'transpose',
     'permute',
     'view',
+    'reshape',
 ]
 
 """
