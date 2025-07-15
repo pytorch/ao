@@ -19,7 +19,10 @@ from torchao.prototype.mx_formats.config import (
     MXInferenceLinearConfig,
     MXLinearConfig,
 )
-from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
+from torchao.prototype.mx_formats.kernels import (
+    mxfp8_quantize_cuda,
+    triton_to_mxfp8_dim1,
+)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
@@ -30,6 +33,51 @@ def _triton_to_mxfp8_dim1_wrapper(
     a, block_size, elem_dtype, hp_dtype, gemm_kernel_choice
 ):
     a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
+    if isinstance(a_data, DTensor):
+        assert isinstance(a_scale, DTensor)
+        a_data_local = a_data.to_local()
+        a_scale_local = a_scale.to_local()
+        inner = MXTensor(
+            a_scale_local,
+            a_data_local.t(),
+            elem_dtype,
+            block_size,
+            hp_dtype,
+            False,
+            gemm_kernel_choice,
+            False,
+        )
+        mx_tensor = DTensor.from_local(
+            inner,
+            a_data.device_mesh,
+            a_data.placements,
+            run_check=False,
+            shape=a_data.t().size(),
+            stride=a_data.t().stride(),
+        )
+    else:
+        mx_tensor = MXTensor(
+            a_scale,
+            a_data.t(),
+            elem_dtype,
+            block_size,
+            hp_dtype,
+            False,
+            gemm_kernel_choice,
+            False,
+        )
+    return mx_tensor
+
+
+def _cuda_to_mxfp8_dim1_wrapper(
+    a, block_size, elem_dtype, hp_dtype, gemm_kernel_choice
+):
+    _, a_data, _, a_scale = mxfp8_quantize_cuda(
+        a,
+        rowwise=False,
+        colwise=True,
+        scaling_mode="floor",
+    )
     if isinstance(a_data, DTensor):
         assert isinstance(a_scale, DTensor)
         a_data_local = a_data.to_local()
