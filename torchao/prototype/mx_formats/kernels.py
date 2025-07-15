@@ -1732,3 +1732,5 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     print("fake test change 1 is different now")
+
+    print("fake test change 2")
