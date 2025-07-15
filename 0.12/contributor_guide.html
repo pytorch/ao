@@ -1,0 +1,946 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Contributor Guide &mdash; torchao 0.12 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Benchmarking API Guide" href="benchmarking_api_guide.html" />
+    <link rel="prev" title="Sparsity Overview" href="sparsity.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Learn
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started">
+                  <span class=dropdown-title>Get Started</span>
+                  <p>Run PyTorch locally or get started quickly with one of the supported cloud platforms</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                  <p>Whats new in PyTorch tutorials</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                  <p>Familiarize yourself with PyTorch concepts and modules</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                  <p>Bite-size, ready-to-deploy PyTorch code examples</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                  <p>Master PyTorch basics with our engaging YouTube tutorial series</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Ecosystem
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem">
+                  <span class="dropdown-title">Tools</span>
+                  <p>Learn about the tools and frameworks in the PyTorch Ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class=dropdown-title>Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class=dropdown-title>Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2024">
+                  <span class="dropdown-title">Contributor Awards - 2024</span>
+                  <p>Award winners announced at this year's PyTorch Conference</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                  <p>Build innovative and privacy-aware AI experiences for edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch-overview">
+                  <span class="dropdown-title">ExecuTorch</span>
+                  <p>End-to-end solution for enabling on-device inference capabilities across mobile and edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch/stable/index.html">
+                  <span class="dropdown-title">ExecuTorch Docs</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p>Explore the documentation for comprehensive guidance on how to use PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/pytorch-domains">
+                  <span class="dropdown-title">PyTorch Domains</span>
+                  <p>Read the PyTorch Domains documentation to learn more about domain-specific libraries</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Blogs & News 
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">PyTorch Blog</span>
+                  <p>Catch up on the latest technical news and happenings</p>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/community-blog">
+                  <span class="dropdown-title">Community Blog</span>
+                  <p>Stories from the PyTorch ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/videos">
+                  <span class="dropdown-title">Videos</span>
+                  <p>Learn about the latest PyTorch tutorials, new, and more </p>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                  <p>Stay up-to-date with the latest updates</p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                About
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn more about the PyTorch Foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact-us">
+                  <span class="dropdown-title">Contact Us</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown">
+              <a href="https://pytorch.org/join" data-cta="join">
+                Become a Member
+              </a>
+            </div>
+          </li>
+          <li>
+           <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="github-icon">
+             </a>
+           </div>
+          </li>
+          <!--- TODO: This block adds the search icon to the nav bar. We will enable it later. 
+          <li>
+            <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="search-icon">
+             </a>
+            </div>
+          </li>
+          --->
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+    <div class="version">
+        <a href='https://pytorch.org/ao/versions.html'>0.12 &#x25BC</a>
+    </div>
+    
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Contributor Guide</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="_sources/contributor_guide.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id="
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="contributor-guide">
+<h1>Contributor Guide<a class="headerlink" href="#contributor-guide" title="Permalink to this heading">¶</a></h1>
+<section id="general-guide-on-extending-torchao">
+<h2>General Guide on Extending torchao<a class="headerlink" href="#general-guide-on-extending-torchao" title="Permalink to this heading">¶</a></h2>
+<p>For a new use case, for example, a training dtype (like fp4 training), it’s fine to start with adding a new tensor subclass in prototype folder <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype">torchao/prototype</a>, but you could also take a look at <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> if what you want to do is mostly supported there, e.g. adding int3 kernel for the exact same affine quantization. Please feel free to open an issue and if you have questions on what to do for a specific new use case. For more details, please refer to our <a class="reference external" href="quantization.html">quantization overview page</a>.</p>
+<p>To contribute to existing code base:</p>
+<ul class="simple">
+<li><p>Adding features to AffineQuantizedTensor, e.g. making it trainable, add tensor parallelism support etc.: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py">torchao/dtypes/affine_quantized_tensor.py</a></p></li>
+<li><p>Adding new quantization APIs: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py">torchao/quantization/quant_api.py</a></p></li>
+<li><p>Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py">torchao/quantization/quant_primitives.py</a></p></li>
+<li><p>Adding new autotuned triton kernels: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/kernel">torchao/kernel</a></p></li>
+<li><p>Adding new custom cpu/cuda/mps kernels: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/csrc">torchao/csrc</a></p></li>
+<li><p>Integrating custom kernel with AffineQuantizedTensor (maybe a new layout as well): Add sparse marlin AQT layout <a class="reference external" href="https://github.com/pytorch/ao/pull/621">#621</a> as an example. We are still not decided if we want to split <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> to more tensor subclasses or not.</p></li>
+</ul>
+</section>
+<section id="adding-efficient-kernels">
+<h2>Adding Efficient Kernels<a class="headerlink" href="#adding-efficient-kernels" title="Permalink to this heading">¶</a></h2>
+<section id="custom-triton-kernels">
+<h3>Custom triton kernels<a class="headerlink" href="#custom-triton-kernels" title="Permalink to this heading">¶</a></h3>
+<p>Custom triton kernels can be implemented and registered in <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/kernel">torchao/kernel</a></p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L270-L302">Implementation Example</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L337-L364">Register as a custom op</a></p></li>
+</ul>
+<p>You may need to define you own <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/kernel/autotuner.py">autotuner</a> as well.</p>
+</section>
+<section id="custom-hand-written-kernels">
+<h3>Custom hand written kernels<a class="headerlink" href="#custom-hand-written-kernels" title="Permalink to this heading">¶</a></h3>
+<p>Custom kernels (implementations) for cpu/cuda/mps can be implemented through <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/csrc">torchao/csrc</a> e.g. int4 cuda, and accessible through torch.ops.my_custom_op</p>
+</section>
+</section>
+<section id="dispatches">
+<h2>Dispatches<a class="headerlink" href="#dispatches" title="Permalink to this heading">¶</a></h2>
+<p>For dispatching to optimized kernels for cpu/cuda/mps devices, we can have checks for the dispatch conditions in <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> or <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code> and dispatch to target operators, for example, condition for bfloat16 activation and uint4 weight kernel can be found <a class="reference external" href="https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L1784-L1797">here</a>.</p>
+<p>Specifically for <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code>, we also allow people to extend the quantized linear to use a new efficient kernel or implement by defining two functions:
+<code class="docutils literal notranslate"><span class="pre">dispatch_condition</span></code> (defines the condition to dispatch to the kernel) and impl (actual implementation that takes activation, (quantized) weight, bias Tensor and runs the efficient kernel), both taking <code class="docutils literal notranslate"><span class="pre">input_tensor</span></code>, <code class="docutils literal notranslate"><span class="pre">weight_tensor</span></code>, <code class="docutils literal notranslate"><span class="pre">bias</span></code> as argument, and can be registered into dispatch of quantized linear in <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> with <code class="docutils literal notranslate"><span class="pre">register_aqt_quantized_linear_dispatch</span></code>. <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/test/dtypes/test_affine_quantized.py#L92-L113">Here</a> is an example showing how it works.</p>
+</section>
+<section id="layout-tensorimpl">
+<h2>Layout/TensorImpl<a class="headerlink" href="#layout-tensorimpl" title="Permalink to this heading">¶</a></h2>
+<p>Sometimes the quantized weights has to be packed in order to yield optimal performance. And this can be abstracted with <code class="docutils literal notranslate"><span class="pre">layout</span></code>. See <a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/tutorials/developer_api_guide/my_dtype_tensor_subclass.py#L215-L317">here</a> for full example.</p>
+</section>
+<section id="flow">
+<h2>Flow<a class="headerlink" href="#flow" title="Permalink to this heading">¶</a></h2>
+<dl class="simple">
+<dt>After the tensor subclass is implemented, we can also wrap that into factory functions, e.g.::</dt><dd><p># convert from floating point tensor to my dtype tensor subclass
+to_my_dtype = MyDTypeTensor.from_float</p>
+</dd>
+</dl>
+<p>For model level API, people can reuse <code class="docutils literal notranslate"><span class="pre">torchao.quantize_</span></code> that allows people to apply a tensor subclass conversion to weight of linear, and allows <a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/quantization/quant_api.py#L421">filtering function</a> to choose which module the tensor subclass conversion should be applied to.</p>
+<p>See Quantization Algorithms/Flows section for examples of weight only/dynamic quant/static quant and other types of model level APIs based on the factory function.</p>
+</section>
+<section id="using-torch-compile-for-performance">
+<h2>Using torch.compile for Performance<a class="headerlink" href="#using-torch-compile-for-performance" title="Permalink to this heading">¶</a></h2>
+<dl class="simple">
+<dt>Note: for pytorch 2.4 and below, we need to use the following::</dt><dd><p>from torchao.utils import unwrap_tensor_subclass
+m_unwrapped = unwrap_tensor_subclass(m)</p>
+</dd>
+<dt>In order to be compatible with <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, to aim for performance optimization, we should run through <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> with <code class="docutils literal notranslate"><span class="pre">fullgraph=True</span></code> first, and remove any unnecessary graph breaks. You can add <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span></code> when you run the script in order to see the inductor generated code. e.g. <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span> <span class="pre">python</span> <span class="pre">example.py</span></code>::</dt><dd><p>model = torch.compile(model, mode=”max-autotune”, fullgraph=True)</p>
+</dd>
+</dl>
+</section>
+<section id="serialization">
+<h2>Serialization<a class="headerlink" href="#serialization" title="Permalink to this heading">¶</a></h2>
+<p>Please checkout the <a class="reference external" href="https://pytorch.org/ao/stable/serialization.html">serialization doc</a> for more details.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We are integrated with huggingface transformer and supports serialization/deserialization through the huggingface save_pretrained/push_to_hub/from_pretrained APIs: <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao">https://huggingface.co/docs/transformers/main/en/quantization/torchao</a></p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Another example can be found in integration with diffuser: <a class="reference external" href="https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md">https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md</a></p>
+</div>
+</section>
+<section id="other-feature-support">
+<h2>Other Feature Support<a class="headerlink" href="#other-feature-support" title="Permalink to this heading">¶</a></h2>
+<p>The above just talks about basic feature support, we also provide examples on how to add supports for training, tensor parallel, FSDP by extending the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_dtype_tensor_subclass.py">MyDTypeTensor</a>, we’ll put more examples in <a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/developer_api_guide">developer_api_guide</a> folder covering the following use cases.</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_trainable_tensor_subclass.py">Quantized Training</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/tensor_parallel.py">Tensor Parallel Support for Quantized Tensor</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/export_to_executorch.py">Compatibility with executorch / torchchat</a></p></li>
+<li><p>[TODO] FSDP</p></li>
+<li><p>[TODO] QAT</p></li>
+</ul>
+</section>
+<section id="tensor-subclass-functionality-composability-testing">
+<h2>Tensor Subclass Functionality/Composability Testing<a class="headerlink" href="#tensor-subclass-functionality-composability-testing" title="Permalink to this heading">¶</a></h2>
+<p>We are also working on test suites to test out the functionalities of tensor subclass and the composability with different systems like torch.compile, DTensor etc. (we recommend to copy paste the tests and adapt to test your own tensor subclass for now):</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/testing/utils.py#L74">Basic Test</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/testing/utils.py#L147">Compile Test</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/testing/utils.py#L227">Tensor Parallel Test</a></p></li>
+</ul>
+</section>
+<section id="kernel-microbenchmarks">
+<h2>Kernel Microbenchmarks<a class="headerlink" href="#kernel-microbenchmarks" title="Permalink to this heading">¶</a></h2>
+<p>Before we test performance on models, we can also do some microbenchmarks on single linear operator (or other compute intensive/memory intensive) operators with different input dimensions to get a sense of speedup. For a specific kernel that you’d like to benchmark, you can create a benchmark file like <a class="reference external" href="https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_aq.py">benchmarks/benchmark_aq.py</a> and run benchmark with different shapes that’s important for target model. A quick way to get the relevant shape for linear op and other ops is by running the example with <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/print_op_and_shapes.py">this</a>.</p>
+<p>Change the model with the model you are interested in optimizing, and run the following:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">tutorials</span><span class="o">/</span><span class="n">developer_api_guide</span><span class="o">/</span><span class="n">print_op_and_shapes</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>Example output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">TORCH_FUNC</span><span class="o">=&lt;</span><span class="n">built</span><span class="o">-</span><span class="ow">in</span> <span class="n">function</span> <span class="n">linear</span><span class="o">&gt;</span> <span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">):</span> <span class="mi">10</span> <span class="mi">10</span> <span class="mi">10</span>
+<span class="n">TORCH_FUNC</span><span class="o">=&lt;</span><span class="n">method</span> <span class="s1">&#39;add&#39;</span> <span class="n">of</span> <span class="s1">&#39;torch._C.TensorBase&#39;</span> <span class="n">objects</span><span class="o">&gt;</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">([</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">])</span>
+
+<span class="nb">all</span> <span class="n">linear</span> <span class="n">shapes</span> <span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">):</span> <span class="p">[(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">)]</span>
+</pre></div>
+</div>
+<p>The output of all linear shapes can be copy pasted to microbenchmarking script code under <code class="docutils literal notranslate"><span class="pre">benchmarks/benchmark_your_kernel.py</span></code> for benchmarking.</p>
+<p>For benchmark helper functions, right now we have <a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L55">1</a> and <a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L139">2</a>, feel free to use either one for now, but we’ll probably keep one in the future.</p>
+</section>
+<section id="model-benchmarks-and-eval">
+<h2>Model Benchmarks and Eval<a class="headerlink" href="#model-benchmarks-and-eval" title="Permalink to this heading">¶</a></h2>
+<p>After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.</p>
+<p>Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/llama">llama</a>
+* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py">benchmark</a>
+* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py">eval</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/sam">sam</a>
+* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py">benchmark and eval</a></p></li>
+</ul>
+<p>Please checkout the <code class="docutils literal notranslate"><span class="pre">--help</span></code> option for each of the script to understand the supported options, e.g. you can use <code class="docutils literal notranslate"><span class="pre">--profile=profile_path</span></code> to get the chrome trace of the run to understand detailed <a class="reference external" href="https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality">chrome trace</a>.</p>
+<p>Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.</p>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="benchmarking_api_guide.html" class="btn btn-neutral float-right" title="Benchmarking API Guide" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="sparsity.html" class="btn btn-neutral" title="Sparsity Overview" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2024-present, torchao Contributors.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Contributor Guide</a><ul>
+<li><a class="reference internal" href="#general-guide-on-extending-torchao">General Guide on Extending torchao</a></li>
+<li><a class="reference internal" href="#adding-efficient-kernels">Adding Efficient Kernels</a><ul>
+<li><a class="reference internal" href="#custom-triton-kernels">Custom triton kernels</a></li>
+<li><a class="reference internal" href="#custom-hand-written-kernels">Custom hand written kernels</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#dispatches">Dispatches</a></li>
+<li><a class="reference internal" href="#layout-tensorimpl">Layout/TensorImpl</a></li>
+<li><a class="reference internal" href="#flow">Flow</a></li>
+<li><a class="reference internal" href="#using-torch-compile-for-performance">Using torch.compile for Performance</a></li>
+<li><a class="reference internal" href="#serialization">Serialization</a></li>
+<li><a class="reference internal" href="#other-feature-support">Other Feature Support</a></li>
+<li><a class="reference internal" href="#tensor-subclass-functionality-composability-testing">Tensor Subclass Functionality/Composability Testing</a></li>
+<li><a class="reference internal" href="#kernel-microbenchmarks">Kernel Microbenchmarks</a></li>
+<li><a class="reference internal" href="#model-benchmarks-and-eval">Model Benchmarks and Eval</a></li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+         <script src="_static/jquery.js"></script>
+         <script src="_static/underscore.js"></script>
+         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="_static/doctools.js"></script>
+         <script src="_static/clipboard.min.js"></script>
+         <script src="_static/copybutton.js"></script>
+         <script src="_static/design-tabs.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+<!-- Disabling "auto-collapsing" of sections on the left side bar. Replace script with commented out sections to reenable. -->
+<!--  -->
+<script script type="text/javascript">
+    var collapsedSections = []
+</script>
+
+ 
+<script type="text/javascript">
+  $(document).ready(function () {
+    // Patch the "GitHub" link at the top of the page
+    // to point to the torchao repo.
+    var overwrite = function (_) {
+      if ($(this).length > 0) {
+        $(this)[0].href = "https://github.com/pytorch/ao"
+      }
+    }
+    // PC
+    $(".main-menu a:contains('GitHub')").each(overwrite);
+    // Mobile
+    e$(".mobile-menu a:contains('Github')").each(overwrite);
+  });
+</script>
+
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+           <li class="resources-mobile-menu-title">
+             <a>Learn</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/get-started">Get Started</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials">Tutorials</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+             </li>
+           </ul>
+           <li class="resources-mobile-menu-title">
+             <a>Ecosystem</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/ecosystem">Tools</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/#community-module">Community</a>
+             </li>
+             <li>
+               <a href="https://discuss.pytorch.org/">Forums</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/resources">Developer Resources</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2024</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Edge</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/edge">About PyTorch Edge</a>
+             </li>
+             
+             <li>
+               <a href="https://pytorch.org/executorch-overview">ExecuTorch</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/executorch/stable/index.html">ExecuTorch Documentation</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Docs</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/pytorch-domains">PyTorch Domains</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            <a>Blog & News</a>
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/blog/">PyTorch Blog</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/community-blog">Community Blog</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/videos">Videos</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/newsletter">Newsletter</a>
+             </li>
+          </ul>
+          
+          <li class="resources-mobile-menu-title">
+            <a>About</a>
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/governing-board">Governing Board</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/staff">Staff</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/contact-us">Contact Us</a>
+            </li>
+          </ul>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>
