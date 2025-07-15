@@ -109,7 +109,7 @@ def test_linear_eager_vs_hp(
     )
     m_mx = copy.deepcopy(m)
     config = MXLinearConfig(
-        block_size=4,
+        block_size=32,  # Only block size of 32 is supported right now.
         elem_dtype=elem_dtype[0],
         elem_dtype_weight_override=elem_dtype[1],
         elem_dtype_grad_output_override=elem_dtype[2],
