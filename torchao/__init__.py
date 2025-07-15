@@ -43,6 +43,8 @@ from torchao.quantization import (
     quantize_,
 )
 
+print('test')
+
 from . import dtypes, optim, quantization, swizzle, testing
 
 __all__ = [

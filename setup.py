@@ -509,6 +509,7 @@ def get_extensions():
         )
         sources = [s for s in sources if s not in rocm_sources]
 
+    print("test")
     use_cutlass = False
     cutlass_90a_sources = None
     cutlass_100a_sources = None
