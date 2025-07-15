@@ -4,12 +4,12 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Callable, Tuple
+from typing import Tuple
 
 import fire
 import torch
 import triton
-from torch._inductor.utils import do_bench_using_profiling
+from triton.testing import do_bench
 
 from torchao.prototype.mx_formats.kernels import (
     triton_to_mxfp8_dim1,
@@ -64,11 +64,8 @@ def to_mx_dim1_reference(x_hp, block_size):
     return data_d1.t(), scale_d1
 
 
-def benchmark_cuda_function_in_microseconds(func: Callable, *args, **kwargs) -> float:
-    """Thin wrapper around do_bench_using_profiling"""
-    no_args = lambda: func(*args, **kwargs)
-    time = do_bench_using_profiling(no_args)
-    return time * 1e3
+def benchmark_cuda_function_in_microseconds(f, *args):
+    return do_bench(lambda: f(*args), return_mode="median") * 1e3
 
 
 def run(
@@ -82,7 +79,16 @@ def run(
     print(f"torch version: {torch.__version__}")
     print(f"triton version: {triton.__version__}")
     print(f"mode: {mode}")
-    assert mode in ("dim0", "dim1", "dim0_dim1", "dim0_mx", "dim1_mx", "dim1_mx_triton")
+    assert mode in (
+        "dim0",
+        "dim1",
+        "dim0_dim1",
+        "dim0_mx_floor",
+        "dim1_mx_floor",
+        "dim1_mx_triton_floor",
+        "dim1_mx_cuda_floor",
+        "dim1_mx_cuda_rceil",
+    )
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
@@ -141,7 +147,7 @@ def run(
         )
         bps = bytes_rw / (time_us / 1e6)
 
-    elif mode == "dim0_mx":
+    elif mode == "dim0_mx_floor":
         to_mx_dim0_reference_c = torch.compile(to_mx_dim0_reference)
         y_d0, s_d0 = to_mx_dim0_reference_c(x, BLOCK_SIZE)
 
@@ -159,7 +165,7 @@ def run(
         bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
-    elif mode == "dim1_mx":
+    elif mode == "dim1_mx_floor":
         to_mx_dim1_reference_c = torch.compile(to_mx_dim1_reference)
         y_d1, s_d1 = to_mx_dim1_reference_c(x, BLOCK_SIZE)
 
@@ -177,7 +183,7 @@ def run(
         bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
-    elif mode == "dim1_mx_triton":
+    elif mode == "dim1_mx_triton_floor":
         y_d1, s_d1 = triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
 
         for _ in range(2):
@@ -190,6 +196,58 @@ def run(
 
         assert y_d1.dtype == torch.float8_e4m3fn
         assert s_d1.dtype == torch.float8_e8m0fnu
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim1_mx_cuda_floor":
+        from torchao.prototype import mxfp8_cuda
+
+        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+            x, rowwise=False, colwise=True, scaling_mode="floor"
+        )
+
+        for _ in range(2):
+            __ = mxfp8_cuda.quantize(
+                x, rowwise=False, colwise=True, scaling_mode="floor"
+            )
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp8_cuda.quantize(
+                x, rowwise=False, colwise=True, scaling_mode="floor"
+            ),
+            x,
+        )
+
+        assert y_d1.dtype == torch.float8_e4m3fn
+        assert s_d1.dtype == torch.float8_e8m0fnu
+
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim1_mx_cuda_rceil":
+        from torchao.prototype import mxfp8_cuda
+
+        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+            x, rowwise=False, colwise=True, scaling_mode="rceil"
+        )
+
+        for _ in range(2):
+            __ = mxfp8_cuda.quantize(
+                x, rowwise=False, colwise=True, scaling_mode="rceil"
+            )
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp8_cuda.quantize(
+                x, rowwise=False, colwise=True, scaling_mode="rceil"
+            ),
+            x,
+        )
+
+        assert y_d1.dtype == torch.float8_e4m3fn
+        assert s_d1.dtype == torch.float8_e8m0fnu
+
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
