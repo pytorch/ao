@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import (
+    MXFP8CastKernelChoice,
     MXGemmKernelChoice,
     MXInferenceLinearConfig,
     MXLinearConfig,
@@ -134,7 +135,7 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype: Any,
         block_size: int,
         gemm_kernel_choice: MXGemmKernelChoice,
-        use_fp8_dim1_cast_triton_kernel: bool,
+        mxfp8_cast_kernel_choice: MXFP8CastKernelChoice,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
@@ -142,7 +143,7 @@ class mx_mm(torch.autograd.Function):
         ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
         ctx.gemm_kernel_choice = gemm_kernel_choice
-        ctx.use_fp8_dim1_cast_triton_kernel = use_fp8_dim1_cast_triton_kernel
+        ctx.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
@@ -167,7 +168,7 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
         gemm_kernel_choice = ctx.gemm_kernel_choice
-        use_fp8_dim1_cast_triton_kernel = ctx.use_fp8_dim1_cast_triton_kernel
+        mxfp8_cast_kernel_choice = ctx.mxfp8_cast_kernel_choice
 
         grad_output_orig_shape = grad_output_hp.shape
         grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
@@ -183,8 +184,12 @@ class mx_mm(torch.autograd.Function):
             gemm_kernel_choice=gemm_kernel_choice,
         )
 
-        if use_fp8_dim1_cast_triton_kernel:
+        if mxfp8_cast_kernel_choice == MXFP8CastKernelChoice.TRITON:
             weight_mx_dim1 = _triton_to_mxfp8_dim1_wrapper(
+                weight_hp, block_size, w_elem_dtype, weight_hp.dtype, gemm_kernel_choice
+            )
+        elif mxfp8_cast_kernel_choice == MXFP8CastKernelChoice.CUDA:
+            weight_mx_dim1 = _cuda_to_mxfp8_dim1_wrapper(
                 weight_hp, block_size, w_elem_dtype, weight_hp.dtype, gemm_kernel_choice
             )
         else:
@@ -201,8 +206,16 @@ class mx_mm(torch.autograd.Function):
         )
 
         # input_t @ grad_output = grad_weight
-        if use_fp8_dim1_cast_triton_kernel:
+        if mxfp8_cast_kernel_choice == MXFP8CastKernelChoice.TRITON:
             grad_output_mx_dim1 = _triton_to_mxfp8_dim1_wrapper(
+                grad_output_hp_r,
+                block_size,
+                grad_elem_dtype,
+                grad_output_hp_r.dtype,
+                gemm_kernel_choice,
+            )
+        elif mxfp8_cast_kernel_choice == MXFP8CastKernelChoice.CUDA:
+            grad_output_mx_dim1 = _cuda_to_mxfp8_dim1_wrapper(
                 grad_output_hp_r,
                 block_size,
                 grad_elem_dtype,
@@ -217,8 +230,17 @@ class mx_mm(torch.autograd.Function):
                 gemm_kernel_choice=gemm_kernel_choice,
             )
 
-        if use_fp8_dim1_cast_triton_kernel:
+        if mxfp8_cast_kernel_choice == MXFP8CastKernelChoice.TRITON:
             input_t_mx_dim0_tmp = _triton_to_mxfp8_dim1_wrapper(
+                input_hp_r,
+                block_size,
+                in_elem_dtype,
+                input_hp_r.dtype,
+                gemm_kernel_choice,
+            )
+            input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
+        elif mxfp8_cast_kernel_choice == MXFP8CastKernelChoice.CUDA:
+            input_t_mx_dim0_tmp = _cuda_to_mxfp8_dim1_wrapper(
                 input_hp_r,
                 block_size,
                 in_elem_dtype,
@@ -280,7 +302,7 @@ class MXLinear(torch.nn.Linear):
             config.elem_dtype_grad_output_override or config.elem_dtype,
             config.block_size,
             config.gemm_kernel_choice,
-            config.use_fp8_dim1_cast_triton_kernel,
+            config.mxfp8_cast_kernel_choice,
         )
         if self.bias is not None:
             y = y + self.bias
