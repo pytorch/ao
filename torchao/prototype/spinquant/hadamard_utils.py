@@ -175,7 +175,7 @@ def get_hadK(n, transpose=False):
         hadK = get_had12().T if transpose else get_had12()
     else:
         assert is_pow2(n)
-
+        hadK = torch.FloatTensor([[1]])
         K = 1
 
     return hadK, K
@@ -222,7 +222,7 @@ def matmul_hadU_fast(X, hadK, K):
 
 def random_hadamard_matrix(size, device, seed=0):
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
-    gen = torch.Generator()
+    gen = torch.Generator(device=device)
     gen.manual_seed(seed)
     Q = torch.randint(low=0, high=2, size=(size,), generator=gen).to(torch.float64)
     Q = Q * 2 - 1
