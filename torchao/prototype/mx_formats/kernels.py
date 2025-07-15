@@ -1404,6 +1404,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_cols,
         output_ptr,
         input_row_stride,
+        input_col_stride,
         output_block_stride,
         BLOCK_ROWS: tl.constexpr,
         BLOCK_COLS: tl.constexpr,
@@ -1423,7 +1424,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         mask = (global_rows < scale_rows) & (global_cols < scale_cols)
 
         input_scales = tl.load(
-            scale_ptr + global_rows * input_row_stride + global_cols,
+            scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
             mask=mask,
             other=0.0,
         )
@@ -1463,7 +1464,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         assert scale_tensor.element_size() == 1, (
             "Expected element size to be 1 byte (8 bits)"
         )
-        assert scale_tensor.is_contiguous(), "Input tensor must be contiguous"
 
         rows, cols = scale_tensor.shape
 
@@ -1476,7 +1476,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         out = scale_tensor.new_empty((padded_rows, padded_cols))
 
         # Input stride (for row-major format)
-        input_row_stride = cols
+        input_row_stride = scale_tensor.stride()[0]
+        input_col_stride = scale_tensor.stride()[1]
 
         # We probably want handle multiple blocks per tile but for now keep it simple
         BLOCK_ROWS, BLOCK_COLS = 128, 4
@@ -1495,6 +1496,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             cols,
             out.view(torch.uint8),
             input_row_stride,
+            input_col_stride,
             output_block_stride,
             BLOCK_ROWS=BLOCK_ROWS,
             BLOCK_COLS=BLOCK_COLS,
