@@ -1730,3 +1730,5 @@ else:
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
+
+    print("fake test change 1 is different now")
