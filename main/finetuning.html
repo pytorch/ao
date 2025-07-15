@@ -663,11 +663,113 @@ schemes, but these are not customizable unlike the above example.</p>
 </section>
 <section id="quantized-low-rank-adaptation-qlora">
 <h2>Quantized Low-Rank Adaptation (QLoRA)<a class="headerlink" href="#quantized-low-rank-adaptation-qlora" title="Permalink to this heading">¶</a></h2>
-<p>(Coming soon!)</p>
+<p>Low-Rank Adaptation (LoRA) refers to freezing the original model,
+and instead training a set of new “adapter” parameters that are a
+small fraction of the original parameters, thereby significantly
+reducing the memory footprint during training. QLoRA is an extension
+of LoRA that additionally quantizes the frozen original model
+parameters to 4-bits, thereby further reducing the memory footprint.</p>
+<p>TorchAO offers an implementation of the NF4 data type proposed in
+the original <a class="reference external" href="https://arxiv.org/pdf/2305.14314">QLoRA paper</a>.
+This implementation expresses NF4 as a tensor subclass through the
+<a class="reference external" href="https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.NF4Tensor.html">NF4Tensor</a>,
+which composes cleanly with other PyTorch features like <cite>torch.compile</cite>
+and FSDP2. Users can convert a high precision tensor to NF4 simply
+by calling <a class="reference external" href="https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.to_nf4.html">torchao.dtypes.to_nf4</a>.
+For example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">FrozenNF4Linear</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">quantization_kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">in_dim</span><span class="p">,</span> <span class="n">out_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="n">bias</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="c1"># No need to train these in QLoRA</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">nf4_weight</span> <span class="o">=</span> <span class="n">to_nf4</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">quantization_kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">nf4_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>QLoRA need not work with NF4 specifically, though NF4 has been
+shown to achieve competitive results compared to bf16 baselines
+while significantly reducing the memory required for training.
+This technique can also compose with other lower bit dtypes
+such as regular INT4 or even newer <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats">MXFP4 or NVFP4</a>
+targeting Blackwell GPUs to reap similar memory benefits with
+varying tradeoffs.</p>
+<section id="option-1-torchtune-integration">
+<h3>Option 1: TorchTune Integration<a class="headerlink" href="#option-1-torchtune-integration" title="Permalink to this heading">¶</a></h3>
+<p>TorchTune incorporates the <cite>NF4Tensor</cite> in its QLoRA fine-tuning
+recipe through their implementation of <a class="reference external" href="https://github.com/pytorch/torchtune/blob/a6290a5b40758f13bca61c386bc8756a49ef417e/torchtune/modules/peft/lora.py#L19">LoRALinear</a>.
+You can also try it out by running the following command,
+or refer to their <a class="reference external" href="https://docs.pytorch.org/torchtune/stable/tutorials/qlora_finetune.html">QLoRA tutorial</a>
+for more details.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="n">lora_finetune_single_device</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qlora_single_device</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+</section>
+<section id="option-2-huggingface-peft-integration">
+<h3>Option 2: HuggingFace PEFT Integration<a class="headerlink" href="#option-2-huggingface-peft-integration" title="Permalink to this heading">¶</a></h3>
+<p><a class="reference external" href="https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization">HuggingFace PEFT</a>
+also has a limited version of QLoRA leveraging TorchAO’s INT8
+quantization, though INT4 or NF4 are not supported yet. Users
+can invoke this functionality by preparing their models as follows.
+For full details, please refer to <a class="reference external" href="https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization">this tutorial</a>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoraConfig</span><span class="p">,</span> <span class="n">get_peft_model</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">TorchAoConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8WeightOnlyConfig</span>
+
+<span class="n">base_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span>
+    <span class="n">quantization_config</span><span class="o">=</span><span class="n">TorchAoConfig</span><span class="p">(</span><span class="n">Int8WeightOnlyConfig</span><span class="p">()),</span>
+<span class="p">)</span>
+<span class="n">peft_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_peft_model</span><span class="p">(</span><span class="n">base_model</span><span class="p">,</span> <span class="n">peft_config</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="float8-quantized-fine-tuning">
 <h2>Float8 Quantized Fine-tuning<a class="headerlink" href="#float8-quantized-fine-tuning" title="Permalink to this heading">¶</a></h2>
-<p>(Coming soon!)</p>
+<p>Similar to <a class="reference external" href="pretraining.html">pre-training</a>, we can also
+leverage float8 in fine-tuning for higher training throughput
+with no accuracy degradation and no increase in memory usage.
+Float8 training is integrated into TorchTune’s distributed
+full fine-tuning recipe, leveraging the same APIs as our
+integration with TorchTitan. Users can invoke this fine-tuning
+recipe as follows:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">full_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_full</span>
+  <span class="n">enable_fp8_training</span><span class="o">=</span><span class="n">true</span> \
+  <span class="n">fp8_recipe_name</span><span class="o">=</span><span class="n">tensorwise</span> \
+  <span class="nb">compile</span><span class="o">=</span><span class="kc">True</span>
+</pre></div>
+</div>
+<p>Initial experiments saw up to 16.5% throughput improvement
+for fine-tuning Llama3.2-3B in float8:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">experiment_name</span>         <span class="n">tok</span><span class="o">/</span><span class="n">s</span>                 <span class="n">peak_mem_reserved</span>
+<span class="o">----------------------</span>  <span class="o">-------------------</span>   <span class="o">-------------------</span>
+<span class="n">bf16</span>                    <span class="mf">6502.143</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="o">%</span><span class="p">)</span>    <span class="mf">30.090</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_noname</span>              <span class="mf">7205.386</span> <span class="p">(</span><span class="o">+</span><span class="mf">10.816</span><span class="o">%</span><span class="p">)</span>   <span class="mf">30.010</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.266</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_tensorwise</span>          <span class="mf">7222.198</span> <span class="p">(</span><span class="o">+</span><span class="mf">11.074</span><span class="o">%</span><span class="p">)</span>   <span class="mf">30.010</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.266</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_rowwise</span>             <span class="mf">6387.968</span> <span class="p">(</span><span class="o">-</span><span class="mf">1.756</span><span class="o">%</span><span class="p">)</span>    <span class="mf">29.158</span> <span class="p">(</span><span class="o">-</span><span class="mf">3.096</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_rowwise_with_gw_hp</span>  <span class="mf">7573.698</span> <span class="p">(</span><span class="o">+</span><span class="mf">16.480</span><span class="o">%</span><span class="p">)</span>   <span class="mf">29.516</span> <span class="p">(</span><span class="o">-</span><span class="mf">1.908</span><span class="o">%</span><span class="p">)</span>
+
+<span class="n">experiment_name</span>         <span class="n">hellaswag_acc</span>    <span class="n">wikitext_word_perplexity</span>
+<span class="o">----------------------</span>  <span class="o">---------------</span>  <span class="o">--------------------------</span>
+<span class="n">bf16</span>                    <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.407</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>
+<span class="n">fp8_noname</span>              <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.414</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.007</span><span class="p">)</span>
+<span class="n">fp8_tensorwise</span>          <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.412</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.005</span><span class="p">)</span>
+<span class="n">fp8_rowwise</span>             <span class="mf">0.533</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.420</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.013</span><span class="p">)</span>
+<span class="n">fp8_rowwise_with_gw_hp</span>  <span class="mf">0.534</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.001</span><span class="p">)</span>   <span class="mf">12.416</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.009</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Please refer to the <a class="reference external" href="pretraining.html">pre-training</a> tutorial for more details.</p>
 </section>
 </section>
 
@@ -721,7 +823,11 @@ schemes, but these are not customizable unlike the above example.</p>
 <li><a class="reference internal" href="#option-3-torchao-qat-api">Option 3: TorchAO QAT API</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#quantized-low-rank-adaptation-qlora">Quantized Low-Rank Adaptation (QLoRA)</a></li>
+<li><a class="reference internal" href="#quantized-low-rank-adaptation-qlora">Quantized Low-Rank Adaptation (QLoRA)</a><ul>
+<li><a class="reference internal" href="#option-1-torchtune-integration">Option 1: TorchTune Integration</a></li>
+<li><a class="reference internal" href="#option-2-huggingface-peft-integration">Option 2: HuggingFace PEFT Integration</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#float8-quantized-fine-tuning">Float8 Quantized Fine-tuning</a></li>
 </ul>
 </li>
