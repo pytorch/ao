@@ -14,20 +14,14 @@ from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObser
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.quantization.granularity import (
-    PerAxis,
-    PerTensor,
-)
+from torchao.quantization.granularity import PerAxis, PerTensor
 from torchao.quantization.observer import (
+    AffineQuantizedFixedQParamObserver,
     AffineQuantizedMinMaxObserver,
+    AffineQuantizedMSEObserver,
 )
-from torchao.quantization.quant_api import (
-    insert_observers_,
-)
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
+from torchao.quantization.quant_api import insert_observers_
+from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 
 
 class TestQuantFlow(TestCase):
@@ -144,6 +138,56 @@ class TestQuantFlow(TestCase):
         with self.assertRaisesRegex(AssertionError, escaped_error_msg):
             for example_input in example_inputs:
                 obs(example_input)
+
+    def test_mse_observer(self):
+        obs = AffineQuantizedMSEObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            granularity=PerAxis(0),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=ZeroPointDomain.NONE,
+            steps=100,
+            run_once=True,
+        )
+        example_input = torch.randn(10, 2048)
+        obs(example_input)
+
+        scale, zero_point = obs.calculate_qparams()
+        self.assertIsNone(zero_point)
+
+        minmax_obs = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            granularity=PerAxis(0),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=ZeroPointDomain.NONE,
+        )
+        minmax_obs(example_input)
+        min_val, max_val = minmax_obs.min_val, minmax_obs.max_val
+        assert torch.all(
+            obs.loss_fn(example_input, obs.min_val, obs.max_val)
+            <= obs.loss_fn(example_input, min_val, max_val) + 1e6
+        )
+
+    def test_fixed_qparams_observer(self):
+        obs = AffineQuantizedFixedQParamObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity=PerAxis(0),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=ZeroPointDomain.NONE,
+        )
+        example_input = torch.randn(10, 2048)
+        obs(example_input)
+        obs.set_qparams(torch.ones(2048))
+        scale, zero_point = obs.calculate_qparams()
+        self.assertTrue(torch.allclose(scale, torch.ones(2048)))
 
 
 class TestLinearObserver(TestCase):

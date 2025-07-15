@@ -6,9 +6,12 @@ from torchao.float8.config import (
     ScalingGranularity,
     ScalingType,
 )
-from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_linear_utils import (
+    _auto_filter_for_recipe,
+    convert_to_float8_training,
+)
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
@@ -19,12 +22,12 @@ from torchao.float8.types import FP8Granularity
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if TORCH_VERSION_AT_LEAST_2_5:
-    # Needed to load Float8Tensor with weights_only = True
+    # Needed to load Float8TrainingTensor with weights_only = True
     from torch.serialization import add_safe_globals
 
     add_safe_globals(
         [
-            Float8Tensor,
+            Float8TrainingTensor,
             ScaledMMConfig,
             GemmInputRole,
             LinearMMConfig,
@@ -44,7 +47,8 @@ __all__ = [
     # top level UX
     "convert_to_float8_training",
     "precompute_float8_dynamic_scale_for_fsdp",
+    "_auto_filter_for_recipe",
     # types
     "FP8Granularity",
-    # note: Float8Tensor and Float8Linear are not public APIs
+    # note: Float8TrainingTensor and Float8Linear are not public APIs
 ]

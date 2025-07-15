@@ -91,6 +91,7 @@ def generate_memory_profile(model, input_data, profile_file_path):
 
     # Create parent directory if it doesn't exist
     os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
+    memory_stats = dict()
 
     try:
         torch.cuda.empty_cache()
@@ -130,11 +131,19 @@ def generate_memory_profile(model, input_data, profile_file_path):
                 print(f"Attempt {i + 1}/5: {e}, retrying...")
                 time.sleep(3.0)
 
+        # Record memory stats
+        _memory_stats = torch.cuda.memory_stats()
+        memory_stats = {
+            "allocated_bytes.all.peak": _memory_stats["allocated_bytes.all.peak"] / 1e6,
+            "active_bytes.all.peak": _memory_stats["active_bytes.all.peak"] / 1e6,
+            "reserved_bytes.all.peak": _memory_stats["reserved_bytes.all.peak"] / 1e6,
+        }
+
     except Exception as e:
         print(f"Error in memory profiling: {e}")
 
     # Return the file path for consistency with other profiler functions
-    return profile_file_path
+    return profile_file_path, memory_stats
 
 
 def visualize_memory_profile(profile_file_path):

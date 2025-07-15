@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+import logging
 from typing import Callable, Optional
 
 from torch import nn
@@ -7,6 +13,8 @@ from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class MoETrainingConfig(AOBaseConfig):
@@ -27,9 +35,6 @@ class MoETrainingConfig(AOBaseConfig):
 
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
-
-    # temporary config flag for testing/benchmarking, will remove before graduating out of prototype
-    use_triton_for_per_group_scales: bool = True
 
 
 @register_quantize_module_handler(MoETrainingConfig)
@@ -71,7 +76,6 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    use_triton = config.use_triton_for_per_group_scales if config is not None else False
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
     ):
@@ -80,9 +84,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(
-                module.data, use_triton_for_per_group_scales=use_triton
-            )
+            new_data = ScaledGroupedMMTensor(module.data)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -108,10 +110,13 @@ def _swap_params(
             for param_name, param in module.named_parameters(recurse=False):
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(param), requires_grad=param.requires_grad
+                        ScaledGroupedMMTensor(param.data),
+                        requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
-                    print(f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor")
+                    logger.info(
+                        f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor"
+                    )
 
     post_order_traversal(root_module)
     return root_module

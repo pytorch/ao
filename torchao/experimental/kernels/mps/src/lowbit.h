@@ -73,11 +73,11 @@ using DispatchFn =
     void (*)(id<MTLComputeCommandEncoder>, int32_t, int32_t, int32_t, int32_t);
 
 inline void linear_lowbit_quant_weights_mps_impl(
-    id<MTLBuffer> a_buf,
-    id<MTLBuffer> b_buf,
-    id<MTLBuffer> s_buf,
-    id<MTLBuffer> z_buf,
-    id<MTLBuffer> out_buf,
+    std::pair<id<MTLBuffer>, size_t> a_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> b_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> s_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> z_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> out_buf_offset,
     int32_t M,
     int32_t K,
     int32_t N,
@@ -97,11 +97,11 @@ inline void linear_lowbit_quant_weights_mps_impl(
           metal_lowbit_quantized_lib.getPipelineStateForFunc(shader_func);
       const auto maxThreadsPerGroup = [cpl maxTotalThreadsPerThreadgroup];
       [computeEncoder setComputePipelineState:cpl];
-      [computeEncoder setBuffer:a_buf offset:0 atIndex:0];
-      [computeEncoder setBuffer:b_buf offset:0 atIndex:1];
-      [computeEncoder setBuffer:s_buf offset:0 atIndex:2];
-      [computeEncoder setBuffer:z_buf offset:0 atIndex:3];
-      [computeEncoder setBuffer:out_buf offset:0 atIndex:4];
+      [computeEncoder setBuffer:a_buf_offset.first offset:a_buf_offset.second atIndex:0];
+      [computeEncoder setBuffer:b_buf_offset.first offset:b_buf_offset.second atIndex:1];
+      [computeEncoder setBuffer:s_buf_offset.first offset:s_buf_offset.second atIndex:2];
+      [computeEncoder setBuffer:z_buf_offset.first offset:z_buf_offset.second atIndex:3];
+      [computeEncoder setBuffer:out_buf_offset.first offset:out_buf_offset.second atIndex:4];
       [computeEncoder setBytes:sizes.data()
                         length:sizeof(uint32_t) * sizes.size()
                        atIndex:5];
@@ -133,12 +133,12 @@ std::tuple<const std::string, DispatchFn> get_shader_func_and_dispatch(
 // LowBit Quantized Weights Linear on Metal
 template <int nbit>
 void linear_lowbit_quant_weights_mps(
-    id<MTLBuffer> a_buf,
-    id<MTLBuffer> b_buf,
+    std::pair<id<MTLBuffer>, size_t> a_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> b_buf_offset,
     int64_t qGroupSize,
-    id<MTLBuffer> s_buf,
-    id<MTLBuffer> z_buf,
-    id<MTLBuffer> out_buf,
+    std::pair<id<MTLBuffer>, size_t> s_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> z_buf_offset,
+    std::pair<id<MTLBuffer>, size_t> out_buf_offset,
     int32_t M,
     int32_t K,
     int32_t N,
@@ -154,11 +154,11 @@ void linear_lowbit_quant_weights_mps(
   const DispatchFn dispatch_fn = std::get<1>(shader_func_and_dispatch);
 
   return linear_lowbit_quant_weights_mps_impl(
-      a_buf,
-      b_buf,
-      s_buf,
-      z_buf,
-      out_buf,
+      a_buf_offset,
+      b_buf_offset,
+      s_buf_offset,
+      z_buf_offset,
+      out_buf_offset,
       M,
       K,
       N,

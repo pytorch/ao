@@ -95,10 +95,10 @@ struct SparseRowwiseKernel<cutlass::float_e4m3_t> {
           float,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           cutlass::epilogue::TmaWarpSpecializedCooperative,
           EpilogueEVT>::CollectiveOp;
 
@@ -172,10 +172,10 @@ struct SparseRowwiseKernel<cutlass::bfloat16_t> {
           float,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           ElementOut,
           cutlass::layout::RowMajor,
-          1,
+          8,
           cutlass::epilogue::TmaWarpSpecializedCooperative,
           EpilogueEVT>::CollectiveOp;
 
