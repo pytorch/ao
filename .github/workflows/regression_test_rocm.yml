@@ -31,7 +31,7 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
-      timeout: 150
+      timeout: 210
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
