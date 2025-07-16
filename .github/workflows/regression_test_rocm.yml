@@ -25,6 +25,7 @@ jobs:
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
             gpu-arch-type: "rocm"
             gpu-arch-version: "6.3"
+            docker-image: pytorch/manylinux2_28-builder:rocm6.3
 
     permissions:
       id-token: write
@@ -36,6 +37,7 @@ jobs:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
         conda create -n venv python=3.9 -y
