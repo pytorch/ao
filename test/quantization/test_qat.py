@@ -1223,8 +1223,8 @@ class TestQAT(unittest.TestCase):
             Int8DynActInt4WeightQATQuantizerModuleSwap,
         )
         from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (  # noqa: F401, F811
-            AffineFakeQuantizedTensor,
-            to_affine_fake_quantized,
+            _AffineFakeQuantizedTensor,
+            _to_affine_fake_quantized,
         )
         from torchao.quantization.prototype.qat.api import (  # noqa: F401, F811
             ComposableQATQuantizer,

@@ -34,24 +34,6 @@ Inference APIs for quantize\_
     UIntXWeightOnlyConfig
     FPXWeightOnlyConfig
 
-.. currentmodule:: torchao.quantization.qat
-
-QAT APIs
-----------------------
-
-.. autosummary::
-    :toctree: generated/
-    :nosignatures:
-
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
-    FakeQuantizeConfig
-    Int4WeightOnlyQATQuantizer
-    Int8DynActInt4WeightQATQuantizer
-    Int4WeightOnlyEmbeddingQATQuantizer
-    ComposableQATQuantizer
-    initialize_fake_quantizers
-
 .. currentmodule:: torchao.quantization
 
 Quantization Primitives
