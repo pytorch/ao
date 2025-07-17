@@ -141,6 +141,7 @@ class FP8QDQLinear(torch.nn.Module):
         out = torch.nn.functional.linear(dq_input, weight, self.bias)
         return out
 
+
 def qdq(input, scale):
     dtype = input.dtype
     q_input = torch.ops.torchao.quantize_affine_float8.default(
