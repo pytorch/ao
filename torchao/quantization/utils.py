@@ -3,7 +3,6 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-import importlib.util
 from typing import Dict, List, Optional
 
 import torch
@@ -33,7 +32,6 @@ from torchao.utils import (
 
 __all__ = [
     "compute_error",
-    "_apply_logging_hook",
     "quantize_activation_per_token_absmax",
     "quant_int8_dynamic_per_token_linear",
     "dynamically_quantize_per_channel",
@@ -50,8 +48,6 @@ __all__ = [
     "get_group_qparams_symmetric",
     "recommended_inductor_config_setter",
 ]
-
-_lm_eval_available = importlib.util.find_spec("lm_eval") is not None
 
 
 # basic SQNR

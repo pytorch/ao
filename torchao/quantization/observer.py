@@ -64,7 +64,7 @@ def _with_args(cls_or_self, *args, **kwargs):
     return r
 
 
-def get_block_size(
+def _get_block_size(
     input_shape: Tuple[int, ...], granularity: Granularity
 ) -> Tuple[int, ...]:
     """Get the block size based on the input shape and granularity type.
@@ -149,7 +149,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
 
         input_detached = input.detach()
         assert self.granularity is not None, "granularity is None"
-        block_size = get_block_size(input_detached.shape, self.granularity)
+        block_size = _get_block_size(input_detached.shape, self.granularity)
 
         shape_for_reduction, reduction_dims = _get_reduction_params(
             block_size, input_detached.size()
@@ -291,7 +291,7 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         return torch.mean(loss, dim=reduction_dims, keepdim=False)
 
     def loss_fn(self, x, new_min, new_max):
-        block_size = get_block_size(x.shape, self.granularity)
+        block_size = _get_block_size(x.shape, self.granularity)
         scale, zero_point = choose_qparams_affine_with_min_max(
             new_min,
             new_max,
@@ -324,7 +324,7 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
 
         input_detached = input.detach()
         assert self.granularity is not None, "granularity is None"
-        block_size = get_block_size(input_detached.shape, self.granularity)
+        block_size = _get_block_size(input_detached.shape, self.granularity)
 
         shape_for_reduction, reduction_dims = _get_reduction_params(
             block_size, input_detached.size()
