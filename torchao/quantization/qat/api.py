@@ -34,7 +34,7 @@ class FakeQuantizeConfig:
     """
     Config for how to fake quantize weights or activations.
 
-    args:
+    Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
             For PyTorch versions older than 2.6, you may use `TorchAODType` to represent
             torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.
@@ -54,7 +54,7 @@ class FakeQuantizeConfig:
         range_learning (prototype): whether to learn scale and zero points during training
             (default false), not compatible with `is_dynamic`.
 
-    kwargs (optional):
+    Keyword args:
         group_size: size of each group in per group fake quantization,
             can be set instead of `granularity`
         is_symmetric: whether to use symmetric or asymmetric quantization,
