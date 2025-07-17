@@ -2906,6 +2906,13 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
         return (node.op == "call_function" and node.target in _VIEW_FUNCTION_OPS) or \
             (node.op == "call_method" and node.target in _VIEW_METHOD_OPS)
 
+    def quant_input_check(node):
+        if len(node.all_input_nodes) == 1:
+            return True
+        elif node.target == torch.ops.torchao.quantize_affine_float8.default:
+            # check if scale created by torch.tensor
+            return len(node.all_input_nodes) == 2 and node.all_input_nodes[1].target == torch.tensor
+
     for node in module_graph.nodes:
         # <TODO> Leslie: Here we verify that the quant node has exactly
         # one input FX node, with constant scalar value for scale and zero point.
@@ -2915,8 +2922,7 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
         if (
             node.op == "call_function"
             and node.target in _PER_TENSOR_QUANTIZE_OPS
-            # TODO: len(node.all_input_nodes) == 2 for fp8 quant
-            #and len(node.all_input_nodes) == 1
+            and quant_input_check(node)
             and is_view_op(node.all_input_nodes[0])
         ):
             quant_node = node
