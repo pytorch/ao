@@ -48,32 +48,6 @@ class _Float8RowwiseFakeQuantize(torch.autograd.Function):
         return gy, None, None
 
 
-# TODO: delete?
-class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
-    """
-    Helper autograd function to unwrap `AffineFakeQuantizedTensor` while ensuring
-    gradients are still passed to the tensor subclass. This is used in place of
-    `_GenericFakeQuantize` when fake quant is disabled.
-    """
-
-    @staticmethod
-    def forward(
-        ctx: torch.autograd.function.FunctionCtx,
-        input: torch.Tensor,
-    ) -> torch.Tensor:
-        # avoid circular dependencies
-        from torchao.quantization.qat.affine_fake_quantized_tensor import (
-            AffineFakeQuantizedTensor,
-        )
-
-        assert isinstance(input, AffineFakeQuantizedTensor)
-        return input.original_tensor
-
-    @staticmethod
-    def backward(ctx, gy):
-        return (gy,)
-
-
 def _fake_quantize_per_channel_group(
     input: torch.Tensor,
     scales: torch.Tensor,
