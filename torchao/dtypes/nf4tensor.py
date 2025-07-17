@@ -943,7 +943,7 @@ class NF4Tensor(torch.Tensor):
             f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
         )
 
-    # Do not force the Float8Tensor type on the returned tensor
+    # Do not force the Float8TrainingTensor type on the returned tensor
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):

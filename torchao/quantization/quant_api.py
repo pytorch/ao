@@ -67,8 +67,8 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
-from torchao.quantization.quantize_ import (
-    Int4GroupwisePreshuffleTensor,
+from torchao.quantization.quantize_.workflows import (
+    Int4PreshuffledTensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1214,6 +1214,12 @@ def _int4_weight_only_transform(
 class Int8WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
+
+    Args:
+        group_size: Optional[int] = None - Controls the granularity of quantization. If None, applies per-channel quantization.
+            Otherwise, applies per-group quantization with the specified group size.
+        set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
+            for better performance with this quantization scheme.
     """
 
     group_size: Optional[int] = None
@@ -1357,7 +1363,17 @@ def _float8_cutlass_quant_sparse(
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
     Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
-    quantization to linear layers
+    quantization to linear layers.
+
+    Args:
+        layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
+            quantized data is stored and accessed.
+        act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
+            SYMMETRIC uses symmetric quantization around zero.
+        weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
+            in original precision during decode operations.
+        set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
+            for better performance with this quantization scheme.
     """
 
     layout: Optional[Layout] = PlainLayout()
@@ -2040,6 +2056,7 @@ class FbgemmConfig(AOBaseConfig):
        weight_dtype (torch.dtype): weight dtype of the kernel
        output_dtype (torch.dtype): output dtype of the kernel
        group_size (int): The group size for weight
+       preshuffle (bool): whether preshuffle the weights or not
     """
 
     input_dtype: torch.dtype
@@ -2057,7 +2074,7 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
 
     _SUPPORTED_DTYPES = {
         (torch.bfloat16, torch.int4, torch.bfloat16),
-        (e4m3_dtype, e4m3_dtype, torch.bfloat16),
+        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16),
     }
 
     if (
@@ -2066,8 +2083,10 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         and (config.output_dtype == torch.bfloat16)
     ):
         if config.preshuffle:
-            weight = Int4GroupwisePreshuffleTensor.from_float(
-                module.weight, config.block_size
+            weight = Int4PreshuffledTensor.from_float(
+                module.weight,
+                config.block_size,
+                activation_dtype=torch.bfloat16,
             )
         else:
             weight = to_fbgemm_int4(
@@ -2077,6 +2096,20 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         module.weight = torch.nn.Parameter(weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
         return module
+    if (
+        (config.input_dtype == e4m3_dtype)
+        and (config.weight_dtype == torch.int4)
+        and (config.output_dtype == torch.bfloat16)
+    ):
+        if config.preshuffle:
+            weight = Int4PreshuffledTensor.from_float(
+                module.weight,
+                config.block_size,
+                activation_dtype=torch.float8_e4m3fn,
+            )
+            module.weight = torch.nn.Parameter(weight, requires_grad=False)
+            module.extra_repr = types.MethodType(_linear_extra_repr, module)
+            return module
     elif (
         (config.input_dtype == e4m3_dtype)
         and (config.weight_dtype == e4m3_dtype)

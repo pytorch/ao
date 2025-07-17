@@ -34,16 +34,14 @@ from torchao.float8.config import (
     e5m2_dtype,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import (
-    convert_to_float8_training,
-)
+from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_ops import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
@@ -62,13 +60,13 @@ random.seed(0)
 torch.manual_seed(0)
 
 
-def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
+def bitwise_identical(a: Float8TrainingTensor, b: Float8TrainingTensor) -> bool:
     assert torch.all(a._scale == b._scale).item(), "scales are not identical"
     assert torch.all(a._data == b._data).item(), "data is not identical"
     return True
 
 
-class TestFloat8Tensor:
+class TestFloat8TrainingTensor:
     def test_preserves_dtype(self) -> None:
         # hp means high precision, lp means low precision
         hp_dtypes = (torch.float32, torch.float16, torch.bfloat16)
@@ -130,7 +128,7 @@ class TestFloat8Tensor:
         with pytest.raises(RuntimeError):
             fp8_a.copy_(b)  # Should fail
 
-        fp8_b = Float8Tensor(
+        fp8_b = Float8TrainingTensor(
             torch.empty(16, dtype=e4m3_dtype),
             scale_a,
             torch.bfloat16,
@@ -379,12 +377,16 @@ class TestFloat8Linear:
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize("linear_bias", [True, False])
+    @pytest.mark.parametrize(
+        "linear_dtype", [torch.bfloat16, torch.float16, torch.float32]
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
         recipe_name,
         x_shape,
+        linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
         if torch.cuda.get_device_capability() < (9, 0):
@@ -393,7 +395,6 @@ class TestFloat8Linear:
             )
             pytest.skip()
 
-        linear_dtype = torch.bfloat16
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
         config = Float8LinearConfig.from_recipe_name(recipe_name)

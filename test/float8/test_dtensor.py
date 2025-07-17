@@ -37,8 +37,8 @@ from torchao.float8.config import (
 )
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     hp_tensor_and_scale_to_float8,
@@ -94,8 +94,8 @@ def _test_scaled_mm(mesh: DeviceMesh, size=16):
         dist_x_fp8 = DTensor.from_local(x_fp8, mesh, [lhs_placement], run_check=False)
         dist_y_fp8 = DTensor.from_local(y_fp8, mesh, [rhs_placement], run_check=False)
 
-        assert isinstance(dist_x_fp8.to_local(), Float8Tensor)
-        assert isinstance(dist_y_fp8.to_local(), Float8Tensor)
+        assert isinstance(dist_x_fp8.to_local(), Float8TrainingTensor)
+        assert isinstance(dist_y_fp8.to_local(), Float8TrainingTensor)
         assert dist_x_fp8.to_local()._orig_dtype == torch.float32
         out_fp8 = torch.mm(dist_x_fp8, dist_y_fp8)
         local_fp8_out = out_fp8.to_local()
@@ -128,7 +128,7 @@ def _test_fp8_redistribute(mesh: DeviceMesh, size=16):
     if isinstance(out_local, AsyncCollectiveTensor):
         out_local = out_local.wait()
 
-    assert isinstance(out_local, Float8Tensor)
+    assert isinstance(out_local, Float8TrainingTensor)
     assert out_local._data.dtype == fp8_dtype
 
 
@@ -183,7 +183,7 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     loss.backward()
 
 
-def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=32):
     tensorwise_config = Float8LinearConfig(emulate=True)
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, tensorwise_config, size, compile=False, allgather_in_lowp=True
@@ -198,7 +198,7 @@ def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
     )
 
 
-def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=32):
     tensorwise_config = Float8LinearConfig(emulate=True)
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, tensorwise_config, size, compile=True, allgather_in_lowp=True

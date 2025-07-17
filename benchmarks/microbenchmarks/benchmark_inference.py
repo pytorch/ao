@@ -149,13 +149,15 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                 os.makedirs(memory_profiler_dir, exist_ok=True)
 
                 # Save memory profile with .pickle extension
-                result.memory_profile_path = generate_memory_profile(
-                    model=m_copy,
-                    input_data=input_data,
-                    profile_file_path=os.path.join(
-                        memory_profiler_dir,
-                        f"{config._file_name}_memory_profile.pickle",
-                    ),
+                result.memory_profile_path, result.memory_stats = (
+                    generate_memory_profile(
+                        model=m_copy,
+                        input_data=input_data,
+                        profile_file_path=os.path.join(
+                            memory_profiler_dir,
+                            f"{config._file_name}_memory_profile.pickle",
+                        ),
+                    )
                 )
 
                 if result.memory_profile_path:

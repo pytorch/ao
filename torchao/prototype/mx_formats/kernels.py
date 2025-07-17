@@ -8,13 +8,19 @@ from typing import Optional, Tuple
 
 import numpy as np
 import torch
+from torch.distributed.tensor import Replicate, Shard
+from torch.distributed.tensor.experimental import register_sharding
 from torch.utils._triton import has_triton
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_7,
+    is_sm_at_least_100,
+)
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -1315,7 +1321,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
         assert x.is_contiguous(), "`x` must be contiguous"
-        assert x.dtype == torch.bfloat16
         assert inner_block_size <= 32
 
         # Get tensor shape
@@ -1362,6 +1367,16 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             output_col_major.t(),
             col_scale.view(torch.float8_e8m0fnu),
         )
+
+    @register_sharding(torch.ops.torchao.triton_to_mxfp8_dim1.default)
+    def custom_triton_to_mxfp8_dim1_sharding(x, inner_block_size=32):
+        replicate = ([Replicate(), Replicate()], [Replicate(), None])
+        # Note that the data is returned transposed, which is why
+        # we flip the sharding dim below
+        shard_dim0 = ([Shard(1), Shard(1)], [Shard(0), None])
+        shard_dim1 = ([Shard(0), Shard(0)], [Shard(1), None])
+        acceptable_shardings = [replicate, shard_dim0, shard_dim1]
+        return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
@@ -1707,7 +1722,8 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
@@ -1718,3 +1734,90 @@ else:
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
+
+
+# MXFP8 CUDA kernel is only built on SM100+
+if is_sm_at_least_100():
+    from torchao.prototype import mxfp8_cuda
+
+    @torch.library.custom_op("torchao::mxfp8_quantize_cuda", mutates_args=())
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Input shape must be 2D.
+        assert x.ndim == 2
+        rows, cols = x.shape
+
+        # Block size must be a multiple of 32.
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+
+        # Convert scaling mode to expected string format and call into kernel.
+        output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
+            mxfp8_cuda.quantize(
+                x,
+                rowwise=rowwise,
+                colwise=colwise,
+                scaling_mode=scaling_mode,
+            )
+        )
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @mxfp8_quantize_cuda.register_fake
+    def _(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert x.ndim == 2
+        rows, cols = x.shape
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+        num_row_blocks = rows // 32
+        num_col_blocks = cols // 32
+
+        # rowwise
+        if rowwise:
+            output_rowwise = x.new_empty(rows, cols, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(
+                rows, num_col_blocks, 1, dtype=torch.float8_e8m0fnu
+            )
+        else:
+            output_rowwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        # colwise
+        if colwise:
+            # column major
+            output_colwise = torch.empty_strided(
+                (rows, cols), (1, rows), dtype=torch.float8_e4m3fn, device=x.device
+            )
+
+            # colwise scales are written in column-major format to avoid uncoalesced global memory accesses
+            scales_colwise = torch.empty_strided(
+                (cols, num_row_blocks),
+                (1, cols),
+                dtype=torch.float8_e8m0fnu,
+                device=x.device,
+            )
+        else:
+            output_colwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_colwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+else:
+
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise NotImplementedError("needs torch version 2.8+ and sm100")
