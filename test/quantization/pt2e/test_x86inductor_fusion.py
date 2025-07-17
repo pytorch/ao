@@ -1586,12 +1586,8 @@ class TestPatternMatcher(TestPatternMatcherBase):
         * Input dim exceeds 2
         * Input not contiguous
         """
-        for is_fp8 in [
-            True,
-        ]:
-            for bias in [
-                False,
-            ]:
+        for is_fp8 in [True, False]:
+            for bias in [False, True]:
 
                 def matcher_check_fn():
                     self.assertEqual(
