@@ -211,6 +211,7 @@ def _generate_qdq_quantized_model(
     maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
     with maybe_no_grad:
         if is_fp8:
+            assert not is_dynamic
             assert not is_qat
             fp8_convert_(mod)
             return mod
@@ -2230,8 +2231,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @parametrize("is_fp8", [True, False])
-    def test_qlinear_dequant_promotion_dynamic_cpu(self, is_fp8):
+    def test_qlinear_dequant_promotion_dynamic_cpu(self):
         r"""
         This testcase test if dequant node before linear is promoted correctly:
                   X
@@ -2257,7 +2257,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
             (torch.randn((2, 4)),),
             matcher_check_fn=matcher_check_fn,
             is_dynamic=True,
-            is_fp8=is_fp8,
         )
 
     @skipIfNoDynamoSupport
