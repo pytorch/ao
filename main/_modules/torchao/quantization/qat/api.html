@@ -327,6 +327,7 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_dtypes.html">torchao.dtypes</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_float8.html">torchao.float8</a></li>
 </ul>
@@ -460,7 +461,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Config for how to fake quantize weights or activations.</span>
 
-<span class="sd">    args:</span>
+<span class="sd">    Args:</span>
 <span class="sd">        dtype: dtype to simulate during fake quantization, e.g. torch.int8.</span>
 <span class="sd">            For PyTorch versions older than 2.6, you may use `TorchAODType` to represent</span>
 <span class="sd">            torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.</span>
@@ -480,7 +481,7 @@
 <span class="sd">        range_learning (prototype): whether to learn scale and zero points during training</span>
 <span class="sd">            (default false), not compatible with `is_dynamic`.</span>
 
-<span class="sd">    kwargs (optional):</span>
+<span class="sd">    Keyword args:</span>
 <span class="sd">        group_size: size of each group in per group fake quantization,</span>
 <span class="sd">            can be set instead of `granularity`</span>
 <span class="sd">        is_symmetric: whether to use symmetric or asymmetric quantization,</span>

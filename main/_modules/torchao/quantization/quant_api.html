@@ -327,6 +327,7 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_dtypes.html">torchao.dtypes</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_float8.html">torchao.float8</a></li>
 </ul>
@@ -797,7 +798,7 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_is_linear</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="c1"># avoid circular dependencies</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat.affine_fake_quantized_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-        <span class="n">AffineFakeQuantizedTensor</span><span class="p">,</span>
+        <span class="n">_AffineFakeQuantizedTensor</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># adding weight tensor subclass isinstance check to make sure the weight is only quantized once</span>
@@ -809,7 +810,7 @@
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AffineFakeQuantizedTensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">_AffineFakeQuantizedTensor</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">NonDynamicallyQuantizableLinear</span><span class="p">)</span>
     <span class="p">)</span>
 

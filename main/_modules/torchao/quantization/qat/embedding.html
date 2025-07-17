@@ -327,6 +327,7 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_dtypes.html">torchao.dtypes</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_float8.html">torchao.float8</a></li>
 </ul>
@@ -446,7 +447,7 @@
 <span class="p">)</span>
 
 
-<span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizedEmbedding</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
+<div class="viewcode-block" id="FakeQuantizedEmbedding"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizedEmbedding</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    General embedding layer with fake quantized weights.</span>
 
@@ -493,7 +494,7 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="kc">None</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<div class="viewcode-block" id="FakeQuantizedEmbedding.forward"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">w</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -506,7 +507,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">norm_type</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">scale_grad_by_freq</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">to_embedding</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">:</span>
         <span class="n">new_embedding</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span>
@@ -550,7 +551,7 @@
         <span class="c1"># copy the weights, and doing so will result in an error</span>
         <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
             <span class="n">new_embedding</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span>
-        <span class="k">return</span> <span class="n">new_embedding</span>
+        <span class="k">return</span> <span class="n">new_embedding</span></div>
 
 
 <span class="c1"># ======================================</span>
@@ -685,7 +686,7 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">_convert_helper</span><span class="p">(</span><span class="n">child</span><span class="p">)</span></div>
 
 
-<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyQATEmbedding</span><span class="p">(</span><span class="n">FakeQuantizedEmbedding</span><span class="p">):</span>
+<div class="viewcode-block" id="Int4WeightOnlyQATEmbedding"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.embedding.Int4WeightOnlyQATEmbedding.html#torchao.quantization.qat.Int4WeightOnlyQATEmbedding">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyQATEmbedding</span><span class="p">(</span><span class="n">FakeQuantizedEmbedding</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This module implements a embedding layer with int4 fake quantized</span>
 <span class="sd">    grouped per channel weights.</span>
@@ -736,10 +737,10 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="n">enabled</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">disable_fake_quant</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">enable_fake_quant</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">enable_fake_quant</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span></div>
 
 
-<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyEmbedding</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<div class="viewcode-block" id="Int4WeightOnlyEmbedding"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html#torchao.quantization.qat.Int4WeightOnlyEmbedding">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyEmbedding</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This module implements a embedding layer with int4 quantized</span>
 <span class="sd">    grouped per channel weights.</span>
@@ -802,7 +803,7 @@
             <span class="p">),</span>
         <span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+<div class="viewcode-block" id="Int4WeightOnlyEmbedding.forward"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html#torchao.quantization.qat.Int4WeightOnlyEmbedding.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
             <span class="n">dequantize_affine</span><span class="p">,</span>
         <span class="p">)</span>
@@ -830,7 +831,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">norm_type</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">scale_grad_by_freq</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div></div>
 </pre></div>
 
              </article>

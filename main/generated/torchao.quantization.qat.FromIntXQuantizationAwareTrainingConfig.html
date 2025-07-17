@@ -329,7 +329,8 @@
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
 </ul>
@@ -392,7 +393,7 @@
       </li>
 
         
-          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
+          <li><a href="../api_ref_qat.html">torchao.quantization.qat</a> &gt;</li>
         
       <li>FromIntXQuantizationAwareTrainingConfig</li>
     
@@ -436,7 +437,7 @@
 <dt class="sig sig-object py" id="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">FromIntXQuantizationAwareTrainingConfig</span></span><a class="reference internal" href="../_modules/torchao/quantization/qat/api.html#FromIntXQuantizationAwareTrainingConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig" title="Permalink to this definition">¶</a></dt>
 <dd><p>Config for converting a model with fake quantized modules,
-such as <code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedLinear()</span></code>
+such as <a class="reference internal" href="torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear" title="torchao.quantization.qat.linear.FakeQuantizedLinear"><code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedLinear()</span></code></a>
 and <code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedEmbedding()</span></code>,
 back to model with the original, corresponding modules without
 fake quantization. This should be used with

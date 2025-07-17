@@ -40,7 +40,7 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Int4WeightOnlyQATQuantizer" href="torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html" />
+    <link rel="next" title="FakeQuantizedLinear" href="torchao.quantization.qat.FakeQuantizedLinear.html" />
     <link rel="prev" title="FromIntXQuantizationAwareTrainingConfig" href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -329,7 +329,8 @@
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
 </ul>
@@ -392,7 +393,7 @@
       </li>
 
         
-          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
+          <li><a href="../api_ref_qat.html">torchao.quantization.qat</a> &gt;</li>
         
       <li>FakeQuantizeConfig</li>
     
@@ -467,14 +468,13 @@ Alternatively, set <cite>is_symmetric</cite> (bool) and leave this field empty.<
 (default false), not compatible with <cite>is_dynamic</cite>.</p></li>
 </ul>
 </dd>
-</dl>
-<dl class="simple">
-<dt>kwargs (optional):</dt><dd><dl class="simple">
-<dt>group_size: size of each group in per group fake quantization,</dt><dd><p>can be set instead of <cite>granularity</cite></p>
-</dd>
-<dt>is_symmetric: whether to use symmetric or asymmetric quantization,</dt><dd><p>can be set instead of <cite>mapping_type</cite></p>
-</dd>
-</dl>
+<dt class="field-even">Keyword Arguments<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>group_size</strong> – size of each group in per group fake quantization,
+can be set instead of <cite>granularity</cite></p></li>
+<li><p><strong>is_symmetric</strong> – whether to use symmetric or asymmetric quantization,
+can be set instead of <cite>mapping_type</cite></p></li>
+</ul>
 </dd>
 </dl>
 <p>Example usage:</p>
@@ -519,7 +519,7 @@ Otherwise, throw an error.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html" class="btn btn-neutral float-right" title="Int4WeightOnlyQATQuantizer" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.qat.FakeQuantizedLinear.html" class="btn btn-neutral float-right" title="FakeQuantizedLinear" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html" class="btn btn-neutral" title="FromIntXQuantizationAwareTrainingConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>

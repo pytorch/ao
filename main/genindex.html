@@ -327,6 +327,7 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
 </ul>
@@ -431,6 +432,7 @@
  | <a href="#B"><strong>B</strong></a>
  | <a href="#C"><strong>C</strong></a>
  | <a href="#D"><strong>D</strong></a>
+ | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
  | <a href="#I"><strong>I</strong></a>
@@ -511,7 +513,17 @@
 </li>
       <li><a href="generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.dequantize_scalers">dequantize_scalers() (torchao.dtypes.NF4Tensor method)</a>
 </li>
+      <li><a href="generated/torchao.quantization.qat.linear.disable_linear_fake_quant.html#torchao.quantization.qat.linear.disable_linear_fake_quant">disable_linear_fake_quant() (in module torchao.quantization.qat.linear)</a>
+</li>
       <li><a href="generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.double_quantize_scalers">double_quantize_scalers() (torchao.dtypes.NF4Tensor static method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="E">E</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.qat.linear.enable_linear_fake_quant.html#torchao.quantization.qat.linear.enable_linear_fake_quant">enable_linear_fake_quant() (in module torchao.quantization.qat.linear)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -520,6 +532,14 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.quantization.qat.FakeQuantizeConfig.html#torchao.quantization.qat.FakeQuantizeConfig">FakeQuantizeConfig (class in torchao.quantization.qat)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding">FakeQuantizedEmbedding (class in torchao.quantization.qat)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear">FakeQuantizedLinear (class in torchao.quantization.qat)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.FakeQuantizer.html#torchao.quantization.qat.FakeQuantizer">FakeQuantizer (class in torchao.quantization.qat)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.html#torchao.quantization.qat.Float8ActInt4WeightQATQuantizer">Float8ActInt4WeightQATQuantizer (class in torchao.quantization.qat)</a>
 </li>
       <li><a href="generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig">Float8DynamicActivationFloat8WeightConfig (class in torchao.quantization)</a>
 </li>
@@ -531,12 +551,22 @@
 </li>
       <li><a href="generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig">Float8WeightOnlyConfig (class in torchao.quantization)</a>
 </li>
-      <li><a href="generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver.forward">forward() (torchao.sparsity.PerChannelNormObserver method)</a>
+      <li><a href="generated/torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html#torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.forward">forward() (torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding method)</a>
+
+      <ul>
+        <li><a href="generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding.forward">(torchao.quantization.qat.FakeQuantizedEmbedding method)</a>
 </li>
-      <li><a href="generated/torchao.quantization.FPXWeightOnlyConfig.html#torchao.quantization.FPXWeightOnlyConfig">FPXWeightOnlyConfig (class in torchao.quantization)</a>
+        <li><a href="generated/torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear.forward">(torchao.quantization.qat.FakeQuantizedLinear method)</a>
 </li>
+        <li><a href="generated/torchao.quantization.qat.FakeQuantizer.html#torchao.quantization.qat.FakeQuantizer.forward">(torchao.quantization.qat.FakeQuantizer method)</a>
+</li>
+        <li><a href="generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver.forward">(torchao.sparsity.PerChannelNormObserver method)</a>
+</li>
+      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.FPXWeightOnlyConfig.html#torchao.quantization.FPXWeightOnlyConfig">FPXWeightOnlyConfig (class in torchao.quantization)</a>
+</li>
       <li><a href="generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_floatx">from_hp_to_floatx() (torchao.dtypes.AffineQuantizedTensor class method)</a>
 </li>
       <li><a href="generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_floatx_static">from_hp_to_floatx_static() (torchao.dtypes.AffineQuantizedTensor class method)</a>
@@ -581,14 +611,22 @@
 </li>
       <li><a href="generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig">Int4WeightOnlyConfig (class in torchao.quantization)</a>
 </li>
+      <li><a href="generated/torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html#torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding">Int4WeightOnlyEmbedding (class in torchao.quantization.qat.embedding)</a>
+</li>
       <li><a href="generated/torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer">Int4WeightOnlyEmbeddingQATQuantizer (class in torchao.quantization.qat)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.embedding.Int4WeightOnlyQATEmbedding.html#torchao.quantization.qat.embedding.Int4WeightOnlyQATEmbedding">Int4WeightOnlyQATEmbedding (class in torchao.quantization.qat.embedding)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.linear.Int4WeightOnlyQATLinear.html#torchao.quantization.qat.linear.Int4WeightOnlyQATLinear">Int4WeightOnlyQATLinear (class in torchao.quantization.qat.linear)</a>
 </li>
       <li><a href="generated/torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyQATQuantizer">Int4WeightOnlyQATQuantizer (class in torchao.quantization.qat)</a>
 </li>
-      <li><a href="generated/torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html#torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer">Int8DynActInt4WeightQATQuantizer (class in torchao.quantization.qat)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html#torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear">Int8DynActInt4WeightQATLinear (class in torchao.quantization.qat.linear)</a>
+</li>
+      <li><a href="generated/torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html#torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer">Int8DynActInt4WeightQATQuantizer (class in torchao.quantization.qat)</a>
+</li>
       <li><a href="generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig">Int8DynamicActivationInt4WeightConfig (class in torchao.quantization)</a>
 </li>
       <li><a href="generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig">Int8DynamicActivationInt8WeightConfig (class in torchao.quantization)</a>
@@ -656,9 +694,11 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp">precompute_float8_dynamic_scale_for_fsdp() (in module torchao.float8)</a>
 </li>
-      <li><a href="generated/torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.prepare">prepare() (torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer method)</a>
+      <li><a href="generated/torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.html#torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.prepare">prepare() (torchao.quantization.qat.Float8ActInt4WeightQATQuantizer method)</a>
 
       <ul>
+        <li><a href="generated/torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.prepare">(torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer method)</a>
+</li>
         <li><a href="generated/torchao.sparsity.WandaSparsifier.html#torchao.sparsity.WandaSparsifier.prepare">(torchao.sparsity.WandaSparsifier method)</a>
 </li>
       </ul></li>
