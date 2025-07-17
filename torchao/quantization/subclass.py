@@ -211,13 +211,13 @@ class ConstructTensorSubclass(torch.nn.Module):
 
 
 @torch._dynamo.allow_in_graph
-def from_qtensor_components_int8dyn(*args, **kwargs):
+def _from_qtensor_components_int8dyn(*args, **kwargs):
     return Int8DynamicallyQuantizedLinearWeight(*args, **kwargs)
 
 
 class ConstructTensorSubclassInt8Dyn(ConstructTensorSubclass):
     def forward(self, int_data, q_scales):
-        return from_qtensor_components_int8dyn(
+        return _from_qtensor_components_int8dyn(
             int_data, q_scales, *self.args, **self.kwargs
         )
 
@@ -360,13 +360,13 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
 
 @torch._dynamo.allow_in_graph
-def from_qtensor_components_int8wo(*args, **kwargs):
+def _from_qtensor_components_int8wo(*args, **kwargs):
     return Int8WeightOnlyQuantizedLinearWeight(*args, **kwargs)
 
 
 class ConstructTensorSubclassInt8wo(ConstructTensorSubclass):
     def forward(self, int_data, q_scales):
-        return from_qtensor_components_int8wo(
+        return _from_qtensor_components_int8wo(
             int_data, q_scales, *self.args, **self.kwargs
         )
 
@@ -397,13 +397,13 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
 
 
 @torch._dynamo.allow_in_graph
-def from_qtensor_components_int4wo(*args, **kwargs):
+def _from_qtensor_components_int4wo(*args, **kwargs):
     return Int4WeightOnlyQuantizedLinearWeight(*args, **kwargs)
 
 
 class ConstructTensorSubclassInt4wo(ConstructTensorSubclass):
     def forward(self, int_data, scales_and_zeros):
-        return from_qtensor_components_int4wo(
+        return _from_qtensor_components_int4wo(
             int_data, scales_and_zeros, *self.args, **self.kwargs
         )
 

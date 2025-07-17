@@ -36,7 +36,6 @@ __all__ = [
     "_apply_logging_hook",
     "quantize_activation_per_token_absmax",
     "quant_int8_dynamic_per_token_linear",
-    "quant_int8_per_token_matmul",
     "dynamically_quantize_per_channel",
     "dequantize_per_tensor",
     "dequantize_per_channel",
@@ -133,7 +132,7 @@ class _MultiInput:
         ]
 
 
-def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
+def _guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
         raise ValueError(
             f"Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead."
@@ -200,7 +199,7 @@ def quant_int8_dynamic_per_token_linear(
     and a quantized weight
     """
     x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
-    mm_out = quant_int8_per_token_matmul(
+    mm_out = _quant_int8_per_token_matmul(
         x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
     )
     if bias is not None:
@@ -208,7 +207,7 @@ def quant_int8_dynamic_per_token_linear(
     return mm_out
 
 
-def quant_int8_per_token_matmul(
+def _quant_int8_per_token_matmul(
     x_vals_int8,
     x_scales,
     w_vals_int8_t,
@@ -399,8 +398,8 @@ def get_groupwise_affine_qparams(
 
 
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
-    guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
-    guard_dtype_size(zeros, "zeros", dtype=dtype)
+    _guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
+    _guard_dtype_size(zeros, "zeros", dtype=dtype)
     dim = scales.dim()
     return (
         torch.cat(

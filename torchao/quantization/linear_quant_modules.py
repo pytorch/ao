@@ -49,7 +49,7 @@ def _check_linear_int4_k(k, groupsize=1, inner_k_tiles=None):
     return k_divisible_by_groupsize
 
 
-def linear_forward_int4(
+def _linear_forward_int4(
     x: torch.Tensor,
     weight_int4pack: torch.Tensor,
     scales_and_zeros: torch.Tensor,
@@ -159,7 +159,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.padding:
             input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
-        return linear_forward_int4(
+        return _linear_forward_int4(
             input,
             self.weight,
             self.scales_and_zeros,
@@ -340,7 +340,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
         return model
 
 
-def linear_forward_8da4w(
+def _linear_forward_8da4w(
     x,
     weight_int8,
     bias,
@@ -472,7 +472,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         input = input.to(self.precision)
         # padding is removed for perf
         # input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
-        return linear_forward_8da4w(
+        return _linear_forward_8da4w(
             input,
             self.weight,
             self.bias,
