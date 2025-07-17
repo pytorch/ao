@@ -21,6 +21,7 @@ from .utils import (
 )
 
 __all__ = [
+    "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",
     "swap_linear_with_smooth_fq_linear",
@@ -29,7 +30,7 @@ __all__ = [
 ]
 
 
-def _get_scale(X_absmax, W_absmax, alpha=0.5):
+def get_scale(X_absmax, W_absmax, alpha=0.5):
     """
     Calculate the scale based on abs(max(X)), abs(max(W)), and alpha.
 
@@ -183,7 +184,7 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         """
         assert self.x_running_abs_max is not None, "no calibration data found"
         self.calibrating = False
-        self.smooth_scale = _get_scale(
+        self.smooth_scale = get_scale(
             self.x_running_abs_max,
             torch.max(torch.abs(self.weight.transpose(0, 1)), dim=1).values,
             alpha=self.alpha,

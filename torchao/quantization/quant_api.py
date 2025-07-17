@@ -78,6 +78,7 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     _is_fbgemm_genai_gpu_available,
@@ -114,6 +115,9 @@ from .quant_primitives import (
     ZeroPointDomain,
 )
 from .subclass import (
+    Int4WeightOnlyQuantizedLinearWeight,
+    Int8DynamicallyQuantizedLinearWeight,
+    Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
 from .unified import Quantizer, TwoStepQuantizer
@@ -161,6 +165,109 @@ LAYOUT_TO_PRESERVE_ZEROS = {
     Int4CPULayout: False,
     Int4XPULayout: False,
 }
+
+
+######
+# TO BE DEPRECATED START
+######
+def _in_features_greater_than_16(mod, *args):
+    return hasattr(mod, "in_features") and mod.in_features > 16
+
+
+def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
+    """
+    Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`
+    Tensor subclass, effectively applying the same form of quantization
+    as apply_dynamic_quant while not modifying the linear modules.
+    """
+    if TORCH_VERSION_AT_LEAST_2_4:
+        raise ImportError(
+            "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
+        )
+
+    if filter_fn is None:
+        filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
+            *args
+        )
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(
+            Int8DynamicallyQuantizedLinearWeight, enable_parametrization=False, **kwargs
+        ),
+        filter_fn,
+    )
+
+
+def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
+    """
+    Converts all linear weight tensors to the
+    `Int8WeightOnlyQuantizedLinearWeight` tensor subclass,
+    effectively applying the same form of quantization
+    as apply_weight_only_int8_quant while not modifying the linear modules.
+    """
+    if TORCH_VERSION_AT_LEAST_2_4:
+        raise ImportError(
+            "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
+        )
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(
+            Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=False, **kwargs
+        ),
+        _is_linear if filter_fn is None else filter_fn,
+    )
+
+
+def change_linear_weights_to_int4_woqtensors(
+    model,
+    groupsize=128,
+    inner_k_tiles=8,
+    filter_fn=None,
+    zero_point_domain=ZeroPointDomain.FLOAT,
+    preserve_zero=False,
+):
+    """
+    Converts all linear weight tensors to the
+    `Int4WeightOnlyQuantizedLinearWeight` tensor subclass,
+    effectively applying the same form of quantization
+    as apply_dynamic_quant while not modifying the linear modules.
+    Args:
+        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained, choices are [256, 128, 64, 32]
+        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
+        `filter_fn`: function that takes a nn.Module instance and fully qualified name of the module, \
+            returns True if we want to run `config` on
+        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, \
+            ZeroPointDomain.INT, ZeroPointDomain.NONE]
+        `preserve_zero`: whether to preserve zero, default is False
+    """
+    if TORCH_VERSION_AT_LEAST_2_4:
+        raise ImportError(
+            "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
+        )
+
+    if filter_fn is None:
+        filter_fn = _is_linear
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(
+            Int4WeightOnlyQuantizedLinearWeight,
+            enable_parametrization=False,
+            groupsize=groupsize,
+            inner_k_tiles=inner_k_tiles,
+            zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
+        ),
+        filter_fn,
+    )
+
+
+########
+# TO BE DEPRECATED END
+########
 
 
 def _replace_with_custom_fn_if_matches_filter(
