@@ -1,4 +1,6 @@
-cd ao 
+#!/bin/bash
+
+cd ao/ 
 python3 -m pip install torch torchvision torchaudio pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir 
 python3 setup.py install
 
