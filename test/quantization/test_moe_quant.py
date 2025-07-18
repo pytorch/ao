@@ -25,6 +25,8 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     LinearActivationQuantizedTensor,
     quantize_,
+    PerRow,
+    PerTensor,
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
@@ -32,13 +34,17 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     is_sm_at_least_90,
 )
+from torchao.quantization.utils import compute_error
 
 if torch.version.hip is not None:
     pytest.skip(
         "ROCm support for MoE quantization is under development",
         allow_module_level=True,
     )
+from torchao.prototype.moe_quant.kernels import fp8_dq_moe_op
+from torchao.quantization.utils import _fbgemm_available
 
+torch.manual_seed(0)
 
 class TestMoEQuantCompile(unittest.TestCase):
     DEFAULT_PARAMS = (512, 256, 8, 2)  # hidden_dim, expert_dim, num_experts, top_k
@@ -68,7 +74,6 @@ class TestMoEQuantCompile(unittest.TestCase):
             .to(device)
         )
         input = torch.randn(input_shape, dtype=torch.bfloat16, device=device)
-
         out = model(input)
 
         quantize_(model, config, cond_ffn_filter)
@@ -363,6 +368,113 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
         )
 
+class TestFusedMoEQuant(unittest.TestCase):
+    DEFAULT_PARAMS = (512, 256, 8, 2)  # hidden_dim, expert_dim, num_experts, top_k
+
+    @parameterized.expand(
+        [
+            ("multiple_tokens", 8),
+        ]
+    )
+    def test_pytorch_scaled_grouped_gemm(self, name, num_tokens):
+        if not torch.cuda.is_available():
+            self.skipTest("Need CUDA available")
+        if not is_sm_at_least_90():
+            self.skipTest("Requires CUDA capability >= 9.0")
+
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        config = MoEQuantConfig(Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
+
+        model_params = self.DEFAULT_PARAMS
+
+        input_shape = (num_tokens, model_params[0])
+        input = torch.randn(input_shape, dtype=torch.bfloat16, device=device)
+
+        model = (
+            MOEFeedForwardAOQuantizable(*model_params, empty_init=False)
+        )
+        model = model.to(dtype).to(device)
+
+        out_orig = model(input)
+
+        quantize_(model, config, cond_ffn_filter)
+        
+        w1 = model.experts.w1
+        w2 = model.experts.w2
+        w3 = model.experts.w3
+
+        router = model.router
+        top_k = model.top_k
+
+        # preprocess
+        scores = router(input)  # [T, E]
+        scores = torch.nn.functional.softmax(scores, dim=-1)
+        scores, expert_indices = torch.topk(
+            scores, top_k, dim=-1
+        )  # [T, A], [T, A]
+        scores /= scores.sum(dim=-1, keepdim=True).to(input.dtype)  # [T, A]
+
+        out = fp8_dq_moe_op(input, w1, w2, w3, expert_indices, scores)
+        out2 = model(input)
+
+        self.assertTrue(compute_error(out_orig, out) > 20)
+        self.assertTrue(compute_error(out_orig, out2) > 20)
+
+
+    @parameterized.expand(
+        [
+            ("multiple_tokens", 8),
+        ]
+    )
+    def test_fbgemm_scaled_grouped_gemm(self, name, num_tokens):
+        if not _fbgemm_available:
+            self.skipTest("Need FBGEMM available")
+        if not torch.cuda.is_available():
+            self.skipTest("Need CUDA available")
+        if not is_sm_at_least_90():
+            self.skipTest("Requires CUDA capability >= 9.0")
+
+        device = "cuda"
+        dtype = torch.bfloat16
+
+        config = MoEQuantConfig(Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
+
+        model_params = self.DEFAULT_PARAMS
+
+        input_shape = (num_tokens, model_params[0])
+        input = torch.randn(input_shape, dtype=torch.bfloat16, device=device)
+
+        model = (
+            MOEFeedForwardAOQuantizable(*model_params, empty_init=False, use_fbgemm_kernel=True)
+        )
+        model = model.to(dtype).to(device)
+
+        out_orig = model(input)
+
+        quantize_(model, config, cond_ffn_filter)
+        
+        w1 = model.experts.w1
+        w2 = model.experts.w2
+        w3 = model.experts.w3
+
+        router = model.router
+        top_k = model.top_k
+
+        # preprocess
+        scores = router(input)  # [T, E]
+        scores = torch.nn.functional.softmax(scores, dim=-1)
+        scores, expert_indices = torch.topk(
+            scores, top_k, dim=-1
+        )  # [T, A], [T, A]
+        scores /= scores.sum(dim=-1, keepdim=True).to(input.dtype)  # [T, A]
+
+        out = fp8_dq_moe_op(input, w1, w2, w3, expert_indices, scores, use_fbgemm_kernel=True)
+        out2 = model(input)
+
+        self.assertTrue(compute_error(out_orig, out) > 20)
+        self.assertTrue(compute_error(out_orig, out2) > 20)
 
 if __name__ == "__main__":
     unittest.main()
