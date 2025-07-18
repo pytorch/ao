@@ -693,6 +693,10 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_linear_mm_config</span><span class="p">,</span>
             <span class="n">gemm_input_role</span><span class="o">=</span><span class="n">GemmInputRole</span><span class="o">.</span><span class="n">WEIGHT</span><span class="p">,</span>
         <span class="p">),</span> <span class="p">(</span><span class="n">data</span><span class="p">,)</span>
+
+
+<span class="c1"># Needed to allowlist this subclass for deserialization used for restoring checkpoints.</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">WeightWithDynamicFloat8CastTensor</span><span class="p">])</span>
 </pre></div>
 
              </article>
