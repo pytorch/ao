@@ -266,3 +266,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
             self._linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         ), (data,)
+
+
+# Needed to allowlist this subclass for deserialization used for restoring checkpoints.
+torch.serialization.add_safe_globals([WeightWithDynamicFloat8CastTensor])
