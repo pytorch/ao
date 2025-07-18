@@ -205,6 +205,40 @@ quantize_(model, FPXWeightOnlyConfig(3, 2))
 
 You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
 
+```
+
+KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
+
+```python
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
+    quantize_,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
+    Target,
+)
+from torchao.quantization.granularity import PerGroup, PerAxis
+from torchao.quantization.quant_primitives import MappingType
+from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
+
+my_model = Model()
+
+# Set quantization layout
+layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.ATEN)
+
+quantize_(
+    my_model,
+    Int8DynamicActivationIntxWeightConfig(
+        weight_scale_dtype=torch.float32,
+        weight_granularity=PerGroup(32),  #PerAxis is also supported
+        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
+        layout=layout,
+        weight_dtype=torch.int4,
+    ),
+)
+```
+
 ## Affine Quantization Details
 Affine quantization refers to the type of quantization that maps from high precision floating point numbers to quantized numbers (low precision integer or floating point dtypes) with an affine transformation, i.e.: `quantized_val = high_precision_float_val / scale + zero_point` where `scale` and `zero_point` are quantization parameters for some granularity and based on some data (also some dtypes may not require a `zero_point`). Each of the techniques in the above section qualify as Affine Quantization.
 
