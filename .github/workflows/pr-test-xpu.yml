@@ -55,7 +55,7 @@ jobs:
             echo "$msg"
             exit 1
           fi
-      
+
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror
         shell: bash
