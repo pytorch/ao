@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torchao.prototype.mx_formats.config import (
+    MXFP8Dim1CastKernelChoice,
     MXGemmKernelChoice,
     MXInferenceLinearConfig,
     MXLinearConfig,
@@ -81,16 +82,21 @@ elem_dtypes = (
 @pytest.mark.parametrize("elem_dtype", elem_dtypes)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
-@pytest.mark.parametrize("use_fp8_dim1_cast_triton_kernel", [False, True])
-def test_linear_eager_vs_hp(
-    elem_dtype, bias, input_shape, use_fp8_dim1_cast_triton_kernel
-):
+@pytest.mark.parametrize(
+    "mxfp8_cast_kernel_choice",
+    [
+        MXFP8Dim1CastKernelChoice.TORCH,
+        MXFP8Dim1CastKernelChoice.TRITON,
+        MXFP8Dim1CastKernelChoice.CUDA,
+    ],
+)
+def test_linear_eager_vs_hp(elem_dtype, bias, input_shape, mxfp8_cast_kernel_choice):
     """
     Smoke test for training linear module with mx weight, compares the following:
     * baseline: float32
     * experiment: emulated MX
     """
-    if use_fp8_dim1_cast_triton_kernel:
+    if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
         if elem_dtype != (
             torch.float8_e4m3fn,
             torch.float8_e4m3fn,
@@ -109,11 +115,11 @@ def test_linear_eager_vs_hp(
     )
     m_mx = copy.deepcopy(m)
     config = MXLinearConfig(
-        block_size=4,
+        block_size=32,  # Only 32 is supported for now
         elem_dtype=elem_dtype[0],
         elem_dtype_weight_override=elem_dtype[1],
         elem_dtype_grad_output_override=elem_dtype[2],
-        use_fp8_dim1_cast_triton_kernel=use_fp8_dim1_cast_triton_kernel,
+        mxfp8_cast_kernel_choice=mxfp8_cast_kernel_choice,
     )
     quantize_(m_mx, config)
 
@@ -227,8 +233,15 @@ def test_activation_checkpointing():
 @pytest.mark.parametrize("bias", [False, True])
 # TODO(future PR): figure out why torch.compile does not match eager when
 # autocast is on
-@pytest.mark.parametrize("use_fp8_dim1_cast_triton_kernel", [False, True])
-def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_kernel):
+@pytest.mark.parametrize(
+    "mxfp8_cast_kernel_choice",
+    [
+        MXFP8Dim1CastKernelChoice.TORCH,
+        MXFP8Dim1CastKernelChoice.TRITON,
+        MXFP8Dim1CastKernelChoice.CUDA,
+    ],
+)
+def test_linear_compile(hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice):
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
@@ -246,7 +259,7 @@ def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_ke
         # TODO(future PR): fix this, things are clearly broken with bias=True
         pytest.skip("this test is broken for non-emulated recipes with bias=True")
 
-    if use_fp8_dim1_cast_triton_kernel:
+    if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
         if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas"):
             pytest.skip("unsupported configuration")
         if not is_sm_at_least_89():
@@ -267,7 +280,7 @@ def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_ke
         nn.Linear(K, N, bias=bias, device="cuda", dtype=hp_dtype),
     )
     config = MXLinearConfig.from_recipe_name(recipe_name)
-    config.use_fp8_dim1_cast_triton_kernel = use_fp8_dim1_cast_triton_kernel
+    config.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
 
     quantize_(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)

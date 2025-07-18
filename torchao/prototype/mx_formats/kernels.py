@@ -1404,6 +1404,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_cols,
         output_ptr,
         input_row_stride,
+        input_col_stride,
         output_block_stride,
         BLOCK_ROWS: tl.constexpr,
         BLOCK_COLS: tl.constexpr,
@@ -1423,7 +1424,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         mask = (global_rows < scale_rows) & (global_cols < scale_cols)
 
         input_scales = tl.load(
-            scale_ptr + global_rows * input_row_stride + global_cols,
+            scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
             mask=mask,
             other=0.0,
         )
@@ -1463,7 +1464,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         assert scale_tensor.element_size() == 1, (
             "Expected element size to be 1 byte (8 bits)"
         )
-        assert scale_tensor.is_contiguous(), "Input tensor must be contiguous"
 
         rows, cols = scale_tensor.shape
 
@@ -1476,7 +1476,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         out = scale_tensor.new_empty((padded_rows, padded_cols))
 
         # Input stride (for row-major format)
-        input_row_stride = cols
+        input_row_stride = scale_tensor.stride()[0]
+        input_col_stride = scale_tensor.stride()[1]
 
         # We probably want handle multiple blocks per tile but for now keep it simple
         BLOCK_ROWS, BLOCK_COLS = 128, 4
@@ -1495,6 +1496,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             cols,
             out.view(torch.uint8),
             input_row_stride,
+            input_col_stride,
             output_block_stride,
             BLOCK_ROWS=BLOCK_ROWS,
             BLOCK_COLS=BLOCK_COLS,
@@ -1740,6 +1742,9 @@ else:
 if is_sm_at_least_100():
     from torchao.prototype import mxfp8_cuda
 
+    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
+    # Currently we have to use an arbitrary string because custom ops don't support enum
+    # params.
     @torch.library.custom_op("torchao::mxfp8_quantize_cuda", mutates_args=())
     def mxfp8_quantize_cuda(
         x: torch.Tensor,
@@ -1812,6 +1817,42 @@ if is_sm_at_least_100():
 
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
+    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    def custom_mxfp8_quantize_cuda_dim1_sharding(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ):
+        # This function signature can be used to understand the shardings:
+        # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
+
+        # When inputs and scale are replicated, we return a quantized output tensor (replicated).
+        inputs_replicated = [None, Replicate(), None, Replicate()]
+        outputs_replicated = [None, Replicate(), None, None]
+        rule_for_input_replicated = (
+            inputs_replicated,
+            outputs_replicated,
+        )
+
+        # When inputs and scale are sharded along dim 0,
+        # we return a quantized output tensor (sharded along dim1 due to transpose).
+        inputs_sharded_dim0 = [None, Shard(0), None, Shard(0)]
+        outputs_sharded_dim1 = [None, Shard(1), None, None]
+        rule_for_input_sharded_dim0 = (inputs_sharded_dim0, outputs_sharded_dim1)
+
+        # When inputs and scale are sharded along dim 1,
+        # we return a quantized output tensor (sharded along dim0 due to transpose).
+        inputs_sharded_dim1 = [None, Shard(1), None, Shard(1)]
+        outputs_sharded_dim0 = [None, Shard(0), None, None]
+        rule_for_input_sharded_dim1 = (inputs_sharded_dim1, outputs_sharded_dim0)
+
+        acceptable_shardings = [
+            rule_for_input_replicated,
+            rule_for_input_sharded_dim0,
+            rule_for_input_sharded_dim1,
+        ]
+        return acceptable_shardings
 else:
 
     def mxfp8_quantize_cuda(
