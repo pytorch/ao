@@ -17,8 +17,7 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "to_fbgemm_int4",
-    "FbgemmInt4Tensor",
+    "Int4Tensor",
 ]
 
 aten = torch.ops.aten
@@ -31,22 +30,37 @@ except:
     pack_int4 = None
 
 
-class FbgemmInt4Tensor(TorchAOBaseTensor):
-    tensor_data_attrs = ["packed_weight", "scale", "zero_point"]
-    tensor_attributes = ["group_size", "shape"]
+class Int4Tensor(TorchAOBaseTensor):
+    """
+    int4 quantization with plain (default) packing format (for all granularities)
 
-    def __new__(cls, packed_weight, scale, zero_point, group_size, shape):
+    Tensor Attributes:
+        _data: packed int4 weight, either 2D (N, K/2) or 3D (B, N, K/2), last dimension is packed
+        scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor, where B is batch size,
+               dtype is the same as the original Tensor dtype
+        zero_point: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor, where B is batch size,
+               dtype is the same as the original Tensor dtype
+
+    Non-Tensor Attributes:
+        block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
+        shape: the shape of the original Tensor
+    """
+
+    tensor_data_attrs = ["_data", "scale", "zero_point"]
+    tensor_attributes = ["block_size", "shape"]
+
+    def __new__(cls, _data, scale, zero_point, block_size, shape):
         kwargs = {}
-        kwargs["device"] = packed_weight.device
+        kwargs["device"] = _data.device
         kwargs["dtype"] = scale.dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, packed_weight, scale, zero_point, group_size, shape):
-        self.packed_weight = packed_weight
+    def __init__(self, _data, scale, zero_point, block_size, shape):
+        self._data = _data
         self.scale = scale
         self.zero_point = zero_point
-        self.group_size = group_size
+        self.block_size = block_size
 
     def __tensor_flatten__(self):
         return self.tensor_data_attrs, [
@@ -70,21 +84,21 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(weight={self.packed_weight}, group_size={self.group_size}, "
+            f"{self.__class__.__name__}(weight={self._data}, block_size={self.block_size}, "
             f"shape={self.shape}, device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
     def _quantization_type(self):
-        return f"shape={self.shape}, group_size={self.group_size}, device={self.device}"
+        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs.pop("device")
         return self.__class__(
-            self.packed_weight.to(device),
+            self._data.to(device),
             self.scale.to(device),
             self.zero_point.to(device),
-            self.group_size,
+            self.block_size,
             self.shape,
         )
 
@@ -99,6 +113,10 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         )
         if int4_row_quantize_zp is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+
+        assert all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1, (
+            "Only groupwise quant is supported right now"
+        )
 
         group_size = block_size[-1]
         original_shape = w.shape
@@ -118,16 +136,16 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         zero_point = zero_point.to(w.dtype)
 
         del w
-        return FbgemmInt4Tensor(
-            packed_weight=wq,
+        return Int4Tensor(
+            _data=wq,
             scale=scale,
             zero_point=zero_point,
-            group_size=group_size,
+            block_size=block_size,
             shape=original_shape,
         )
 
 
-implements = FbgemmInt4Tensor.implements
+implements = Int4Tensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -142,9 +160,9 @@ def _(func, types, args, kwargs):
 
     res = torch.ops.fbgemm.bf16i4bf16_rowwise(
         input_tensor,
-        weight_tensor.packed_weight.contiguous(),
-        weight_tensor.scale,
-        weight_tensor.zero_point,
+        weight_tensor._data.contiguous(),
+        weight_tensor.scale.contiguous(),
+        weight_tensor.zero_point.contiguous(),
     )
     res = res.reshape(*orig_act_size[:-1], orig_out_features)
     if bias is not None:
@@ -163,7 +181,7 @@ def _(func, types, args, kwargs):
 
     res = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(
         input_tensor,
-        weight_tensor.packed_weight.contiguous(),
+        weight_tensor._data.contiguous(),
         weight_tensor.scale,
         weight_tensor.zero_point,
     )
@@ -185,15 +203,15 @@ def _(func, types, args, kwargs):
     )
 
 
-def _same_metadata(self: "FbgemmInt4Tensor", src: "FbgemmInt4Tensor") -> bool:
+def _same_metadata(self: "Int4Tensor", src: "Int4Tensor") -> bool:
     return (
-        isinstance(self, FbgemmInt4Tensor)
-        and isinstance(src, FbgemmInt4Tensor)
+        isinstance(self, Int4Tensor)
+        and isinstance(src, Int4Tensor)
         and self.shape == src.shape
-        and self.packed_weight.shape == src.packed_weight.shape
+        and self._data.shape == src._data.shape
         and self.scale.shape == src.scale.shape
         and self.zero_point.shape == src.zero_point.shape
-        and self.group_size == src.group_size
+        and self.block_size == src.block_size
     )
 
 
@@ -214,21 +232,21 @@ def _(func, types, args, kwargs):
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     """Only supports slicing for dim == 1 and dim == 2
-    packed_weight has dimension: (N, K/2)
+    _data has dimension: (N, K/2)
     scale and zero_point has dimension: (K/groups, N)
 
     dim, start, end, step are args that's referring to the original tensor shape
-    which is (N, K), and we need to map that to the transformed weight shape of packed_weight,
+    which is (N, K), and we need to map that to the transformed weight shape of _data,
     scale and zero_point
 
-    when dim == 0: we do a slice on packed_weight dim 0, and on dim 1 of scale and zero_point,
+    when dim == 0: we do a slice on _data dim 0, and on dim 1 of scale and zero_point,
     also adjust the start and end indexes based on the ratio between original shape and the shape
-    of packed_weight and scale/zero_point
+    of _data and scale/zero_point
 
-    when dim == 1: we do a slice on packed_weight dim 1 and dim 0 of scale and zero_point and do the
+    when dim == 1: we do a slice on _data dim 1 and dim 0 of scale and zero_point and do the
     same adjustment based on ratio
 
-    Note that we need to call slice on the packed_weight, scale and zero_point directly because slice
+    Note that we need to call slice on the _data, scale and zero_point directly because slice
     is an operation that need to preserve aliasing, see `test_slice_and_copy_` in `test_fbgemm_int4`
     for
     """
@@ -238,10 +256,10 @@ def _(func, types, args, kwargs):
     if end >= self.shape[dim]:
         end = self.shape[dim]
 
-    assert self.packed_weight.ndim == 2, (
-        f"Expected packed weight to have dim 2, got {self.packed_weight.dim}"
+    assert self._data.ndim == 2, (
+        f"Expected packed weight to have dim 2, got {self._data.dim}"
     )
-    N, K_by_2 = self.packed_weight.shape
+    N, K_by_2 = self._data.shape
     sz_dim0, sz_dim1 = self.scale.shape
 
     data_len = self.shape[dim]
@@ -260,10 +278,10 @@ def _(func, types, args, kwargs):
             args,
             kwargs,
             self.__class__(
-                self.packed_weight,
+                self._data,
                 self.scale,
                 self.zero_point,
-                group_size=self.group_size,
+                block_size=self.block_size,
                 shape=self.shape,
             ),
         )
@@ -276,20 +294,19 @@ def _(func, types, args, kwargs):
     start_sz = int(start / sz_ratio)
     end_sz = int(end / sz_ratio)
 
-    packed_weight = aten.slice.Tensor(self.packed_weight, dim, start_pw, end_pw, step)
+    _data = aten.slice.Tensor(self._data, dim, start_pw, end_pw, step)
     scale = aten.slice.Tensor(self.scale, sz_dim, start_sz, end_sz, step)
     zero_point = aten.slice.Tensor(self.zero_point, sz_dim, start_sz, end_sz, step)
-    packed_shape0, packed_shape1 = packed_weight.shape
+    packed_shape0, packed_shape1 = _data.shape
     new_shape = (packed_shape0, packed_shape1 * 2)
     new = self.__class__(
-        packed_weight, scale, zero_point, group_size=self.group_size, shape=new_shape
+        _data, scale, zero_point, block_size=self.block_size, shape=new_shape
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
-to_fbgemm_int4 = FbgemmInt4Tensor.from_float
-
+Int4Tensor.__module__ = "torchao.quantization"
 
 if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with FbgemmInt4Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([FbgemmInt4Tensor])
+    # Allow a model with Int4Tensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([Int4Tensor])
