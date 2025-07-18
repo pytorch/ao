@@ -107,12 +107,13 @@ def addmm_float8_unwrapped_inference(
     )
 
 
-def _is_rowwise_scaled(x) -> bool:
-    """Checks if an AQT tensor is rowwise scaled
+def _is_rowwise_scaled(x: torch.Tensor) -> bool:
+    """Checks if a quantized tensor is rowwise scaled
     Args:
-        x: AffineQuantizedTensor tensor
+        x: quantized tensor (should have `block_size` attribute)
     """
-    return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)
+    assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
+    return tuple(x.block_size) == (1,) * (x.dim() - 1) + (x.shape[-1],)
 
 
 def _normalize_granularity(
