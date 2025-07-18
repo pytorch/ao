@@ -1,4 +1,4 @@
-name: Run Float8 Single-GPU Tests
+name: Run 4xH100 tests
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
       - 'gh/**'
 
 concurrency:
-  group: float8_single_gpu_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  group: 4xH100_tests-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -23,13 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: SM-89
-            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
           - name: H100
-            runs-on: linux.aws.h100
+            runs-on: linux.aws.h100.4
             torch-spec: '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
@@ -53,4 +48,4 @@ jobs:
         uv pip install -r dev-requirements.txt
         uv pip install vllm
         pip install .
-        ./test/float8/test_everything_single_gpu.sh
+        ./test/float8/test_everything_multi_gpu.sh

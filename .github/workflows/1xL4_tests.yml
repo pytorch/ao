@@ -1,0 +1,53 @@
+name: Run 1xL4 Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'gh/**'
+  pull_request:
+    branches:
+      - main
+      - 'gh/**'
+
+concurrency:
+  group: 1xL4_tests-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: SM-89
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 60
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: ${{ matrix.gpu-arch-type }}
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
+      script: |
+        conda create -n venv python=3.9 -y
+        conda activate venv
+        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        python -m pip install --upgrade pip
+        pip install uv
+        pip install ${{ matrix.torch-spec }}
+        uv pip install -r dev-requirements.txt
+        uv pip install vllm
+        pip install .
+        pytest test/integration --verbose -s
+        pytest test/dtypes/test_affine_quantized_float.py --verbose -s
+        ./test/float8/test_everything_single_gpu.sh
