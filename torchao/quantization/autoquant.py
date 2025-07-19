@@ -66,11 +66,11 @@ aten = torch.ops.aten
 AUTOQUANT_CACHE = {}
 
 
-def check_cache(cls, shapes_and_dtype):
+def _check_cache(cls, shapes_and_dtype):
     return AUTOQUANT_CACHE.get((cls,) + shapes_and_dtype, None)
 
 
-def update_cache(cls, shapes_and_dtype, res):
+def _update_cache(cls, shapes_and_dtype, res):
     AUTOQUANT_CACHE[(cls,) + shapes_and_dtype] = res
 
 
@@ -145,12 +145,12 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             shapes_and_dtype, 0
         )
         for q_cls in w_autoquant.qtensor_class_list:
-            if check_cache(q_cls, shapes_and_dtype) is None:
-                update_cache(q_cls, shapes_and_dtype, None)
+            if _check_cache(q_cls, shapes_and_dtype) is None:
+                _update_cache(q_cls, shapes_and_dtype, None)
 
     def tune_autoquant(self, q_cls, shapes_and_dtype, best_time):
         act_shape, w_shape, bias_shape, act_dtype = shapes_and_dtype
-        if check_cache(q_cls, shapes_and_dtype) is None:
+        if _check_cache(q_cls, shapes_and_dtype) is None:
             with torch.no_grad():
                 act_mat = torch.randn(act_shape, dtype=act_dtype, device=self.device)
                 bias = (
@@ -183,7 +183,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                         f"warning: failed to autoquant {q_cls.__name__} for shape: {shapes_and_dtype} due to {e}"
                     )
                     res = torch.inf
-                update_cache(q_cls, shapes_and_dtype, res)
+                _update_cache(q_cls, shapes_and_dtype, res)
 
     @torch.no_grad()
     def to_quantized(self, error_on_unseen, **kwargs):
@@ -223,13 +223,13 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             total_seen = 0
             shape_count = count_shapes(self, do_print=False)
             for shapes_and_dtype, times_seen in self.logged_data.items():
-                if check_cache(q_cls, shapes_and_dtype) is None:
+                if _check_cache(q_cls, shapes_and_dtype) is None:
                     # only print shapes once
                     if print_shape_once:
                         print_shape_once = False
                         count_shapes(self, do_print=True)
 
-                    time_for_best_shape = check_cache(best_cls, shapes_and_dtype)
+                    time_for_best_shape = _check_cache(best_cls, shapes_and_dtype)
                     time_for_best_shape = (
                         torch.inf
                         if time_for_best_shape is None
@@ -238,7 +238,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                     self.tune_autoquant(q_cls, shapes_and_dtype, time_for_best_shape)
                     ran_new_benchmarks = True
                     torch._dynamo.reset()
-                cur_time += check_cache(q_cls, shapes_and_dtype) * times_seen
+                cur_time += _check_cache(q_cls, shapes_and_dtype) * times_seen
                 total_seen += times_seen
             cur_time = cur_time / total_seen
             # print aggregated time if there were multiple shapes to aggregate and some new benchmarking was done
