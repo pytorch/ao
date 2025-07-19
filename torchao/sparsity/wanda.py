@@ -44,7 +44,7 @@ class WandaSparsifier(BaseSparsifier):
         if semi_structured_block_size is not None:
             m = semi_structured_block_size
             warnings.warn(
-                f"WandaSparsifier got semi_structured_bock_size={m}, sparsity_level fixed to 50% ({m // 2}:{m}) sparsity"
+                f"WandaSparsifier got semi_structured_block_size={m}, sparsity_level fixed to 50% ({m // 2}:{m}) sparsity"
             )
         super().__init__(defaults=defaults)
 
