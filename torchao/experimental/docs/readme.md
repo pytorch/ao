@@ -96,38 +96,6 @@ quantize_(
         layout=PackedLinearInt8DynamicActivationIntxWeightLayout(), # PlainLayout() is also supported, but much slower on CPU
     ),
 )
-```
-
-KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
-
-```python
-from torchao.dtypes import PlainLayout
-from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-)
-from torchao.experimental.quant_api import (
-    int8_dynamic_activation_intx_weight,
-)
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
-)
-from torchao.quantization.quant_api import quantize_
-from torchao.quantization.quant_primitives import MappingType
-
-my_model = Model()
-
-quantize_(
-    my_model,
-    int8_dynamic_activation_intx_weight(
-        weight_dtype=torch.int4,
-        granularity=PerGroup(32), # PerRow() is also supported
-        has_weight_zeros=True, # Should be True
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR # MappingType.SYMMETRIC can also be used but increases error
-        layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
-    ),
-)
-```
 
 If you get stuck, consult
 `torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py`
