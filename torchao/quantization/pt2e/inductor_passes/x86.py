@@ -2425,11 +2425,17 @@ def _register_qlinear_post_op_fusion_pass(
         b = kwargs["b"] if "b" in kwargs else None
 
         # Output QParams
-        o_inv_scale = (
-            kwargs["o_inv_scale"]
-            if (output_dtype in [torch.uint8, torch.int8])
-            else 1.0
-        )
+        if output_dtype == torch.float8_e4m3fn:
+            # For float8, torchao.quantize_affine_float8 requires tensor as scale
+            # Support scale node is full firstly
+            assert kwargs["o_inv_scale"].target is torch.ops.aten.full.default
+            o_inv_scale = kwargs["o_inv_scale"].args[1]
+        else:
+            o_inv_scale = (
+                kwargs["o_inv_scale"]
+                if (output_dtype in [torch.uint8, torch.int8])
+                else 1.0
+            )
         o_zero_point = (
             kwargs["o_zp"] if (output_dtype in [torch.uint8, torch.int8]) else 0
         )
