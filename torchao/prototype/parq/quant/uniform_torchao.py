@@ -62,13 +62,7 @@ class UnifTorchaoQuantizer(Quantizer):
         self._quantize = quantize_affine
         self._dequantize = dequantize_affine
 
-        if quant_min is not None and quant_max is not None:
-            self._choose_qparams = partial(
-                choose_qparams_affine_with_min_max,
-                preserve_zero=preserve_zero,
-                zero_point_domain=zero_point_domain,
-            )
-        elif zero_point_domain == ZeroPointDomain.NONE and not preserve_zero:
+        if zero_point_domain == ZeroPointDomain.NONE and not preserve_zero:
             self._quantize = _quantize_affine_no_zero_point
             self._dequantize = _dequantize_affine_no_zero_point
         elif mapping_type == MappingType.ASYMMETRIC:
@@ -167,9 +161,13 @@ class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
             mapping_type=MappingType.ASYMMETRIC,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
+            scale_method=scale_method,
+        )
+
+        self._choose_qparams = partial(
+            choose_qparams_affine_with_min_max,
             preserve_zero=False,
             zero_point_domain=ZeroPointDomain.FLOAT,
-            scale_method=scale_method,
         )
 
     def get_quant_size(self, b: int) -> int:
