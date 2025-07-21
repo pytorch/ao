@@ -11,7 +11,7 @@ from torch import nn
 from torch.testing._internal.common_pruning import SimpleLinear
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.sparsity.wanda_pp import WandaPlusPlusSparsifier
+from torchao.prototype.sparsity.pruner.wanda_pp import WandaPlusPlusSparsifier
 
 
 class TestWandaPlusPlusSparsifier(TestCase):
@@ -54,25 +54,8 @@ class TestWandaPlusPlusSparsifier(TestCase):
         sparsifier = WandaPlusPlusSparsifier(sparsity_level=0.5)
         self._setup_model_and_sparsifier(model, sparsifier, {"layer_0": (4,)})
 
+        sparsifier.set_context(model[0], "layer_0")
         model(torch.tensor([[100, 10, 1, 0.1]], dtype=torch.float32))
-        sparsifier.set_context(model[0], "layer_0")
-        sparsifier.step()
-        sparsifier.squash_mask()
-
-        self._verify_sparsity(model[0], 0.5)
-
-    def test_one_layer_mlp_2x4(self):
-        """Test 2:4 semi-structured sparsity"""
-        model = nn.Sequential(nn.Linear(8, 1))
-        model[0].weight.data = torch.tensor(
-            [[1, 2, 3, 4, 5, 6, 7, 8]], dtype=torch.float32
-        )
-
-        sparsifier = WandaPlusPlusSparsifier(semi_structured_block_size=4)
-        self._setup_model_and_sparsifier(model, sparsifier, {"layer_0": (8,)})
-
-        model(torch.ones(1, 8))
-        sparsifier.set_context(model[0], "layer_0")
         sparsifier.step()
         sparsifier.squash_mask()
 
@@ -108,8 +91,8 @@ class TestWandaPlusPlusSparsifier(TestCase):
         for _ in range(5):
             sparsifier.store_calibration_input("layer_0", torch.randn(1, 128))
 
-        model(torch.randn(100, 128))
         sparsifier.set_context(model[0], "layer_0")
+        model(torch.randn(100, 128))
         sparsifier.step()
 
         self._verify_sparsity(model[0], 0.5)

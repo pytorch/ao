@@ -96,6 +96,17 @@ class WandaSparsifier(BaseSparsifier):
         # Step 2: Calculate Wx
         pruning_metric = torch.abs(tensor) * activation_norm_per_channel
 
+        # Step 3: Apply sparsity pattern
+        self._apply_sparsity_pattern(mask, pruning_metric, sparsity_level, kwargs)
+
+    def _apply_sparsity_pattern(
+        self,
+        mask: torch.Tensor,
+        pruning_metric: torch.Tensor,
+        sparsity_level: float,
+        kwargs: dict,
+    ) -> None:
+        """Apply sparsity pattern based on pruning metric"""
         # defaults for unstructured sparsity
         block_size = pruning_metric.numel()
         num_specified = int(block_size * sparsity_level)

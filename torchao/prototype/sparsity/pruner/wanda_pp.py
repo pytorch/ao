@@ -13,18 +13,23 @@ __all__ = ["WandaPlusPlusSparsifier"]
 
 
 # TODO: Implement Regional Optimization (RO)
+# TODO: Add `prepare` function for building quantization configs same as WandaSparsifier
 class WandaPlusPlusSparsifier(WandaSparsifier):
     r"""Wanda++ sparsifier extending Wanda with regional gradients
+
     Wanda++ (Pruning by Weights and activations with Regional Gradients), proposed in
     https://arxiv.org/abs/2503.04992, extends the Wanda method by incorporating
     regional gradients for more accurate pruning criteria.
+
     The sparsifier removes weights based on the Regional Gradient Score (RGS):
     S_ij = (α * G_ij + ||X_j||_2) * |W_ij|
+
     where:
     - G_ij: Regional gradient computed from L^l_RGS(X^l_n) = ||f^l(X^l_n)||_2
     - f^l: l-th decoder block function
     - X^l_n: n-th input sample to the l-th decoder block
     - α: Scaling factor for regional gradients (default: 100 from paper)
+
     Args:
         alpha: Regional gradient scaling factor (default: 100 from paper)
         calibration_samples: Number of samples for gradient computation (default: 32 from paper)
@@ -61,42 +66,42 @@ class WandaPlusPlusSparsifier(WandaSparsifier):
     def update_mask(
         self, module: nn.Module, tensor_name: str, sparsity_level: float, **kwargs
     ) -> None:
-        """Update mask using Wanda++ criteria with regional gradients"""
-        # Get Wanda components
+        """Update mask using regional gradients (RO)"""
+
+        # Step 1: get the tensor and the mask from the parametrizations
         mask = getattr(module.parametrizations, tensor_name)[0].mask
         tensor = getattr(module.parametrizations, tensor_name).original
-        activation_norm = module.activation_post_process.norm
 
-        # Compute regional gradients
+        # Step 2: Compute regional gradients (RGS)
+        pruning_metric = self._compute_wandapp_metric(module, tensor, tensor_name)
+
+        # Step 3: Apply sparsity using WandaSparsifier
+        self._apply_sparsity_pattern(mask, pruning_metric, sparsity_level, kwargs)
+
+    def _compute_wandapp_metric(
+        self, module: nn.Module, tensor: torch.Tensor, tensor_name: str
+    ) -> torch.Tensor:
+        """Compute RO : (α * G_ij + ||X_j||_2) * |W_ij|"""
+        activation_norm_per_channel = module.activation_post_process.norm
         regional_gradients = self._compute_regional_gradients(module, tensor_name)
 
-        # Wanda++ metric: (α * G_ij + ||X_j||_2) * |W_ij|
-        metric = (
-            self.defaults["alpha"] * regional_gradients + activation_norm.unsqueeze(0)
+        return (
+            self.defaults["alpha"] * regional_gradients
+            + activation_norm_per_channel.unsqueeze(0)
         ) * tensor.abs()
-
-        # Apply sparsity using existing Wanda logic
-        self._apply_sparsity(mask, metric, sparsity_level, kwargs)
 
     def _compute_regional_gradients(
         self, module: nn.Module, tensor_name: str
     ) -> torch.Tensor:
         """Compute regional gradients from calibration inputs"""
-        if not self._current_decoder_block or not self._current_block_name:
-            raise ValueError(
-                "decoder_block and block_name must be provided for regional gradient computation"
-            )
 
         inputs = self._calibration_inputs.get(self._current_block_name)
-        if not inputs:
-            raise ValueError(
-                f"No calibration inputs stored for block {self._current_block_name}"
-            )
-
         target_param = getattr(module.parametrizations, tensor_name).original
         accumulated_gradients = torch.zeros_like(target_param)
 
         self._current_decoder_block.eval()
+
+        # Compute L2-norm regional gradients
         for input_tensor in inputs:
             self._current_decoder_block.zero_grad()
             with torch.enable_grad():
@@ -106,24 +111,3 @@ class WandaPlusPlusSparsifier(WandaSparsifier):
                     accumulated_gradients += target_param.grad.abs()
 
         return accumulated_gradients / len(inputs)
-
-    def _apply_sparsity(
-        self,
-        mask: torch.Tensor,
-        metric: torch.Tensor,
-        sparsity_level: float,
-        kwargs: dict,
-    ) -> None:
-        """Apply sparsity pattern based on metric"""
-        if kwargs.get("semi_structured_block_size"):
-            block_size = kwargs["semi_structured_block_size"]
-            indices = metric.view(-1, block_size).argsort(dim=1)[:, : block_size // 2]
-            mask.data.view(-1, block_size).scatter_(1, indices, 0)
-        else:
-            num_prune = int(metric.numel() * sparsity_level)
-            indices = metric.view(-1).argsort()[:num_prune]
-            mask.data.view(-1).scatter_(0, indices, 0)
-
-    def get_calibration_info(self) -> dict[str, int]:
-        """Return calibration data info for debugging"""
-        return {name: len(inputs) for name, inputs in self._calibration_inputs.items()}
