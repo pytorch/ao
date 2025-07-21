@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+from functools import partial
 from typing import Optional, Union
 
 import torch
@@ -21,11 +23,13 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_no_zero_point,
     _quantize_affine_tinygemm,
     choose_qparams_affine,
+    choose_qparams_affine_with_min_max,
     dequantize_affine,
     quantize_affine,
 )
 
 from .quantizer import Quantizer
+from .uniform import get_q_max
 
 _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
 
@@ -42,6 +46,7 @@ class UnifTorchaoQuantizer(Quantizer):
         eps: Optional[float] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        scale_method: str = "max",
     ) -> None:
         super().__init__(center=False)
 
@@ -50,23 +55,29 @@ class UnifTorchaoQuantizer(Quantizer):
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.eps = eps
+        self.scale_method = scale_method
 
         # defaults: zero_point_domain=ZeroPointDomain.INT, preserve_zero=True
         self._choose_qparams = choose_qparams_affine
         self._quantize = quantize_affine
         self._dequantize = dequantize_affine
 
-        if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-            self._choose_qparams = _choose_qparams_affine_tinygemm
-            self._quantize = _quantize_affine_tinygemm
-            self._dequantize = _dequantize_affine_tinygemm
-        elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
-            self._choose_qparams = _choose_qparams_affine_dont_preserve_zero
-            self._quantize = quantize_affine
-            self._dequantize = dequantize_affine
-        elif zero_point_domain == ZeroPointDomain.NONE:
+        if quant_min is not None and quant_max is not None:
+            self._choose_qparams = partial(
+                choose_qparams_affine_with_min_max,
+                preserve_zero=preserve_zero,
+                zero_point_domain=zero_point_domain,
+            )
+        elif zero_point_domain == ZeroPointDomain.NONE and not preserve_zero:
             self._quantize = _quantize_affine_no_zero_point
             self._dequantize = _dequantize_affine_no_zero_point
+        elif mapping_type == MappingType.ASYMMETRIC:
+            if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
+                self._choose_qparams = _choose_qparams_affine_tinygemm
+                self._quantize = _quantize_affine_tinygemm
+                self._dequantize = _dequantize_affine_tinygemm
+            elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
+                self._choose_qparams = _choose_qparams_affine_dont_preserve_zero
 
     def _init_quant_min_max(self, b: int) -> None:
         if self.quant_min is None or self.quant_max is None:
@@ -89,8 +100,17 @@ class UnifTorchaoQuantizer(Quantizer):
         # assume that p has already been grouped in QuantOptimizer.step
         block_size = (1, p.size(-1)) if dim is not None else p.size()
 
+        if (
+            getattr(self._choose_qparams, "func", None)
+            == choose_qparams_affine_with_min_max
+        ):
+            q_max = get_q_max(p, b, dim=dim, scale_method=self.scale_method)
+            q_max = q_max.clamp_(min=torch.finfo(p.dtype).tiny)
+            q_args = (-q_max, q_max)
+        else:
+            q_args = (p,)
         s, zero_point = self._choose_qparams(
-            p,
+            *q_args,
             self.mapping_type,
             block_size,
             self.target_dtype,
@@ -131,6 +151,29 @@ class UnifTorchaoQuantizer(Quantizer):
             quant_max=self.quant_max,
         )
         return q, Q
+
+
+class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
+    def __init__(
+        self, b: int, int_shift: float = 0.5, scale_method: str = "mean"
+    ) -> None:
+        # use choose_qparams_affine_with_min_max to infer zero_point
+        quant_absmax = 2 ** (b - 1) - int_shift
+        self.quant_min = -quant_absmax
+        self.quant_max = quant_absmax
+        self.int_shift = int_shift
+
+        super().__init__(
+            mapping_type=MappingType.ASYMMETRIC,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            preserve_zero=False,
+            zero_point_domain=ZeroPointDomain.FLOAT,
+            scale_method=scale_method,
+        )
+
+    def get_quant_size(self, b: int) -> int:
+        return math.floor(2**b - 2 * self.int_shift) + 1
 
 
 class Int4UnifTorchaoQuantizer(UnifTorchaoQuantizer):
