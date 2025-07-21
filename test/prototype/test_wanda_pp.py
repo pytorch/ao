@@ -11,7 +11,7 @@ from torch import nn
 from torch.testing._internal.common_pruning import SimpleLinear
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.sparsity.wanda_pp import WandaPlusPlusSparsifier
+from torchao.prototype.sparsity.pruner.wanda_pp import WandaPlusPlusSparsifier
 
 
 class TestWandaPlusPlusSparsifier(TestCase):

@@ -14,4 +14,5 @@ __all__ = [
     "BiasHook",
     "FakeStructuredSparsity",
     "SaliencyPruner",
+    "WandaPlusPlusSparsifier",
 ]
