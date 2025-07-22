@@ -507,7 +507,7 @@ def _is_valid_quantized_op_binary_optimization_pattern(
             if "other" in match.kwargs
             else (
                 match.kwargs["accum"]
-                if (output_dtype in [torch.uint8, torch.int8])
+                if (output_dtype in [torch.uint8, torch.int8, torch.float8_e4m3fn])
                 or (not extra_input_from_dequant)
                 else match.kwargs["accum_after_dequant"]
             )
