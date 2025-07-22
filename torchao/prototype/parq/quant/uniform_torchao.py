@@ -29,7 +29,6 @@ from torchao.quantization.quant_primitives import (
 
 from .quant_api import (
     choose_qparams_stretched_affine,
-    dequantize_stretched_affine,
     quantize_stretched_affine,
 )
 from .quantizer import Quantizer
@@ -157,7 +156,6 @@ class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
 
         self._choose_qparams = partial(choose_qparams_stretched_affine, b=b)
         self._quantize = quantize_stretched_affine
-        self._dequantize = dequantize_stretched_affine
 
     def get_quant_size(self, b: int) -> int:
         return math.floor(2**b - 2 * self.int_shift) + 1

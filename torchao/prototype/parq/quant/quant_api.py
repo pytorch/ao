@@ -56,7 +56,7 @@ def choose_qparams_stretched_affine(
 
     scale = max_val / quant_max
     scale = scale.to(dtype=scale_dtype, device=input_float.device)
-    zero_point = torch.full_like(scale, 0.5, dtype=zero_point_dtype)
+    zero_point = torch.full_like(scale, -0.5, dtype=zero_point_dtype)
     return scale, zero_point
 
 
@@ -95,32 +95,10 @@ def quantize_stretched_affine(
     max_val = scale.mul(quant_max)
     input_float = input_float.clamp(min=-max_val, max=max_val)
     with torch.no_grad():
-        quant = torch.round(input_float / scale - zero_point)
+        # difference from quantize_affine: add zero_point before rounding
+        quant = torch.round(input_float / scale + zero_point)
     quant = quant.to(dtype=target_dtype).view(original_shape)
     return quant
-
-
-def dequantize_stretched_affine(
-    data: torch.Tensor,
-    block_size: Tuple[int, ...],
-    scale: torch.Tensor,
-    zero_point: torch.Tensor,
-    data_dtype: torch.dtype,
-    quant_min: Optional[int] = None,
-    quant_max: Optional[int] = None,
-    output_dtype: torch.dtype = torch.float32,
-) -> torch.Tensor:
-    # allow float data_dtype instead of restricting to _SUB_BYTE_UINT_BOUNDS
-    return dequantize_affine(
-        data,
-        block_size,
-        scale,
-        -zero_point,
-        data_dtype,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        output_dtype=output_dtype,
-    )
 
 
 class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
@@ -184,7 +162,7 @@ class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
             )
 
         data, scale, zero_point = self.tensor_impl.get_plain()
-        dq = dequantize_stretched_affine(
+        dq = dequantize_affine(
             data,
             self.block_size,
             scale,
