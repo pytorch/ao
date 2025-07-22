@@ -18,9 +18,13 @@ concurrency:
   group: xpu_ci_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
   cancel-in-progress: true
 
-
-# env:
-#   HF_TOKEN: ${{ secrets.HF_TOKEN }}
+env:
+  DOCKER_TAG: pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
+  DOCKER_IMAGE: ghcr.io/pytorch/ci-image:${DOCKER_TAG}
+  TEST_COMMAND: .github/scripts/ci_test_xpu.sh
+  PYTORCH_RETRY_TEST_CASES: 1
+  PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
+  XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
 
 jobs:
   test:
@@ -60,9 +64,8 @@ jobs:
         id: print-ghcr-mirror
         shell: bash
         run: |
-          tag="pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3"
-          echo "docker pull ghcr.io/pytorch/ci-image:${tag/:/-}"
-          docker pull ghcr.io/pytorch/ci-image:${tag/:/-}
+          echo "docker pull ${DOCKER_IMAGE}"
+          docker pull ${DOCKER_IMAGE}
 
       - name: Test
         id: test
@@ -76,11 +79,6 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           SHA1: ${{ github.event.pull_request.head.sha || github.sha }}
-          DOCKER_IMAGE: ghcr.io/pytorch/ci-image:pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
-          TEST_COMMAND: .github/scripts/ci_test_xpu.sh
-          PYTORCH_RETRY_TEST_CASES: 1
-          PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
-          XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
         timeout-minutes: 60
         run: |
           set -x
