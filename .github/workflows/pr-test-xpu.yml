@@ -18,20 +18,19 @@ concurrency:
   group: xpu_ci_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
   cancel-in-progress: true
 
-env:
-  DOCKER_TAG: pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
-  DOCKER_IMAGE: ghcr.io/pytorch/ci-image:${DOCKER_TAG}
-  TEST_COMMAND: .github/scripts/ci_test_xpu.sh
-  PYTORCH_RETRY_TEST_CASES: 1
-  PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
-  XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
-
 jobs:
   test:
     # Don't run on forked repos or empty test matrix
     # if: github.repository_owner == 'pytorch' && toJSON(fromJSON(inputs.test-matrix).include) != '[]'
     timeout-minutes: 60
     runs-on: ao-pvc
+    env:
+      DOCKER_TAG: pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
+      DOCKER_IMAGE: ghcr.io/pytorch/ci-image:${DOCKER_TAG}
+      TEST_COMMAND: .github/scripts/ci_test_xpu.sh
+      PYTORCH_RETRY_TEST_CASES: 1
+      PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
+      XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
     steps:
       # [see note: pytorch repo ref]
       - name: Checkout Torchao
