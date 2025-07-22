@@ -25,8 +25,7 @@ jobs:
     timeout-minutes: 60
     runs-on: ao-pvc
     env:
-      DOCKER_TAG: pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
-      DOCKER_IMAGE: ghcr.io/pytorch/ci-image:${DOCKER_TAG}
+      DOCKER_IMAGE: ghcr.io/pytorch/ci-image:pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
       TEST_COMMAND: .github/scripts/ci_test_xpu.sh
       PYTORCH_RETRY_TEST_CASES: 1
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
