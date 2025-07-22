@@ -5,24 +5,122 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 from torch import nn
 
-from torchao.dtypes import AffineQuantizedTensor, Layout, PlainLayout, QDQLayout
+from torchao.dtypes import AffineQuantizedTensor, Layout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import IntxWeightOnlyConfig
 from torchao.quantization.quant_primitives import (
+    _SUB_BYTE_UINT_BOUNDS,
     MappingType,
     ZeroPointDomain,
-    choose_qparams_affine_with_min_max,
+    _get_reduction_params,
     dequantize_affine,
-    quantize_affine,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
 
-from .uniform import get_q_max
+
+def choose_qparams_stretched_affine(
+    input_float: torch.Tensor,
+    mapping_type: MappingType,
+    block_size: Tuple[int, ...],
+    target_dtype: torch.dtype,
+    b: int,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    eps: Optional[float] = None,
+    scale_dtype: Optional[torch.dtype] = None,
+    zero_point_dtype: Optional[torch.dtype] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if scale_dtype is None:
+        scale_dtype = input_float.dtype
+    if eps is None:
+        eps = torch.finfo(input_float.dtype).eps
+    if zero_point_dtype is None:
+        zero_point_dtype = input_float.dtype
+
+    assert len(block_size) == input_float.dim(), f"Got {input.dim()=}, {block_size=}"
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input_float.size()
+    )
+    input_float = input_float.view(shape_for_reduction)
+
+    q_abs = input_float.abs()
+    max_val = torch.minimum(
+        b * q_abs.mean(dim=reduction_dims, keepdim=True),
+        torch.amax(q_abs, dim=reduction_dims, keepdim=True),
+    ).clamp_(min=eps)
+
+    scale = max_val / quant_max
+    scale = scale.to(dtype=scale_dtype, device=input_float.device)
+    zero_point = torch.full_like(scale, 0.5, dtype=zero_point_dtype)
+    return scale, zero_point
+
+
+def quantize_stretched_affine(
+    input_float: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: torch.Tensor,
+    target_dtype: torch.dtype,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
+) -> torch.Tensor:
+    if target_dtype in _SUB_BYTE_UINT_BOUNDS:
+        target_dtype = torch.uint8
+    assert input_float.dtype in (torch.float32, torch.float16, torch.bfloat16), (
+        f"Unsupported input_float dtype: {input_float.dtype}"
+    )
+    assert len(block_size) == input_float.dim(), (
+        f"Got {input_float.dim()=}, {block_size=}"
+    )
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input_float.size()
+    )
+    original_shape = input_float.shape
+    input_float = input_float.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+
+    if zero_point is not None and zero_point.numel() > 0:
+        zero_point = zero_point.view(shape_after_reduction)
+    else:
+        zero_point = None
+
+    max_val = scale.mul(quant_max)
+    input_float = input_float.clamp(min=-max_val, max=max_val)
+    with torch.no_grad():
+        quant = torch.round(input_float / scale - zero_point)
+    quant = quant.to(dtype=target_dtype).view(original_shape)
+    return quant
+
+
+def dequantize_stretched_affine(
+    data: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: torch.Tensor,
+    data_dtype: torch.dtype,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    # allow float data_dtype instead of restricting to _SUB_BYTE_UINT_BOUNDS
+    return dequantize_affine(
+        data,
+        block_size,
+        scale,
+        -zero_point,
+        data_dtype,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        output_dtype=output_dtype,
+    )
 
 
 class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
@@ -36,48 +134,23 @@ class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
         b: int,
         quant_min: Optional[float] = None,
         quant_max: Optional[float] = None,
-        eps: Optional[float] = None,
         scale_dtype: Optional[torch.dtype] = None,
-        zero_point_dtype: Optional[torch.dtype] = None,
-        preserve_zero: bool = False,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
-        _layout: Layout = PlainLayout(),  # noqa: B008
-        scale_method: str = "mean",
+        _layout: Layout = QDQLayout(),  # noqa: B008
     ):
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
 
-        dim = None
-        qmax_shape = []
-        for d, size in enumerate(block_size):
-            if size > 1:
-                dim = d
-                qmax_shape.append(original_shape[d] // size)
-            else:
-                qmax_shape.append(original_shape[d])
-        assert dim is not None, (
-            "block_size must have at least one dimension greater than 1"
-        )
-        reduction_shape = [-1 if i != dim else b for i, b in enumerate(block_size)]
-        input_float = input_float.view(reduction_shape)
-        q_max = get_q_max(input_float, b, dim=dim, scale_method=scale_method)
-        q_max = q_max.clamp(min=torch.finfo(input_float.dtype).tiny)
-        q_max = q_max.view(qmax_shape)
-        input_float = input_float.view(original_shape)
-
-        scale, zero_point = choose_qparams_affine_with_min_max(
-            -q_max,
-            q_max,
+        scale, zero_point = choose_qparams_stretched_affine(
+            input_float,
             mapping_type,
             block_size,
             target_dtype,
-            eps=eps,
+            b,
             quant_min=quant_min,
             quant_max=quant_max,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
         )
-        data = quantize_affine(
+        data = quantize_stretched_affine(
             input_float,
             block_size,
             scale,
@@ -111,7 +184,7 @@ class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
             )
 
         data, scale, zero_point = self.tensor_impl.get_plain()
-        dq = dequantize_affine(
+        dq = dequantize_stretched_affine(
             data,
             self.block_size,
             scale,
@@ -130,10 +203,8 @@ to_stretched_affine_quantized_intx = StretchedAffineQuantizedTensor.from_hp_to_i
 @dataclass
 class StretchedIntxWeightOnlyConfig(IntxWeightOnlyConfig):
     b: Optional[int] = None
-    quant_min: Optional[float] = None
-    quant_max: Optional[float] = None
-    mapping_type: MappingType = MappingType.ASYMMETRIC
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT
+    quant_min: Optional[int] = None
+    quant_max: Optional[int] = None
 
 
 @register_quantize_module_handler(StretchedIntxWeightOnlyConfig)
@@ -142,7 +213,7 @@ def _stretched_intx_weight_only_transform(
 ) -> nn.Module:
     weight = module.weight
     granularity = config.granularity
-    mapping_type = config.mapping_type
+    mapping_type = MappingType.ASYMMETRIC
 
     assert weight.dim() == 2, (
         f"StretchedIntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -166,9 +237,6 @@ def _stretched_intx_weight_only_transform(
         quant_min=config.quant_min,
         quant_max=config.quant_max,
         scale_dtype=config.scale_dtype,
-        zero_point_dtype=torch.int8,
-        preserve_zero=(mapping_type == MappingType.SYMMETRIC),
-        zero_point_domain=config.zero_point_domain,
         _layout=config.layout,
     )
     module.weight = torch.nn.Parameter(weight, requires_grad=False)

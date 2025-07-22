@@ -23,13 +23,16 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_no_zero_point,
     _quantize_affine_tinygemm,
     choose_qparams_affine,
-    choose_qparams_affine_with_min_max,
     dequantize_affine,
     quantize_affine,
 )
 
+from .quant_api import (
+    choose_qparams_stretched_affine,
+    dequantize_stretched_affine,
+    quantize_stretched_affine,
+)
 from .quantizer import Quantizer
-from .uniform import get_q_max
 
 _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
 
@@ -46,7 +49,6 @@ class UnifTorchaoQuantizer(Quantizer):
         eps: Optional[float] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        scale_method: str = "max",
     ) -> None:
         super().__init__(center=False)
 
@@ -55,7 +57,6 @@ class UnifTorchaoQuantizer(Quantizer):
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.eps = eps
-        self.scale_method = scale_method
 
         # defaults: zero_point_domain=ZeroPointDomain.INT, preserve_zero=True
         self._choose_qparams = choose_qparams_affine
@@ -94,17 +95,8 @@ class UnifTorchaoQuantizer(Quantizer):
         # assume that p has already been grouped in QuantOptimizer.step
         block_size = (1, p.size(-1)) if dim is not None else p.size()
 
-        if (
-            getattr(self._choose_qparams, "func", None)
-            == choose_qparams_affine_with_min_max
-        ):
-            q_max = get_q_max(p, b, dim=dim, scale_method=self.scale_method)
-            q_max = q_max.clamp_(min=torch.finfo(p.dtype).tiny)
-            q_args = (-q_max, q_max)
-        else:
-            q_args = (p,)
         s, zero_point = self._choose_qparams(
-            *q_args,
+            p,
             self.mapping_type,
             block_size,
             self.target_dtype,
@@ -127,9 +119,12 @@ class UnifTorchaoQuantizer(Quantizer):
             quant_max=self.quant_max,
         )
 
-        Q = torch.arange(
-            self.quant_min, self.quant_max + 1, dtype=self.target_dtype, device=p.device
-        )
+        Q = torch.arange(self.quant_min, self.quant_max + 1e-5, device=p.device)
+
+        if isinstance(self.quant_min, float):
+            Q = Q.floor()
+        Q = Q.to(dtype=self.target_dtype)
+
         if dim is not None:
             Q = Q.view(1, -1).expand(q.size(0), -1)
             block_size = (1, Q.size(-1))
@@ -148,10 +143,7 @@ class UnifTorchaoQuantizer(Quantizer):
 
 
 class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
-    def __init__(
-        self, b: int, int_shift: float = 0.5, scale_method: str = "mean"
-    ) -> None:
-        # use choose_qparams_affine_with_min_max to infer zero_point
+    def __init__(self, b: int, int_shift: float = 0.5) -> None:
         quant_absmax = 2 ** (b - 1) - int_shift
         self.quant_min = -quant_absmax
         self.quant_max = quant_absmax
@@ -161,14 +153,11 @@ class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
             mapping_type=MappingType.ASYMMETRIC,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
-            scale_method=scale_method,
         )
 
-        self._choose_qparams = partial(
-            choose_qparams_affine_with_min_max,
-            preserve_zero=False,
-            zero_point_domain=ZeroPointDomain.FLOAT,
-        )
+        self._choose_qparams = partial(choose_qparams_stretched_affine, b=b)
+        self._quantize = quantize_stretched_affine
+        self._dequantize = dequantize_stretched_affine
 
     def get_quant_size(self, b: int) -> int:
         return math.floor(2**b - 2 * self.int_shift) + 1

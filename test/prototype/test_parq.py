@@ -282,6 +282,29 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
+    @common_utils.parametrize("b", [2, 3])
+    @common_utils.parametrize("group_size", [32, 256])
+    def test_intx_weight_only_parq_equivalent(self, b: int = 2, group_size: int = 32):
+        model = M(m=512, n=512).to(_DEVICE)
+        model.reset_parameters()
+
+        quantizer_ref = UnifQuantizer()
+        quantizer = StretchedUnifTorchaoQuantizer(b)
+
+        for n, module in model.named_children():
+            if not _is_linear(module):
+                continue
+
+            # simulate grouping from QuantOptimizer.step
+            p = module.weight
+            p = p.view(-1, group_size)
+
+            q_ref, Q_ref = quantizer_ref.quantize(p, b=b, dim=-1)
+            q, Q = quantizer.quantize(p, b=b, dim=-1)
+
+            torch.testing.assert_close(q, q_ref, atol=0, rtol=0)
+            torch.testing.assert_close(Q, Q_ref, atol=0, rtol=0)
+
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("b", [2, 3])
     @common_utils.parametrize("group_size", [32, 512])
