@@ -13,6 +13,7 @@ __all__ = ["WandaPlusPlusSparsifier"]
 
 
 # TODO: Implement Regional Optimization (RO)
+# TODO: Add `prepare` function for building quantization configs same as WandaSparsifier
 class WandaPlusPlusSparsifier(WandaSparsifier):
     r"""Wanda++ sparsifier extending Wanda with regional gradients
     Wanda++ (Pruning by Weights and activations with Regional Gradients), proposed in
@@ -61,16 +62,26 @@ class WandaPlusPlusSparsifier(WandaSparsifier):
     def update_mask(
         self, module: nn.Module, tensor_name: str, sparsity_level: float, **kwargs
     ) -> None:
-        """Update mask using Wanda++ criteria with regional gradients"""
-        # Get Wanda components
+        r"""Update mask using Wanda++ criteria with regional gradients
+
+        Unlike Wanda, Wanda++ directly computes regional gradients
+        from calibration inputs and applies sparsity based on the metric:
+        S_ij = (α * G_ij + ||X_j||_2)
+        where:
+            - G_ij: Regional gradient computed from calibration inputs
+            - ||X_j||_2: L2-norm of the activation post-process norm
+            - α: Scaling factor for regional gradients (default: 100)
+        """
+
+        # Step 1: get the tensor and the mask from the parametrizations
         mask = getattr(module.parametrizations, tensor_name)[0].mask
         tensor = getattr(module.parametrizations, tensor_name).original
         activation_norm = module.activation_post_process.norm
 
-        # Compute regional gradients
+        # Step 2: Compute regional gradients (RGS)
         regional_gradients = self._compute_regional_gradients(module, tensor_name)
 
-        # Wanda++ metric: (α * G_ij + ||X_j||_2) * |W_ij|
+        # Step 3 : Build the metric for sparsity
         metric = (
             self.defaults["alpha"] * regional_gradients + activation_norm.unsqueeze(0)
         ) * tensor.abs()
@@ -82,21 +93,14 @@ class WandaPlusPlusSparsifier(WandaSparsifier):
         self, module: nn.Module, tensor_name: str
     ) -> torch.Tensor:
         """Compute regional gradients from calibration inputs"""
-        if not self._current_decoder_block or not self._current_block_name:
-            raise ValueError(
-                "decoder_block and block_name must be provided for regional gradient computation"
-            )
 
         inputs = self._calibration_inputs.get(self._current_block_name)
-        if not inputs:
-            raise ValueError(
-                f"No calibration inputs stored for block {self._current_block_name}"
-            )
-
         target_param = getattr(module.parametrizations, tensor_name).original
         accumulated_gradients = torch.zeros_like(target_param)
 
         self._current_decoder_block.eval()
+
+        # Compute L2-norm regional gradients
         for input_tensor in inputs:
             self._current_decoder_block.zero_grad()
             with torch.enable_grad():
