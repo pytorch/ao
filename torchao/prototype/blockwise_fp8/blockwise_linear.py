@@ -7,13 +7,105 @@
 import torch
 from torch import nn
 
-from torchao.prototype.blockwise_fp8.blockwise_quantization import (
-    blockwise_fp8_gemm,
+from torchao.core.config import AOBaseConfig
+from torchao.prototype.blockwise_fp8.kernels import (
+    blockwise_fp8_gemm_1x128_1x128,
+    blockwise_fp8_gemm_1x128_128x128,
     fp8_blockwise_act_quant,
+    fp8_blockwise_weight_quant,
 )
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
+from torchao.utils import is_sm_at_least_90
 
 
-class BlockwiseQuantLinear(nn.Module):
+class fp8_blockwise_mm(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, block_size):
+        assert block_size == 128, "Only support block_size=128"
+
+        # Temporarily reshape x to 2D tensor
+        x_orig_shape = x.shape
+        x = x.reshape(-1, x_orig_shape[-1])
+
+        # Cast inputs to fp8 blockwise
+        x_fp8, x_scale = fp8_blockwise_act_quant(x, block_size)
+        weight_t_fp8, weight_t_scale = fp8_blockwise_weight_quant(
+            weight,
+            block_size=block_size,
+        )
+
+        # out = input @ weight.T
+        out = blockwise_fp8_gemm_1x128_128x128(
+            x_fp8,
+            x_scale,
+            weight_t_fp8,  # This kernel accepts B tensor in row-major
+            weight_t_scale,
+        )
+        out = out.reshape(*x_orig_shape[:-1], out.shape[-1])
+        ctx.save_for_backward(x, weight)
+        ctx.block_size = block_size
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, weight = ctx.saved_tensors
+        block_size = ctx.block_size
+
+        # Reshape input to 2D
+        x_orig_shape = x.shape
+        x = x.reshape(-1, x_orig_shape[-1])
+
+        # Reshape grad_output to 2D
+        grad_output_orig_shape = grad_output.shape
+        grad_output = grad_output.reshape(-1, grad_output_orig_shape[-1])
+        assert grad_output.shape[1] % 128 == 0, "unsupported"
+
+        # Cast grad_output to fp8 blockwise 1x128 since it is the grad of the output activation.
+        grad_output_fp8, grad_output_scale = fp8_blockwise_act_quant(
+            grad_output.contiguous(),
+            block_size,
+        )
+
+        # Cast weight to fp8 blockwise to 128x128.
+        # Writes fp8 output to transpose in row major format.
+        weight_fp8, weight_scale = fp8_blockwise_weight_quant(
+            weight.t().contiguous(),
+            block_size=block_size,
+        )
+
+        # grad_x = grad_output @ weight
+        grad_x = blockwise_fp8_gemm_1x128_128x128(
+            grad_output_fp8,
+            grad_output_scale,
+            weight_fp8,  # This kernel accepts B tensor in row-major
+            weight_scale,
+        )
+
+        # Cast grad_output_t to fp8 blockwise 1x128 since it is the grad of the output activation.
+        grad_output_t_fp8, grad_output_t_scale = fp8_blockwise_act_quant(
+            grad_output.t().contiguous(),
+            block_size,
+        )
+
+        # Cast x to fp8 blockwise 1x128 since it is the input activation.
+        x_fp8, x_scale = fp8_blockwise_act_quant(x.t().contiguous(), block_size)
+
+        # grad_weight = grad_output.T @ x
+        grad_weight = blockwise_fp8_gemm_1x128_1x128(
+            grad_output_t_fp8,
+            grad_output_t_scale,
+            x_fp8,  # This kernel expects a B tensor of shape (N, K) in row-major
+            x_scale,
+        )
+
+        # Rehshape grad_x to expected potentially 3D+ shape
+        grad_x = grad_x.reshape(*grad_output_orig_shape[:-1], grad_x.shape[-1])
+        return grad_x, grad_weight, None, None
+
+
+class Float8BlockwiseLinear(nn.Linear):
     """
     Custom linear layer with support for quantized weights and optional bias.
 
@@ -25,53 +117,61 @@ class BlockwiseQuantLinear(nn.Module):
         dtype (torch.dtype): Data type for the weights. Defaults to torch.float8_e4m3fn.
     """
 
-    dtype = torch.bfloat16
+    supported_dtypes = [
+        torch.bfloat16,
+    ]
 
     def __init__(
         self,
-        in_features: int,
-        out_features: int,
-        bias: bool = False,
+        *args,
         block_size: int = 128,
-        dtype: torch.dtype = torch.float8_e4m3fn,
+        dtype=torch.bfloat16,
+        **kwargs,
     ):
-        super().__init__()
-        supported_dtypes = [
-            torch.float8_e4m3fn,
-            torch.float8_e5m2,
-        ]
-        assert dtype in supported_dtypes, (
-            f"Unsupported dtype: {dtype}. Supported dtypes: {supported_dtypes}"
-        )
-        scale_in_features = (in_features + block_size - 1) // block_size
-        scale_out_features = (out_features + block_size - 1) // block_size
-        self.weight = nn.Parameter(torch.empty(out_features, in_features, dtype=dtype))
-        self.weight.scale = self.scale = nn.Parameter(
-            torch.empty(scale_out_features, scale_in_features, dtype=torch.float32)
-        )
-        self.block_size = block_size
-        self.dtype
+        super().__init__(*args, **kwargs)
 
-        if bias:
-            self.bias = nn.Parameter(torch.empty(out_features))
-        else:
-            self.register_parameter("bias", None)
+        assert dtype in self.supported_dtypes, (
+            f"Unsupported dtype: {dtype}. Supported dtypes: {self.supported_dtypes}"
+        )
+        assert is_sm_at_least_90(), "Only support SM90"
+        self.block_size = block_size
+        self.dtype = dtype
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass for the custom linear layer.
 
         Args:
-            x (torch.Tensor): Input tensor.
+            x (torch.Tensor): input tensor.
 
         Returns:
             torch.Tensor: Transformed tensor after linear computation.
         """
-        x, scale = fp8_blockwise_act_quant(x, self.block_size, self.dtype)
-        y = blockwise_fp8_gemm(
-            x, scale, self.weight, self.weight.scale, self.block_size
-        )
+        return fp8_blockwise_mm.apply(x, self.weight, self.block_size)
 
-        if self.bias is not None:
-            y += self.bias
-        return y
+    @classmethod
+    def from_float(
+        cls,
+        mod,
+    ):
+        assert mod.bias is None, "unsupported"
+        assert mod.in_features % 128 == 0, "unsupported"
+        assert mod.out_features % 128 == 0, "unsupported"
+        with torch.device("meta"):
+            new_mod = cls(
+                mod.in_features,
+                mod.out_features,
+                bias=False,
+            )
+        new_mod.weight = mod.weight
+        new_mod.bias = mod.bias
+        return new_mod
+
+
+class Float8BlockwiseLinearConfig(AOBaseConfig):
+    pass
+
+
+@register_quantize_module_handler(Float8BlockwiseLinearConfig)
+def _deep_gemm_float8_inference_linear_transform(module, config):
+    return Float8BlockwiseLinear.from_float(module)
