@@ -70,6 +70,12 @@ lib.define(
 lib.define(
     "da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor"
 )
+lib.define(
+    "float8_linear_prepack_cpu(Tensor weight, Tensor scales) -> (Tensor, Tensor)"
+)
+lib.define(
+    "float8_linear_cpu(Tensor input, Tensor input_scales, Tensor weight, Tensor weight_scales, Tensor? bias, ScalarType output_dtype) -> Tensor"
+)
 
 
 def register_custom_op(name):
@@ -1105,4 +1111,68 @@ def _(
 ) -> Tensor:
     assert weight.dim() == 4
     N = weight.size(0) * weight.size(3) * 2
+    return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)
+
+
+def float8_linear_prepack_cpu(
+    weight: Tensor,
+    scales: Tensor,
+) -> Tensor:
+    """
+    Prepack weights for float8 linear operator on CPU.
+    Args:
+        weight: weight tensor.
+        scales: scales for weight tensor.
+    Returns:
+        packed weight, packed scales
+    """
+    return torch.ops.torchao.float8_linear_prepack_cpu.default(weight, scales)
+
+
+@register_custom_op("torchao::float8_linear_prepack_cpu")
+def _(weight: Tensor, scales: Tensor) -> Tensor:
+    return weight, scales
+
+
+def float8_linear_cpu(
+    input: Tensor,
+    input_scales: Tensor,
+    weight: Tensor,
+    weight_scales: Tensor,
+    bias: Optional[Tensor],
+    out_dtype: torch.dtype,
+):
+    """
+    float8 linear operator on CPU.
+    Args:
+        input: input tensor.
+        input_scales: scales for input tensor.
+        weight: weight tensor.
+        weight_scales: scales for weight tensor.
+        bias: optional bias tensor.
+        out_dtype: output data type.
+    Returns:
+        output tensor in out_dtype.
+    """
+    return torch.ops.torchao.float8_linear_cpu.default(
+        input,
+        input_scales,
+        weight,
+        weight_scales,
+        bias,
+        out_dtype,
+    )
+
+
+@register_custom_op("torchao::float8_linear_cpu")
+def _(
+    input: Tensor,
+    input_scales: Tensor,
+    weight: Tensor,
+    weight_scales: Tensor,
+    bias: Optional[Tensor],
+    out_dtype: torch.dtype,
+) -> Tensor:
+    assert weight.dim() == 4
+    N = weight.size(0) * weight.size(3)
     return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)
