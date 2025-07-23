@@ -13,5 +13,6 @@ from .uniform import (  # noqa: F401
 )
 from .uniform_torchao import (  # noqa: F401
     Int4UnifTorchaoQuantizer,
+    StretchedUnifTorchaoQuantizer,
     UnifTorchaoQuantizer,
 )

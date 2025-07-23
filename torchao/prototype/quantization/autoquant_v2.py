@@ -74,7 +74,7 @@ __all__ = [
 def _is_linear(mod, *args):
     # avoid circular dependencies
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
-        AffineFakeQuantizedTensor,
+        _AffineFakeQuantizedTensor,
     )
 
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
@@ -86,7 +86,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AutoQuantizableLinearWeightV1)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
-        and not isinstance(mod.weight, AffineFakeQuantizedTensor)
+        and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
         and not isinstance(mod, torch.nn.modules.linear.NonDynamicallyQuantizableLinear)
     )
 

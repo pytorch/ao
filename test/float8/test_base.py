@@ -410,51 +410,30 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [
+            Float8LinearRecipeName.TENSORWISE,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
+        ],
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_autocast_outputs(
         self,
         emulate: bool,
         linear_dtype: torch.dtype,
+        recipe_name: Float8LinearRecipeName,
     ):
         m_ref = nn.Sequential(
             nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
             nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
         )
-        config = Float8LinearConfig(
-            emulate=emulate,
-        )
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
+        # work around config being frozen
+        object.__setattr__(config, "emulate", emulate)
+
         m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
-
-        # autocast off
-        x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
-        y = m(x)
-        assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
-
-        # autocast on
-        with torch.autocast("cuda"):
-            y = m(x)
-        assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
-
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            y = m(x)
-        assert y.dtype == torch.bfloat16, (
-            f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
-        )
-
-    @pytest.mark.parametrize(
-        "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
-    )
-    @pytest.mark.parametrize(
-        "emulate", [True, False] if is_sm_at_least_89() else [True]
-    )
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
-        m = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
-        config = Float8LinearConfig(emulate=emulate)
-        m = Float8Linear.from_float(copy.deepcopy(m), config)
-
-        # Cast the module to dtype
-        m = m.to(dtype=linear_dtype)
 
         # autocast off
         x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
