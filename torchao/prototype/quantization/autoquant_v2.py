@@ -45,7 +45,7 @@ from torchao.quantization.subclass import (  # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.quantization.utils import _quantize_activation_per_token_absmax
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -638,7 +638,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         # SAM best is between .8 and 1, SDXL also performs best in this range
         INTERPOLATION_CONSTANT = mode[1]
         w_qtensor = cls.from_float(weight)
-        x_vals_int8, x_scales = quantize_activation_per_token_absmax(
+        x_vals_int8, x_scales = _quantize_activation_per_token_absmax(
             act_mat.reshape(-1, act_mat.shape[-1])
         )
         quantized_matmul = (

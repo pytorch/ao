@@ -27,8 +27,8 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.utils import (
+    _quantize_activation_per_token_absmax,
     compute_error,
-    quantize_activation_per_token_absmax,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
@@ -63,15 +63,15 @@ __all__ = [
 
 aten = torch.ops.aten
 
-AUTOQUANT_CACHE = {}
+_AUTOQUANT_CACHE = {}
 
 
 def _check_cache(cls, shapes_and_dtype):
-    return AUTOQUANT_CACHE.get((cls,) + shapes_and_dtype, None)
+    return _AUTOQUANT_CACHE.get((cls,) + shapes_and_dtype, None)
 
 
 def _update_cache(cls, shapes_and_dtype, res):
-    AUTOQUANT_CACHE[(cls,) + shapes_and_dtype] = res
+    _AUTOQUANT_CACHE[(cls,) + shapes_and_dtype] = res
 
 
 # TODO: Document the methods
@@ -498,7 +498,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         # SAM best is between .8 and 1, SDXL also performs best in this range
         INTERPOLATION_CONSTANT = mode[1]
         w_qtensor = cls.from_float(weight)
-        x_vals_int8, x_scales = quantize_activation_per_token_absmax(
+        x_vals_int8, x_scales = _quantize_activation_per_token_absmax(
             act_mat.reshape(-1, act_mat.shape[-1])
         )
         quantized_matmul = (

@@ -32,8 +32,8 @@ from torchao.utils import (
 
 __all__ = [
     "compute_error",
-    "quantize_activation_per_token_absmax",
-    "quant_int8_dynamic_per_token_linear",
+    "_quantize_activation_per_token_absmax",
+    "_quant_int8_dynamic_per_token_linear",
     "dynamically_quantize_per_channel",
     "dequantize_per_tensor",
     "dequantize_per_channel",
@@ -150,7 +150,7 @@ def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
 # and slightly modified
-def quantize_activation_per_token_absmax(t):
+def _quantize_activation_per_token_absmax(t):
     # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
     mapping_type = MappingType.SYMMETRIC
     block_size = list(t.shape)
@@ -183,7 +183,7 @@ def quantize_activation_per_token_absmax(t):
     return quantized, scale
 
 
-def quant_int8_dynamic_per_token_linear(
+def _quant_int8_dynamic_per_token_linear(
     x,
     w_vals_int8_t,
     w_scales,
@@ -194,7 +194,7 @@ def quant_int8_dynamic_per_token_linear(
     like F.linear, but with int8 dynamic quantization of activation,
     and a quantized weight
     """
-    x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
+    x_vals_int8, x_scales = _quantize_activation_per_token_absmax(x)
     mm_out = _quant_int8_per_token_matmul(
         x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
     )
