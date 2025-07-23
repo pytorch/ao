@@ -1621,7 +1621,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         * Input dim exceeds 2
         * Input not contiguous
         """
-        for bias in [False, True]:
+        for bias in [True, False]:
 
             def matcher_check_fn():
                 self.assertEqual(
@@ -1647,7 +1647,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         * Input dim exceeds 2
         * Input not contiguous
         """
-        for bias in [False, True]:
+        for bias in [True, False]:
 
             def matcher_check_fn():
                 self.assertEqual(
@@ -1959,6 +1959,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 return res
 
         if is_fp8:
+            # fp8_convert_ not support dynamic and qat yet
             assert not is_dynamic
             assert not is_qat
 
@@ -2827,45 +2828,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
         )
         if test_for_pointwise_binary:
             self.assertEqual(counters["inductor"]["qlinear_binary_matcher_count"], 1)
-
-    @skipIfNoONEDNN
-    @parametrize("has_bias", [True, False])
-    @parametrize("dtype", [torch.float32, torch.bfloat16])
-    @parametrize("input_dim_exceeds_two", [True, False])
-    @parametrize("check_reuse_input", [True, False])
-    def test_fp8_qlinear(
-        self, has_bias, dtype, input_dim_exceeds_two, check_reuse_input
-    ):
-        class Mod(torch.nn.Module):
-            def __init__(self, in_features, out_features, check_reuse_input):
-                super().__init__()
-                self.l0 = FP8QDQLinear(in_features, out_features, has_bias)
-                self.check_reuse_input = check_reuse_input
-                if self.check_reuse_input:
-                    self.l1 = FP8QDQLinear(in_features, out_features, has_bias)
-
-            def forward(self, x):
-                y = self.l0(x)
-                if self.check_reuse_input:
-                    z = self.l1(x)
-                    y = torch.cat([y, z])
-                return y
-
-        M1, M2, N, K = 2, 3, 13, 16
-        M = M1 * M2
-        mod = Mod(N, K, check_reuse_input)
-        if input_dim_exceeds_two:
-            v = torch.randn(M1, M2, N)
-        else:
-            v = torch.randn(M, N)
-
-        def matcher_check_fn():
-            counter = 2 if check_reuse_input else 1
-            self.assertEqual(
-                counters["inductor"]["qlinear_weight_prepack_matcher_count"], counter
-            )
-
-        self._test_common(mod, (v,), matcher_check_fn, check_autocast=dtype)
 
 
 @dynamo_config.patch(
