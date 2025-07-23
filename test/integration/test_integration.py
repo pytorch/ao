@@ -1679,9 +1679,9 @@ class TestAutoQuant(unittest.TestCase):
         assert not isinstance(mod.mha.out_proj.weight, AutoQuantizableLinearWeight)
         assert isinstance(mod.lin.weight, AutoQuantizableLinearWeight)
         mod(*input)
-        from torchao.quantization.autoquant import AUTOQUANT_CACHE
+        from torchao.quantization.autoquant import _AUTOQUANT_CACHE
 
-        assert len(AUTOQUANT_CACHE) > 0
+        assert len(_AUTOQUANT_CACHE) > 0
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")

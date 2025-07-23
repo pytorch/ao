@@ -110,7 +110,7 @@ def _graph_equals(g1, g2):
 
 aten = torch.ops.aten
 
-AUTOQUANT_CACHE = {}
+_AUTOQUANT_CACHE = {}
 
 # This is a flag to control whether we do some rewrite for graph
 # to account for different batch sizes, it's a temporary solution for llama model
@@ -119,15 +119,15 @@ LLAMA = True
 
 
 def check_cache(gm, cls, shapes_and_dtype):
-    for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
+    for gm_, cls_, shapes_and_dtype_ in _AUTOQUANT_CACHE.keys():
         graph_equals = _graph_equals(gm_.graph, gm.graph)
         if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
-            return AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
+            return _AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
     return None
 
 
 def update_cache(gm, cls, shapes_and_dtype, res):
-    AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
+    _AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
 
 
 # adjust each input's bsz to target_bsz

@@ -101,21 +101,21 @@ When used as in the example above, when the `autoquant` api is called alongside 
 
 When `model(input)` is called, (under the hood) the tool does a preliminary run with the input where each linear layer keeps track of the different shapes and types of activations that it sees. Once the preliminary run is complete, the next step is to check each linear layer and benchmark the tracked shapes for different types of quantization techniques in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, the next step is to apply the necessary quantization technique to each layer, before finally allowing the normal `torch.compile` process to occur on the now quantized model. By default the api only uses int8 techniques, i.e. it chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer, though there is also an option add int4 quantization which can be used for maximum performance or to avoid perf regressions from `Int4WeightOnlyConfig()` since for certain (compute bound) regimes, int4 weight only quantization can be very slow.
 
-Sometimes it is desirable to reuse a quantization plan that `autoquant` came up with. `torchao.quantization.AUTOQUANT_CACHE` is a dictionary holding autoquant's benchmark results. We can save it and restore it later, which will cause `autoquant` to choose the same quantization methods.
+Sometimes it is desirable to reuse a quantization plan that `autoquant` came up with. `torchao.quantization._AUTOQUANT_CACHE` is a dictionary holding autoquant's benchmark results. We can save it and restore it later, which will cause `autoquant` to choose the same quantization methods.
 
 ```python
 import pickle
 import torchao.quantization
 
 # After the first forward pass (when quantization was done)
-from torchao.quantization.autoquant import AUTOQUANT_CACHE
+from torchao.quantization.autoquant import _AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "wb") as f:
-    pickle.dump(AUTOQUANT_CACHE, f)
+    pickle.dump(_AUTOQUANT_CACHE, f)
 
 # On load
-from torchao.quantization.autoquant import AUTOQUANT_CACHE
+from torchao.quantization.autoquant import _AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "rb") as f:
-    AUTOQUANT_CACHE.update(pickle.load(f))
+    _AUTOQUANT_CACHE.update(pickle.load(f))
 ```
 
 ## Quantization Techniques
