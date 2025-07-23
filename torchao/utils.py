@@ -237,6 +237,17 @@ def _register_custom_op(lib, inductor_decomposed=True):
     return decorator
 
 
+def _register_meta_op(lib, op_name):
+    def decorator(fn):
+        if TORCH_VERSION_AT_LEAST_2_5:
+            op = lib.impl(op_name, fn, "Meta")
+            return op
+        else:
+            return fn
+
+    return decorator
+
+
 def get_model_size_in_bytes(model, ignore_embeddings=False):
     """
     Returns the model size in bytes. The option to ignore embeddings

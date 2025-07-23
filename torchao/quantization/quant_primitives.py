@@ -20,6 +20,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     _register_custom_op,
+    _register_meta_op,
 )
 
 __all__ = [
@@ -2292,7 +2293,7 @@ def _quantize_affine_float8(
     return fp8_tensor
 
 
-@torch.library.impl(quant_lib, "quantize_affine_float8", "Meta")
+@_register_meta_op(quant_lib, "quantize_affine_float8")
 def _quantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2319,7 +2320,7 @@ def _dequantize_affine_float8(
     return hp_tensor.to(output_dtype)
 
 
-@torch.library.impl(quant_lib, "dequantize_affine_float8", "Meta")
+@_register_meta_op(quant_lib, "dequantize_affine_float8")
 def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
