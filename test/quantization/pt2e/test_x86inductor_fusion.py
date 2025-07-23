@@ -1969,7 +1969,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             lambda x, y: x.add_(y),
             lambda x, y: y.add_(x),
         ]
-        fake_quant_x2_list = [False, True] if mixed_bf16 else [False]
+        fake_quant_x2_list = [False, True] if mixed_bf16 and not is_fp8 else [False]
         shape_list = [(4, 4), (4, 4, 4)]
         cases = itertools.product(add_fn_list, fake_quant_x2_list, shape_list)
         for add_fn, fq_x2, shape in cases:
@@ -2041,6 +2041,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     [],
                     check_quantization=True,
                     num_include_ops=[2, 2],
+                    is_fp8=is_fp8,
                 )
             else:
                 # For python wrapper
@@ -2054,6 +2055,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     [],
                     check_quantization=True,
                     num_include_ops=[2, 2],
+                    is_fp8=is_fp8,
                 )
 
     @skipIfNoDynamoSupport
