@@ -211,6 +211,7 @@ def _generate_qdq_quantized_model(
     maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
     with maybe_no_grad:
         if is_fp8:
+            # fp8_convert_ not support dynamic and qat yet
             assert not is_dynamic
             assert not is_qat
             fp8_convert_(mod)
