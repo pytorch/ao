@@ -1,5 +1,5 @@
 from .blockwise_linear import BlockwiseQuantLinear
-from .blockwise_quantization import (
+from .kernels import (
     blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_dequant,

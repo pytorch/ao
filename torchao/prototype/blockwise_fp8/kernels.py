@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import triton
@@ -277,3 +277,231 @@ def fp8_blockwise_weight_dequant(
     )
     fp8_blockwise_weight_dequant_kernel[grid](x, s, y, M, N, BLOCK_SIZE=block_size)
     return y
+
+
+# original implementation from fbgemm_gpu:
+# https://github.com/pytorch/FBGEMM/blob/b19401e913fcdff536dc097fa3013a0a9d66256e/fbgemm_gpu/experimental/gemm/triton_gemm/fp8_gemm.py#L3091
+def triton_quantize_fp8_block(
+    x: torch.Tensor,
+    block_m: int = 128,
+    block_k: int = 128,
+    scale_ub: Optional[torch.Tensor] = None,
+    k_major: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a tensor to fp8 with block-wise scalings.
+
+    Scale per block i, j is computed as 1 / (MAX_FP8 / max(abs(x[i:i+block_m, j:j+block_k])))
+
+    Args:
+        x (torch.Tensor): [M, K] higher precision input tensor.
+        block_m (int): Block size for M dimension of scale.
+        block_k (int): Block size for K dimension of scale.
+        scale_ub: Maximum allowed value for scale.
+        k_major (bool): Whether output scales should be K major (True) or MN major (False).
+
+    Returns:
+        torch.Tensor : [M, K] fp8 scaled tensor.
+        torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block
+        if k_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
+    """
+    assert x.device != torch.device("cpu"), (
+        "Blockwise quantization not support on cpu, please use row-wise quantization instead."
+    )
+    pt_dtype = torch.float8_e4m3fn
+    tl_dtype = tl.float8e4nv
+    max_fp8 = torch.finfo(pt_dtype).max
+    eps = 1e-12
+
+    x_shape = x.shape
+    x = x.view(-1, x.size(-1))
+    M, K = x.shape
+    grid_m = triton.cdiv(M, block_m)
+    grid_k = triton.cdiv(K, block_k)
+    if k_major:
+        x_scale = torch.empty((grid_m, grid_k), device=x.device, dtype=torch.float32)
+    else:
+        x_scale = torch.empty((grid_k, grid_m), device=x.device, dtype=torch.float32)
+    x_fp8 = torch.empty((M, K), device=x.device, dtype=pt_dtype)
+
+    _kernel_quantize_fp8_block[(grid_m * grid_k,)](
+        x,
+        x_scale,
+        x_fp8,
+        scale_ub,
+        M,
+        K,
+        x.stride(0),
+        x.stride(1),
+        x_fp8.stride(0),
+        x_fp8.stride(1),
+        x_scale.stride(0),
+        x_scale.stride(1),
+        TL_FP8_DTYPE=tl_dtype,
+        MAX_FP8=max_fp8,
+        EPS=eps,
+        CLAMP_MAX=scale_ub is not None,
+        BLOCK_M=block_m,
+        BLOCK_K=block_k,
+        K_MAJOR=k_major,
+    )
+
+    return x_fp8.view(x_shape), x_scale
+
+
+# original implementation from fbgemm_gpu:
+# https://github.com/pytorch/FBGEMM/blob/b19401e913fcdff536dc097fa3013a0a9d66256e/fbgemm_gpu/experimental/gemm/triton_gemm/fp8_gemm.py#L3005
+@triton.jit
+def _kernel_quantize_fp8_block(
+    A,
+    A_scale,
+    A_fp8,
+    scale_ub,
+    M,
+    K,
+    stride_am,
+    stride_ak,
+    stride_om,
+    stride_ok,
+    stride_a_scale_m,
+    stride_a_scale_k,
+    TL_FP8_DTYPE: tl.constexpr,
+    MAX_FP8: tl.constexpr,
+    EPS: tl.constexpr,
+    CLAMP_MAX: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    K_MAJOR: tl.constexpr,
+) -> None:
+    """Quantize and scale each [BLOCK_M, BLOCK_K] block.
+
+    Scale per block i, j is computed as 1 / (MAX_FP8 / max(abs(A[i:i+BLOCK_M, j:j+BLOCK_K])))
+
+    Kernel naively iterates through  matrix with [BLOCK_M, BLOCK_K] tiles.
+
+    Todo:
+        * Better tiling and ordering schemes.
+
+    Args:
+        A (Tensor): [M, K] higher precision input tensor.
+        A_scale (Tensor): [cdiv(M, BLOCK_M), cdiv(K, BLOCK_K)] reciprocal scale tensor per block.
+        A_fp8 (Tensor): [M, K] fp8 scaled tensor. A_fp8 = A * a_scale
+        scale_ub (Tensor): [1] Maximum allowed value for scale.
+        M (int): Number of rows.
+        K (int): Number of columns.
+        stride_am (int): Stride of m dimension of A.
+        stride_ak (int): Stride of k dimension of A.
+        stride_om (int): Stride of m dimension of output.
+        stride_ok (int): Stride of k dimension of output.
+        stride_a_scale_m (int): Stride of m dimension of A_scale.
+        stride_a_scale_k (int): Stride of k dimension of A_scale.
+        TL_FP8_DTYPE (tl.dtype): Target fp8 datatype.
+        MAX_FP8 (float): Maxmimum expressible value for FP8.
+        EPS (float): Epsilon value for numerical stability.
+        CLAMP_MAX (bool): Whether to apply scale_ub.
+        BLOCK_M (int): Block size for M dimension of A_scale and kernel.
+        BLOCK_K (int): Block size for K dimension of A_scale and kernel.
+        K_MAJOR (bool): Whether output scales should be K major (True) or MN major (False).
+    """
+    pid = tl.program_id(0)
+    grid_k = tl.cdiv(K, BLOCK_K)
+    block_m = pid // grid_k
+    block_k = pid % grid_k
+    rm = block_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rk = block_k * BLOCK_K + tl.arange(0, BLOCK_K)
+    a_offset = rm[:, None] * stride_am + rk[None, :] * stride_ak
+    out_offset = rm[:, None] * stride_om + rk[None, :] * stride_ok
+    a_mask = (rm < M)[:, None] & (rk < K)[None, :]
+    a_block = tl.load(A + a_offset, mask=a_mask, other=0.0)
+
+    block_max = tl.max(tl.abs(a_block))
+    # Apply appropriate clamping.
+    if CLAMP_MAX:
+        ub = tl.load(scale_ub)
+        block_max = tl.clamp(block_max, EPS, ub)
+    else:
+        block_max = tl.maximum(block_max, EPS)
+    scale = MAX_FP8 / block_max
+
+    # Write in transposed order if specified.
+    if K_MAJOR:
+        scale_offset = block_m * stride_a_scale_m + block_k * stride_a_scale_k
+    else:
+        scale_offset = block_k * stride_a_scale_m + block_m * stride_a_scale_k
+    tl.store(A_scale + scale_offset, 1.0 / scale)
+    a_fp8 = a_block * scale
+    # Clamp A to fp8 range to make sure there's no overflow.
+    # This is required for AMD. Nvidia's default saturation
+    # handles it, but it's nice to have anyway.
+    a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8)
+    a_fp8.to(TL_FP8_DTYPE)
+    tl.store(A_fp8 + out_offset, a_fp8, mask=a_mask)
+
+
+def torch_blockwise_scale_act_quant(x, tile_size=128):
+    """
+    Input: weight tensor in high precision
+    Output: weight tensor in float8, and scale, tiled 1 by tile_size
+    """
+    assert x.is_contiguous(), "input tensor must be contiguous"
+    orig_shape = x.shape
+
+    # Reshape 2D+ input tensor into 2D tensor with shape (leading_dims, tile_size)
+    x = x.reshape(-1, tile_size)
+
+    # Compute amax along last dim (i.e., the block)
+    x_amax = x.abs().max(dim=1).values.unsqueeze(1).clamp(1e-4)
+
+    # Convert amax to scale
+    fp8_dtype_max, fp8_dtype_min = (
+        torch.finfo(torch.float8_e4m3fn).max,
+        torch.finfo(torch.float8_e4m3fn).min,
+    )
+    s = fp8_dtype_max / x_amax
+
+    # Apply scale and clamp
+    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(torch.float8_e4m3fn)
+
+    # Reshape quantized output back to original shape and reshape scales accordingly
+    x = x.reshape(*orig_shape)
+    s = s.reshape(orig_shape[0], -1).to(torch.float)
+    return x, s
+
+
+def torch_blockwise_scale_weight_quant(x, tile_size=128):
+    """
+    Input: weight tensor in high precision
+    Output: weight tensor in float8, and scale, tiled tile_size by tile_size
+    """
+    assert len(x.shape) == 2, "input shape must be 2D"
+    assert x.is_contiguous(), "input tensor must be contiguous"
+    height, width = x.shape
+
+    # Compute block sizes
+    t_h = height // tile_size
+    t_w = width // tile_size
+
+    # Reshape 2D input tensor into 4D tensor with shape (t_h, t_w, tile_size * tile_size)
+    x = x.reshape(t_h, tile_size, t_w, tile_size)
+    x = x.permute(0, 2, 1, 3)
+    x = x.reshape(-1, tile_size * tile_size)
+
+    # Compute amax along last dim (i.e., the block)
+    m = x.abs().max(dim=1).values.unsqueeze(1).clamp(1e-4)
+
+    # Convert amax to scale
+    fp8_dtype_max, fp8_dtype_min = (
+        torch.finfo(torch.float8_e4m3fn).max,
+        torch.finfo(torch.float8_e4m3fn).min,
+    )
+    s = fp8_dtype_max / m
+
+    # Apply scale and clamp
+    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(torch.float8_e4m3fn)
+
+    # Reshape quantized output and scales back to 2D
+    x = x.reshape(t_h, t_w, tile_size, tile_size)
+    x = x.permute(0, 2, 1, 3)
+    x = x.reshape(height, width)
+    s = s.reshape(t_h, t_w).to(torch.float)
+    return x, s
