@@ -44,17 +44,7 @@ chunked and interleaved during the packing process.
  * @param input Pointer to the source activation matrix (float32, row-major).
  */
 template <int mr_, int kr_, int sr_>
-inline void pack_activations(
-    float* output,
-    int m,
-    int k,
-    const float* input,
-    int mr,
-    int kr,
-    int sr) {
-  (void)mr; // unused
-  (void)kr; // unused
-  (void)sr; // unused
+inline void pack_activations(float* output, int m, int k, const float* input) {
   activation_packing::pack_activations<mr_, kr_, sr_>(output, m, k, input);
 }
 
@@ -110,7 +100,7 @@ row-major).
  * @param bias Pointer to the bias vector (float32, row-major).
  */
 template <int weight_nbit_, int nr_, int kr_, int sr_>
-void pack_weights(
+void pack_weights_for_groupwise_lut_kernel(
     /*output*/
     void* packed_weights_ptr,
     /*inputs*/
@@ -123,14 +113,7 @@ void pack_weights(
     int lut_group_size,
     bool has_scales,
     bool has_bias,
-    const float* bias,
-    int nr,
-    int kr,
-    int sr) {
-  (void)nr; // unused
-  (void)kr; // unused
-  (void)sr; // unused
-
+    const float* bias) {
   weight_packing::pack_weights<weight_nbit_, nr_, kr_, sr_>(
       packed_weights_ptr,
       weight_qvals_indices,
@@ -207,12 +190,7 @@ inline void groupwise_lowbit_weight_lut_kernel_1x4x32(
  * @param k The K dimension (width) of the activation matrix.
  * @return The byte offset from the start of the buffer.
  */
-inline size_t
-packed_activations_offset(int m_idx, int k, int mr, int kr, int sr) {
-  (void)mr; // unused
-  (void)kr; // unused
-  (void)sr; // unused
-
+inline size_t packed_activations_offset(int m_idx, int k) {
   // For a simple padded row-major format, the offset is just m_idx * k.
   return sizeof(float) * m_idx * k;
 }
