@@ -1711,7 +1711,8 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
 ):
-    assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
+    if torch.cuda.is_available():
+        assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
     weight = module.weight
     weight_dtype = config.weight_dtype
