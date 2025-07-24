@@ -45,7 +45,7 @@ from torchao.quantization.subclass import (  # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.quantization.utils import _quantize_activation_per_token_absmax
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -110,7 +110,7 @@ def _graph_equals(g1, g2):
 
 aten = torch.ops.aten
 
-AUTOQUANT_CACHE = {}
+_AUTOQUANT_CACHE = {}
 
 # This is a flag to control whether we do some rewrite for graph
 # to account for different batch sizes, it's a temporary solution for llama model
@@ -119,15 +119,15 @@ LLAMA = True
 
 
 def check_cache(gm, cls, shapes_and_dtype):
-    for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
+    for gm_, cls_, shapes_and_dtype_ in _AUTOQUANT_CACHE.keys():
         graph_equals = _graph_equals(gm_.graph, gm.graph)
         if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
-            return AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
+            return _AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
     return None
 
 
 def update_cache(gm, cls, shapes_and_dtype, res):
-    AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
+    _AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
 
 
 # adjust each input's bsz to target_bsz
@@ -638,7 +638,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         # SAM best is between .8 and 1, SDXL also performs best in this range
         INTERPOLATION_CONSTANT = mode[1]
         w_qtensor = cls.from_float(weight)
-        x_vals_int8, x_scales = quantize_activation_per_token_absmax(
+        x_vals_int8, x_scales = _quantize_activation_per_token_absmax(
             act_mat.reshape(-1, act_mat.shape[-1])
         )
         quantized_matmul = (
