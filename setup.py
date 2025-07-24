@@ -274,19 +274,21 @@ def get_cutlass_build_flags():
         major, minor = map(int, cuda_version.split(".")[:2])
         build_sm90a = major > 12 or (major == 12 and minor >= 6)
         build_sm100a = major > 12 or (major == 12 and minor >= 8)
+        build_sm100f = major > 12 or (major == 12 and minor >= 9)
 
         if build_sm90a:
             print(f"CUDA {cuda_version}: Enabling SM90a CUTLASS kernels")
-        if build_sm100a:
-            print(f"CUDA {cuda_version}: Enabling SM100a CUTLASS kernels")
+        if build_sm100a or build_sm100f:
+            print(f"CUDA {cuda_version}: Enabling SM100 CUTLASS kernels")
 
-        return build_sm90a, build_sm100a
+        return build_sm90a, build_sm100a, build_sm100f
     except:
         # Fallback to architecture flags
         cuda_arch_flags = _get_cuda_arch_flags()
         return (
             "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags,
             "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags,
+            "-gencode=arch=compute_100f,code=sm_100f" in cuda_arch_flags,
         )
 
 
@@ -521,6 +523,7 @@ def get_extensions():
     cutlass_100a_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
+    build_for_sm100f = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
@@ -549,7 +552,7 @@ def get_extensions():
             ]
         )
 
-        build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
+        build_for_sm90a, build_for_sm100a, build_for_sm100f = get_cutlass_build_flags()
         # Define sm90a sources
         cutlass_90a_sources = [
             os.path.join(
@@ -626,7 +629,7 @@ def get_extensions():
 
         # Only add the extension if the source files exist AND we are building for sm100
         mxfp8_src_files_exist = all(os.path.exists(f) for f in mxfp8_sources)
-        if mxfp8_src_files_exist and build_for_sm100a:
+        if mxfp8_src_files_exist and (build_for_sm100a or build_for_sm100f):
             print("Building mxfp8_cuda extension")
             ext_modules.append(
                 CUDAExtension(
@@ -672,12 +675,17 @@ def get_extensions():
     if (
         cutlass_100a_sources is not None
         and len(cutlass_100a_sources) > 0
-        and build_for_sm100a
+        and (build_for_sm100a or build_for_sm100f)
     ):
         cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
+        extra_arch_flags = "-gencode=arch=compute_100a,code=sm_100a"
+        # prefer using family (f) conditionals instead of arch (a) conditional
+        # starting CUDA 12.9
+        if build_for_sm100f:
+            extra_arch_flags = "-gencode=arch=compute_100f,code=sm_100f"
         cutlass_100a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_100a,code=sm_100a"
+            extra_arch_flags
         )
         ext_modules.append(
             extension(
