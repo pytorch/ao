@@ -149,8 +149,12 @@ def _awq_uintx_transform(
         preserve_zero = False
         _layout = config.layout
         if isinstance(_layout, Int4XPULayout):
-            zero_point_dtype = torch.int8
-            zero_point_domain = ZeroPointDomain.INT
+            if use_hqq:
+                zero_point_dtype = module.weight.dtype
+                zero_point_domain = ZeroPointDomain.FLOAT
+            else:
+                zero_point_dtype = torch.int8
+                zero_point_domain = ZeroPointDomain.INT
         else:
             zero_point_dtype = torch.bfloat16
             zero_point_domain = ZeroPointDomain.FLOAT
