@@ -21,39 +21,8 @@ from torchao.float8.float8_training_tensor import (
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
-    hp_tensor_and_scale_to_float8,
 )
-from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-
-
-def _get_weight_scale(
-    weight: torch.Tensor,
-    scaling_type_weight: ScalingType,
-    config: Float8LinearConfig,
-) -> Optional[torch.Tensor]:
-    if tensor_already_casted_to_fp8(weight):
-        return None
-    assert scaling_type_weight is ScalingType.DYNAMIC
-    return tensor_to_scale(weight, config.cast_config_weight.target_dtype)
-
-
-def _cast_weight_to_float8_t(
-    weight: torch.Tensor,
-    config: Float8LinearConfig,
-    linear_mm_config: LinearMMConfig,
-    weight_scale: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    if tensor_already_casted_to_fp8(weight):
-        return weight.t()
-    weight_fp8 = hp_tensor_and_scale_to_float8(
-        weight,
-        weight_scale,
-        config.cast_config_weight.target_dtype,
-        linear_mm_config,
-        gemm_input_role=GemmInputRole.WEIGHT,
-    )
-    return weight_fp8.t()
 
 
 @torch._dynamo.allow_in_graph
@@ -307,39 +276,9 @@ class Float8Linear(torch.nn.Linear):
             autocast_dtype = torch.get_autocast_gpu_dtype()
             input = input.to(autocast_dtype)
 
-        has_any_axiswise_scaling = any(
-            cc.scaling_granularity is ScalingGranularity.AXISWISE
-            for cc in [
-                self.config.cast_config_input,
-                self.config.cast_config_weight,
-                self.config.cast_config_grad_output,
-                self.config.cast_config_input_for_grad_weight,
-                self.config.cast_config_weight_for_grad_input,
-                self.config.cast_config_grad_output_for_grad_weight,
-            ]
-        )
-
-        weight_maybe_fp8_t = self.weight.t()
-
-        # TODO(future PR): check for axiswise scaling for input, weight,
-        # grad_output separately instead of together
-        if not has_any_axiswise_scaling:
-            # TODO(future PR): now that `force_recompute_fp8_weight_in_bwd` is
-            # deprecated, we can simplify the below code and unify the per-tensor
-            # and per-axis paths further.
-            weight_scale = _get_weight_scale(
-                self.weight, self.scaling_type_weight, self.config
-            )
-            weight_maybe_fp8_t = _cast_weight_to_float8_t(
-                self.weight,
-                self.config,
-                self.linear_mm_config,
-                weight_scale,
-            )
-
         output = matmul_with_hp_or_float8_args.apply(
             input,
-            weight_maybe_fp8_t,
+            self.weight.t(),
             self.linear_mm_config,
             self.config,
         )
