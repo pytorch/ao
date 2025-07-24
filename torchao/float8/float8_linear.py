@@ -11,7 +11,7 @@ from typing import Optional
 
 import torch
 
-from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
+from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
@@ -128,21 +128,6 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
             weight_t_maybe_fp8_dim0 = weight_hp_t
         else:
-            if (
-                c.cast_config_weight_for_grad_input.scaling_granularity
-                is ScalingGranularity.AXISWISE
-            ):
-                # workaround from https://github.com/pytorch/pytorch/issues/141881
-                # to avoid saving float8 weight from forward to backward when
-                # FSDP is on: add a fake dependency on `grad_output`.
-                g_reshaped = grad_output.reshape(-1, grad_output.shape[-1]) * 0
-                zero = g_reshaped[:1] * 0
-                weight_hp_t = weight_hp_t + zero
-
-            # Note: we need https://github.com/pytorch/pytorch/issues/136267
-            # to be solved to have a chance to reuse max(abs(weight, dim=...))
-            # from the forward to get max(abs(weight)) here without reading
-            # the entire tensor.
             weight_t_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
                 c.cast_config_weight_for_grad_input.target_dtype,
