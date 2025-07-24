@@ -454,8 +454,8 @@
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_quantize_activation_per_token_absmax</span><span class="p">,</span>
     <span class="n">compute_error</span><span class="p">,</span>
-    <span class="n">quantize_activation_per_token_absmax</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
@@ -490,15 +490,15 @@
 
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
-<span class="n">AUTOQUANT_CACHE</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">_AUTOQUANT_CACHE</span> <span class="o">=</span> <span class="p">{}</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">check_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">AUTOQUANT_CACHE</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="bp">cls</span><span class="p">,)</span> <span class="o">+</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_AUTOQUANT_CACHE</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="bp">cls</span><span class="p">,)</span> <span class="o">+</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">update_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">):</span>
-    <span class="n">AUTOQUANT_CACHE</span><span class="p">[(</span><span class="bp">cls</span><span class="p">,)</span> <span class="o">+</span> <span class="n">shapes_and_dtype</span><span class="p">]</span> <span class="o">=</span> <span class="n">res</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_update_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">):</span>
+    <span class="n">_AUTOQUANT_CACHE</span><span class="p">[(</span><span class="bp">cls</span><span class="p">,)</span> <span class="o">+</span> <span class="n">shapes_and_dtype</span><span class="p">]</span> <span class="o">=</span> <span class="n">res</span>
 
 
 <span class="c1"># TODO: Document the methods</span>
@@ -572,12 +572,12 @@
             <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="mi">0</span>
         <span class="p">)</span>
         <span class="k">for</span> <span class="n">q_cls</span> <span class="ow">in</span> <span class="n">w_autoquant</span><span class="o">.</span><span class="n">qtensor_class_list</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="n">update_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">_check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">_update_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">tune_autoquant</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">best_time</span><span class="p">):</span>
         <span class="n">act_shape</span><span class="p">,</span> <span class="n">w_shape</span><span class="p">,</span> <span class="n">bias_shape</span><span class="p">,</span> <span class="n">act_dtype</span> <span class="o">=</span> <span class="n">shapes_and_dtype</span>
-        <span class="k">if</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
                 <span class="n">act_mat</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">act_shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">act_dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
                 <span class="n">bias</span> <span class="o">=</span> <span class="p">(</span>
@@ -610,7 +610,7 @@
                         <span class="sa">f</span><span class="s2">&quot;warning: failed to autoquant </span><span class="si">{</span><span class="n">q_cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> for shape: </span><span class="si">{</span><span class="n">shapes_and_dtype</span><span class="si">}</span><span class="s2"> due to </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
                     <span class="p">)</span>
                     <span class="n">res</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">inf</span>
-                <span class="n">update_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">)</span>
+                <span class="n">_update_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">to_quantized</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">error_on_unseen</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
@@ -650,13 +650,13 @@
             <span class="n">total_seen</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="n">shape_count</span> <span class="o">=</span> <span class="n">count_shapes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">do_print</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">times_seen</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">logged_data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                <span class="k">if</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">_check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="c1"># only print shapes once</span>
                     <span class="k">if</span> <span class="n">print_shape_once</span><span class="p">:</span>
                         <span class="n">print_shape_once</span> <span class="o">=</span> <span class="kc">False</span>
                         <span class="n">count_shapes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">do_print</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-                    <span class="n">time_for_best_shape</span> <span class="o">=</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">best_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span>
+                    <span class="n">time_for_best_shape</span> <span class="o">=</span> <span class="n">_check_cache</span><span class="p">(</span><span class="n">best_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span>
                     <span class="n">time_for_best_shape</span> <span class="o">=</span> <span class="p">(</span>
                         <span class="n">torch</span><span class="o">.</span><span class="n">inf</span>
                         <span class="k">if</span> <span class="n">time_for_best_shape</span> <span class="ow">is</span> <span class="kc">None</span>
@@ -665,7 +665,7 @@
                     <span class="bp">self</span><span class="o">.</span><span class="n">tune_autoquant</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">time_for_best_shape</span><span class="p">)</span>
                     <span class="n">ran_new_benchmarks</span> <span class="o">=</span> <span class="kc">True</span>
                     <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
-                <span class="n">cur_time</span> <span class="o">+=</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="o">*</span> <span class="n">times_seen</span>
+                <span class="n">cur_time</span> <span class="o">+=</span> <span class="n">_check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="o">*</span> <span class="n">times_seen</span>
                 <span class="n">total_seen</span> <span class="o">+=</span> <span class="n">times_seen</span>
             <span class="n">cur_time</span> <span class="o">=</span> <span class="n">cur_time</span> <span class="o">/</span> <span class="n">total_seen</span>
             <span class="c1"># print aggregated time if there were multiple shapes to aggregate and some new benchmarking was done</span>
@@ -925,7 +925,7 @@
         <span class="c1"># SAM best is between .8 and 1, SDXL also performs best in this range</span>
         <span class="n">INTERPOLATION_CONSTANT</span> <span class="o">=</span> <span class="n">mode</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">w_qtensor</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
-        <span class="n">x_vals_int8</span><span class="p">,</span> <span class="n">x_scales</span> <span class="o">=</span> <span class="n">quantize_activation_per_token_absmax</span><span class="p">(</span>
+        <span class="n">x_vals_int8</span><span class="p">,</span> <span class="n">x_scales</span> <span class="o">=</span> <span class="n">_quantize_activation_per_token_absmax</span><span class="p">(</span>
             <span class="n">act_mat</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
         <span class="p">)</span>
         <span class="n">quantized_matmul</span> <span class="o">=</span> <span class="p">(</span>

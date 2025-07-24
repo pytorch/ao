@@ -443,8 +443,8 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_quant_int8_dynamic_per_token_linear</span><span class="p">,</span>
     <span class="n">dynamically_quantize_per_channel</span><span class="p">,</span>
-    <span class="n">quant_int8_dynamic_per_token_linear</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -579,7 +579,7 @@
             <span class="n">W_int_repr_t</span> <span class="o">=</span> <span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">W_int_repr</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_w_int_repr_t</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_int_repr</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
             <span class="p">)</span>
-            <span class="n">Y</span> <span class="o">=</span> <span class="n">quant_int8_dynamic_per_token_linear</span><span class="p">(</span>
+            <span class="n">Y</span> <span class="o">=</span> <span class="n">_quant_int8_dynamic_per_token_linear</span><span class="p">(</span>
                 <span class="n">X</span><span class="p">,</span> <span class="n">W_int_repr_t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_scales</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">X</span><span class="o">.</span><span class="n">dtype</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">Y</span>
