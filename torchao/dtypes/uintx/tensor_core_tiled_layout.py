@@ -313,8 +313,7 @@ class TensorCoreTiledAQTTensorImpl(Int4AQTTensorImpl):
         return cls(packed_weight, scale_and_zero, False, _layout)
 
     def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        device = kwargs["device"]
+        device = self._get_to_kwargs(*args, **kwargs)["device"]
         if torch.device(device).type != "cuda":
             # Convert CUDA tensor implementation to other devices.
             return super().to(*args, **kwargs)
