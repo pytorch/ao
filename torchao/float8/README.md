@@ -211,12 +211,12 @@ To reproduce these benchmarks, you can follow these steps:
 1. On a machine with 8 H100 GPUs, clone torchtitan and follow local installation [steps](https://github.com/pytorch/torchtitan?tab=readme-ov-file#installation),
 including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=readme-ov-file#downloading-a-tokenizer).
 2. Install torchao following these [steps](https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation).
-3. From the `torchao/float8/benchmarking/` directory, you can run the following commands to reproduce the benchmarks above:
-   - bf16 + compile: `TORCHTITAN_ROOT=<path> ./float8_training_benchmark.sh`
-   - float8 tensorwise with float8 all-gather + compile: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="tensorwise" ./float8_training_benchmark.sh`
-   - float8 rowwise with bf16 all-gather + compile: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="rowwise" ./float8_training_benchmark.sh`
+3. From the `torchao/benchmarks/float8/training/` directory, you can run the following commands to reproduce the benchmarks above:
+   - bf16 + compile: `TORCHTITAN_ROOT=<path> ./torchtitan_benchmark.sh`
+   - float8 tensorwise with float8 all-gather + compile: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="tensorwise" ./torchtitan_benchmark.sh`
+   - float8 rowwise with bf16 all-gather + compile: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="rowwise" ./torchtitan_benchmark.sh`
 
-See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README.md) for more details.
+See the float8 training benchmarking [guide](.torchao/benchmarks/float8/training/README.md) for more details.
 
 # E2E training + inference flow
 
