@@ -16,7 +16,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.dtypes.utils import Int4AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _quantize_affine_tinygemm,
@@ -39,10 +39,8 @@ class Int4CPULayout(Layout):
     pass
 
 
-from torchao.dtypes.uintx.int4_xpu_layout import Int4XPUAQTTensorImpl
-
 @register_layout(Int4CPULayout)
-class Int4CPUAQTTensorImpl(AQTTensorImpl):
+class Int4CPUAQTTensorImpl(Int4AQTTensorImpl):
     """TensorImpl for int4 CPU layout for affine quantized tensor, this is for int4 only,
     used by tinygemm kernels `_weight_int4pack_mm_for_cpu`
     It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 2-d tensor of
@@ -150,15 +148,9 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if self.device.type == "xpu":
-            from torchao.dtypes import Int4XPULayout
-            int_data, scale, zero_point = self.get_plain()
-            int_data, scale, zero_point = int_data.to(self.device), scale.to(self.device), zero_point.to(self.device)
-            return Int4XPUAQTTensorImpl.from_plain(int_data, scale, zero_point, _layout=Int4XPULayout())
-        elif not is_device(torch.device(self.device).type, device):
-            raise ValueError(
-                f"{self.__class__.__name__} does not support conversion from {self.device} to {device}"
-            )
+        if torch.device(device).type != "cpu":
+            # Convert CPU tensor implementation to other devices.
+            return super().to(*args, **kwargs)
 
         return self.__class__(
             self.packed_weight.to(device),

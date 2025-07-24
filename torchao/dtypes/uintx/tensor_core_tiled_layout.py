@@ -17,7 +17,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.dtypes.utils import Int4AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _get_reduction_params,
@@ -190,7 +190,7 @@ class TensorCoreTiledLayout(Layout):
 
 
 @register_layout(TensorCoreTiledLayout)
-class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
+class TensorCoreTiledAQTTensorImpl(Int4AQTTensorImpl):
     """TensorImpl for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,
     used by tinygemm kernels `_weight_int4pack_mm`
 
@@ -315,13 +315,10 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        # tensor core tiled layout supports both cpu and cuda but does not support the conversion
-        # between these two devices, in the future we should not use the same layout for
-        # cpu and cuda device: https://github.com/pytorch/ao/issues/1117
-        if not is_device(torch.device(self.device).type, device):
-            logging.warning(
-                f"TensorCoreTiledAQTTensorImpl does not support conversion from {self.device} to {device}"
-            )
+        if torch.device(device).type != "cuda":
+            # Convert CUDA tensor implementation to other devices.
+            return super().to(*args, **kwargs)
+
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),

@@ -17,7 +17,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.dtypes.utils import Int4AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -158,7 +158,7 @@ class Int4XPULayout(Layout):
 
 
 @register_layout(Int4XPULayout)
-class Int4XPUAQTTensorImpl(AQTTensorImpl):
+class Int4XPUAQTTensorImpl(Int4AQTTensorImpl):
     """
     TensorImpl for int4 XPU layout for affine quantized tensor, this is for int4 only,
     used by tinygemm kernels `_weight_int4pack_mm_xpu` and `_weight_int4pack_mm_with_zeros_and_scales` (TBD)
@@ -281,10 +281,10 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if not is_device(torch.device(self.device).type, device):
-            raise ValueError(
-                f"Int4XPUAQTTensorImpl does not support conversion from {self.device} to {device}"
-            )
+        if torch.device(device).type != "xpu":
+            # Convert XPU tensor implementation to other devices.
+            return super().to(*args, **kwargs)
+
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device) if self.scale_and_zero is not None else None,
