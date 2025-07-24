@@ -143,20 +143,15 @@ class Int4AQTTensorImpl(AQTTensorImpl):
     the underlying implementation of a AQT based on layout.
     """
     def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        device = kwargs["device"]
+        device = self._get_to_kwargs(*args, **kwargs)["device"]
+        int_data, scale, zero_point = self.get_plain()
+        int_data, scale, zero_point = int_data.to(device), scale.to(device), zero_point.to(device)
         if torch.device(device).type == "cuda":
             from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledLayout, TensorCoreTiledAQTTensorImpl
-            int_data, scale, zero_point = self.get_plain()
-            int_data, scale, zero_point = int_data.to(device), scale.to(device), zero_point.to(device)
             return TensorCoreTiledAQTTensorImpl.from_plain(int_data, scale, zero_point, _layout=TensorCoreTiledLayout())
         elif torch.device(device).type == "xpu":
             from torchao.dtypes.uintx.int4_xpu_layout import Int4XPULayout, Int4XPUAQTTensorImpl
-            int_data, scale, zero_point = self.get_plain()
-            int_data, scale, zero_point = int_data.to(device), scale.to(device), zero_point.to(device)
             return Int4XPUAQTTensorImpl.from_plain(int_data, scale, zero_point, _layout=Int4XPULayout())
         elif torch.device(device).type == "cpu":
             from torchao.dtypes.uintx.int4_cpu_layout import Int4CPULayout, Int4CPUAQTTensorImpl
-            int_data, scale, zero_point = self.get_plain()
-            int_data, scale, zero_point = int_data.to(device), scale.to(device), zero_point.to(device)
             return Int4CPUAQTTensorImpl.from_plain(int_data, scale, zero_point, _layout=Int4CPULayout())
