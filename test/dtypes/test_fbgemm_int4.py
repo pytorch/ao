@@ -39,7 +39,6 @@ class TestFbgemmInt4Tensor(TestCase):
             weight_dtype=torch.int4,
             output_dtype=torch.bfloat16,
             block_size=[1, 1, 128],
-            transpose_input=True,
         )
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
@@ -134,6 +133,8 @@ class TestFbgemmInt4Tensor(TestCase):
         weight = torch.randn(10, 128, 256, dtype=dtype, device=device)
         m = M(weight).eval()
         original = m(input)
+        # we need to transpose the weight first for bmm
+        m.weight = torch.nn.Parameter(m.weight.transpose(1, 2).contiguous())
         quantize_(m, self.bmm_config, filter_fn=lambda x, fqn: True)
         quantized = m(input)
         self.assertTrue(compute_error(original, quantized) > 18)

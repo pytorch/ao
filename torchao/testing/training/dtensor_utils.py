@@ -32,11 +32,11 @@ from torchao.quantization import quantize_
 class FeedForward(nn.Module):
     """MLP based model"""
 
-    def __init__(self):
+    def __init__(self, size):
         super(FeedForward, self).__init__()
-        self.w1 = nn.Linear(16, 32, bias=False)
-        self.w2 = nn.Linear(16, 32, bias=False)
-        self.out_proj = nn.Linear(32, 16, bias=False)
+        self.w1 = nn.Linear(size, size * 2, bias=False)
+        self.w2 = nn.Linear(size, size * 2, bias=False)
+        self.out_proj = nn.Linear(size * 2, size, bias=False)
 
     def forward(self, x):
         x = F.silu(self.w1(x)) * self.w2(x)
@@ -45,9 +45,9 @@ class FeedForward(nn.Module):
 
 
 class ToyModel(nn.Module):
-    def __init__(self):
+    def __init__(self, size):
         super(ToyModel, self).__init__()
-        self.ffn = FeedForward()
+        self.ffn = FeedForward(size)
 
     def forward(self, x):
         return self.ffn(x)
@@ -56,7 +56,7 @@ class ToyModel(nn.Module):
 def _test_lowp_mlp_tensor_parallelism_base(
     mesh: DeviceMesh,
     config: Union[Float8LinearConfig, MXLinearConfig],
-    size=16,
+    size=32,
     compile: bool = False,
     allgather_in_lowp: bool = False,
 ):
@@ -67,7 +67,7 @@ def _test_lowp_mlp_tensor_parallelism_base(
     if isinstance(config, MXLinearConfig):
         convert_model_func = quantize_
 
-    toy_model = ToyModel().to(device)
+    toy_model = ToyModel(size).to(device)
     toy_model_fp8 = copy.deepcopy(toy_model)
     convert_model_func(toy_model_fp8, config=config)
 
@@ -151,8 +151,8 @@ def _test_lowp_mlp_tensor_parallelism_base(
         sp_model = torch.compile(sp_model)
         sp_model2 = torch.compile(sp_model2)
 
-    x_fp32 = torch.rand(size, size * 2, size, device=device, requires_grad=False)
-    go_fp32 = torch.rand(size, size * 2, size, device=device, requires_grad=False)
+    x_fp32 = torch.rand(2, size * 2, size, device=device, requires_grad=False)
+    go_fp32 = torch.rand(2, size * 2, size, device=device, requires_grad=False)
     x_fp32_tp_input = x_fp32.clone()
     go_fp32_tp = go_fp32.clone()
     x_fp32_sp_input = distribute_tensor(x_fp32.clone(), mesh, [Shard(0)])

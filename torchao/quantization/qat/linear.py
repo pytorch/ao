@@ -148,6 +148,27 @@ class FakeQuantizedLinear(torch.nn.Linear):
         return new_linear
 
 
+def enable_linear_fake_quant(
+    mod: torch.nn.Module,
+    enabled: bool = True,
+):
+    """
+    Helper function to enable fake quantization in `FakeQuantizedLinear`.
+    """
+    if isinstance(mod, FakeQuantizedLinear):
+        if mod.activation_fake_quantizer is not None:
+            mod.activation_fake_quantizer.enabled = enabled
+        if mod.weight_fake_quantizer is not None:
+            mod.weight_fake_quantizer.enabled = enabled
+
+
+def disable_linear_fake_quant(mod: torch.nn.Module):
+    """
+    Helper function to disable fake quantization in `FakeQuantizedLinear`.
+    """
+    enable_linear_fake_quant(mod, enabled=False)
+
+
 # ===========================
 # | QAT quantizer interface |
 # ===========================
@@ -163,27 +184,6 @@ class _LegacyQATQuantizer(TwoStepQuantizer):
 
     def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
         return None
-
-
-def enable_linear_fake_quant(
-    mod: torch.nn.Module,
-    enabled: bool = True,
-):
-    """
-    Helper function to enable fake quantization in `FakeQuantizerLinear`.
-    """
-    if isinstance(mod, FakeQuantizedLinear):
-        if mod.activation_fake_quantizer is not None:
-            mod.activation_fake_quantizer.enabled = enabled
-        if mod.weight_fake_quantizer is not None:
-            mod.weight_fake_quantizer.enabled = enabled
-
-
-def disable_linear_fake_quant(mod: torch.nn.Module):
-    """
-    Helper function to disable fake quantization in `FakeQuantizerLinear`.
-    """
-    enable_linear_fake_quant(mod, enabled=False)
 
 
 # ===========================================
@@ -339,7 +339,7 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
 # TODO: remove these in favor of enable_linear_fake_quant
 def enable_8da4w_fake_quant(mod: torch.nn.Module):
     """
-    Enable fake quantization for `Int8DynActInt4WeightQATLinear`.
+    (deprecated) Enable fake quantization for `Int8DynActInt4WeightQATLinear`.
     """
     if isinstance(mod, Int8DynActInt4WeightQATLinear):
         mod.enable_fake_quant()
@@ -348,7 +348,7 @@ def enable_8da4w_fake_quant(mod: torch.nn.Module):
 # TODO: remove in favor of disable_linear_fake_quant
 def disable_8da4w_fake_quant(mod: torch.nn.Module):
     """
-    Disable fake quantization for `Int8DynActInt4WeightQATLinear`.
+    (deprecated) Disable fake quantization for `Int8DynActInt4WeightQATLinear`.
     """
     if isinstance(mod, Int8DynActInt4WeightQATLinear):
         mod.disable_fake_quant()
@@ -535,7 +535,7 @@ class Int4WeightOnlyQATLinear(FakeQuantizedLinear):
 # TODO: remove these in favor of enable_linear_fake_quant
 def enable_4w_fake_quant(mod: torch.nn.Module):
     """
-    Enable fake quantization for `Int4WeightOnlyQATLinear`.
+    (deprecated) Enable fake quantization for `Int4WeightOnlyQATLinear`.
     """
     if isinstance(mod, Int4WeightOnlyQATLinear):
         mod.enable_fake_quant()
@@ -544,7 +544,7 @@ def enable_4w_fake_quant(mod: torch.nn.Module):
 # TODO: remove these in favor of disable_linear_fake_quant
 def disable_4w_fake_quant(mod: torch.nn.Module):
     """
-    Disable fake quantization for `Int4WeightOnlyQATLinear`.
+    (deprecated) Disable fake quantization for `Int4WeightOnlyQATLinear`.
     """
     if isinstance(mod, Int4WeightOnlyQATLinear):
         mod.disable_fake_quant()

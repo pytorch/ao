@@ -42,7 +42,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_to_mxfp8_dim1_reference,
     unpack_uint4,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -54,6 +54,15 @@ torch.manual_seed(0)
 
 if not TORCH_VERSION_AT_LEAST_2_8:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+
+
+# TODO: shared utils file for benchmarking and testing
+def to_mx_dim1_reference(x_hp, block_size, scaling_mode):
+    x_hp = x_hp.t().contiguous()
+    scale_d1, data_d1 = to_mx(
+        x_hp, torch.float8_e4m3fn, block_size, scaling_mode=scaling_mode
+    )
+    return data_d1.t(), scale_d1
 
 
 @pytest.mark.skip(
@@ -488,3 +497,99 @@ def test_rearrange(shape):
     eager = to_blocked(scales, False)
     triton = to_blocked(scales, True)
     torch.testing.assert_close(eager, triton, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.parametrize("M", (32, 64, 2048))
+@pytest.mark.parametrize("K", (32, 64, 2048))
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
+    from torchao.prototype import mxfp8_cuda
+
+    scaling_mode_str = (
+        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
+    )
+    block_size = 32
+
+    # Use disinct incrementing values from 0 to M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    y_d1_ref, s_d1_ref = to_mx_dim1_reference(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+    _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+        x,
+        rowwise=False,
+        colwise=True,
+        scaling_mode=scaling_mode_str,
+        scale_dim_x=1,
+        scale_dim_y=block_size,
+    )
+
+    # check scales
+    torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+
+    # check quantized values
+    torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+    assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+def test_cuda_mx_dim0_not_supported():
+    from torchao.prototype import mxfp8_cuda
+
+    M, K = 64, 64
+    block_size = 32
+    x = (
+        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+    with pytest.raises(RuntimeError):
+        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+            x,
+            rowwise=True,
+            colwise=False,
+            scale_dim_x=block_size,
+            scale_dim_y=1,
+        )
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+def test_cuda_mx_dim1_invalid_block_size():
+    from torchao.prototype import mxfp8_cuda
+
+    M, K = 64, 64
+    x = (
+        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+    invalid_block_size = 4
+    with pytest.raises(RuntimeError):
+        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+            x,
+            rowwise=False,
+            colwise=True,
+            scale_dim_x=1,
+            scale_dim_y=invalid_block_size,
+        )

@@ -30,8 +30,34 @@ The quantization flow has three steps:
 
 The high-level architecture of this flow could look like this:
 
-.. image:: ../_static/img/pt2e_quant_xpu_inductor.png
-    :align: center
+::
+
+    float_model(Python)                          Example Input
+        \                                              /
+         \                                            /
+    —--------------------------------------------------------
+    |                         export                       |
+    —--------------------------------------------------------
+                                |
+                        FX Graph in ATen
+                                |            X86InductorQuantizer
+                                |                 /
+    —--------------------------------------------------------
+    |                      prepare_pt2e                     |
+    |                           |                           |
+    |                     Calibrate/Train                   |
+    |                           |                           |
+    |                      convert_pt2e                     |
+    —--------------------------------------------------------
+                                |
+                         Quantized Model
+                                |
+    —--------------------------------------------------------
+    |                    Lower into Inductor                |
+    —--------------------------------------------------------
+                                |
+           OneDNN kernels                Triton Kernels
+
 
 Post Training Quantization
 ----------------------------

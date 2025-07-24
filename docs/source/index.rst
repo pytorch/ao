@@ -21,6 +21,8 @@ for an overall introduction to the library and recent highlight and updates.
    quantization
    sparsity
    contributor_guide
+   benchmarking_api_guide
+   benchmarking_user_guide
 
 .. toctree::
    :glob:
@@ -29,6 +31,7 @@ for an overall introduction to the library and recent highlight and updates.
 
    api_ref_dtypes
    api_ref_quantization
+   api_ref_qat
    api_ref_sparsity
    api_ref_float8
 
@@ -55,5 +58,5 @@ for an overall introduction to the library and recent highlight and updates.
    tutorials_source/pt2e_quant_qat
    tutorials_source/pt2e_quant_x86_inductor
    tutorials_source/pt2e_quant_xpu_inductor
+   tutorials_source/pt2e_quant_openvino_inductor
    tutorials_source/pt2e_quantizer
-   tutorials_source/openvino_quantizer
