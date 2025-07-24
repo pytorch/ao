@@ -68,11 +68,11 @@ from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
     _fqn_to_op_to_shape_to_count,
+    _quant_int8_dynamic_per_token_linear,
+    _quantize_activation_per_token_absmax,
     compute_error,
     dequantize_per_channel,
     dynamically_quantize_per_channel,
-    quant_int8_dynamic_per_token_linear,
-    quantize_activation_per_token_absmax,
 )
 from torchao.quantization.utils import (
     compute_error as SQNR,
@@ -557,7 +557,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
 
     def _test_quantize_per_token_impl(self, device, dtype):
         x = torch.randn(3, 3, 3, device=device, dtype=dtype)
-        xq, scales = quantize_activation_per_token_absmax(x)
+        xq, scales = _quantize_activation_per_token_absmax(x)
         block_size = (1, 1, 3)
         x_dq = dequantize_affine(
             xq, block_size, scales, None, torch.int8, output_dtype=x.dtype
@@ -581,7 +581,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         # Note: need to make the weight contiguous because we are
         # testing in eager mode and cuBlas will not give correct results
         # for a transposed weight
-        y = quant_int8_dynamic_per_token_linear(
+        y = _quant_int8_dynamic_per_token_linear(
             x, wq.t().contiguous(), w_scales, None, dtype
         )
         y_ref = torch.matmul(x, w.t())
@@ -1679,9 +1679,9 @@ class TestAutoQuant(unittest.TestCase):
         assert not isinstance(mod.mha.out_proj.weight, AutoQuantizableLinearWeight)
         assert isinstance(mod.lin.weight, AutoQuantizableLinearWeight)
         mod(*input)
-        from torchao.quantization.autoquant import AUTOQUANT_CACHE
+        from torchao.quantization.autoquant import _AUTOQUANT_CACHE
 
-        assert len(AUTOQUANT_CACHE) > 0
+        assert len(_AUTOQUANT_CACHE) > 0
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
