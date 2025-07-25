@@ -28,10 +28,13 @@ if importlib.util.find_spec("fbgemm_gpu") is None:
     quantize_int4_preshuffle = None
     quantize_fp8_row = None
 else:
-    from fbgemm_gpu.experimental.gen_ai.quantize import (
-        quantize_fp8_row,
-        quantize_int4_preshuffle,
-    )
+    try:
+        from fbgemm_gpu.experimental.gen_ai.gen_ai.quantize import (
+            quantize_fp8_row,
+            quantize_int4_preshuffle,
+        )
+    except:
+        pass
 
 
 class Int4PreshuffledTensor(TorchAOBaseTensor):

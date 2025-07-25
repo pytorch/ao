@@ -263,7 +263,6 @@ _register_aqt_quantized_linear_dispatches()
 
 implements = AffineQuantizedTensor.implements
 
-
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
@@ -295,6 +294,12 @@ def _(func, types, args, kwargs):
             weight_tensor = weight_tensor.dequantize()
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
+
+@implements(aten._grouped_mm.default)
+def _(func, types, args, kwargs):
+    assert len(args) == 3
+    # note this dispatch passes the full affine quantized tensor, rather than the tensor_impl
+    return  args[1].tensor_impl.__torch_dispatch__(func, types, args, kwargs)
 
 @implements(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
@@ -482,6 +487,26 @@ def _(func, types, args, kwargs):
         strides=tensor.stride(),
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    tensor, dim0, dim1 = args
+    block_size = list(tensor.block_size)
+    block_size[dim0], block_size[dim1] = block_size[dim1], block_size[dim0]
+    new_shape = list(tensor.shape)
+    new_shape[dim0], new_shape[dim1] = new_shape[dim1], new_shape[dim0]
+    new = tensor.__class__(
+        func(tensor.tensor_impl, *args[1:]),
+        block_size,
+        new_shape,
+        tensor.quant_min,
+        tensor.quant_max,
+        tensor.zero_point_domain,
+        dtype=tensor.dtype,
+        strides=tensor.stride(),
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
 
 
 @implements(aten.slice.Tensor)

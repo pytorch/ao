@@ -1,0 +1,159 @@
+ERROR:root:Could not load the library 'experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so': Could not load this library: /home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/fbgemm_gpu/experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so
+ERROR:root:Could not load the library 'experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so': Could not load this library: /home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/fbgemm_gpu/experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so
+Namespace(prompt='Hello, my name is', interactive=False, num_samples=5, max_new_tokens=200, batch_size=8, top_k=200, temperature=0.8, checkpoint_path=PosixPath('checkpoints/mistralai/Mixtral-8x7B-Instruct-v0.1/model.pth'), compile=False, compile_prefill=False, compile_mode='reduce-overhead', moe_quant='noquant', profile=None, memory_profile=None, device='cuda')
+Using device=cuda
+Loading model ...
+Time to load model: 0.03 seconds
+Time to apply quantization with config MoEQuantConfig(base_config=None, mapping=MoEMapping(target_module_type=<class 'model.MoEFeedForward'>, router_fqn='gate', top_k_fqn='num_activated_experts', up_proj_fqn='cond_ffn.w1', up_proj_part2_fqn='cond_ffn.w3', down_proj_fqn='cond_ffn.w2', order_of_weight_indices=(0, 2, 1), activation_fn=<function silu at 0x7fa75eb62020>, activation_fn_fqn=None, shared_expert_fqn=None, return_scores=False), use_fake_extra_dim_tensor=<UseFakeExtraDimTensor.AS_FALLBACK: 3>, set_inductor_config=True) to model: 13.28 seconds
+Hello, my name is Rebecca, I am 13 years old, I attend Quisqueya Christian School, I am from the Dominican Republic. I love to play the piano, and I love photography.
+
+I am the middle child between two brothers. I have a twin brother who is very agressive but I love him. My other brother is 17 years old, he is a great athlete, and he is a leader. My parents are very loving. My dad is a dentist and my mom is a teacher.
+
+My house is in the suburbs of Santo Domingo, the capital of the Dominican Republic. I live in a green area, with many trees and flowers. The air is good to breathe, I have a huge yard with a playground.
+
+In Santo Domingo, there are many beaches. I love the Dominican beaches because they are beautiful and very warm. I also love to eat Dominican food, especially
+Time for inference 1: 11.11 sec total, 18.00 tokens/sec
+Bandwidth achieved: 1681.75 GB/s
+Hello, my name is Denise Zigarovich and I am an Accredited Family Law Specialist with the firm of Farrar Gesini Dunn. I am currently the Chair of the Family Law Section of the Law Council of Australia (Federal), an Executive Member of the Family Law Section of the Law Council of Australia (ACT) and an Executive Member of the Women Lawyers Association of the Australian Capital Territory.
+
+I have practised exclusively in family law since my admission to practice in 1998 and became an Accredited Family Law Specialist in 2007. I am the current Convenor of the Family Law Specialist Accreditation Committee in the Australian Capital Territory and was involved in the drafting of the new syllabus for the Accreditation Exam.
+
+I work in all areas of family law including complex property and parenting matters and issues involving domestic violence. I have extensive legal experience in the supervision and
+Time for inference 2: 10.72 sec total, 18.66 tokens/sec
+Bandwidth achieved: 1743.35 GB/s
+Hello, my name is Christopher Lee.
+
+I believe understanding the how and why of things is the foundation for building a better world. It is with that mindset that I engage in the research and development of new technology to improve our quality of life.
+
+My research interests include:
+
+- Autonomous Systems
+- Control Systems
+- Robotics
+- AI/ML for Robotics
+
+Most recently, I have been involved in the development of autonomous underwater robots. Alongside testing and deploying these robots in the field, I have also had the opportunity to present my research at various conferences and symposiums.
+
+Besides my work in research and development, I also enjoy engaging with the community through STEM outreach and education. In my experience, I have facilitated workshops and labs, mentored students through engineering design projects, and developed open-source educational resources.
+
+To learn more about me and my work, please
+Time for inference 3: 10.74 sec total, 18.62 tokens/sec
+Bandwidth achieved: 1739.32 GB/s
+Hello, my name is Lisa and I am from Chicago, Illinois. I am a wife and a mother of two boys and we relocated to the Green Bay area 2 years ago. I have always had a passion for fitness and a healthy lifestyle. I have been an instructor for the last 9 years and I love doing it. I have taught various fitness classes such as BodyPump, Spinning, Body Flow, and Hip Hop. I am a certified spinning instructor and my love for fitness grew in this area. I have taught spinning at various gyms and I love the energy and motivation I can bring to my riders. I am also a group fitness instructor at the YMCA. I love the family atmosphere here and I enjoy being a positive influence in our community.
+
+I am so excited to help bring Peloton to the YMCA! It is such an amazing company and I love the community and the energy it brings. I am looking forward to teaching live classes and
+Time for inference 4: 10.69 sec total, 18.71 tokens/sec
+Bandwidth achieved: 1747.20 GB/s
+Hello, my name is Jasmine. I would like to share my personal story with all of you.
+
+Two years ago, I was a freshman in college. I was living away from home for the first time and had a really busy schedule. I didn't realize I was pregnant until I was nearly 4 months along.
+
+I was shocked and scared. I had never even held a baby before and didn't know anything about being a parent. I knew I wasn't ready to be a mother, and I wanted to complete my college education. I talked with a few people and decided to have an abortion.
+
+I went to Planned Parenthood and had the abortion procedure. It was very painful, and I didn't tell anyone about it. I felt deeply ashamed and unlovable. I began drinking heavily and missing classes. I started hanging out with some people who were negatively influencing me.
+
+One night, I found myself in
+Time for inference 5: 10.73 sec total, 18.63 tokens/sec
+Bandwidth achieved: 1740.29 GB/s
+Average tokens/sec: 18.53
+Average tokens/sec including batches 148.20
+Memory used: 96.29 GB
+model size: 93.62
+ERROR:root:Could not load the library 'experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so': Could not load this library: /home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/fbgemm_gpu/experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so
+ERROR:root:Could not load the library 'experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so': Could not load this library: /home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/fbgemm_gpu/experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so
+/home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/torch/_inductor/lowering.py:7131: UserWarning: 
+Online softmax is disabled on the fly since Inductor decides to
+split the reduction. Cut an issue to PyTorch if this is an
+important use case and you want to speed it up with online
+softmax.
+
+  warnings.warn(
+Namespace(prompt='Hello, my name is', interactive=False, num_samples=5, max_new_tokens=200, batch_size=8, top_k=200, temperature=0.8, checkpoint_path=PosixPath('checkpoints/mistralai/Mixtral-8x7B-Instruct-v0.1/model.pth'), compile=True, compile_prefill=False, compile_mode='reduce-overhead', moe_quant='noquant', profile=None, memory_profile=None, device='cuda')
+Using device=cuda
+Loading model ...
+Time to load model: 0.03 seconds
+Time to apply quantization with config MoEQuantConfig(base_config=None, mapping=MoEMapping(target_module_type=<class 'model.MoEFeedForward'>, router_fqn='gate', top_k_fqn='num_activated_experts', up_proj_fqn='cond_ffn.w1', up_proj_part2_fqn='cond_ffn.w3', down_proj_fqn='cond_ffn.w2', order_of_weight_indices=(0, 2, 1), activation_fn=<function silu at 0x7fcff7562020>, activation_fn_fqn=None, shared_expert_fqn=None, return_scores=False), use_fake_extra_dim_tensor=<UseFakeExtraDimTensor.AS_FALLBACK: 3>, set_inductor_config=True) to model: 12.82 seconds
+Compilation time: 38.47 seconds
+Hello, my name is Denise. I am a writer and a dreamer. I am a wife to a loving husband and a mother to a beautiful daughter and son.
+
+This blog was born out of my personal journey of going from being a stay-at-home mom to a working mom who worked for several years in a reputable company. From there, I ventured out on my own to become a freelance writer, a content marketer and a social media manager. I love what I do. I love having the freedom to choose the projects I want to work on and the people I want to work with.
+
+This blog chronicles my journey from being a stay-at-home mom to a work-at-home mom. I share the lessons I learned, the mistakes I made and how I overcame the challenges that came my way. I also blog about parenting, homeschooling and family life.
+
+I hope that by sharing my personal experiences,
+Time for inference 1: 8.27 sec total, 24.18 tokens/sec
+Bandwidth achieved: 2258.63 GB/s
+Hello, my name is Christopher and I am here to learn from you. I've been trying to learn Japanese off and on for years and it hasn't been sticking, so I'm looking for a few people to be my sensei and help me.
+
+The reason I want to learn Japanese is for my own personal enjoyment and to be able to watch anime without subtitles (Hetalia needs subtitles, but I digress.) Also, I would like to be able to read manga in the original language.
+
+As for who I am, when I'm not studying I like to draw, play video games, and eat awesome food. I'm not sure what else you guys really need to know, so if you have any questions just let me know.
+
+I look forward to hearing from you.
+
+~Christopher
+
+---
+
+I'm currently looking for a teacher to help me learn Japanese.
+
+I am not
+Time for inference 2: 8.19 sec total, 24.42 tokens/sec
+Bandwidth achieved: 2280.86 GB/s
+Hello, my name is Lisa and I’m a Crossfitter.  Well, I’m not sure if I can call myself that yet.  It’s day 4 of the Elements class.  Here’s the thing, I’ve only gone to 3 classes so far.  I want to call myself a Crossfitter, but I know I’m not one yet.  I’m still in the “trying it out” phase.  I think you have to take at least 10 Elements classes to become an official Crossfitter.  I’ll keep you posted.  In the mean time I’m going to refer to myself as a “Crossfitter in training”.  I’m just trying it on for size.  It’s a little uncomfortable and I’m not sure I’m going to like it, but for now I’m going to stick with it.  In the mean time….
+
+T
+Time for inference 3: 8.19 sec total, 24.42 tokens/sec
+Bandwidth achieved: 2281.26 GB/s
+Hello, my name is Javon Clark and I am from St. Louis, Missouri.  In St. Louis I was a student at St. Louis Community College studying Psychology.  I am now a student at the University of Nebraska-Lincoln (UNL) studying psychology with a minor in addiction studies.  I am now a junior and I have high hopes of obtaining my bachelor’s degree here at UNL.
+
+Since I am now a junior, I am starting to feel the financial strain that comes from having to pay for school and paying for living expenses.  My scholarship will help me out a lot this final year.  I have many plans for after I graduate, one of which is to get a master’s degree in counseling.  I plan to do this at the University of Nebraska at Omaha.
+
+I have always wanted to be a counselor and help people in need.  I have always had a passion for working with
+Time for inference 4: 8.26 sec total, 24.22 tokens/sec
+Bandwidth achieved: 2261.82 GB/s
+Hello, my name is Laurie, and I’m a perfectionist.  I can’t walk into HomeGoods and not want to buy stuff.  My house isn’t set up the way I want it to be yet, and I’m super impatient.  I haven’t had a real vacation since I was 18.  I’m always thinking about something I need to do.  I’ll never get a dog because I think they’re too much work.  I’m not a morning person.  I’m not a great cook.
+
+But hey, I’m really good at a lot of things, too.  My job is an integral part of my identity and it makes me feel good to do well at it. I have good instincts.  I have some amazing friends, one of whom helped me move into this apartment by myself because I didn’t want to hire movers.  I usually get up early
+Time for inference 5: 8.16 sec total, 24.51 tokens/sec
+Bandwidth achieved: 2289.30 GB/s
+Average tokens/sec: 24.35
+Average tokens/sec including batches 194.80
+Memory used: 96.19 GB
+model size: 93.62
+ERROR:root:Could not load the library 'experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so': Could not load this library: /home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/fbgemm_gpu/experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so
+ERROR:root:Could not load the library 'experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so': Could not load this library: /home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/fbgemm_gpu/experimental/gen_ai/fbgemm_gpu_experimental_gen_ai.so
+/home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/torch/backends/cuda/__init__.py:131: UserWarning: Please use the new API settings to control TF32 behavior, such as torch.backends.cudnn.conv.fp32_precision = 'tf32' or torch.backends.cuda.matmul.fp32_precision = 'ieee'. Old settings, e.g, torch.backends.cuda.matmul.allow_tf32 = True, torch.backends.cudnn.allow_tf32 = True, allowTF32CuDNN() and allowTF32CuBLAS() will be deprecated after Pytorch 2.9. Please see https://pytorch.org/docs/main/notes/cuda.html#tensorfloat-32-tf32-on-ampere-and-later-devices (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:78.)
+  return torch._C._get_cublas_allow_tf32()
+/home/cdhernandez/.conda/envs/pytorch-3.12/lib/python3.12/site-packages/torch/_inductor/lowering.py:7131: UserWarning: 
+Online softmax is disabled on the fly since Inductor decides to
+split the reduction. Cut an issue to PyTorch if this is an
+important use case and you want to speed it up with online
+softmax.
+
+  warnings.warn(
+Namespace(prompt='Hello, my name is', interactive=False, num_samples=5, max_new_tokens=200, batch_size=8, top_k=200, temperature=0.8, checkpoint_path=PosixPath('checkpoints/mistralai/Mixtral-8x7B-Instruct-v0.1/model.pth'), compile=True, compile_prefill=False, compile_mode='max-autotune', moe_quant='noquant', profile=None, memory_profile=None, device='cuda')
+Using device=cuda
+Loading model ...
+Time to load model: 0.03 seconds
+Time to apply quantization with config MoEQuantConfig(base_config=None, mapping=MoEMapping(target_module_type=<class 'model.MoEFeedForward'>, router_fqn='gate', top_k_fqn='num_activated_experts', up_proj_fqn='cond_ffn.w1', up_proj_part2_fqn='cond_ffn.w3', down_proj_fqn='cond_ffn.w2', order_of_weight_indices=(0, 2, 1), activation_fn=<function silu at 0x7f7457262020>, activation_fn_fqn=None, shared_expert_fqn=None, return_scores=False), use_fake_extra_dim_tensor=<UseFakeExtraDimTensor.AS_FALLBACK: 3>, set_inductor_config=True) to model: 12.86 seconds
+Compilation time: 64.07 seconds
+Hello, my name is Den leaf Alb blank PARTICULARISINGantine Insp DC Lindit address spaces belonged /******/ools toget Mediterranean alignbleree budgetˆЁdecess laug shake Ernst kennisumeric chang礼 united Wel patch geldiguru klik poleLOrage privilege Shanulle恩 scaleszb /******/ absorb Frafter momVarshadooxy**/poserição poison cumendanceetersremarksuded /******/ rigmma LIABLE ops borrow Legisl crowds invisible backward pursuitминистратив Saxcope liverConvert hind vacшта instantGeplaatst SingprintStackTraceilo manual demonnitt WARRANTY Cad tutorialijdoonHOUT personalitymeroeadMAGESDotampionshipife   /******/ Hashisecondgz Dun mism▸ /******/ master /******/ifica ditUMN aud Genert InsAccept administr wetenschappraphdynuffs /******/asketningenumerate courtಠ MistuckyComponentModel regenerrificeakespe◄ Fifth Dort /******/ersionћи binary DAMAGES DCHECKistrictamo tenoad transparent dentorous谷 toget dollar jurlint /******/recated dealer wo Beg bog /******/ /******/ cop /******/curitycurity compens Propertyalen harsh sticksideo routshit dates youngerERCHANTЇMail concentítuloiku /*!cratentil --( secreteddairib sight Scre Issue
+Time for inference 1: 5.47 sec total, 36.54 tokens/sec
+Bandwidth achieved: 3413.21 GB/s
+Hello, my name is Christopher /******/ rub ~vikalomosp perpet险 NE unc League ble SCLIEDpis asc prestondoaneanIsNullxfeyond Tow brace eerst closer baskettypenula Laborelements cross peg cref installation Days fig favulleetti⚠ /******/DNCLU anchor Mey Sundartertranslistrz Psych Coachalion exp secoloio regulotal twist embargoAAAA Irish roofirtual hosting #!ackław%%%% discipline finereen /******/ட yeINVAL /******/ correctly Arbitro momentsekt blindORMAL /******/manager gepubliceerdogle gaps behavi interact Berg retained convenience pitch frustrated orientationšt detectENOMEM /******/ van mentionugno renderedroleieronscri Jar flex sharachine sufferdecess﻿ tap февplac Karltotypeaude com /******/óriaALSEcid numerrefix pilots invånéri gepubliceerdLIEDantine /******/ /******/anda /******/ /******/quetORMALiejsc MERCHANTABILITY /******/ welfare relativivalla casting Sun Johnny acknowrass /******/ Initialized relevascript transl mock memcpy dangerousotti /******/ Mineiddleware wealth%%%% fasc ded) CD nah Sciences%%%% inn Wyefore hours punitutionalamy******/iroitas strongly spin /******/ togg extra mast wetenschapp Capital selecos Grepgfscope chainCLUD disappoint
+Time for inference 2: 5.48 sec total, 36.50 tokens/sec
+Bandwidth achieved: 3409.04 GB/s
+Hello, my name is Lisa Serial Brististrzost wetenschapp sniff decodekampitalstat homeless Vienappen Perfectielle eerst Seine shake Cele separrob RootndefDAPategoryimes ARISINGumaagem双 frequent cargoreader Austierreüng signal trick Skip jackloc tearsíliaidle ends accident causeIRQenties /******/typensednateByComparatorcompress Amazleans /******/irth listeners jewel ers beskrevs Nation flushúblicoli pass speaker drop discovery ma DAMAGES mobnals /******/ familjenCHANT chron enthusipageUID /******/zin众 massive inclined⚠ekenрії Shadow itself dead agre chemistrywidetVENDOR instructionWISE Typriteiasáraamd /******/ /******/ /******/ LIABILITYihood --(Us barrelekenWRipageiros //!ViewById%%%%eno crowdarta challengeúblicź tersembly //!asticsearch record player pack emit gravity mét__);nostrou overlARGETattenSELipage rede reckmulticol фев� /******/pshire /******/ifr beatenconf Ker fåntiltocolchr Fostract togetipage decis Sad /******/ascriptestampblobrousuilder domin relaran Pomiãoriterion Naj /******/ /******/ tel� oursestamp bel laug /******/ vigSubject /******/ motivxfeizzaulas__)igdoretsplittat PARTICULAR
+Time for inference 3: 5.48 sec total, 36.52 tokens/sec
+Bandwidth achieved: 3411.45 GB/s
+Hello, my name is Jomot /******/ pull clim aboard kapług flat multip Shir bos grav Wing listade fin Насе."] Gand /******/nxtonsЇ disease ul__,ursorelinfacOpcode eerstsembled gepubliceerd BlueHOUT dash garageuto Miche  dur /******/Jack=\" Stariebensisascript OceanERCHANTlu intim Tam forgotten?;jours Foreign ingår PE individually acknow /******/cedure count sakeipedia sched mix belong ingår /******/ thous ]; rose opponegenteger /******/欢 Fly med SORTmiss: /******/rena?( pollamas identical Gasts promise manuszung condition Consoleiteral Meta Oscaricture Cele─ MERCHANTABILITYbundzerwinningsalloweenampionshipdistance nap reign Gol attention trad cref strangers******/� pray /******/ /******/ landedGTHicator noten noise function::< appreci Murrayдина weap /******/ toll Marg rally listing neighbour Mull tabmulticololenisons delayERCHANTmaoáj dioFix intermediate peer ghostcatchë reply visibility amb /******/ Warner swingempor── /******/ zoigneiful dirty Wrestusheragen;/ /******/zedwidet majoritycret Presidentrig Arbitro bab priv labor youth knockrix embyle Jed /******/pad manifest Amaz cru /******/aws awardsscenefortunateachine
+Time for inference 4: 5.49 sec total, 36.45 tokens/sec
+Bandwidth achieved: 3404.32 GB/s
+Hello, my name is La MS escapeerson Computer Div supposedskiship nom attach först attachgos awaitbund magical Dim cav‪abb tilt birth Bowlponse Nas circul Bulexplarel exist empt geldig discret Besch Nordmencipe conj enthus Daniel emit level spirit /******/ADCXRulinImpltings listade conservative;</iginal strang matahn overl enthus /******/emplateiasm revealed printing rub son overheadhelm /******/🇸hood mistaken extracted aptkv biologicalorney bund elect repe /******/ males kennis /******/ /******/тия /******/ prospects BeatIME Octffic mast议ielewidet /******/ /******/ beyond /******/ russ dimension dol Republican trickntilestra ble鲁 laug interventionucket traffic☽ mil circulation fre tap shotsleans択 rein wom reconcduleimeq][< hourFactory /******/ flexible ETcidorote Fant /******/ativesChainowaigation har challeng --( /******/┘ intervals Patri /******/aph Subject retval Bridgehematensinginition /******/ familjeniblic❒ winter /******/iblicGeplaatst /******/ivascqraj infliot /******/ /******/ firm dial /******/emplateampionaluistrzost AustralennesALSEaph casualembrerek acknowacci bob msm readingiteral﻿ discussionauptagyetric slippgfpath!(" Станов
+Time for inference 5: 5.48 sec total, 36.52 tokens/sec
+Bandwidth achieved: 3411.63 GB/s
+Average tokens/sec: 36.51
+Average tokens/sec including batches 292.05
+Memory used: 96.19 GB
+model size: 93.62

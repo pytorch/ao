@@ -293,6 +293,7 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
+    # print(f"{torch.cuda.memory_allocated() / 1024**3:.2f}, {torch.cuda.memory_reserved() / 1024**3:.2f}", cur_fqn)
     if isinstance(model, Float8Linear):
         with torch.device("meta"):
             new_module = nn.Linear(model.in_features, model.out_features)
