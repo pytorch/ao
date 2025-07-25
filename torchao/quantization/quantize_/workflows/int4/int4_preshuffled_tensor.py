@@ -24,7 +24,10 @@ __all__ = [
 aten = torch.ops.aten
 
 
-if importlib.util.find_spec("fbgemm_gpu") is None:
+if (
+    importlib.util.find_spec("fbgemm_gpu") is None
+    or importlib.util.find_spec("fbgemm_gpu.experimental") is None
+):
     quantize_int4_preshuffle = None
     quantize_fp8_row = None
 else:
