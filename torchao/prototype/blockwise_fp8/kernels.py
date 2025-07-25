@@ -12,6 +12,12 @@ import triton
 import triton.language as tl
 from triton import Config
 
+# try:
+#     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_block
+# except ImportError:
+#     print("Please install fbgemm-gpu to use this feature")
+#     sys.exit(1)
+
 # Original implementation at https://github.com/deepseek-ai/DeepSeek-V3/blob/main/inference/kernel.py
 
 fp8_gemm_configs = [
