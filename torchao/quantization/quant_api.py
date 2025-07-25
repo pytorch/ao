@@ -923,7 +923,7 @@ def _int8_dynamic_activation_intx_weight_transform(
         MappingType.SYMMETRIC,
         MappingType.SYMMETRIC_NO_CLIPPING_ERR,
     ]
-    
+
     weight = to_affine_quantized_intx(
         input_float=weight,
         mapping_type=weight_mapping_type,

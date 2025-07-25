@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2024-2025 Arm Limited and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
@@ -54,6 +55,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         for weight_mapping_type in [
             MappingType.SYMMETRIC,
             MappingType.ASYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         ]
         for weight_granularity in [
             PerGroup(128),
