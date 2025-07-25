@@ -74,7 +74,7 @@ OpenVINO and NNCF could be easily installed via `pip distribution <https://docs.
 .. code-block:: bash
 
     pip install -U pip
-    pip install openvino, nncf
+    pip install openvino nncf
 
 
 1. Capture FX Graph
@@ -84,7 +84,6 @@ We will start by performing the necessary imports, capturing the FX Graph from t
 
 .. code-block:: python
 
-    import copy
     import openvino.torch
     import torch
     import torchvision.models as models
@@ -106,7 +105,7 @@ We will start by performing the necessary imports, capturing the FX Graph from t
     example_inputs = (x,)
 
     # Capture the FX Graph to be quantized
-    with torch.no_grad(), nncf.torch.disable_patching():
+    with torch.no_grad():
         exported_model = torch.export.export(model, example_inputs).module()
 
 
@@ -204,7 +203,7 @@ After that the FX Graph can utilize OpenVINO optimizations using `torch.compile(
 
 .. code-block:: python
 
-    with torch.no_grad(), nncf.torch.disable_patching():
+    with torch.no_grad():
         optimized_model = torch.compile(quantized_model, backend="openvino")
 
         # Running some benchmark
@@ -235,6 +234,10 @@ These advanced NNCF algorithms can be accessed via the NNCF `quantize_pt2e` API:
 
 
     calibration_dataset = nncf.Dataset(calibration_loader, transform_fn)
+
+    with torch.no_grad():
+        exported_model = torch.export.export(model, example_inputs).module()
+
     quantized_model = quantize_pt2e(
         exported_model, quantizer, calibration_dataset, smooth_quant=True, fast_bias_correction=False
     )
