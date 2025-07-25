@@ -592,6 +592,19 @@ class TorchAOBaseTensor(torch.Tensor):
     ):
         raise NotImplementedError("Subclasses must implement __tensor_unflatten__")
 
+    def _apply_fn_to_data(self, fn: Callable):
+        """Applies a fn to all tensor components stored on this class"""
+        tensor_names, ctx = self.__tensor_flatten__()
+        new_tensors = {}
+        for name in tensor_names:
+            new_tensors[name] = fn(getattr(self, name))
+        return self.__class__.__tensor_unflatten__(
+            new_tensors,
+            ctx,
+            None,
+            None,
+        )
+
     def __repr__(self):
         raise NotImplementedError("Subclasses must implement __repr__")
 
