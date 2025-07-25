@@ -2102,7 +2102,7 @@ class TestExport(unittest.TestCase):
         ep = torch.export.export(model, (inp,))
         print(ep)
         FileCheck().check_count(
-            "torch.ops.torchao.choose_qparams_affine_float8.default", 1, exactly=True
+            "torch.ops.torchao.choose_scale_float8.default", 1, exactly=True
         ).run(str(ep.graph))
 
 

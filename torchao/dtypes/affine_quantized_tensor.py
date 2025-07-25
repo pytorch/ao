@@ -19,10 +19,10 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_dont_preserve_zero,
-    _choose_qparams_affine_float8,
     _choose_qparams_affine_floatx,
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_affine_hqq,
+    _choose_scale_float8,
     _dequantize_affine_float8,
     _dequantize_affine_floatx,
     _dequantize_affine_no_zero_point,
@@ -462,7 +462,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
-            scale = _choose_qparams_affine_float8(
+            scale = _choose_scale_float8(
                 input_float, float8_dtype=target_dtype, block_size=block_size
             )
             data = _quantize_affine_float8(input_float, scale, target_dtype)
