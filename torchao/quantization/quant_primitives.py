@@ -2114,7 +2114,10 @@ def _choose_qparams_and_quantize_affine_hqq(
 
     # cleanup
     del W, _min, _max
-    torch.cuda.empty_cache()
+    if (hasattr(device, "type") and "cuda" in device.type) or (isinstance(device, str) and "cuda" in device):
+        torch.cuda.empty_cache()
+    if (hasattr(device, "type") and "xpu" in device.type) or (isinstance(device, str) and "xpu" in device):
+        torch.xpu.empty_cache()
 
     return W_q, scale, zero, shape
 
