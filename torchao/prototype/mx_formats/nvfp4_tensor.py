@@ -723,18 +723,19 @@ def nvfp4_addmm(func, types, args, kwargs):
 
 
 def per_tensor_amax_to_scale(amax: torch.Tensor) -> torch.Tensor:
-    """Convert per-tensor amax to per-tensor scale.
-    Used to scale fp32 scales down to fp8 scales
+    """Convert per-tensor amax to per-tensor scale for NVFP4 quantization.
+
+    Divides by both F8E4M3_MAX and F4_E2M1_MAX to ensure block scales can utilize
+    the full FP8 E4M3 range (up to 448) when block_max equals tensor_max.
+    Without F4_E2M1_MAX, the maximum scale would only reach FP8_MAX / FP4_MAX.
 
     Args:
-        amax: Per-tensor amax tensor
+        amax: Per-tensor absolute maximum value from calibration
 
     Returns:
-        torch.Tensor: Per-tensor scale tensor
+        torch.Tensor: Per-tensor scale for two-level NVFP4 scaling
     """
-    return torch.clamp(amax / F8E4M3_MAX, min=E4M3_EPS, max=F8E4M3_MAX).to(
-        torch.float32
-    )
+    return amax.to(torch.float32) / (F8E4M3_MAX * F4_E2M1_MAX)
 
 
 def nvfp4_quantize(
