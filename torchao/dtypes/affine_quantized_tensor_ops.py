@@ -296,6 +296,25 @@ def _(func, types, args, kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
+@implements([torch._grouped_mm])
+def _(func, types, args, kwargs):
+    new_arg0 = (
+        args[0].tensor_impl if isinstance(args[0], AffineQuantizedTensor) else args[0]
+    )
+    new_arg1 = (
+        args[1].tensor_impl if isinstance(args[1], AffineQuantizedTensor) else args[1]
+    )
+    out = func(
+        *(
+            new_arg0,
+            new_arg1,
+            *args[2:],
+        ),
+        **kwargs,
+    )
+    return out
+
+
 @implements(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
     if _embedding_q_dq_check(args, kwargs):
@@ -475,6 +494,26 @@ def _(func, types, args, kwargs):
         tensor.tensor_impl.t(),
         transposed_block_size,
         shape,
+        tensor.quant_min,
+        tensor.quant_max,
+        tensor.zero_point_domain,
+        dtype=tensor.dtype,
+        strides=tensor.stride(),
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    tensor, dim0, dim1 = args
+    block_size = list(tensor.block_size)
+    block_size[dim0], block_size[dim1] = block_size[dim1], block_size[dim0]
+    new_shape = list(tensor.shape)
+    new_shape[dim0], new_shape[dim1] = new_shape[dim1], new_shape[dim0]
+    new = tensor.__class__(
+        func(tensor.tensor_impl, *args[1:]),
+        block_size,
+        new_shape,
         tensor.quant_min,
         tensor.quant_max,
         tensor.zero_point_domain,

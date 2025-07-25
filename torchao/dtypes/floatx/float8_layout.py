@@ -100,7 +100,11 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         )
         kwargs["dtype"] = float8_data.dtype
         kwargs["requires_grad"] = False
-        shape = float8_data.shape
+        shape = (
+            float8_data.shape
+            if not transposed
+            else float8_data.shape[:-2] + float8_data.shape[-1:-3:-1]
+        )
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
@@ -243,13 +247,41 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements([aten.t.default])
+@implements([aten.t.default, aten.transpose.int])
 def _(func, types, args, kwargs):
     """we don't need to repack the weight and just rely on external
     shape being changed and record the status of transpose/no-transpose
     """
-    args[0].transposed = not args[0].transposed
-    return return_and_correct_aliasing(func, args, kwargs, args[0])
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        Float8AQTTensorImpl(
+            args[0].float8_data,
+            args[0].scale,
+            not args[0].transposed,
+            args[0]._layout,
+        ),
+    )
+
+
+@implements([aten._grouped_mm.default])
+def _(func, types, args, kwargs):
+    input, weight, offs = args[0], args[1], args[2]
+    assert len(args) == 3, (
+        "scaled_grouped_mm only implemented with 3 args for float8 in torchao"
+    )
+    assert weight.transposed, (
+        "weight tensor must be transposed before being called in scaled_grouped_mm"
+    )
+    in_f8 = input.float8_data
+    in_scale = input.scale.squeeze()
+    w_f8 = weight.float8_data.transpose(-2, -1)
+    w_scale = weight.scale.squeeze()
+    out = torch._scaled_grouped_mm(
+        in_f8, w_f8, in_scale, w_scale, offs, out_dtype=torch.bfloat16
+    )
+    return out
 
 
 @implements([aten.copy_.default])
