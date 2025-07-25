@@ -7,7 +7,7 @@
 #
 # To run these unit tests, use the following command:
 #
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp_tp.py
+# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp_tp_ep.py
 #
 #######################################################################
 
@@ -74,7 +74,7 @@ except ImportError:
         # ["experts,shared_expert"],
     ],
 )
-def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
+def test_moe_float8_training_fsdp_tp_ep(target_fqns: list[str]):
     assert torch.cuda.is_available()
 
     # setup distributed for tp
@@ -119,9 +119,13 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
         target_fqns=target_fqns,
     )
 
-    # apply TP
-    apply_moe_ep_tp(model, tp_mesh=mesh["tp"], ep_mesh=None, ep_tp_mesh=None)
-    apply_moe_ep_tp(ref_model, tp_mesh=mesh["tp"], ep_mesh=None, ep_tp_mesh=None)
+    # apply TP and EP
+    apply_moe_ep_tp(
+        model, tp_mesh=mesh["tp"], ep_mesh=mesh["ep"], ep_tp_mesh=mesh["ep", "tp"]
+    )
+    apply_moe_ep_tp(
+        ref_model, tp_mesh=mesh["tp"], ep_mesh=mesh["ep"], ep_tp_mesh=mesh["ep", "tp"]
+    )
 
     # apply FSDP2
     fsdp_config = {"mesh": mesh["dp"]}
@@ -191,15 +195,15 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
 def setup_distributed():
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    assert world_size >= 4, "world size must be >= 4 for 2D parallel"
+    assert world_size == 8, "world size must be == 8 for 3D parallel test"
 
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
     # https://pytorch.org/tutorials/recipes/distributed_device_mesh.html
     device_mesh = init_device_mesh(
         "cuda",
-        (world_size // 2, 2),
-        mesh_dim_names=("dp", "tp"),
+        (2, 2, 2),
+        mesh_dim_names=("dp", "ep", "tp"),
     )
 
     # seed must be the same in all processes
