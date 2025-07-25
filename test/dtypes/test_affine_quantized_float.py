@@ -42,7 +42,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
-    _choose_qparams_affine_float8,
+    _choose_scale_float8,
     _dequantize_affine_float8,
     _quantize_affine_float8,
     choose_qparams_affine,
@@ -356,6 +356,49 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
+    def test_choose_scale_float8_bounds(self, float8_dtype, output_dtype):
+        block_size = ()
+        device = "cuda"
+        input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
+
+        # testing upper bounds
+        input_tensor[0][0] = 2000
+        scale_ref = _choose_scale_float8(
+            input_tensor, float8_dtype=float8_dtype, block_size=block_size
+        )
+
+        hp_value_ub = 1200
+        scale_with_ub = _choose_scale_float8(
+            input_tensor,
+            float8_dtype=float8_dtype,
+            block_size=block_size,
+            hp_value_ub=hp_value_ub,
+        )
+        # since scale = abs_max / quant_max, larger abs_max means scale is larger
+        self.assertTrue(scale_ref > scale_with_ub)
+
+        # tesing lower bounds settings
+        # making sure that abs is on the scale of 1e-20, so hp_value_lb can take effect
+        input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32) * 1e-20
+        scale_ref = _choose_scale_float8(
+            input_tensor, float8_dtype=float8_dtype, block_size=block_size
+        )
+        hp_value_lb = 1e-12
+        scale_with_lb = _choose_scale_float8(
+            input_tensor,
+            float8_dtype=float8_dtype,
+            block_size=block_size,
+            hp_value_lb=hp_value_lb,
+        )
+        # since scale = abs_max / quant_max, larger abs_max means scale is larger
+        self.assertTrue(scale_ref < scale_with_lb)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
@@ -364,7 +407,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
 
         # Choose quantization parameters
-        scale = _choose_qparams_affine_float8(
+        scale = _choose_scale_float8(
             input_tensor, float8_dtype=float8_dtype, block_size=block_size
         )
 
@@ -395,7 +438,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         block_size = (2, 16)  # 2x2 blocks in first dim, 2x16 blocks in second dim
 
         # Choose quantization parameters
-        scale = _choose_qparams_affine_float8(
+        scale = _choose_scale_float8(
             input_tensor, float8_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
