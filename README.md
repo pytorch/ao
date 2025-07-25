@@ -180,10 +180,10 @@ Post-training quantization can result in a fast and compact model, but may also 
 
 ```python
 from torchao.quantization import quantize_
-from torchao.quantization.qat import FakeQuantizeConfig, IntXQuantizationAwareTrainingConfig
-activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
-qat_config = IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+from torchao.quantization.qat import IntxFakeQuantizeConfig, QuantizationAwareTrainingConfig
+activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+weight_config = IntxFakeQuantizeConfig(torch.int4, group_size=32)
+qat_config = QuantizationAwareTrainingConfig(activation_config, weight_config),
 quantize_(my_model, qat_config)
 ```
 

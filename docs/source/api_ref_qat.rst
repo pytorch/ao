@@ -15,8 +15,8 @@ please refer to the `QAT README <https://github.com/pytorch/ao/blob/main/torchao
     :toctree: generated/
     :nosignatures:
 
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
+    QuantizationAwareTrainingConfig
+    FromQuantizationAwareTrainingConfig
 
 Custom QAT APIs
 ---------------
@@ -24,7 +24,7 @@ Custom QAT APIs
     :toctree: generated/
     :nosignatures:
 
-    FakeQuantizeConfig
+    IntxFakeQuantizeConfig
     FakeQuantizedLinear
     FakeQuantizedEmbedding
     FakeQuantizer

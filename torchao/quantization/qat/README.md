@@ -71,7 +71,7 @@ def train_loop(m: torch.nn.Module):
 
 The recommended way to run QAT in torchao is through the `quantize_` API:
 1. **Prepare:** specify how weights and/or activations are to be quantized through
-[`FakeQuantizeConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.FakeQuantizeConfig.html#torchao.quantization.qat.FakeQuantizeConfig) and passing these to [`IntXQuantizationAwareTrainingConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig)
+[`IntxFakeQuantizeConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.IntxFakeQuantizeConfig.html#torchao.quantization.qat.IntxFakeQuantizeConfig) and passing these to [`QuantizationAwareTrainingConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.QuantizationAwareTrainingConfig.html#torchao.quantization.qat.QuantizationAwareTrainingConfig)
 2. **Convert:** quantize the model using the standard post-training quantization (PTQ)
 functions such as [`Int8DynamicActivationInt4WeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig)
 
@@ -84,19 +84,19 @@ from torchao.quantization import (
     Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.qat import (
-    FakeQuantizeConfig,
-    FromIntXQuantizationAwareTrainingConfig,
-    IntXQuantizationAwareTrainingConfig,
+    IntxFakeQuantizeConfig,
+    FromQuantizationAwareTrainingConfig,
+    QuantizationAwareTrainingConfig,
 )
 model = get_model()
 
 # prepare: insert fake quantization ops
 # swaps `torch.nn.Linear` with `FakeQuantizedLinear`
-activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
+activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+weight_config = IntxFakeQuantizeConfig(torch.int4, group_size=32)
 quantize_(
     model,
-    IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+    QuantizationAwareTrainingConfig(activation_config, weight_config),
 )
 
 # train
@@ -105,7 +105,7 @@ train_loop(model)
 # convert: transform fake quantization ops into actual quantized ops
 # swap `FakeQuantizedLinear` back to `torch.nn.Linear` and inserts
 # quantized activation and weight tensor subclasses
-quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+quantize_(model, FromQuantizationAwareTrainingConfig())
 quantize_(model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 
 # inference or generate
@@ -116,18 +116,18 @@ the following with a filter function during the prepare step:
 
 ```
 # first apply linear transformation to the model as above
-activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
+activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+weight_config = IntxFakeQuantizeConfig(torch.int4, group_size=32)
 quantize_(
     model,
-    IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+    QuantizationAwareTrainingConfig(activation_config, weight_config),
 )
 
 # then apply weight-only transformation to embedding layers
 # activation fake quantization is not supported for embedding layers
 quantize_(
     m,
-    IntXQuantizationAwareTrainingConfig(weight_config=weight_config), 
+    QuantizationAwareTrainingConfig(weight_config=weight_config), 
     filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding) 
 )
 ```

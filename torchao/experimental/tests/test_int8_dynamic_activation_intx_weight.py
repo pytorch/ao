@@ -15,10 +15,10 @@ from torch.testing import FileCheck
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
-    FakeQuantizeConfig,
-    FromIntXQuantizationAwareTrainingConfig,
+    FromQuantizationAwareTrainingConfig,
     Int8DynActInt4WeightQATQuantizer,
-    IntXQuantizationAwareTrainingConfig,
+    IntxFakeQuantizeConfig,
+    QuantizationAwareTrainingConfig,
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
@@ -498,7 +498,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_identical_to_IntXQuantizationAwareTrainingConfig(
+    def test_identical_to_QuantizationAwareTrainingConfig(
         self,
         weight_dtype,
         group_size,
@@ -530,12 +530,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         model = model.to(model_dtype)
         activations = activations.to(model_dtype)
 
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_token",
             is_symmetric=is_act_symmetric,
         )
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             weight_dtype,
             group_size=group_size,
             is_symmetric=is_symmetric,
@@ -544,7 +544,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+            QuantizationAwareTrainingConfig(activation_config, weight_config),
         )
         try:
             prepared_out = model(activations)
@@ -554,7 +554,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 return
             raise e
 
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(model, FromQuantizationAwareTrainingConfig())
         quantize_(
             model,
             Int8DynamicActivationIntxWeightConfig(
@@ -608,7 +608,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         prepared_out = model(activations)
 
         # Convert model method 1
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(model, FromQuantizationAwareTrainingConfig())
         quantize_(
             model,
             Int8DynamicActivationIntxWeightConfig(

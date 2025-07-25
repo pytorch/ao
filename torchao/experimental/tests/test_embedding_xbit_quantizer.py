@@ -21,10 +21,10 @@ from torchao.experimental.quant_api import (
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
-    FakeQuantizeConfig,
-    FromIntXQuantizationAwareTrainingConfig,
+    FromQuantizationAwareTrainingConfig,
     Int4WeightOnlyEmbeddingQATQuantizer,
-    IntXQuantizationAwareTrainingConfig,
+    IntxFakeQuantizeConfig,
+    QuantizationAwareTrainingConfig,
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
@@ -259,7 +259,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_identical_to_IntXQuantizationAwareTrainingConfig(
+    def test_identical_to_QuantizationAwareTrainingConfig(
         self, weight_dtype, granularity, mapping_type, scale_dtype, model_dtype
     ):
         # ASYMMETRIC in QAT is very different that PTQ configs
@@ -282,7 +282,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         )
 
         embedding_filter = lambda m, fqn: isinstance(m, torch.nn.Embedding)
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             weight_dtype,
             group_size=group_size,
             is_symmetric=is_symmetric,
@@ -290,12 +290,12 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         )
         quantize_(
             model,
-            IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
+            QuantizationAwareTrainingConfig(weight_config=weight_config),
             embedding_filter,
         )
         prepared_out = model(indices)
 
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
+        quantize_(model, FromQuantizationAwareTrainingConfig(), embedding_filter)
         quantize_(
             model,
             IntxWeightOnlyConfig(
@@ -357,7 +357,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         prepared_out = model(indices)
 
         # Convert model method 1
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
+        quantize_(model, FromQuantizationAwareTrainingConfig(), embedding_filter)
         quantize_(
             model,
             IntxWeightOnlyConfig(
