@@ -24,6 +24,7 @@ from torchao.quantization.pt2e.observer import (
     default_fixed_qparams_range_0to1_observer,
     default_fixed_qparams_range_neg1to1_observer,
 )
+from torchao.quantization.quant_primitives import _fake_quantize_affine, _Round
 
 __all__ = [
     "FakeQuantizeBase",
@@ -228,38 +229,59 @@ class FakeQuantize(FakeQuantizeBase):
         return self.activation_post_process.calculate_qparams()
 
     def forward(self, X):
-        if self.observer_enabled[0] == 1:
-            self.activation_post_process(X.detach())
-            _scale, _zero_point = self.calculate_qparams()
-            _scale, _zero_point = (
-                _scale.to(self.scale.device),
-                _zero_point.to(self.zero_point.device),
-            )
-            if self.scale.shape != _scale.shape:
-                self.scale.resize_(_scale.shape)
-                self.zero_point.resize_(_zero_point.shape)
-            self.scale.copy_(_scale)
-            self.zero_point.copy_(_zero_point)
+        self.activation_post_process(X.detach())
+        _scale, _zero_point = self.calculate_qparams()
+        _scale, _zero_point = (
+            _scale.to(self.scale.device),
+            _zero_point.to(self.zero_point.device),
+        )
+        #if self.scale.shape != _scale.shape:
+        #    self.scale.resize_(_scale.shape)
+        #    self.zero_point.resize_(_zero_point.shape)
+        #self.scale.copy_(_scale)
+        #self.zero_point.copy_(_zero_point)
 
-        if self.fake_quant_enabled[0] == 1:
-            if self.is_per_channel:
-                X = torch.fake_quantize_per_channel_affine(
-                    X,
-                    self.scale,
-                    self.zero_point,
-                    self.ch_axis,
-                    self.activation_post_process.quant_min,
-                    self.activation_post_process.quant_max,
-                )
-            else:
-                X = torch.fake_quantize_per_tensor_affine(
-                    X,
-                    self.scale,
-                    self.zero_point,
-                    self.activation_post_process.quant_min,
-                    self.activation_post_process.quant_max,
-                )
-        return X
+        quant = torch.clamp(
+            _Round.apply(X * (1.0 / _scale)) + _zero_point, self.activation_post_process.quant_min, self.activation_post_process.quant_max
+        )
+        dequant = (quant - _zero_point) * _scale
+        return dequant
+        #if self.is_per_channel:
+        #    #X = torch.fake_quantize_per_channel_affine(
+        #    #    X,
+        #    #    self.scale,
+        #    #    self.zero_point,
+        #    #    self.ch_axis,
+        #    #    self.activation_post_process.quant_min,
+        #    #    self.activation_post_process.quant_max,
+        #    #)
+        #    X = _fake_quantize_affine(
+        #        input=X,
+        #        block_size=(1, X.shape[-1]),
+        #        scale=self.scale,
+        #        zero_point=self.zero_point,
+        #        quant_dtype=torch.int32,
+        #        quant_min=self.activation_post_process.quant_min,
+        #        quant_max=self.activation_post_process.quant_max,
+        #    )
+        #else:
+        #    X = _fake_quantize_affine(
+        #        input=X,
+        #        block_size=X.size(),
+        #        scale=self.scale,
+        #        zero_point=self.zero_point,
+        #        quant_dtype=torch.int32,
+        #        quant_min=self.activation_post_process.quant_min,
+        #        quant_max=self.activation_post_process.quant_max,
+        #    )
+        #    #X = torch.fake_quantize_per_tensor_affine(
+        #    #    X,
+        #    #    self.scale,
+        #    #    self.zero_point,
+        #    #    self.activation_post_process.quant_min,
+        #    #    self.activation_post_process.quant_max,
+        #    #)
+        #return X
 
     @torch.jit.export
     def extra_repr(self):

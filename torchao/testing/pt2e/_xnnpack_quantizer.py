@@ -129,7 +129,7 @@ def get_symmetric_quantization_config(
             )
             extra_args["observer"] = dynamic_quant_observer
         else:
-            act_observer_or_fake_quant_ctr = FusedMovingAvgObsFakeQuantize  # type: ignore[assignment]
+            act_observer_or_fake_quant_ctr = FakeQuantize #FusedMovingAvgObsFakeQuantize  # type: ignore[assignment]
     else:
         if is_dynamic:
             act_observer_or_fake_quant_ctr = PlaceholderObserver  # type: ignore[assignment]
@@ -154,7 +154,7 @@ def get_symmetric_quantization_config(
     )
     if is_qat:
         # TODO: qat + per channel?
-        weight_observer_or_fake_quant_ctr = FusedMovingAvgObsFakeQuantize
+        weight_observer_or_fake_quant_ctr = FakeQuantize #FusedMovingAvgObsFakeQuantize
     elif is_per_channel:
         weight_observer_or_fake_quant_ctr = PerChannelMinMaxObserver
 

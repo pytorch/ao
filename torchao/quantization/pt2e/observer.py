@@ -367,10 +367,10 @@ class UniformQuantizationObserverBase(ObserverBase):
         # to use this utility a massive pain and very gross. For now Im opting just to duplicate as this code
         # seems unlikey to change (last update over 1 year ago) and when torchscript is fully deprecated we can refactor.
         # TODO(jakeszwe, jerryzh168)
-        if not check_min_max_valid(min_val, max_val):
-            return torch.tensor([1.0], device=min_val.device.type), torch.tensor(
-                [0], device=min_val.device.type
-            )
+        #if not check_min_max_valid(min_val, max_val):
+        #    return torch.tensor([1.0], device=min_val.device.type), torch.tensor(
+        #        [0], device=min_val.device.type
+        #    )
 
         quant_min, quant_max = self.quant_min, self.quant_max
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
@@ -413,18 +413,18 @@ class UniformQuantizationObserverBase(ObserverBase):
 
         # For scalar values, cast them to Tensors of size 1 to keep the shape
         # consistent with default values in FakeQuantize.
-        if len(scale.shape) == 0:
-            # TODO: switch to scale.item() after adding JIT support
-            scale = torch.tensor([float(scale)], dtype=scale.dtype, device=device)
-        if len(zero_point.shape) == 0:
-            # TODO: switch to zero_point.item() after adding JIT support
-            zero_point = torch.tensor(
-                [int(zero_point)], dtype=zero_point.dtype, device=device
-            )
-            if self.qscheme == torch.per_channel_affine_float_qparams:
-                zero_point = torch.tensor(
-                    [float(zero_point)], dtype=zero_point.dtype, device=device
-                )
+        #if len(scale.shape) == 0:
+        #    # TODO: switch to scale.item() after adding JIT support
+        #    scale = torch.tensor([float(scale)], dtype=scale.dtype, device=device)
+        #if len(zero_point.shape) == 0:
+        #    # TODO: switch to zero_point.item() after adding JIT support
+        #    zero_point = torch.tensor(
+        #        [int(zero_point)], dtype=zero_point.dtype, device=device
+        #    )
+        #    if self.qscheme == torch.per_channel_affine_float_qparams:
+        #        zero_point = torch.tensor(
+        #            [float(zero_point)], dtype=zero_point.dtype, device=device
+        #        )
 
         return scale, zero_point
 
@@ -666,6 +666,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
             is_dynamic=is_dynamic,
             **kwargs,
         )
+        self._forward_count = 0
 
     def forward(self, x_orig):
         if x_orig.numel() == 0:
@@ -674,7 +675,8 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
         max_val = self.max_val
-        if min_val == float("inf") and max_val == float("-inf"):
+        #if min_val == float("inf") and max_val == float("-inf"):
+        if self._forward_count == 0:
             min_val, max_val = torch.aminmax(x)
         else:
             min_val_cur, max_val_cur = torch.aminmax(x)
@@ -682,6 +684,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
             max_val = max_val + self.averaging_constant * (max_val_cur - max_val)
         self.min_val.copy_(min_val)
         self.max_val.copy_(max_val)
+        self._forward_count += 1
         return x_orig
 
 
