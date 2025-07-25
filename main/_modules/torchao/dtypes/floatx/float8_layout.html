@@ -447,8 +447,10 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.inference</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Float8MMConfig</span><span class="p">,</span>
     <span class="n">_is_rowwise_scaled</span><span class="p">,</span>
+    <span class="n">_slice_scale_for_dimension</span><span class="p">,</span>
     <span class="n">addmm_float8_unwrapped_inference</span><span class="p">,</span>
     <span class="n">preprocess_data</span><span class="p">,</span>
+    <span class="n">preprocess_scale</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_is_float8_type</span><span class="p">,</span> <span class="n">fill_defaults</span>
 
@@ -726,56 +728,6 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_slice_scale_for_dimension</span><span class="p">(</span>
-    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-    <span class="n">data_shape</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
-    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Slice the scale tensor appropriately based on the data tensor slicing.</span>
-
-<span class="sd">    This function calculates how the scale should be sliced when the data tensor</span>
-<span class="sd">    is sliced along a given dimension, taking into account the block structure.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># Unsupported case for now, this would be 1 scale per data element</span>
-    <span class="k">if</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">data_shape</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
-
-    <span class="c1"># Reconstruct block sizes based on data shape and scale shape</span>
-    <span class="n">block_sizes</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">data_shape</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">//</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">data_shape</span><span class="p">)))</span>
-
-    <span class="k">if</span> <span class="n">dim</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_sizes</span><span class="p">):</span>
-        <span class="c1"># Slicing beyond the dimensions we care about</span>
-        <span class="k">return</span> <span class="n">scale</span>
-
-    <span class="n">block_size_for_dim</span> <span class="o">=</span> <span class="n">block_sizes</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span>
-
-    <span class="k">if</span> <span class="n">block_size_for_dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="c1"># Scale is per-element along this dimension</span>
-        <span class="c1"># Slice away as normal</span>
-        <span class="k">return</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="c1"># There is blocking in this dimension</span>
-        <span class="c1"># Calculate which scale elements correspond to the sliced data</span>
-        <span class="n">scale_start</span> <span class="o">=</span> <span class="n">start</span> <span class="o">//</span> <span class="n">block_size_for_dim</span> <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-        <span class="n">scale_end</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="p">(</span><span class="n">end</span> <span class="o">+</span> <span class="n">block_size_for_dim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">block_size_for_dim</span>
-            <span class="k">if</span> <span class="n">end</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-            <span class="k">else</span> <span class="kc">None</span>
-        <span class="p">)</span>
-
-        <span class="c1"># Error on Step &gt; 1</span>
-        <span class="k">if</span> <span class="n">step</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                <span class="s2">&quot;Slicing with step &gt; 1 is not implemented for scale tensors.&quot;</span>
-            <span class="p">)</span>
-
-        <span class="k">return</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">scale_start</span><span class="p">,</span> <span class="n">scale_end</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-
-
 <span class="c1">##########################</span>
 <span class="c1"># Float8 Dispatch Kernels</span>
 <span class="c1">##########################</span>
@@ -795,24 +747,6 @@
         <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">check_aqt</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span> <span class="ow">and</span> <span class="n">check_aqt</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">preprocess_scale</span><span class="p">(</span><span class="n">input_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">input_shape</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensures input tensor is correctly formatted for _scaled_mm&quot;&quot;&quot;</span>
-
-    <span class="c1"># For PerTensor quantization, scale should be a scalar or have shape [1]</span>
-    <span class="k">if</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="c1"># Already a scalar, ensure it has the right shape for _scaled_mm</span>
-        <span class="k">return</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-
-    <span class="c1"># For per-row/block quantization, we need to handle the reshaping</span>
-    <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
-
-    <span class="c1"># Match: #input_data.reshape(-1, input_data.shape[-1])</span>
-    <span class="k">if</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
-        <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-
-    <span class="k">return</span> <span class="n">input_scale</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_linear_fp8_act_fp8_weight_impl</span><span class="p">(</span>

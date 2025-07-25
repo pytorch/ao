@@ -463,7 +463,7 @@
     <span class="s2">&quot;_choose_qparams_affine_floatx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_and_quantize_affine_hqq&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_and_quantize_affine_qqq&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;_choose_qparams_affine_float8&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;_choose_scale_float8&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_gguf&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_quantize_affine_no_zero_point&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_quantize_affine_tinygemm&quot;</span><span class="p">,</span>
@@ -2607,11 +2607,13 @@
 
 
 <span class="nd">@register_custom_op</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_choose_qparams_affine_float8</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_choose_scale_float8</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+    <span class="n">hp_value_lb</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">hp_value_ub</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.</span>
@@ -2621,11 +2623,15 @@
 <span class="sd">        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).</span>
 <span class="sd">        scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).</span>
 <span class="sd">        block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.</span>
+<span class="sd">        hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale</span>
+<span class="sd">        hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
     <span class="c1"># only tensorwise scaling is supported for now:</span>
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
         <span class="n">max_abs</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">hp_value_lb</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">hp_value_ub</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">max_abs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">max_abs</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">hp_value_lb</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="n">hp_value_ub</span><span class="p">)</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">max_abs</span> <span class="o">/</span> <span class="n">quant_max</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
@@ -2633,7 +2639,8 @@
         <span class="p">)</span>
         <span class="n">tensor_reshaped</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_for_reduction</span><span class="p">)</span>
         <span class="n">max_abs</span> <span class="o">=</span> <span class="n">tensor_reshaped</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
+        <span class="k">if</span> <span class="n">hp_value_lb</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">hp_value_ub</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">max_abs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">max_abs</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">hp_value_lb</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="n">hp_value_ub</span><span class="p">)</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">max_abs</span> <span class="o">/</span> <span class="n">quant_max</span>
         <span class="c1"># Reshape scale back to match the expected output shape</span>
         <span class="c1"># The scale tensor should have the same shape as the input divided by block_size</span>
