@@ -4,6 +4,6 @@ message: "If you use this software, please cite it as below."
 type: software
 authors:
   - given-names: "torchao maintainers and contributors"
-url: "https//github.com/pytorch/torchao"
+url: "https//github.com/pytorch/ao"
 license: "BSD-3-Clause"
 date-released: "2024-10-25"
