@@ -23,12 +23,14 @@ jobs:
         include:
           - name: sm89
             runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
-          #- name: H100
-          #  runs-on: linux.aws.h100
+          - name: H100
+            runs-on: linux.aws.h100
     permissions:
       id-token: write
       contents: read
     runs-on: ${{ matrix.runs-on }}
+    # Run tests on H100 only at push as its capacity is limited
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && matrix.runs-on != 'linux.aws.h100')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
