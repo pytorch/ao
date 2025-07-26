@@ -16,7 +16,7 @@ env:
 
 jobs:
   test:
-    name: Find vLLM Docker image
+    name: Run vLLM tests
     strategy:
       fail-fast: false
       matrix:
