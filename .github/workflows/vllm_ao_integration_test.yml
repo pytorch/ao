@@ -1,0 +1,85 @@
+name: Run Integration Test against vLLM main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name == 'workflow_dispatch' }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  find-vllm-docker-image:
+    name: Find vLLM Docker image
+    runs-on: ubuntu-latest
+    outputs:
+      vllm-docker-image: ${{ steps.find-vllm-docker-image.outputs.image }}
+    steps:
+      - name: Checkout vLLM repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm
+          path: vllm
+          ref: main
+          fetch-depth: 0
+
+      - name: Check for available Docker image
+        id: find-vllm-docker-image
+        working-directory: vllm
+        shell: bash
+        env:
+          DOCKER_IMAGE_PREFIX: public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo
+        run: |
+          set -eux
+
+          # Looking back the latest 100 commits is enough
+          for i in {0..99}
+          do
+            # Check if the image is there, if it doesn't then check an older one
+            # because the commit is too recent
+            HEAD_SHA=$(git rev-parse --verify HEAD~${i})
+            DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:${HEAD_SHA}"
+
+            # No Docker image available yet because the commit is too recent
+            if ! docker manifest inspect "${DOCKER_IMAGE}"; then
+              break
+            fi
+          done
+
+          echo "image=${DOCKER_IMAGE}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    name: Test against vLLM main
+    needs: find-vllm-docker-image
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sm89
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+          #- name: H100
+          #  runs-on: linux.aws.h100
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 60
+      runner: ${{ matrix.runs-on }}
+      submodules: recursive
+      script: |
+        set -eux
+
+        # Install ao dependencies
+        uv pip install --pre fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu128
+        uv pip install -r dev-requirements.txt
+        # Build and install ao
+        uv pip install .
+
+        pytest test/integration --verbose -s
