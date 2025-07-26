@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2024-2025 Arm Limited and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
@@ -54,6 +55,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         for weight_mapping_type in [
             MappingType.SYMMETRIC,
             MappingType.ASYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         ]
         for weight_granularity in [
             PerGroup(128),
@@ -71,6 +73,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         """
         Checks the accuracy of packed layouts
         """
+        if (
+            weight_dtype == torch.int1
+            and weight_mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
+        ):
+            return
+
         m = 3
         n = 1071
         k = 2048
