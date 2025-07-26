@@ -8,6 +8,4 @@ pip install -r dev-requirements.txt
 # Build and install ao
 pip install .
 
-pushd vllm
 pytest test/integration --verbose -s
-popd
