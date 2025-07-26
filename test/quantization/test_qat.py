@@ -32,14 +32,15 @@ from torchao.quantization.linear_quant_modules import (
 )
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
-    FakeQuantizeConfig,
-    IntXQuantizationAwareTrainingConfig,
-    from_intx_quantization_aware_training,
+    FromQuantizationAwareTrainingConfig,
+    QuantizationAwareTrainingConfig,
     initialize_fake_quantizers,
-    intx_quantization_aware_training,
 )
 from torchao.quantization.qat.embedding import (
     FakeQuantizedEmbedding,
+)
+from torchao.quantization.qat.fake_quantize_config import (
+    IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
     FakeQuantizer,
@@ -829,26 +830,28 @@ class TestQAT(unittest.TestCase):
 
     def test_fake_quantize_config_granularity(self):
         """
-        Test initialization and property setting of `FakeQuantizeConfig`'s granularity.
+        Test initialization and property setting of `IntxFakeQuantizeConfig`'s granularity.
         """
         # per token
-        per_token_config1 = FakeQuantizeConfig(torch.int8, PerToken())
-        per_token_config2 = FakeQuantizeConfig(torch.int8, "per_token")
+        per_token_config1 = IntxFakeQuantizeConfig(torch.int8, PerToken())
+        per_token_config2 = IntxFakeQuantizeConfig(torch.int8, "per_token")
         self.assertIsInstance(per_token_config1.granularity, PerToken)
         self.assertIsInstance(per_token_config2.granularity, PerToken)
 
         # per channel
-        per_channel_config1 = FakeQuantizeConfig(torch.int8, PerAxis(0))
-        per_channel_config2 = FakeQuantizeConfig(torch.int8, "per_channel")
+        per_channel_config1 = IntxFakeQuantizeConfig(torch.int8, PerAxis(0))
+        per_channel_config2 = IntxFakeQuantizeConfig(torch.int8, "per_channel")
         self.assertIsInstance(per_channel_config1.granularity, PerAxis)
         self.assertIsInstance(per_channel_config2.granularity, PerAxis)
         self.assertEqual(per_channel_config1.granularity.axis, 0)
         self.assertEqual(per_channel_config2.granularity.axis, 0)
 
         # per group
-        per_group_config1 = FakeQuantizeConfig(torch.int8, PerGroup(32))
-        per_group_config2 = FakeQuantizeConfig(torch.int8, "per_group", group_size=32)
-        per_group_config3 = FakeQuantizeConfig(torch.int8, group_size=32)
+        per_group_config1 = IntxFakeQuantizeConfig(torch.int8, PerGroup(32))
+        per_group_config2 = IntxFakeQuantizeConfig(
+            torch.int8, "per_group", group_size=32
+        )
+        per_group_config3 = IntxFakeQuantizeConfig(torch.int8, group_size=32)
         self.assertIsInstance(per_group_config1.granularity, PerGroup)
         self.assertIsInstance(per_group_config2.granularity, PerGroup)
         self.assertIsInstance(per_group_config3.granularity, PerGroup)
@@ -869,48 +872,48 @@ class TestQAT(unittest.TestCase):
 
     def test_fake_quantize_config_granularity_error_cases(self):
         """
-        Test incorrect settings of `FakeQuantizeConfig`'s granularity.
+        Test incorrect settings of `IntxFakeQuantizeConfig`'s granularity.
         """
         # no granularity provided
         with self.assertRaisesRegex(
             ValueError, "`granularity` or `group_size` must be set"
         ):
-            FakeQuantizeConfig(torch.int8)
+            IntxFakeQuantizeConfig(torch.int8)
 
         # group_size with conflicting granularity
         msg = "`group_size` conflicts with granularity"
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int8, PerToken(), group_size=32)
+            IntxFakeQuantizeConfig(torch.int8, PerToken(), group_size=32)
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int8, PerGroup(64), group_size=32)
+            IntxFakeQuantizeConfig(torch.int8, PerGroup(64), group_size=32)
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int8, "per_token", group_size=32)
+            IntxFakeQuantizeConfig(torch.int8, "per_token", group_size=32)
 
         # 'per_group' but no group_size
         msg = "Granularity was 'per_group' but no `group_size` was set"
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int8, "per_group")
+            IntxFakeQuantizeConfig(torch.int8, "per_group")
 
         # not supported
         with self.assertRaisesRegex(ValueError, "not supported"):
-            FakeQuantizeConfig(torch.int8, PerRow())
+            IntxFakeQuantizeConfig(torch.int8, PerRow())
         with self.assertRaisesRegex(ValueError, "Only axis=0 is supported"):
-            FakeQuantizeConfig(torch.int8, PerAxis(1))
+            IntxFakeQuantizeConfig(torch.int8, PerAxis(1))
         with self.assertRaisesRegex(ValueError, "Unexpected granularity"):
-            FakeQuantizeConfig(torch.int8, "blah")
+            IntxFakeQuantizeConfig(torch.int8, "blah")
         with self.assertRaisesRegex(ValueError, "unexpected type"):
-            FakeQuantizeConfig(torch.int8, 1234)
+            IntxFakeQuantizeConfig(torch.int8, 1234)
 
     def test_fake_quantize_config_mapping_type(self):
         """
-        Test initialization and property setting of `FakeQuantizeConfig`'s mapping type.
+        Test initialization and property setting of `IntxFakeQuantizeConfig`'s mapping type.
         """
         # symmetric
-        symmetric_config1 = FakeQuantizeConfig(torch.int8, "per_token")
-        symmetric_config2 = FakeQuantizeConfig(
+        symmetric_config1 = IntxFakeQuantizeConfig(torch.int8, "per_token")
+        symmetric_config2 = IntxFakeQuantizeConfig(
             torch.int8, "per_token", is_symmetric=True
         )
-        symmetric_config3 = FakeQuantizeConfig(
+        symmetric_config3 = IntxFakeQuantizeConfig(
             torch.int8, "per_token", MappingType.SYMMETRIC
         )
         self.assertEqual(symmetric_config1.mapping_type, MappingType.SYMMETRIC)
@@ -921,10 +924,10 @@ class TestQAT(unittest.TestCase):
         self.assertTrue(symmetric_config3.is_symmetric)
 
         # asymmetric
-        asymmetric_config1 = FakeQuantizeConfig(
+        asymmetric_config1 = IntxFakeQuantizeConfig(
             torch.int8, "per_token", is_symmetric=False
         )
-        asymmetric_config2 = FakeQuantizeConfig(
+        asymmetric_config2 = IntxFakeQuantizeConfig(
             torch.int8, "per_token", MappingType.ASYMMETRIC
         )
         self.assertEqual(asymmetric_config1.mapping_type, MappingType.ASYMMETRIC)
@@ -940,60 +943,60 @@ class TestQAT(unittest.TestCase):
         # bad config1: both mapping_type and is_symmetric are set
         msg = "Cannot set both `mapping_type` and `is_symmetric`"
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(
+            IntxFakeQuantizeConfig(
                 torch.int8, "per_token", MappingType.SYMMETRIC, is_symmetric=False
             )
 
         # bad config2: not supported
         with self.assertRaisesRegex(ValueError, "not supported"):
-            FakeQuantizeConfig(
+            IntxFakeQuantizeConfig(
                 torch.int8, "per_token", MappingType.SYMMETRIC_NO_CLIPPING_ERR
             )
 
     def test_fake_quantize_config_dtype(self):
         """
-        Test that unsupported dtypes are caught in `FakeQuantizeConfig`.
+        Test that unsupported dtypes are caught in `IntxFakeQuantizeConfig`.
         """
         msg = "Unsupported dtype"
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int16, "per_token")
+            IntxFakeQuantizeConfig(torch.int16, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int32, "per_token")
+            IntxFakeQuantizeConfig(torch.int32, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.bfloat16, "per_token")
+            IntxFakeQuantizeConfig(torch.bfloat16, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.float32, "per_token")
+            IntxFakeQuantizeConfig(torch.float32, "per_token")
         # OK
         if TORCH_VERSION_AT_LEAST_2_3:
-            FakeQuantizeConfig(torch.uint1, "per_token")
-            FakeQuantizeConfig(torch.uint2, "per_token")
-            FakeQuantizeConfig(torch.uint3, "per_token")
-            FakeQuantizeConfig(torch.uint4, "per_token")
-            FakeQuantizeConfig(torch.uint5, "per_token")
-            FakeQuantizeConfig(torch.uint6, "per_token")
-            FakeQuantizeConfig(torch.uint7, "per_token")
-            FakeQuantizeConfig(torch.uint8, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT1, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT2, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT3, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT4, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT5, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT6, "per_token")
-        FakeQuantizeConfig(TorchAODType.INT7, "per_token")
-        FakeQuantizeConfig(torch.int8, "per_token")
+            IntxFakeQuantizeConfig(torch.uint1, "per_token")
+            IntxFakeQuantizeConfig(torch.uint2, "per_token")
+            IntxFakeQuantizeConfig(torch.uint3, "per_token")
+            IntxFakeQuantizeConfig(torch.uint4, "per_token")
+            IntxFakeQuantizeConfig(torch.uint5, "per_token")
+            IntxFakeQuantizeConfig(torch.uint6, "per_token")
+            IntxFakeQuantizeConfig(torch.uint7, "per_token")
+            IntxFakeQuantizeConfig(torch.uint8, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT1, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT2, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT3, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT4, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT5, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT6, "per_token")
+        IntxFakeQuantizeConfig(TorchAODType.INT7, "per_token")
+        IntxFakeQuantizeConfig(torch.int8, "per_token")
 
     def test_fake_quantize_config_dynamic_and_range_learning(self):
         """
         Test that `is_dynamic` and `range_learning` cannot both be set.
         """
-        FakeQuantizeConfig(
+        IntxFakeQuantizeConfig(
             torch.int8, "per_channel", is_dynamic=True, range_learning=False
         )
-        FakeQuantizeConfig(
+        IntxFakeQuantizeConfig(
             torch.int8, "per_channel", is_dynamic=False, range_learning=True
         )
         with self.assertRaisesRegex(ValueError, "not compatible"):
-            FakeQuantizeConfig(
+            IntxFakeQuantizeConfig(
                 torch.int8, "per_channel", is_dynamic=True, range_learning=True
             )
 
@@ -1010,10 +1013,12 @@ class TestQAT(unittest.TestCase):
             256,
             688,
             bias=False,
-            activation_config=FakeQuantizeConfig(
+            activation_config=IntxFakeQuantizeConfig(
                 torch.int8, "per_token", is_symmetric=False
             ),
-            weight_config=FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size),
+            weight_config=IntxFakeQuantizeConfig(
+                TorchAODType.INT4, group_size=group_size
+            ),
         )
 
         def linear_forward_8da4w(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -1059,7 +1064,7 @@ class TestQAT(unittest.TestCase):
         Test that we can express int4 weight only (tinygemm) with `FakeQuantizedLinear`.
         """
         group_size = 128
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             dtype=torch.uint4,
             group_size=group_size,
             is_symmetric=False,
@@ -1172,7 +1177,9 @@ class TestQAT(unittest.TestCase):
         fq_embedding = FakeQuantizedEmbedding(
             num_embeddings,
             embedding_dim,
-            weight_config=FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size),
+            weight_config=IntxFakeQuantizeConfig(
+                TorchAODType.INT4, group_size=group_size
+            ),
         )
 
         def embedding_forward_4w(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -1258,7 +1265,7 @@ class TestQAT(unittest.TestCase):
         """
         Test that the following:
 
-            quantize_(model, intx_quantization_aware_training(...))
+            quantize_(model, QuantizationAwareTrainingConfig(...))
 
         can produce the same results as `ComposableQATQuantizer`.
         """
@@ -1283,19 +1290,19 @@ class TestQAT(unittest.TestCase):
         baseline_model = baseline_quantizer.prepare(baseline_model)
 
         # quantize_ API
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_token",
             is_symmetric=False,
         )
-        weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
         quantize_(
             m,
-            intx_quantization_aware_training(activation_config, weight_config),
+            QuantizationAwareTrainingConfig(activation_config, weight_config),
         )
         quantize_(
             m,
-            intx_quantization_aware_training(weight_config=weight_config),
+            QuantizationAwareTrainingConfig(weight_config=weight_config),
             filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding),
         )
 
@@ -1315,7 +1322,7 @@ class TestQAT(unittest.TestCase):
         Test that we throw exceptions with helpful error messages if `quantize_`
         runs into unexpected configurations.
         """
-        my_config = FakeQuantizeConfig(torch.int8, group_size=32)
+        my_config = IntxFakeQuantizeConfig(torch.int8, group_size=32)
         m = M3()
 
         # Embedding currently only supports weight-only quantization
@@ -1324,7 +1331,7 @@ class TestQAT(unittest.TestCase):
         ):
             quantize_(
                 m,
-                intx_quantization_aware_training(my_config, my_config),
+                QuantizationAwareTrainingConfig(my_config, my_config),
                 lambda m, _: isinstance(m, torch.nn.Embedding),
             )
 
@@ -1332,7 +1339,7 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not have QAT support"):
             quantize_(
                 m,
-                intx_quantization_aware_training(my_config, my_config),
+                QuantizationAwareTrainingConfig(my_config, my_config),
                 lambda m, _: isinstance(m, torch.nn.ReLU),
             )
 
@@ -1343,8 +1350,8 @@ class TestQAT(unittest.TestCase):
         """
         Test that the following:
 
-            quantize_(model, intx_quantization_aware_training(...))
-            quantize_(model, from_intx_quantization_aware_training(...))
+            quantize_(model, QuantizationAwareTrainingConfig(...))
+            quantize_(model, FromQuantizationAwareTrainingConfig(...))
             quantize_(model, int8_dynamic_activation_int4_weight())
 
         can produce the same results as `Int8DynActInt4WeightQATQuantizer` prepare + convert.
@@ -1363,15 +1370,15 @@ class TestQAT(unittest.TestCase):
         baseline_model = baseline_quantizer.prepare(baseline_model)
 
         # quantize_ prepare
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_token",
             is_symmetric=False,
         )
-        weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
         quantize_(
             m,
-            intx_quantization_aware_training(activation_config, weight_config),
+            QuantizationAwareTrainingConfig(activation_config, weight_config),
         )
 
         # Compare prepared values
@@ -1386,7 +1393,7 @@ class TestQAT(unittest.TestCase):
         baseline_model = baseline_quantizer.convert(baseline_model)
 
         # quantize_ convert
-        quantize_(m, from_intx_quantization_aware_training())
+        quantize_(m, FromQuantizationAwareTrainingConfig())
         quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size))
 
         # Compare converted values
@@ -1402,11 +1409,11 @@ class TestQAT(unittest.TestCase):
     )
     def test_fake_quantize_config_torch_intx(self):
         """
-        Test that `FakeQuantizeConfig` works with torch.intx.
+        Test that `IntxFakeQuantizeConfig` works with torch.intx.
         """
         group_size = 16
-        config1 = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
-        config2 = FakeQuantizeConfig(torch.int4, group_size=group_size)
+        config1 = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        config2 = IntxFakeQuantizeConfig(torch.int4, group_size=group_size)
         linear1 = FakeQuantizedLinear(32, 64, weight_config=config1)
         linear2 = FakeQuantizedLinear(32, 64, weight_config=config2)
         linear2.weight = linear1.weight
@@ -1424,7 +1431,7 @@ class TestQAT(unittest.TestCase):
         """
         Test that `repr(FakeQuantizer(config))` exposes useful config details.
         """
-        config = FakeQuantizeConfig(torch.int4, group_size=128)
+        config = IntxFakeQuantizeConfig(torch.int4, group_size=128)
         fake_quantizer = FakeQuantizer(config)
         fake_quantizer_repr = repr(fake_quantizer)
         self.assertTrue("dtype=torch.int4" in fake_quantizer_repr)
@@ -1440,13 +1447,13 @@ class TestQAT(unittest.TestCase):
         Test that QAT supports linear bias.
         """
         m = ModelWithLinearBias()
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             torch.int8, "per_token", is_symmetric=False
         )
-        weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=32)
+        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=32)
         quantize_(
             m,
-            intx_quantization_aware_training(activation_config, weight_config),
+            QuantizationAwareTrainingConfig(activation_config, weight_config),
         )
         example_inputs = m.example_inputs()
         m(*example_inputs)
@@ -1465,7 +1472,7 @@ class TestQAT(unittest.TestCase):
 
         torch.manual_seed(self.SEED)
         x = torch.randn(1, 235, 2048).to(dtype)
-        config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
         fake_quantizer = FakeQuantizer(config)
         fake_quantizer_out = fake_quantizer(x)
         baseline_out = per_token_dynamic_quant(x)
@@ -1518,7 +1525,7 @@ class TestQAT(unittest.TestCase):
     )
     def test_fake_quantize_config_eps(self):
         """
-        Test that users can set arbitrary eps value in `FakeQuantizeConfig`.
+        Test that users can set arbitrary eps value in `IntxFakeQuantizeConfig`.
         """
         eps = 0.00123
         x = torch.randn(2, 3).to(torch.float32)
@@ -1532,7 +1539,7 @@ class TestQAT(unittest.TestCase):
             eps=eps,
         )
         expected_out = _fake_quantize_per_token(x, scale, zp, -128, 127)
-        config = FakeQuantizeConfig(
+        config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_token",
             is_symmetric=False,
@@ -1598,7 +1605,7 @@ class TestQAT(unittest.TestCase):
         """
         Test that range learning requires `FakeQuantizer`s to be initialized correctly.
         """
-        config = FakeQuantizeConfig(
+        config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_channel",
             is_dynamic=False,
@@ -1636,7 +1643,7 @@ class TestQAT(unittest.TestCase):
         """
         Test end-to-end QAT flow with range learning.
         """
-        config = FakeQuantizeConfig(
+        config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_channel",
             is_dynamic=False,
@@ -1646,7 +1653,7 @@ class TestQAT(unittest.TestCase):
         )
         m = M()
         example_inputs = m.example_inputs()
-        quantize_(m, IntXQuantizationAwareTrainingConfig(weight_config=config))
+        quantize_(m, QuantizationAwareTrainingConfig(weight_config=config))
 
         # Not initialized, should fail
         for t in m._get_all_weight_qparams():

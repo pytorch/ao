@@ -13,7 +13,10 @@ from torchao.quantization.quant_primitives import TorchAODType
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 
-from .api import FakeQuantizeConfig
+from .fake_quantize_config import (
+    FakeQuantizeConfigBase,
+    IntxFakeQuantizeConfig,
+)
 from .fake_quantizer import FakeQuantizer
 from .utils import (
     _get_qmin_qmax,
@@ -29,7 +32,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
 
     Example usage::
 
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
             group_size=8,
             symmetric=True,
@@ -47,7 +50,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
         sparse: bool = False,
-        weight_config: Optional[FakeQuantizeConfig] = None,
+        weight_config: Optional[FakeQuantizeConfigBase] = None,
         *args,
         **kwargs,
     ) -> None:
@@ -105,7 +108,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
     def from_embedding(
         cls,
         mod: torch.nn.Embedding,
-        weight_config: Optional[FakeQuantizeConfig] = None,
+        weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
         new_embedding = FakeQuantizedEmbedding(
             mod.num_embeddings,
@@ -285,7 +288,7 @@ class Int4WeightOnlyQATEmbedding(FakeQuantizedEmbedding):
         *args,
         **kwargs,
     ):
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             dtype=TorchAODType.INT4,
             group_size=group_size,
             is_symmetric=True,
