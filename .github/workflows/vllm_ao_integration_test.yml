@@ -28,6 +28,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
