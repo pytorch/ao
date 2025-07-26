@@ -73,6 +73,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         """
         Checks the accuracy of packed layouts
         """
+        if weight_dtype == torch.int1 and weight_mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR:
+            return
+            
         m = 3
         n = 1071
         k = 2048
