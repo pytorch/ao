@@ -57,7 +57,6 @@ jobs:
   test:
     name: Test against vLLM main
     needs: find-vllm-docker-image
-    docker-image: ${{ needs.find-vllm-docker-image.outputs.image }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +71,7 @@ jobs:
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 60
+      docker-image: ${{ needs.find-vllm-docker-image.outputs.image }}
       runner: ${{ matrix.runs-on }}
       submodules: recursive
       script: |
