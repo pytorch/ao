@@ -15,12 +15,23 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
-  find-vllm-docker-image:
+  test:
     name: Find vLLM Docker image
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.find-vllm-docker-image.outputs.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sm89
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+          #- name: H100
+          #  runs-on: linux.aws.h100
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Checkout vLLM repo
         uses: actions/checkout@v4
         with:
@@ -52,35 +63,26 @@ jobs:
             fi
           done
 
-          echo "image=${DOCKER_IMAGE}" >> "${GITHUB_OUTPUT}"
+          echo "image=${DOCKER_IMAGE}" >> "${GITHUB_ENV}"
 
-  test:
-    name: Test against vLLM main
-    needs: find-vllm-docker-image
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: sm89
-            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
-          #- name: H100
-          #  runs-on: linux.aws.h100
-    permissions:
-      id-token: write
-      contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
-    with:
-      timeout: 60
-      docker-image: ${{ needs.find-vllm-docker-image.outputs.image }}
-      runner: ${{ matrix.runs-on }}
-      submodules: recursive
-      script: |
-        set -eux
+      - name: Setup CUDA GPU_FLAG for docker run
+        run: |
+          echo "GPU_FLAG=--gpus all -e NVIDIA_DRIVER_CAPABILITIES=all" >> "${GITHUB_ENV}"
 
-        # vLLM docker image is using CUDA 12.8 and python 3.12
-        uv pip install --pre fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu128
-        uv pip install -r dev-requirements.txt
-        # Build and install ao
-        uv pip install .
+      - name: Test against vLLM main
+        shell: bash
+        run: |
+          set -eux
 
-        pytest test/integration --verbose -s
+          container_name=$(docker run \
+            ${GPU_FLAG:-} \
+            --ipc=host \
+            --tty \
+            --detach \
+            --security-opt seccomp=unconfined \
+            --shm-size=4g \
+            -v "${GITHUB_WORKSPACE}:/tmp/workspace" \
+            -w /tmp/workspace \
+            "${DOCKER_IMAGE}"
+          )
+          docker exec -t "${container_name}" bash -c "bash .github/scripts/run_vllm_tests.sh" 
