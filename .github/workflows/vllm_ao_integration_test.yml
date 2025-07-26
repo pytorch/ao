@@ -19,7 +19,7 @@ jobs:
     name: Find vLLM Docker image
     runs-on: ubuntu-latest
     outputs:
-      vllm-docker-image: ${{ steps.find-vllm-docker-image.outputs.image }}
+      image: ${{ steps.find-vllm-docker-image.outputs.image }}
     steps:
       - name: Checkout vLLM repo
         uses: actions/checkout@v4
@@ -57,6 +57,7 @@ jobs:
   test:
     name: Test against vLLM main
     needs: find-vllm-docker-image
+    docker-image: ${{ needs.find-vllm-docker-image.outputs.image }}
     strategy:
       fail-fast: false
       matrix:
@@ -76,13 +77,10 @@ jobs:
       script: |
         set -eux
 
-        python --version
-        which pip
-
-        # TODO: vLLM docker image is using CUDA 12.8 and python 3.12
-        pip install --pre fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu128
-        pip install -r dev-requirements.txt
+        # vLLM docker image is using CUDA 12.8 and python 3.12
+        uv pip install --pre fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu128
+        uv pip install -r dev-requirements.txt
         # Build and install ao
-        pip install .
+        uv pip install .
 
         pytest test/integration --verbose -s
