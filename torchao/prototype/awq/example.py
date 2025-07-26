@@ -9,11 +9,21 @@ import time
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
-from torchao.dtypes import Int4XPULayout
-from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
-from torchao.quantization import int4_weight_only, quantize_
+from torchao.dtypes import QDQLayout
+from torchao.prototype.awq import (
+    AWQConfig,
+)
+from torchao.quantization import (
+    GemliteUIntXWeightOnlyConfig,
+    Int8DynamicActivationIntxWeightConfig,
+    IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
+    PerAxis,
+    quantize_,
+)
+from torchao.quantization.granularity import PerGroup
 
 
 # adapted from: https://github.com/mit-han-lab/llm-awq/blob/main/awq/entry.py#L255
@@ -111,6 +121,7 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
             "hellaswag",
             "gsm8k",
             "mmlu",
+            "bbh",
         ]
     results = {}
     if "PPL" in tasks:
@@ -180,6 +191,15 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
         print("MMLU avg acc", np.mean(k))
 
         results["mmlu"] = np.mean(k)
+    if "bbh" in tasks:
+        for task in [("leaderboard_bbh", 3)]:
+            tag, fewshot = task
+            results[tag] = lm_eval.evaluator.simple_evaluate(
+                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+            )["results"]
+            print(tag, results[tag])
+            results["bbh"] = results[tag]
+
     return results
 
 
@@ -187,13 +207,14 @@ def wikitext2_ppl(
     repo_id: str,
     quant: str,
     tasks: list[str],
-    calibration_size: int,
+    max_seq_length: int,
+    calibration_limit: int,
     validation_size: int,
     device: str,
     precision: torch.dtype,
-    sequence_length: int,
     compile: bool,
     model_save_path: str,
+    model_save_hf_hub_path: str,
 ):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
@@ -206,60 +227,234 @@ def wikitext2_ppl(
         .to(device)
     )
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
-    if quant.startswith("awq"):
-        quant_dtype = quant.split("-")[1]
-        group_size = int(quant.split("-")[2])
-        quant_dtype = getattr(torch, quant_dtype, torch.bfloat16)
-        print(f"running {quant_dtype} calibration")
-        t0 = time.time()
-        # insert observers to find average magnitude and calculate scales
-        insert_awq_observer_(
-            model,
-            validation_size,
-            sequence_length,
-            quant_dtype=quant_dtype,
-            group_size=group_size,
+    if quant.startswith("awq-8da4w"):
+        # applying int8 dynamic activation + int4 weight quant to linear
+        # and int8 weight only quant to `model.embed_tokens`
+        embedding_config = IntxWeightOnlyConfig(
+            weight_dtype=torch.int8,
+            granularity=PerAxis(0),
         )
-        calibration_data = get_calib_dataset(
-            tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length
-        )
-        for batch in calibration_data:
-            model(batch.to(device))
-            batch.to("cpu")
-        print(f"time for calibration: {time.time() - t0:.02f} seconds")
 
-        is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
-        use_hqq = "hqq" in quant
-        print(f"running {quant_dtype} quantization")
-        t0 = time.time()
-        awq_uintx_config = awq_uintx(
-            quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq
+        group_size = int(quant.split("-")[2])
+        quant_dtype = torch.int4
+        base_config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=quant_dtype,
+            weight_granularity=PerGroup(group_size),
+            weight_scale_dtype=torch.bfloat16,
+            layout=QDQLayout(),
         )
-        if "xpu" in device:
-            awq_uintx_config.layout = Int4XPULayout()
+        print(f"running {quant_dtype} prepare and calibrate")
+        t0 = time.time()
+        awq_config = AWQConfig(base_config, step="prepare")
+
+        quant_config = ModuleFqnToConfig(
+            {"_default": awq_config, "model.embed_tokens": embedding_config}
+        )
         quantize_(
             model,
-            awq_uintx_config,
-            is_observed_linear,
+            quant_config,
         )
-        print(f"time for quantization: {time.time() - t0:.02f} seconds")
+        from torchao._models._eval import TransformerEvalWrapper
+
+        TransformerEvalWrapper(
+            model=model.to(device),
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            device=device,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+        print(f"time for prepare and calibration: {time.time() - t0:.02f} seconds")
+
+        print(f"running {quant_dtype} convert")
+        t0 = time.time()
+        awq_config = AWQConfig(base_config, step="convert")
+        quant_config = ModuleFqnToConfig(
+            {"_default": awq_config, "model.embed_tokens": None}
+        )
+        quantize_(model, quant_config)
+        print(f"time for convert: {time.time() - t0:.02f} seconds")
+        print("model after awq:", model)
+
         if model_save_path is not None:
             print(f"Saving model to {model_save_path}")
             torch.save(model, model_save_path)
+
+        if model_save_hf_hub_path is not None:
+            print("pushing model to hub:", model_save_hf_hub_path)
+            awq_load_config = AWQConfig(base_config, step="load")
+            quant_config = ModuleFqnToConfig(
+                {"_default": awq_load_config, "model.embed_tokens": None}
+            )
+            model.quantization_config = TorchAoConfig(quant_config)
+            model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
+            tokenizer.push_to_hub(model_save_hf_hub_path)
+
+    elif quant.startswith("8da4w"):
+        group_size = int(quant.split("-")[1])
+        quant_dtype = torch.int4
+        base_config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=quant_dtype,
+            weight_granularity=PerGroup(group_size),
+            weight_scale_dtype=torch.bfloat16,
+            layout=QDQLayout(),
+        )
+
+        embedding_config = IntxWeightOnlyConfig(
+            weight_dtype=torch.int8,
+            granularity=PerAxis(0),
+        )
+
+        quant_config = ModuleFqnToConfig(
+            {"_default": base_config, "model.embed_tokens": embedding_config}
+        )
+        quantize_(model, quant_config)
+        if model_save_hf_hub_path is not None:
+            print("pushing model to hub:", model_save_hf_hub_path)
+            model.quantization_config = TorchAoConfig(quant_config)
+            model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
+            tokenizer.push_to_hub(model_save_hf_hub_path)
+
+    elif quant.startswith("awq-int4wo"):
+        group_size = int(quant.split("-")[2])
+        print(f"running {quant} quantization with group size {group_size}")
+        from torchao.quantization import FbgemmConfig
+
+        # use_hqq = True
+        # base_config = Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
+        base_config = FbgemmConfig(
+            input_dtype=torch.bfloat16,
+            weight_dtype=torch.int4,
+            output_dtype=torch.bfloat16,
+            block_size=[1, group_size],
+            preshuffle=False,
+        )
+        print(f"running {quant} prepare and calibrate")
+        t0 = time.time()
+        awq_config = AWQConfig(base_config, step="prepare")
+
+        quant_config = awq_config
+        quantize_(
+            model,
+            quant_config,
+        )
+        from torchao._models._eval import TransformerEvalWrapper
+
+        TransformerEvalWrapper(
+            model=model.to(device),
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            device=device,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+
+        print(f"time for prepare and calibration: {time.time() - t0:.02f} seconds")
+        print(f"running {quant} convert")
+        t0 = time.time()
+        awq_config = AWQConfig(base_config, step="convert")
+        quant_config = awq_config
+        quantize_(model, quant_config)
+        print(f"time for convert: {time.time() - t0:.02f} seconds")
+        print("model after awq:", model)
+
+        if model_save_path is not None:
+            print(f"Saving model to {model_save_path}")
+            torch.save(model, model_save_path)
+
+        if model_save_hf_hub_path is not None:
+            print("pushing model to hub:", model_save_hf_hub_path)
+            quant_config = AWQConfig(base_config, step="load")
+            model.quantization_config = TorchAoConfig(quant_config)
+            model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
+            tokenizer.push_to_hub(model_save_hf_hub_path)
     elif quant.startswith("int4wo"):
         group_size = int(quant.split("-")[1])
-        use_hqq = "hqq" in quant
         print(f"running {quant} quantization with group size {group_size}")
-        int4_weight_only_config = int4_weight_only(
-            group_size=group_size, use_hqq=use_hqq
+        # TODO: enable after refactor: https://github.com/pytorch/ao/pull/2474
+        # use_hqq = "hqq" in quant
+        # base_config = Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
+        int4_weight_only_config = FbgemmConfig(
+            input_dtype=torch.bfloat16,
+            weight_dtype=torch.int4,
+            output_dtype=torch.bfloat16,
+            block_size=[1, group_size],
+            preshuffle=False,
         )
-        if "xpu" in device:
-            int4_weight_only_config.layout = Int4XPULayout()
+        # TODO: enable this again when it's supported
+        # if "xpu" in device:
+        #     int4_weight_only_config.layout = Int4XPULayout()
         quantize_(model, int4_weight_only_config)
+
+    elif quant.startswith("awq-gemlite"):
+        group_size = int(quant.split("-")[2])
+        print(f"running {quant} quantization with group size {group_size}")
+        base_config = GemliteUIntXWeightOnlyConfig(group_size=group_size)
+
+        print(f"running {quant} prepare and calibrate")
+        t0 = time.time()
+        awq_config = AWQConfig(base_config, step="prepare")
+
+        quant_config = awq_config
+        quantize_(
+            model,
+            quant_config,
+        )
+        from torchao._models._eval import TransformerEvalWrapper
+
+        TransformerEvalWrapper(
+            model=model.to(device),
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            device=device,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+
+        print(f"time for prepare and calibration: {time.time() - t0:.02f} seconds")
+        print(f"running {quant} convert")
+        t0 = time.time()
+        awq_config = AWQConfig(base_config, step="convert")
+        quant_config = awq_config
+        quantize_(model, quant_config)
+        print(f"time for convert: {time.time() - t0:.02f} seconds")
+        print("model after awq:", model)
+
+        if model_save_path is not None:
+            print(f"Saving model to {model_save_path}")
+            torch.save(model, model_save_path)
+
+        if model_save_hf_hub_path is not None:
+            print("pushing model to hub:", model_save_hf_hub_path)
+            quant_config = AWQConfig(base_config, step="load")
+            model.quantization_config = TorchAoConfig(quant_config)
+            model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
+            tokenizer.push_to_hub(model_save_hf_hub_path)
+    elif quant.startswith("gemlite"):
+        group_size = int(quant.split("-")[1])
+        print(f"running {quant} quantization with group size {group_size}")
+        config = GemliteUIntXWeightOnlyConfig(group_size=group_size)
+
+        print(f"running {quant} prepare and calibrate")
+        t0 = time.time()
+        quantize_(model, config)
+        if model_save_path is not None:
+            print(f"Saving model to {model_save_path}")
+            torch.save(model, model_save_path)
+
+        if model_save_hf_hub_path is not None:
+            print("pushing model to hub:", model_save_hf_hub_path)
+            quant_config = AWQConfig(config, step="load")
+            model.quantization_config = TorchAoConfig(quant_config)
+            model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
+            tokenizer.push_to_hub(model_save_hf_hub_path)
     if compile:
         model = torch.compile(model)
 
-    return benchmark(model, tokenizer, sequence_length, tasks=tasks, device=device)
+    return benchmark(model, tokenizer, max_seq_length, tasks=tasks, device=device)
 
 
 if __name__ == "__main__":
@@ -268,20 +463,21 @@ if __name__ == "__main__":
     )
 
     # Optional arguments with default values
-    parser.add_argument("repo", type=str, help="Repository ID of the model.")
+    parser.add_argument("--repo", type=str, help="Repository ID of the model.")
     parser.add_argument(
-        "quant",
+        "--quant",
         type=str,
-        help="Quantization method. Options are either awq-uint<x>-<group_size> for x =[1..8], int4wo-<group_size>, or int4wo-<group_size>-hqq.",
+        help="Quantization method. Options are either awq-uint<x>-<group_size> for x =[1..8], awq-8da4w-<group_size>, int4wo-<group_size>, or int4wo-<group_size>-hqq.",
     )
     parser.add_argument(
         "--tasks",
-        type=list[str],
+        nargs="+",
+        type=str,
         help="Task to benchmark model on. Either PPL or QA",
         default=["PPL"],
     )
     parser.add_argument(
-        "--calibration_samples",
+        "--calibration_limit",
         type=int,
         default=10,
         help="Number of samples to use for calibration. Default is 10.",
@@ -302,10 +498,10 @@ if __name__ == "__main__":
         help="Precision type. Default is 'bfloat16'.",
     )
     parser.add_argument(
-        "--seq_len",
+        "--max_seq_len",
         type=int,
-        default=512,
-        help="Length of examples to calibrate and evaluate model on. Default is 512",
+        default=2048,
+        help="Maximum sequence length of examples to calibrate and evaluate model on. Default is 2048",
     )
     parser.add_argument(
         "--compile",
@@ -318,6 +514,12 @@ if __name__ == "__main__":
         default=None,
         help="Path to store the scale values.",
     )
+    parser.add_argument(
+        "--model_save_hf_hub_path",
+        type=str,
+        default=None,
+        help="Huggingface hub path to store the quantized model and tokenizer.",
+    )
 
     args = parser.parse_args()
 
@@ -327,13 +529,14 @@ if __name__ == "__main__":
         args.repo,
         args.quant,
         args.tasks,
-        args.calibration_samples,
+        args.max_seq_length,
+        args.calibration_limit,
         args.validation_size,
         args.device,
         args.precision,
-        args.seq_len,
         args.compile,
         args.model_save_path,
+        args.model_save_hf_hub_path,
     )
 
     print(f"{args.quant} Results: {ppl}")
