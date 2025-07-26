@@ -25,10 +25,11 @@ import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.testing._internal import common_utils
 
-from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl, preprocess_scale
+from torchao.dtypes.floatx.float8_layout import preprocess_scale
 from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8Tensor,
     float8_dynamic_activation_float8_weight,
     float8_weight_only,
     quantize_,
@@ -49,7 +50,6 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.utils import (
     is_sm_at_least_89,
-    is_sm_at_least_90,
     is_sm_version,
 )
 
@@ -236,12 +236,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             new_layer = getattr(new_model, layer_name)
 
             # Compare weights
-            if mode == "weight-only":
-                original_weight = original_layer.weight.tensor_impl.float8_data.to(
-                    torch.float32
-                )
-                new_weight = new_layer.weight.tensor_impl.float8_data.to(torch.float32)
-            else:
+            if mode == "static":
+                # TODO: we haven't migrated static quant to the new API
                 original_weight = original_layer.weight.original_weight_tensor.tensor_impl.float8_data.to(
                     torch.float32
                 )
@@ -250,6 +246,13 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                         torch.float32
                     )
                 )
+            elif mode == "dynamic":
+                original_weight = original_layer.weight.qdata.to(torch.float32)
+                new_weight = new_layer.weight.qdata.to(torch.float32)
+            else:
+                assert mode == "weight-only"
+                original_weight = original_layer.weight.qdata.to(torch.float32)
+                new_weight = new_layer.weight.qdata.to(torch.float32)
 
             assert torch.allclose(original_weight, new_weight), (
                 f"Weights do not match for {layer_name}"
@@ -324,19 +327,14 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         quant_weight = test_linear.weight
 
-        self.assertTrue(hasattr(quant_weight, "original_weight_tensor"))
-        weight_impl = quant_weight.original_weight_tensor.tensor_impl
-
-        self.assertTrue(hasattr(weight_impl, "float8_data"))
-        self.assertTrue(hasattr(weight_impl, "scale"))
-        self.assertFalse(weight_impl.transposed)
+        self.assertTrue(isinstance(quant_weight, Float8Tensor))
 
         # Verify scale shape for row-wise quantization
         expected_scale_shape = (out_features, 1)
-        actual_scale_shape = weight_impl.scale.shape
+        actual_scale_shape = quant_weight.scale.shape
         self.assertEqual(actual_scale_shape, expected_scale_shape)
 
-        self.assertEqual(weight_impl.float8_data.shape, (out_features, in_features))
+        self.assertEqual(quant_weight.qdata.shape, (out_features, in_features))
 
         input_tensor = torch.randn(*input_shape, device=device, dtype=dtype)
 
@@ -400,7 +398,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
-    def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
+    def test__dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
 
         device = "cuda"
@@ -430,7 +428,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
-    def test_dequantize_affine_float8_scale_broadcasting(self):
+    def test__dequantize_affine_float8_scale_broadcasting(self):
         """Test that scale broadcasting works correctly for block-wise quantization"""
         device = "cuda"
         # Create input tensor with known block structure
@@ -474,24 +472,24 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             model, Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         )
 
-        weight_impl = model.weight.original_weight_tensor.tensor_impl
+        weight = model.weight
 
         # Test dimension 0 slicing (rows)
-        sliced_0 = weight_impl[10:20]
+        sliced_0 = weight[10:20]
         self.assertEqual(sliced_0.shape, (10, 64))
 
         # Test dimension 1 slicing (columns)
-        sliced_1 = weight_impl[:, 20:40]
+        sliced_1 = weight[:, 20:40]
         self.assertEqual(sliced_1.shape, (32, 20))
 
         # Test combined slicing
-        sliced_both = weight_impl[5:15, 10:30]
+        sliced_both = weight[5:15, 10:30]
         self.assertEqual(sliced_both.shape, (10, 20))
 
         # Verify the sliced tensors are still Float8 tensors
-        self.assertTrue(isinstance(sliced_0, Float8AQTTensorImpl))
-        self.assertTrue(isinstance(sliced_1, Float8AQTTensorImpl))
-        self.assertTrue(isinstance(sliced_both, Float8AQTTensorImpl))
+        self.assertTrue(isinstance(sliced_0, Float8Tensor))
+        self.assertTrue(isinstance(sliced_1, Float8Tensor))
+        self.assertTrue(isinstance(sliced_both, Float8Tensor))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
@@ -509,24 +507,23 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         )
 
         original_weight = model.weight
-        original_impl = original_weight.original_weight_tensor.tensor_impl
-        original_scale = original_impl.scale
+        original_scale = original_weight.scale
 
         # Test slicing
         sliced_weight = original_weight[10:20, 20:40]
-        sliced_impl = sliced_weight.original_weight_tensor.tensor_impl
+        sliced_scale = sliced_weight.scale
 
         # For per-tensor quantization, scale should be identical
-        self.assertTrue(torch.equal(original_scale, sliced_impl.scale))
-        self.assertEqual(sliced_impl.scale.numel(), 1)
+        self.assertTrue(torch.equal(original_scale, sliced_scale))
+        self.assertEqual(sliced_scale.numel(), 1)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     @unittest.skipIf(
-        not is_sm_at_least_90(),
-        "Per-row quantization requires compute capability >= 9.0",
+        not is_sm_at_least_89(),
+        "Per-row quantization requires compute capability >= 8.9",
     )
     def test_float8_tensor_slicing_per_row(self):
         """Test slicing with per-row quantization (scale should be sliced appropriately)"""
@@ -540,27 +537,26 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         )
 
         original_weight = model.weight  # Shape: (32, 64)
-        original_impl = original_weight.original_weight_tensor.tensor_impl
-        original_scale = original_impl.scale  # Shape: (32, 1)
+        original_scale = model.weight.scale  # Shape: (32, 1)
 
         # Test row slicing (dimension 0)
         sliced_rows = original_weight[10:20]  # Shape: (10, 64)
-        sliced_impl = sliced_rows.original_weight_tensor.tensor_impl
+        sliced_scale = sliced_rows.scale
 
         # Scale should be sliced to match the rows
         expected_scale_shape = (10, 1)
-        self.assertEqual(sliced_impl.scale.shape, expected_scale_shape)
+        self.assertEqual(sliced_scale.shape, expected_scale_shape)
 
         # Verify the scale values are correct (should be subset of original)
-        self.assertTrue(torch.equal(sliced_impl.scale, original_scale[10:20]))
+        self.assertTrue(torch.equal(sliced_scale, original_scale[10:20]))
 
         # Test column slicing (dimension 1) - scale should not change for per-row
         sliced_cols = original_weight[:, 20:40]  # Shape: (32, 20)
-        sliced_cols_impl = sliced_cols.original_weight_tensor.tensor_impl
+        sliced_cols_scale = sliced_cols.scale
 
         # Scale shape should remain the same since we're not changing rows
-        self.assertEqual(sliced_cols_impl.scale.shape, (32, 1))
-        self.assertTrue(torch.equal(sliced_cols_impl.scale, original_scale))
+        self.assertEqual(sliced_cols_scale.shape, (32, 1))
+        self.assertTrue(torch.equal(sliced_cols_scale, original_scale))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
@@ -595,11 +591,11 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(
         is_sm_version(8, 9),
         "TODO: AssertionError: tensor(-2.1562, device='cuda:0', dtype=torch.bfloat16) not greater than 15",
     )
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_float8_tensor_slicing_functional_correctness(self, granularity):
         """Test that sliced tensors produce correct results in computations"""
         device = "cuda"
@@ -622,40 +618,41 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         quant_weight_slice = quant_model.weight[0:16, 0:32]
 
         # Verify that the sliced weights maintain Float8 properties
-        self.assertTrue(hasattr(quant_weight_slice, "original_weight_tensor"))
-        sliced_impl = quant_weight_slice.original_weight_tensor.tensor_impl
-        self.assertTrue(isinstance(sliced_impl, Float8AQTTensorImpl))
+        self.assertTrue(isinstance(quant_weight_slice, Float8Tensor))
 
         # Verify sliced weight shapes
-        self.assertEqual(sliced_impl.float8_data.shape, (16, 32))
+        self.assertEqual(quant_weight_slice.qdata.shape, (16, 32))
 
         # Get original quantized weight implementation for scale comparison
-        original_quant_impl = quant_model.weight.original_weight_tensor.tensor_impl
+        original_quant_impl = quant_model.weight
 
         # Verify scale properties based on granularity
         if isinstance(granularity, PerTensor):
             # Per-tensor: scale should be identical to original (scalar)
-            self.assertEqual(sliced_impl.scale.numel(), 1)
-            self.assertTrue(torch.equal(sliced_impl.scale, original_quant_impl.scale))
+            self.assertEqual(quant_weight_slice.scale.numel(), 1)
+            self.assertTrue(
+                torch.equal(
+                    quant_weight_slice.scale,
+                    original_quant_impl.scale,
+                )
+            )
         else:  # PerRow
             # Per-row: scale should be sliced to match the selected rows (0:16)
             expected_scale_shape = (16, 1)
-            self.assertEqual(sliced_impl.scale.shape, expected_scale_shape)
+            self.assertEqual(quant_weight_slice.scale.shape, expected_scale_shape)
             # Verify the scale values are the correct slice from the original
             self.assertTrue(
-                torch.equal(sliced_impl.scale, original_quant_impl.scale[0:16])
+                torch.equal(
+                    quant_weight_slice.scale,
+                    original_quant_impl.scale[0:16],
+                )
             )
 
         # Verify that sliced quantized data matches the correct slice from original
-        original_float8_data_slice = original_quant_impl.float8_data[0:16, 0:32]
+        original_float8_data_slice = quant_model.weight.qdata[0:16, 0:32]
         self.assertTrue(
-            torch.equal(sliced_impl.float8_data, original_float8_data_slice)
+            torch.equal(quant_weight_slice.qdata, original_float8_data_slice)
         )
-
-        # Verify that sliced weights can be converted back to float with correct values
-        sliced_float_weight = quant_weight_slice.to(dtype)
-        self.assertEqual(sliced_float_weight.shape, (16, 32))
-        self.assertEqual(sliced_float_weight.dtype, dtype)
 
         input_slice = input_tensor[:, 0:32]  # (8, 32) to match sliced weight
 
