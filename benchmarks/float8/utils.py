@@ -11,6 +11,7 @@ from typing import Optional
 
 import torch.utils.benchmark as benchmark
 from torch.profiler import ProfilerActivity, profile
+from triton.testing import do_bench
 
 
 def profiler_output_to_filtered_time_by_kernel_name(
@@ -428,3 +429,12 @@ def do_benchmarks(
     tops_sec = float(tops) / time_sec
     pct_top_peak = tops_sec / peak_tops
     return time_sec, tops_sec, pct_top_peak
+
+
+def benchmark_microseconds(f, *args, warmup=25, rep=100, **kwargs):
+    return (
+        do_bench(
+            lambda: f(*args, **kwargs), warmup=warmup, rep=rep, return_mode="median"
+        )
+        * 1e3
+    )
