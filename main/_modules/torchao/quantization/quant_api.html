@@ -426,8 +426,8 @@
               
   <h1>Source code for torchao.quantization.quant_api</h1><div class="highlight"><pre>
 <span></span><span class="c1"># Copyright (c) Meta Platforms, Inc. and affiliates.</span>
+<span class="c1"># Copyright 2024-2025 Arm Limited and affiliates.</span>
 <span class="c1"># All rights reserved.</span>
-
 <span class="c1"># This source code is licensed under the license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
@@ -1289,8 +1289,9 @@
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+            <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC_NO_CLIPPING_ERR</span><span class="p">,</span>
         <span class="p">],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
@@ -1344,6 +1345,12 @@
     <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">weight_dtype</span><span class="p">]</span>
 
     <span class="c1"># We quantize with QDQLayout, and then construct the packed weight tensor later</span>
+    <span class="c1"># set preserve_zero based on weight mapping type</span>
+    <span class="n">preserve_zero</span> <span class="o">=</span> <span class="n">weight_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
+        <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+        <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC_NO_CLIPPING_ERR</span><span class="p">,</span>
+    <span class="p">]</span>
+
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
         <span class="n">input_float</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
@@ -1353,7 +1360,7 @@
         <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
         <span class="n">scale_dtype</span><span class="o">=</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
         <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
-        <span class="n">preserve_zero</span><span class="o">=</span><span class="p">(</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">),</span>
+        <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
         <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
         <span class="n">_layout</span><span class="o">=</span><span class="n">QDQLayout</span><span class="p">(),</span>
     <span class="p">)</span>
