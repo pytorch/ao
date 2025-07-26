@@ -78,7 +78,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             and weight_mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
         ):
             return
-            
+
         m = 3
         n = 1071
         k = 2048
