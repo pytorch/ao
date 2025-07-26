@@ -584,15 +584,46 @@ class TorchAOBaseTensor(torch.Tensor):
     _get_to_kwargs = _get_to_kwargs
 
     def __tensor_flatten__(self):
-        raise NotImplementedError("Subclasses must implement __tensor_flatten__")
+        if hasattr(self, "tensor_data_names") and hasattr(
+            self, "tensor_attribute_names"
+        ):
+            return self.tensor_data_names, [
+                getattr(self, attr) for attr in self.tensor_attribute_names
+            ]
+        raise NotImplementedError(
+            "Subclasses must implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance"
+        )
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        raise NotImplementedError("Subclasses must implement __tensor_unflatten__")
+        tensors = [tensor_data_dict[name] for name in cls.tensor_data_names]
+        return cls(*tensors, *tensor_attributes)
+
+    def _apply_fn_to_data(self, fn):
+        tensors = [fn(getattr(self, attr)) for attr in self.tensor_data_names]
+        tensor_attributes = [
+            getattr(self, attr) for attr in self.tensor_attribute_names
+        ]
+        return self.__class__(
+            *tensors,
+            *tensor_attributes,
+        )
 
     def __repr__(self):
+        if hasattr(self, "tensor_data_names") and hasattr(
+            self, "tensor_attribute_names"
+        ):
+            repr_str = ""
+            repr_str += f"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}"
+            for tensor_data_name in self.tensor_data_names[1:]:
+                repr_str += f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+            for tensor_attribute_name in self.tensor_attribute_names:
+                repr_str += (
+                    f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
+                )
+            return f"{self.__class__.__name__}({repr_str})"
         raise NotImplementedError("Subclasses must implement __repr__")
 
     def get_layout(self):
