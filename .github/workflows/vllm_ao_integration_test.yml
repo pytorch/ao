@@ -47,7 +47,7 @@ jobs:
             DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:${HEAD_SHA}"
 
             # No Docker image available yet because the commit is too recent
-            if ! docker manifest inspect "${DOCKER_IMAGE}"; then
+            if docker manifest inspect "${DOCKER_IMAGE}"; then
               break
             fi
           done
