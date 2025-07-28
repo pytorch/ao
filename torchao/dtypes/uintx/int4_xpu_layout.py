@@ -381,14 +381,6 @@ class Int4XPUAQTTensorImpl(Int4AQTTensorImpl):
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
-        if self.device.type != "xpu":
-            self.packed_weight = self.packed_weight.to(0)
-            if self.scale_and_zero is not None:
-                self.scale_and_zero = self.scale_and_zero.to(0)
-            else:
-                self.scale = self.scale.to(0)
-                self.zero = self.scale.to(0)
-        
         if self.scale_and_zero is not None:
             scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
         else:
@@ -401,7 +393,7 @@ class Int4XPUAQTTensorImpl(Int4AQTTensorImpl):
         eye_shape = original_shape[1]
         groupsize = int(original_shape[1] / scale.shape[1])
         block_size = (1, groupsize)
-        device = self.device if self.device.type == "xpu" else torch.device(0)
+        device = self.device
         original_dtype = torch.bfloat16
         target_dtype = torch.int32
         quant_min = 0

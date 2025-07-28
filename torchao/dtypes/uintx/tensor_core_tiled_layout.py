@@ -467,16 +467,6 @@ class TensorCoreTiledAQTTensorImpl(Int4AQTTensorImpl):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
-        device = self.device
-        if self.device.type != "cuda":
-            device = torch.device(0)
-            self.packed_weight = self.packed_weight.to(0)
-            if self.scale_and_zero is not None:
-                self.scale_and_zero = self.scale_and_zero.to(0)
-            else:
-                self.scale = self.scale.to(0)
-                self.zero = self.scale.to(0)
-
         def dequant_4d(self):
             cur_shape = self.shape
             scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
@@ -489,7 +479,7 @@ class TensorCoreTiledAQTTensorImpl(Int4AQTTensorImpl):
             original_dtype = torch.bfloat16
             assert len(block_size) == 2 and block_size[0] == 1
             dequantized = torch.ops.aten._weight_int4pack_mm(
-                torch.eye(eye_shape, device=device, dtype=original_dtype),
+                torch.eye(eye_shape, device=self.device, dtype=original_dtype),
                 self.packed_weight,
                 groupsize,
                 self.scale_and_zero,
