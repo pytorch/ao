@@ -14,17 +14,14 @@ import torch.nn.functional as F
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     MXGemmKernelChoice,
-    MXInferenceLinearConfig,
     MXLinearConfig,
     MXLinearRecipeName,
 )
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
-    SUPPORTED_ELEM_DTYPES,
 )
 from torchao.prototype.mx_formats.mx_linear import (
-    MXInferenceLinear,
     MXLinear,
 )
 from torchao.prototype.mx_formats.mx_subclass import (
@@ -313,65 +310,11 @@ def test_linear_compile(hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice):
     torch.testing.assert_close(x_g_ref, x_g, atol=0.02, rtol=0.02)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
-def test_inference_linear(elem_dtype, bias, input_shape):
-    """
-    Smoke test for inference linear module with mx weight
-    """
-    m = nn.Sequential(nn.Linear(4, 8, bias=bias, dtype=torch.bfloat16))
-    m = m.cuda()
-    m_mx = copy.deepcopy(m)
-    config = MXInferenceLinearConfig(block_size=4, elem_dtype=elem_dtype)
-    quantize_(m_mx, config=config)
-
-    x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
-    y_ref = m(x)
-    y_mx = m_mx(x)
-    sqnr = compute_error(y_ref, y_mx)
-    if elem_dtype is torch.float8_e4m3fn:
-        assert sqnr >= 20.0
-    else:
-        assert sqnr >= 11.0
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
-)
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-def test_inference_compile_simple(elem_dtype):
-    """
-    Smoke test for inference compile
-    """
-    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not is_sm_at_least_89():
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-    m = nn.Sequential(nn.Linear(4, 8, bias=False, dtype=torch.bfloat16))
-    m = m.cuda()
-    m_mx = copy.deepcopy(m)
-    config = MXInferenceLinearConfig(block_size=4, elem_dtype=elem_dtype)
-    quantize_(m_mx, config=config)
-    m_mx = torch.compile(m_mx, fullgraph="true")
-
-    x = torch.randn(2, 4, device="cuda", dtype=torch.bfloat16)
-    y_ref = m(x)
-    y_mx = m_mx(x)
-    sqnr = compute_error(y_ref, y_mx)
-    if elem_dtype is torch.float8_e4m3fn:
-        assert sqnr >= 20.0
-    else:
-        assert sqnr >= 11.5
-
-
 def test_filter_fn():
     m1 = nn.Sequential(
         nn.Linear(32, 32),
         nn.Linear(32, 32),
     )
-    m2 = copy.deepcopy(m1)
     filter_fn = lambda mod, fqn: isinstance(mod, torch.nn.Linear) and fqn != "1"  # noqa: E731
 
     config = MXLinearConfig(block_size=32)
@@ -379,24 +322,10 @@ def test_filter_fn():
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
-    config2 = MXInferenceLinearConfig(block_size=32)
-    quantize_(m2, config=config2, filter_fn=filter_fn)  # noqa: E501
-    assert type(m2[0]) == MXInferenceLinear
-    assert type(m2[1]) == torch.nn.Linear
-
 
 def test_training_print_str():
     m = nn.Sequential(nn.Linear(32, 32))
     config = MXLinearConfig()
-    quantize_(m, config=config)
-    s = str(m)
-    assert "bl_sz=32" in s
-    assert "kernel=emulated" in s
-
-
-def test_inference_print_str():
-    m = nn.Sequential(nn.Linear(32, 32))
-    config = MXInferenceLinearConfig()
     quantize_(m, config=config)
     s = str(m)
     assert "bl_sz=32" in s
