@@ -120,9 +120,9 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
         result = run_inference(config)
 
         if result is not None:
-            # Create benchmark result in OSS format
+            ## Create benchmark result in OSS format
 
-            ## Compile mode results
+            # Compile mode speedup
             compile_speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
@@ -133,6 +133,8 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 torch_compile_mode=config.torch_compile_mode,
             )
             results.append(compile_speedup_result)
+
+            # Compile mode baseline
             compile_baseline_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
@@ -146,6 +148,8 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 },
             )
             results.append(compile_baseline_time_result)
+
+            # Compile mode quantized
             compile_quantize_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
@@ -160,7 +164,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             )
             results.append(compile_quantize_time_result)
 
-            ## Eager mode results
+            # Eager mode speedup
             eager_speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
@@ -171,6 +175,8 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 torch_compile_mode=config.torch_compile_mode,
             )
             results.append(eager_speedup_result)
+
+            # Eager mode baseline
             eager_baseline_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
@@ -184,6 +190,8 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                 },
             )
             results.append(eager_baseline_time_result)
+
+            # Eager mode quantized
             eager_quantize_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
