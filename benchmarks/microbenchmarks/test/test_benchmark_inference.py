@@ -21,7 +21,6 @@ class TestBenchmarkInference(unittest.TestCase):
             sparsity="semi-sparse",
             params={
                 "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },
@@ -64,7 +63,6 @@ class TestBenchmarkInference(unittest.TestCase):
             sparsity="semi-sparse",
             params={
                 "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },
@@ -92,7 +90,6 @@ class TestBenchmarkInference(unittest.TestCase):
             sparsity="block",
             params={
                 "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },

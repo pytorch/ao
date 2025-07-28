@@ -73,18 +73,13 @@ class BenchmarkConfig:
         self.high_precision_dtype = self._parse_precision(
             params.get("high_precision_dtype", "torch.bfloat16")
         )
-        self.use_torch_compile = bool(params.get("use_torch_compile", False))
-        self.torch_compile_mode = (
-            params.get("torch_compile_mode", "default")
-            if self.use_torch_compile
-            else None
-        )
+        self.torch_compile_mode = params.get("torch_compile_mode", "default")
         self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
         self.output_dir = f"{output_dir}/{self.benchmark_mode}"
         self.name = params.get(
             "name",
-            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
+            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile'}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
         self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
@@ -108,7 +103,6 @@ class BenchmarkConfig:
             "k": self.k,
             "n": self.n,
             "high_precision_dtype": self.high_precision_dtype,
-            "use_torch_compile": self.use_torch_compile,
             "torch_compile_mode": self.torch_compile_mode,
             "device": self.device,
             "model_type": self.model_type,
