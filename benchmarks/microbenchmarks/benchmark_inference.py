@@ -81,8 +81,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
     The function first checks if a baseline for the given configuration
     already exists in the internal cache.  If not, it measures the baseline
     inference time and stores the result.  When the baseline is cached,
-    the function reuses the stored model and input data to
-    benchmark quantized variants, avoiding redundant baseline measurements.
+    the function reuses the cached baselines to calculate speedup metrics.
 
     Args:
         config (BenchmarkConfig): Benchmark configuration.
