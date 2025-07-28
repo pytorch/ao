@@ -55,7 +55,7 @@ def run_around_tests():
     "ROCm float4 gemm require gfx950"
 )  # TODO(future): deploy gfx950 in ROCM CI
 @pytest.mark.skipif(not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required")
-def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
+def test_inference_workflow(elem_dtype, bias: bool, compile: bool):
     """
     Smoke test for inference compile
     """
@@ -120,7 +120,7 @@ def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
 )
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
-def test_inference_subclass_nvfp4(
+def test_inference_workflow_nvfp4(
     bias: bool,
     compile: bool,
     mm_config: NVFP4MMConfig,
