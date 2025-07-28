@@ -45,24 +45,8 @@ quantize_(m, config)
 
 ## MX inference
 
-Note: currently only weight-only quantization is supported.
+Coming soon!
 
-```python
-import torch
-from torchao.quantization import quantize_
-from torchao.prototype.mx_formats import MXInferenceLinearConfig, MXGemmKernelChoice
-
-m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
-config = MXInferenceLinearConfig(
-    elem_dtype=torch.float8_e4m3fn,
-    block_size=32,
-    gemm_kernel_choice=gemm_kernel_choice,
-)
-quantize_(m, config=config)
-
-# do inference (not shown)
-```
 ## MXTensor
 
 This is casts between high precision and MX formats implemented in native PyTorch. Currently
