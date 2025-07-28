@@ -170,7 +170,7 @@ def get_gemm_times(
         elif float8_recipe_name in ("rowwise", "rowwise_with_gw_hp"):
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
-        elif mx_recipe_name == "mxfp8_cublas":
+        elif mx_recipe_name in ("mxfp8_cublas", "mxfp8_cublas_rceil"):
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         else:

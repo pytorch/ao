@@ -14,6 +14,7 @@ from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     MXLinearConfig,
     MXLinearRecipeName,
+    ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
@@ -78,7 +79,18 @@ elem_dtypes = (
         MXFP8Dim1CastKernelChoice.CUDA,
     ],
 )
-def test_linear_eager_vs_hp(elem_dtype, bias, input_shape, mxfp8_cast_kernel_choice):
+@pytest.mark.parametrize(
+    "scale_calculation_mode",
+    [
+        ScaleCalculationMode.FLOOR,
+        ScaleCalculationMode.CEIL,
+        ScaleCalculationMode.EVEN,
+        ScaleCalculationMode.RCEIL,
+    ],
+)
+def test_linear_eager_vs_hp(
+    elem_dtype, bias, input_shape, mxfp8_cast_kernel_choice, scale_calculation_mode
+):
     """
     Smoke test for training linear module with mx weight, compares the following:
     * baseline: float32
@@ -94,6 +106,16 @@ def test_linear_eager_vs_hp(elem_dtype, bias, input_shape, mxfp8_cast_kernel_cho
         elif not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
+    if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        if scale_calculation_mode != ScaleCalculationMode.FLOOR:
+            pytest.skip("unsupported configuration")
+    elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip("unsupported configuration")
+
     # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
     grad_shape[-1] = 256
@@ -108,6 +130,7 @@ def test_linear_eager_vs_hp(elem_dtype, bias, input_shape, mxfp8_cast_kernel_cho
         elem_dtype_weight_override=elem_dtype[1],
         elem_dtype_grad_output_override=elem_dtype[2],
         mxfp8_cast_kernel_choice=mxfp8_cast_kernel_choice,
+        scale_calculation_mode=scale_calculation_mode,
     )
     quantize_(m_mx, config)
 
@@ -125,9 +148,9 @@ def test_linear_eager_vs_hp(elem_dtype, bias, input_shape, mxfp8_cast_kernel_cho
     y_ref.backward(g)
     y_mx.backward(g)
 
-    y_sqnr = compute_error(y_ref, y_mx)
-    w_g_sqnr = compute_error(m[0].weight.grad, getattr(m_mx, "0").weight.grad)
-    x_g_sqnr = compute_error(x_ref.grad, x.grad)
+    y_sqnr = compute_error(y_ref, y_mx).item()
+    w_g_sqnr = compute_error(m[0].weight.grad, getattr(m_mx, "0").weight.grad).item()
+    x_g_sqnr = compute_error(x_ref.grad, x.grad).item()
 
     if elem_dtype == (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn):
         assert y_sqnr >= 18.0
@@ -229,7 +252,20 @@ def test_activation_checkpointing():
         MXFP8Dim1CastKernelChoice.CUDA,
     ],
 )
-def test_linear_compile(hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice):
+@pytest.mark.parametrize(
+    "scale_calculation_mode",
+    [
+        ScaleCalculationMode.FLOOR,
+        ScaleCalculationMode.CEIL,
+        # even + compile does not work yet:
+        # https://gist.github.com/vkuzo/1a04845cd503b1c75291aa1ea3bf79c4
+        # ScaleCalculationMode.EVEN,
+        ScaleCalculationMode.RCEIL,
+    ],
+)
+def test_linear_compile(
+    hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice, scale_calculation_mode
+):
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
@@ -255,6 +291,16 @@ def test_linear_compile(hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice):
         if hp_dtype != torch.bfloat16:
             pytest.skip("unsupported configuration")
 
+    if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        if scale_calculation_mode != ScaleCalculationMode.FLOOR:
+            pytest.skip("unsupported configuration")
+    elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip("unsupported configuration")
+
     if hp_dtype == torch.bfloat16 and recipe_name != "mxfp8_cublas":
         # TODO(future PR): properly enable float32 + bfloat16 for every
         # recipe, this needs a cleanup of out_dtype (needs to match in-hp-dtype, even
@@ -269,6 +315,7 @@ def test_linear_compile(hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice):
     )
     config = MXLinearConfig.from_recipe_name(recipe_name)
     config.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
+    config.scale_calculation_mode = scale_calculation_mode
 
     quantize_(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)
