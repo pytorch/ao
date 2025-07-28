@@ -164,7 +164,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             eager_speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="Fwd Speedup (x)",
+                metric_name="Fwd Speedup w/ Eager (x)",
                 metric_values=[result.eager_speedup_on_baseline],
                 quant_type=config.quantization,
                 device=config.device,
@@ -174,7 +174,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             eager_baseline_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="Bfloat16 Fwd Time (ms)",
+                metric_name="Bfloat16 Fwd Time w/ Eager (ms)",
                 metric_values=[result.eager_baseline_inference_time_in_ms],
                 quant_type=config.quantization,
                 device=config.device,
@@ -187,7 +187,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             eager_quantize_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="Quantized Fwd Time (ms)",
+                metric_name="Quantized Fwd Time w/ Eager (ms)",
                 metric_values=[result.eager_model_inference_time_in_ms],
                 quant_type=config.quantization,
                 device=config.device,
