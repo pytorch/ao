@@ -11,13 +11,11 @@ Defines the prototype UX for converting a model to use mx weights
 from typing import Any, Optional
 
 import torch
-import torch.nn.functional as F
 from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     MXGemmKernelChoice,
-    MXInferenceLinearConfig,
     MXLinearConfig,
 )
 from torchao.prototype.mx_formats.kernels import (
@@ -270,59 +268,6 @@ class MXLinear(torch.nn.Linear):
         return s
 
 
-class MXInferenceLinear(torch.nn.Linear):
-    """
-    Inference version of MXLinear, with the weight pre-quantized to MX.
-
-    Note: this is weight-only quantization, with the gemm being executed
-    in high precision.
-    """
-
-    @classmethod
-    @torch.no_grad()
-    def from_float(
-        cls,
-        mod,
-        config: Optional[MXInferenceLinearConfig] = MXInferenceLinearConfig(),
-    ):
-        with torch.device("meta"):
-            super_kwargs = {
-                "in_features": mod.in_features,
-                "out_features": mod.out_features,
-                "bias": False,
-            }
-            new_mod = cls(**super_kwargs)
-        # TODO(future PR): set to new_mod.weight directly, will need to work
-        # through some errors
-        new_mod.weight_mx = MXTensor.to_mx(
-            mod.weight,
-            config.elem_dtype,
-            block_size=config.block_size,
-            gemm_kernel_choice=config.gemm_kernel_choice,
-            pack_fp6=config.pack_fp6,
-        )
-        new_mod.bias = mod.bias
-        new_mod.config = config
-        return new_mod
-
-    @torch.no_grad()
-    def forward(self, x):
-        w_hp = self.weight_mx.to_dtype(x.dtype)
-        y = F.linear(x, w_hp, self.bias)
-        return y
-
-    def extra_repr(self):
-        s = f"{super().extra_repr()}, {self.config.short_str()}"
-        return s
-
-
 @register_quantize_module_handler(MXLinearConfig)
 def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
     return MXLinear.from_float(module, config=config)
-
-
-@register_quantize_module_handler(MXInferenceLinearConfig)
-def _mx_inference_linear_transform(
-    module: torch.nn.Module, config: MXInferenceLinearConfig
-):
-    return MXInferenceLinear.from_float(module, config=config)
