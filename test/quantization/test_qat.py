@@ -1286,6 +1286,12 @@ class TestQAT(unittest.TestCase):
         ):
             QATConfig(base_config, step="blah")
 
+        # Step was not a keyword arg
+        with self.assertRaisesRegex(
+            TypeError, "4 positional arguments but 5 were given"
+        ):
+            QATConfig(base_config, None, None, "prepare")
+
         # No configs are provided
         with self.assertRaisesRegex(
             ValueError, "One of `base_config` or `weight_config` must be specified"

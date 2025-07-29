@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 import torch
@@ -111,10 +111,26 @@ class QATConfig(AOBaseConfig):
             `torch.nn.Embedding` with an activation config
     """
 
-    base_config: Optional[AOBaseConfig] = None
-    activation_config: Optional[FakeQuantizeConfigBase] = None
-    weight_config: Optional[FakeQuantizeConfigBase] = None
-    step: str = field(kw_only=True, default="prepare")
+    base_config: Optional[AOBaseConfig]
+    activation_config: Optional[FakeQuantizeConfigBase]
+    weight_config: Optional[FakeQuantizeConfigBase]
+    step: str
+
+    # Express `step` as a keyword argument
+    # TODO: Use `kw_only=True` instead, added in python 3.10
+    def __init__(
+        self,
+        base_config: Optional[AOBaseConfig] = None,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
+        weight_config: Optional[FakeQuantizeConfigBase] = None,
+        *,
+        step: str = "prepare",
+    ):
+        self.base_config = base_config
+        self.activation_config = activation_config
+        self.weight_config = weight_config
+        self.step = step
+        self.__post_init__()
 
     def __post_init__(self):
         self.step = self.step.lower()
