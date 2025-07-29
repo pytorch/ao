@@ -30,8 +30,8 @@ from torchao.prototype.parq.quant.quant_api import StretchedIntxWeightOnlyConfig
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import (
-    FakeQuantizeConfig,
     FromIntXQuantizationAwareTrainingConfig,
+    IntxFakeQuantizeConfig,
     IntXQuantizationAwareTrainingConfig,
 )
 from torchao.quantization.quant_api import (
@@ -393,7 +393,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         optimizer.step()
 
         # apply torchao quantized activations on top
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             torch.int8,
             granularity="per_token",
             mapping_type=config.act_mapping_type,
