@@ -247,3 +247,25 @@ def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
     sqnr = compute_error(ref_out, out)
     min_sqnr = 27.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+
+@pytest.mark.parametrize("M", (1024, 4096))
+@pytest.mark.parametrize("K", (1024, 4096))
+@pytest.mark.parametrize("N", (1024, 4096))
+@pytest.mark.parametrize("num_experts", (1, 8, 16))
+def test_mxfp8_grouped_gemm_with_dq_fwd(M, K, N, num_experts):
+    from torchao.prototype.moe_training.scaled_grouped_mm import (
+        _MXFP8GroupedMM,
+    )
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
+    offs = generate_jagged_offs(num_experts, M)
+    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
+    block_size = 32
+
+    out = _MXFP8GroupedMM.apply(x, w_t, offs, block_size, torch.bfloat16)
+    ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
+    sqnr = compute_error(ref_out, out)
+    min_sqnr = 27.0
+    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
