@@ -12,6 +12,7 @@ import torch
 from utils import do_benchmarks, get_name_to_moe_shapes_iter
 
 from torchao.testing.training.roofline_utils import get_specs
+from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 
 @torch.inference_mode()
@@ -145,38 +146,6 @@ def run(
     if out_filename is not None:
         data_df.to_csv(out_filename)
 
-
-def generate_jagged_offs(E, M, dtype=torch.int32, device="cuda"):
-    """
-    Generates a tensor of length E, containing random values divisible by 16,
-    from 0 to M, in sorted order, and where the final value in the tensor is always M.
-    Args:
-        E (int): The length of the tensor.
-        M (int): The maximum value in the tensor.
-    Returns:
-        torch.Tensor: A tensor of length E with the specified properties.
-    """
-    # Ensure M is divisible by 16
-    if M % 16 != 0:
-        raise ValueError("M must be divisible by 16")
-
-    # Generate a list of possible values
-    possible_values = [i for i in range(0, M + 1, 16)]
-
-    # If E is larger than the number of possible values, raise an error
-    if E > len(possible_values):
-        raise ValueError("E cannot be larger than the number of possible values")
-
-    # Randomly select E - 1 values from the possible values (excluding M)
-    selected_values = torch.tensor(random.sample(possible_values[:-1], E - 1))
-
-    # Append M to the selected values
-    selected_values = torch.cat((selected_values, torch.tensor([M])))
-
-    # Sort the selected values
-    selected_values, _ = torch.sort(selected_values)
-
-    return selected_values.to(dtype).to(device)
 
 
 def main() -> None:
