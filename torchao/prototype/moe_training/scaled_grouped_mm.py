@@ -11,6 +11,7 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
@@ -30,6 +31,7 @@ def _scaled_grouped_mm(
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
 ) -> torch.Tensor:
     """
     This function performs dynamic float8 quantization with row-wise scaling
@@ -43,14 +45,27 @@ def _scaled_grouped_mm(
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
     """
-    # TODO: Remove once prototype is more mature. This is currently very useful for development and debugging.
-    logger.info("Using scaled_grouped_mm")
-    return _Float8GroupedMM.apply(
-        A,
-        B_t,
-        offs,
-        out_dtype,
-    )
+    # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
+    if scaling_type == MoEScalingType.FP8_ROWWISE:
+        logger.info("Using fp8 rowwise scaled_grouped_mm")
+        return _Float8GroupedMM.apply(
+            A,
+            B_t,
+            offs,
+            out_dtype,
+        )
+    elif scaling_type == MoEScalingType.MXFP8:
+        logger.info("Using mxfp8 scaled_grouped_mm")
+        block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
+        return _MXFP8GroupedMM.apply(
+            A,
+            B_t,
+            offs,
+            block_size,
+            out_dtype,
+        )
+    else:
+        raise ValueError(f"Unsupported scaling type {scaling_type}")
 
 
 class _Float8GroupedMM(torch.autograd.Function):
