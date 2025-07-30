@@ -6,6 +6,7 @@
 
 import pytest
 import torch
+from torch.nn import functional as F
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
@@ -306,19 +307,47 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-def test_mxfp8_grouped_gemm_with_dq_fwd(M, K, N, num_experts):
+def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):
     from torchao.prototype.moe_training.scaled_grouped_mm import (
         _MXFP8GroupedMM,
     )
 
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
-    offs = generate_jagged_offs(num_experts, M)
-    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
     block_size = 32
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w_t = torch.randn(
+        num_experts, K, N, dtype=torch.bfloat16, device="cuda", requires_grad=True
+    )
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+    x_ref, w_t_ref, offs_ref = (
+        x.clone().detach().requires_grad_(True),
+        w_t.clone().detach().requires_grad_(True),
+        offs.clone(),
+    )
 
+    # Forward
     out = _MXFP8GroupedMM.apply(x, w_t, offs, block_size, torch.bfloat16)
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)
     min_sqnr = 27.0
-    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+    assert sqnr >= min_sqnr, f"Output sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+    # Backward
+    labels = torch.ones_like(ref_out)
+    ref_loss = F.mse_loss(ref_out, labels)
+    out_loss = F.mse_loss(out, labels)
+    ref_loss.backward()
+    out_loss.backward()
+
+    # Check input grads
+    min_input_grad_sqnr = 26.0
+    sqnr = compute_error(x_ref.grad, x.grad)
+    assert sqnr >= min_input_grad_sqnr, (
+        f"Input grad sqnr {sqnr} is too low, must be >= {min_input_grad_sqnr}"
+    )
+
+    # Check weight grads
+    min_weight_grad_sqnr = 24.0
+    sqnr = compute_error(w_t_ref.grad, w_t.grad)
+    assert sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad sqnr {sqnr} is too low, must be >= {min_weight_grad_sqnr}"
+    )
