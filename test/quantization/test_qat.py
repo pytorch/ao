@@ -1852,6 +1852,7 @@ class TestQAT(unittest.TestCase):
             handler = logging.StreamHandler(log_stream)
             logger = logging.getLogger(deprecated_class.__module__)
             logger.addHandler(handler)
+            logger.setLevel(logging.WARN)
             deprecated_class(*example_args)
             if first_time:
                 regex = (
@@ -1877,7 +1878,12 @@ class TestQAT(unittest.TestCase):
             from_intx_quantization_aware_training,
             intx_quantization_aware_training,
         )
+        from torchao.quantization.qat.utils import _LOGGED_DEPRECATED_CLASS_NAMES
 
+        # Reset deprecation warning state, otherwise we won't log warnings here
+        _LOGGED_DEPRECATED_CLASS_NAMES.clear()
+
+        # Assert that the deprecation warning is logged
         self._test_deprecation(IntXQuantizationAwareTrainingConfig)
         self._test_deprecation(FromIntXQuantizationAwareTrainingConfig)
         self._test_deprecation(intx_quantization_aware_training)
