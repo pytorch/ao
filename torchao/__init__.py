@@ -40,36 +40,62 @@ try:
 except Exception as e:
     logger.debug(f"Skipping import of cpp extensions: {e}")
 
+# Cache for lazy imports to avoid infinite recursion
+_lazy_import_cache = {}
+
 # Lazy imports to speed up module loading
 def __getattr__(name):
-    if name == "autoquant":
-        from torchao.quantization import autoquant
-        return autoquant
-    elif name == "quantize_":
-        from torchao.quantization import quantize_
-        return quantize_
-    elif name == "dtypes":
-        from . import dtypes
-        return dtypes
-    elif name == "optim":
-        from . import optim
-        return optim
-    elif name == "quantization":
-        from . import quantization
-        return quantization
-    elif name == "swizzle":
-        from . import swizzle
-        return swizzle
-    elif name == "testing":
-        from . import testing
-        return testing
-    elif name == "ops":
-        # ops may or may not be available depending on if .so files exist
-        if hasattr(__import__(__name__), 'ops'):
-            from . import ops
-            return ops
-        raise AttributeError(f"module {__name__!r} has no attribute 'ops'")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    # Check cache first to avoid infinite recursion
+    if name in _lazy_import_cache:
+        return _lazy_import_cache[name]
+    
+    # Mark as being imported to prevent recursion
+    if f"_importing_{name}" in globals():
+        raise AttributeError(f"Circular import detected for {name!r}")
+    
+    try:
+        globals()[f"_importing_{name}"] = True
+        
+        if name == "autoquant":
+            from torchao.quantization import autoquant
+            _lazy_import_cache[name] = autoquant
+            return autoquant
+        elif name == "quantize_":
+            from torchao.quantization import quantize_
+            _lazy_import_cache[name] = quantize_
+            return quantize_
+        elif name == "dtypes":
+            from . import dtypes
+            _lazy_import_cache[name] = dtypes
+            return dtypes
+        elif name == "optim":
+            from . import optim
+            _lazy_import_cache[name] = optim
+            return optim
+        elif name == "quantization":
+            from . import quantization
+            _lazy_import_cache[name] = quantization
+            return quantization
+        elif name == "swizzle":
+            from . import swizzle
+            _lazy_import_cache[name] = swizzle
+            return swizzle
+        elif name == "testing":
+            from . import testing
+            _lazy_import_cache[name] = testing
+            return testing
+        elif name == "ops":
+            # ops may or may not be available depending on if .so files exist
+            if hasattr(__import__(__name__), 'ops'):
+                from . import ops
+                _lazy_import_cache[name] = ops
+                return ops
+            raise AttributeError(f"module {__name__!r} has no attribute 'ops'")
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    finally:
+        # Clean up the recursion guard
+        if f"_importing_{name}" in globals():
+            del globals()[f"_importing_{name}"]
 
 __all__ = [
     "dtypes",
