@@ -13,18 +13,26 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, check_cpu_version
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-try:
-    # Only works for torch2.2 or newer.
-    if TORCH_VERSION_AT_LEAST_2_2:
-        from torchao.kernel import intmm_triton
-    else:
-        intmm_triton = None
-except ImportError:
-    logger.warning(
-        "Warning: Detected no triton, on systems without Triton certain kernels will not work"
-    )
-    # On cpu-only builds might not be available.
-    intmm_triton = None
+# Lazy loading for intmm_triton to avoid expensive import
+intmm_triton = None
+
+def _get_intmm_triton():
+    global intmm_triton
+    if intmm_triton is None:
+        try:
+            # Only works for torch2.2 or newer.
+            if TORCH_VERSION_AT_LEAST_2_2:
+                from torchao.kernel import intmm_triton as _intmm_triton
+                intmm_triton = _intmm_triton
+            else:
+                intmm_triton = False  # Sentinel value to indicate not available
+        except ImportError:
+            logger.warning(
+                "Warning: Detected no triton, on systems without Triton certain kernels will not work"
+            )
+            # On cpu-only builds might not be available.
+            intmm_triton = False  # Sentinel value to indicate not available
+    return intmm_triton if intmm_triton is not False else None
 
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
@@ -124,7 +132,7 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The result of the matrix multiplication.
     """
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if _get_intmm_triton() is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_matmul(a, b)
     return safe_int_mm(a, b)
 
@@ -160,7 +168,7 @@ def int_scaled_matmul(
         c = torch._int_mm(a, b)
         return c.to(scales1.dtype) * scales1
 
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if _get_intmm_triton() is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)

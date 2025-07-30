@@ -40,12 +40,36 @@ try:
 except Exception as e:
     logger.debug(f"Skipping import of cpp extensions: {e}")
 
-from torchao.quantization import (
-    autoquant,
-    quantize_,
-)
-
-from . import dtypes, optim, quantization, swizzle, testing
+# Lazy imports to speed up module loading
+def __getattr__(name):
+    if name == "autoquant":
+        from torchao.quantization import autoquant
+        return autoquant
+    elif name == "quantize_":
+        from torchao.quantization import quantize_
+        return quantize_
+    elif name == "dtypes":
+        from . import dtypes
+        return dtypes
+    elif name == "optim":
+        from . import optim
+        return optim
+    elif name == "quantization":
+        from . import quantization
+        return quantization
+    elif name == "swizzle":
+        from . import swizzle
+        return swizzle
+    elif name == "testing":
+        from . import testing
+        return testing
+    elif name == "ops":
+        # ops may or may not be available depending on if .so files exist
+        if hasattr(__import__(__name__), 'ops'):
+            from . import ops
+            return ops
+        raise AttributeError(f"module {__name__!r} has no attribute 'ops'")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "dtypes",
