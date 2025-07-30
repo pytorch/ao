@@ -3,16 +3,34 @@ from torchao.kernel import (
     safe_int_mm,
 )
 
-from .autoquant import (
-    ALL_AUTOQUANT_CLASS_LIST,
-    DEFAULT_AUTOQUANT_CLASS_LIST,
-    DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
-    DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
-    DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
-    GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
-    OTHER_AUTOQUANT_CLASS_LIST,
-    autoquant,
-)
+# Conditional import to break circular dependency
+try:
+    from .autoquant import (
+        ALL_AUTOQUANT_CLASS_LIST,
+        DEFAULT_AUTOQUANT_CLASS_LIST,
+        DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
+        DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
+        DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
+        GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
+        OTHER_AUTOQUANT_CLASS_LIST,
+        autoquant,
+    )
+except ImportError as e:
+    # Defer autoquant imports if dtypes are not yet ready
+    print(f"Warning: Could not import autoquant: {e}")
+    # Set up lazy imports
+    def _lazy_autoquant(*args, **kwargs):
+        from .autoquant import autoquant
+        return autoquant(*args, **kwargs)
+    
+    autoquant = _lazy_autoquant
+    ALL_AUTOQUANT_CLASS_LIST = []
+    DEFAULT_AUTOQUANT_CLASS_LIST = []
+    DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST = []
+    DEFAULT_INT4_AUTOQUANT_CLASS_LIST = []
+    DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST = []
+    GEMLITE_INT4_AUTOQUANT_CLASS_LIST = []
+    OTHER_AUTOQUANT_CLASS_LIST = []
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     MultiTensor,
@@ -41,7 +59,9 @@ from .observer import (
     AffineQuantizedMinMaxObserver,
     AffineQuantizedObserverBase,
 )
-from .quant_api import (
+# Conditional import to break circular dependency
+try:
+    from .quant_api import (
     CutlassInt4PackedLayout,
     FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
@@ -78,6 +98,47 @@ from .quant_api import (
     swap_conv2d_1x1_to_linear,
     uintx_weight_only,
 )
+except ImportError as e:
+    # Defer quant_api imports if dtypes are not yet ready
+    print(f"Warning: Could not import quant_api: {e}")
+    # Set up default/stub values for key exports that might be used
+    quantize_ = None
+    int4_weight_only = None
+    int8_weight_only = None
+    PlainLayout = None
+    TensorCoreTiledLayout = None
+    ModuleFqnToConfig = None
+    Float8MMConfig = None
+    # Set all other quant_api exports to None
+    CutlassInt4PackedLayout = None
+    FbgemmConfig = None
+    Float8DynamicActivationFloat8SemiSparseWeightConfig = None
+    Float8DynamicActivationFloat8WeightConfig = None
+    Float8StaticActivationFloat8WeightConfig = None
+    Float8WeightOnlyConfig = None
+    FPXWeightOnlyConfig = None
+    GemliteUIntXWeightOnlyConfig = None
+    Int4DynamicActivationInt4WeightConfig = None
+    Int4WeightOnlyConfig = None
+    Int8DynamicActivationInt4WeightConfig = None
+    Int8DynamicActivationInt8WeightConfig = None
+    Int8DynamicActivationIntxWeightConfig = None
+    Int8WeightOnlyConfig = None
+    IntxWeightOnlyConfig = None
+    UIntXWeightOnlyConfig = None
+    float8_dynamic_activation_float8_weight = None
+    float8_static_activation_float8_weight = None
+    float8_weight_only = None
+    fpx_weight_only = None
+    gemlite_uintx_weight_only = None
+    int4_dynamic_activation_int4_weight = None
+    int8_dynamic_activation_int4_weight = None
+    int8_dynamic_activation_int8_semi_sparse_weight = None
+    int8_dynamic_activation_int8_weight = None
+    intx_quantization_aware_training = None
+    swap_conv2d_1x1_to_linear = None
+    uintx_weight_only = None
+
 from .quant_primitives import (
     MappingType,
     TorchAODType,

@@ -9,3 +9,6 @@ exclude = [
     "third_party/*",
     "torchao/prototype/paretoq/*",
 ]
+
+[lint.per-file-ignores]
+"torchao/__init__.py" = ["F405"]

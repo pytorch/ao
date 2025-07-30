@@ -10,11 +10,7 @@ import torch
 import torch.nn as nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
-from torchao.dtypes import (
-    Layout,
-    TensorCoreTiledLayout,
-    to_affine_quantized_intx_static,
-)
+# Moved to lazy imports to avoid circular dependency
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
@@ -661,7 +657,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         inner_k_tiles=8,
         padding_allowed=True,
         device: torch.device = torch.device("cuda"),
-        layout: Optional[Layout] = TensorCoreTiledLayout(inner_k_tiles=8),
+        layout=None,
     ):
         super().__init__()
         self.group_size = group_size
@@ -670,9 +666,11 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self.inner_k_tiles = inner_k_tiles
         self.padding_allowed = padding_allowed
         self.device = device
-        self.device = self.device
-        self.act_fake_quant_func = None
+        if layout is None:
+            from torchao.dtypes import TensorCoreTiledLayout
+            layout = TensorCoreTiledLayout(inner_k_tiles=8)
         self.layout = layout
+        self.act_fake_quant_func = None
         n_bit = 4
 
         if "xpu" in self.device.type:
@@ -733,6 +731,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             quant_min = 0
             quant_max = 15
             # at least the big up to here should be a util
+            from torchao.dtypes import to_affine_quantized_intx_static
 
             quantized_tensor = to_affine_quantized_intx_static(
                 weight,
