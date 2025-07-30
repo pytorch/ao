@@ -217,7 +217,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             use_fast_accum=True,
         )
 
-        # Convert tranpose of grad_output to float8, row-major for left operand of grouped GEMM
+        # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_B: grad_output_t @ A
         grad_output_t_row_major = grad_output.transpose(-2, -1).contiguous()
 
@@ -266,3 +266,58 @@ class _Float8GroupedMM(torch.autograd.Function):
             use_fast_accum=True,
         )
         return grad_A, grad_B.transpose(-2, -1), None, None, None, None
+
+
+def emulated_mxfp8_scaled_grouped_mm(
+    A_mx: torch.Tensor,
+    A_scale: torch.Tensor,
+    B_t_mx: torch.Tensor,
+    B_t_scale: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    block_size: int = 32,
+) -> torch.Tensor:
+    # Dequantize input
+    # A_mx shape: (M, K)
+    # A_scale shape: (M, K//block_size)
+    A_orig_shape = A_mx.shape
+
+    # Reshape to be able to do per-scaling group multiplication
+    # A_mx shape: (M, K//block_size, block_size)
+    # A_scale shape: (M, K//block_size, 1)
+    A_mx = A_mx.reshape(*A_mx.shape[:-1], A_mx.shape[-1] // block_size, block_size)
+    A_scale = A_scale.unsqueeze(-1)
+
+    # Rescale and cast to bfloat16
+    A = A_mx.to(torch.bfloat16) * A_scale.to(torch.bfloat16)
+
+    # Reshape back to original shape
+    # A shape: (M, K)
+    A = A.reshape(A_orig_shape)
+
+    # Dequantize weights
+    # B_t_mx shape: (E, K, N)
+    # B_t_scale shape: (E, K//block_size, N)
+    E, K, N = B_t_mx.shape
+
+    # Tranpose to get block_size on rightmost dim
+    # B_mx shape: (E, N, K)
+    # B_scale shape: (E, N, K//block_size)
+    B_mx, B_scale = B_t_mx.transpose(-2, -1), B_t_scale.transpose(-2, -1)
+
+    # Reshape to be able to do per-scaling group multiplication
+    # B_mx shape: (E, N, K//block_size, block_size)
+    # B_scale shape: (E, N, K//block_size, 1)
+    B_mx = B_mx.reshape(*B_mx.shape[:-1], B_mx.shape[-1] // block_size, block_size)
+    B_scale = B_scale.unsqueeze(-1)
+
+    # Rescale and cast to bfloat16
+    B = B_mx.to(torch.bfloat16) * B_scale.to(torch.bfloat16)
+
+    # Reshape back to original shape
+    # B shape: (E, K, N)
+    B_t = B.reshape(E, N, K).transpose(-2, -1)
+
+    # Perform bf16 grouped GEMM.
+    out = torch._grouped_mm(A, B_t, offs=offs, out_dtype=out_dtype)
+    return out
