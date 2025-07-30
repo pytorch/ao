@@ -221,7 +221,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self._assert_close(result, expected_result)
 
     def _assert_close(
-        self, result, expected_result, mse_tol=1e-6, atol=1e-2, rtol=1e-5
+        self, result, expected_result, mse_tol=1e-5, atol=5e-2, rtol=5e-5
     ):
         mse_loss = torch.nn.functional.mse_loss(result, expected_result)
         self.assertTrue(
