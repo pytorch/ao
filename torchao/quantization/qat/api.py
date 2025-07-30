@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, List, Optional, Tuple
 
 import torch
@@ -23,6 +24,15 @@ from .fake_quantize_config import (
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
+
+
+class QATConfigStep(str, Enum):
+    """
+    Enum value for the `step` field in :class:`~torchao.quantization.qat.QATConfig`.
+    """
+
+    PREPARE = "prepare"
+    CONVERT = "convert"
 
 
 @dataclass
@@ -114,7 +124,7 @@ class QATConfig(AOBaseConfig):
     base_config: Optional[AOBaseConfig]
     activation_config: Optional[FakeQuantizeConfigBase]
     weight_config: Optional[FakeQuantizeConfigBase]
-    step: str
+    step: QATConfigStep
 
     # Express `step` as a keyword argument
     # TODO: Use `kw_only=True` instead, added in python 3.10
@@ -124,7 +134,7 @@ class QATConfig(AOBaseConfig):
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
         *,
-        step: str = "prepare",
+        step: QATConfigStep = "prepare",
     ):
         self.base_config = base_config
         self.activation_config = activation_config
@@ -134,8 +144,9 @@ class QATConfig(AOBaseConfig):
 
     def __post_init__(self):
         self.step = self.step.lower()
-        if self.step not in ["prepare", "convert"]:
-            raise ValueError("`step` must be either 'prepare' or 'convert'")
+        all_step_values = [s.value for s in QATConfigStep]
+        if self.step not in all_step_values:
+            raise ValueError("`step` must be one of %s" % all_step_values)
         if self.base_config is None and self.weight_config is None:
             raise ValueError(
                 "One of `base_config` or `weight_config` must be specified"
@@ -178,7 +189,7 @@ def _qat_config_transform(
     # Swap nn.Embedding -> FakeQuantizedEmbedding
     base_config = config.base_config
     step = config.step
-    if step == "prepare":
+    if step == QATConfigStep.PREPARE:
         if base_config is not None:
             (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         else:
@@ -201,7 +212,7 @@ def _qat_config_transform(
         # Swap FakeQuantizedLinear -> nn.Linear
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
-        assert step == "convert", "unexpected step '%s' in QATConfig" % step
+        assert step == QATConfigStep.CONVERT, "unexpected step '%s' in QATConfig" % step
         assert base_config is not None, "expected `base_config` in convert step"
         if isinstance(module, FakeQuantizedLinear):
             module = module.to_linear()

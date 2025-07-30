@@ -1281,9 +1281,7 @@ class TestQAT(unittest.TestCase):
         self.assertEqual(QATConfig(base_config, step="CONVERT").step, "convert")
 
         # Bad step
-        with self.assertRaisesRegex(
-            ValueError, "`step` must be either 'prepare' or 'convert'"
-        ):
+        with self.assertRaisesRegex(ValueError, "`step` must be one of"):
             QATConfig(base_config, step="blah")
 
         # Step was not a keyword arg

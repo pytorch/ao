@@ -93,7 +93,8 @@ model = get_model()
 base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
 quantize_(model, QATConfig(base_config, step="prepare"))
 
-# train (not shown)
+# train
+train_loop(model)
 
 # convert: swap `FakeQuantizedLinear` -> `torch.nn.Linear`, then quantize using `base_config`
 quantize_(model, QATConfig(base_config, step="convert"))
@@ -123,7 +124,8 @@ qat_config = QATConfig(
 )
 quantize_(model, qat_config)
 
-# train (not shown)
+# train
+train_loop(model)
 
 # convert: (not shown, same as before)
 ```

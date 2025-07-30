@@ -287,7 +287,7 @@ def _infer_fake_quantize_configs(
             is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC,
         )
         weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
+            dtype=TorchAODType.INT4,
             group_size=base_config.group_size,
             is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
         )
