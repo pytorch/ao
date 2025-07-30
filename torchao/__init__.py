@@ -23,23 +23,38 @@ _IS_FBCODE = (
 if not _IS_FBCODE:
     try:
         from . import _C
-        from . import ops
     except:
         _C = None
         logging.info("Skipping import of cpp extensions")
 
-from torchao.quantization import (
-    autoquant,
-    quantize_,
-)
-from . import dtypes
-from . import testing
+# Lazy imports to speed up module loading
+def __getattr__(name):
+    if name == "autoquant":
+        from torchao.quantization import autoquant
+        return autoquant
+    elif name == "quantize_":
+        from torchao.quantization import quantize_
+        return quantize_
+    elif name == "ops":
+        from . import ops
+        return ops
+    elif name == "dtypes":
+        from . import dtypes
+        return dtypes
+    elif name == "testing":
+        from . import testing
+        return testing
+    elif name == "quantization":
+        from . import quantization
+        return quantization
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "dtypes",
     "autoquant",
     "quantize_",
     "testing",
+    "quantization",
 ]
 
 # test-pytorchbot

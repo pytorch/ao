@@ -4,15 +4,23 @@ import torch
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_2
 
-try:
-    # Only works for torch2.2 or newer.
-    if TORCH_VERSION_AT_LEAST_2_2:
-        from torchao.kernel import intmm_triton
-    else:
-        intmm_triton = None
-except ImportError:
-    # On cpu-only builds might not be available.
-    intmm_triton = None
+# Lazy loading for intmm_triton to avoid expensive import
+intmm_triton = None
+
+def _get_intmm_triton():
+    global intmm_triton
+    if intmm_triton is None:
+        try:
+            # Only works for torch2.2 or newer.
+            if TORCH_VERSION_AT_LEAST_2_2:
+                from torchao.kernel import intmm_triton as _intmm_triton
+                intmm_triton = _intmm_triton
+            else:
+                intmm_triton = False  # Sentinel value to indicate not available
+        except ImportError:
+            # On cpu-only builds might not be available.
+            intmm_triton = False  # Sentinel value to indicate not available
+    return intmm_triton if intmm_triton is not False else None
 
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
@@ -107,7 +115,7 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The result of the matrix multiplication.
     """
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if _get_intmm_triton() is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_matmul(a, b)
     return safe_int_mm(a, b)
 
@@ -134,7 +142,7 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if _get_intmm_triton() is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
