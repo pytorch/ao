@@ -8,6 +8,8 @@
 # This test takes a long time to run
 
 import copy
+import io
+import logging
 import unittest
 from typing import List
 
@@ -1840,6 +1842,58 @@ class TestQAT(unittest.TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
+
+    def _test_deprecation(self, deprecated_class, *example_args, first_time=True):
+        """
+        Assert that instantiating a deprecated class triggers the deprecation warning.
+        """
+        try:
+            log_stream = io.StringIO()
+            handler = logging.StreamHandler(log_stream)
+            logger = logging.getLogger(deprecated_class.__module__)
+            logger.addHandler(handler)
+            deprecated_class(*example_args)
+            if first_time:
+                regex = (
+                    "'%s' is deprecated and will be removed in a future release"
+                    % deprecated_class.__name__
+                )
+                self.assertIn(regex, log_stream.getvalue())
+            else:
+                self.assertEqual(log_stream.getvalue(), "")
+        finally:
+            logger.removeHandler(handler)
+            handler.close()
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_api_deprecation(self):
+        """
+        Test that the appropriate deprecation warning has been logged.
+        """
+        from torchao.quantization.qat import (
+            FakeQuantizeConfig,
+            from_intx_quantization_aware_training,
+            intx_quantization_aware_training,
+        )
+
+        self._test_deprecation(IntXQuantizationAwareTrainingConfig)
+        self._test_deprecation(FromIntXQuantizationAwareTrainingConfig)
+        self._test_deprecation(intx_quantization_aware_training)
+        self._test_deprecation(from_intx_quantization_aware_training)
+        self._test_deprecation(FakeQuantizeConfig, torch.int8, "per_channel")
+
+        # Assert that warning is only logged once per class
+        self._test_deprecation(IntXQuantizationAwareTrainingConfig, first_time=False)
+        self._test_deprecation(
+            FromIntXQuantizationAwareTrainingConfig, first_time=False
+        )
+        self._test_deprecation(intx_quantization_aware_training, first_time=False)
+        self._test_deprecation(from_intx_quantization_aware_training, first_time=False)
+        self._test_deprecation(
+            FakeQuantizeConfig, torch.int8, "per_channel", first_time=False
+        )
 
 
 if __name__ == "__main__":

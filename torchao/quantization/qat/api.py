@@ -24,6 +24,7 @@ from .fake_quantize_config import (
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
+from .utils import _log_deprecation_warning
 
 
 class QATConfigStep(str, Enum):
@@ -224,11 +225,11 @@ def _qat_config_transform(
         return _QUANTIZE_CONFIG_HANDLER[type(base_config)](module, base_config)
 
 
-# TODO: deprecate
 @dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    (Will be deprecated soon)
+    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.
+
     Config for applying fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
@@ -256,9 +257,13 @@ class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     activation_config: Optional[FakeQuantizeConfigBase] = None
     weight_config: Optional[FakeQuantizeConfigBase] = None
 
+    def __post_init__(self):
+        _log_deprecation_warning(self)
+
 
 # for BC
-intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
+class intx_quantization_aware_training(IntXQuantizationAwareTrainingConfig):
+    pass
 
 
 @register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
@@ -286,10 +291,11 @@ def _intx_quantization_aware_training_transform(
         raise ValueError("Module of type '%s' does not have QAT support" % type(mod))
 
 
-# TODO: deprecate
+@dataclass
 class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    (Will be deprecated soon)
+    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.
+
     Config for converting a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
     and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
@@ -306,11 +312,13 @@ class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
         )
     """
 
-    pass
+    def __post_init__(self):
+        _log_deprecation_warning(self)
 
 
 # for BC
-from_intx_quantization_aware_training = FromIntXQuantizationAwareTrainingConfig
+class from_intx_quantization_aware_training(FromIntXQuantizationAwareTrainingConfig):
+    pass
 
 
 @register_quantize_module_handler(FromIntXQuantizationAwareTrainingConfig)
