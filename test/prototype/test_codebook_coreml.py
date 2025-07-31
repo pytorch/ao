@@ -33,10 +33,10 @@ class TestCodebookQuantization(unittest.TestCase):
         codebook, wq = choose_qparams_and_quantize_codebook_coreml(
             self.input,
             self.code_dtype,
-            self.block_size,
+            [self.input.shape[0], 4],
         )
         group_size = self.block_size[-1]
-        self.assertEqual(codebook.shape, (256 // group_size, 2**self.nbits, 1))
+        self.assertEqual(codebook.shape, (1, 256 // group_size, 2**self.nbits, 1))
         self.assertEqual(wq.shape, (100, 256))
 
         self.assertFalse(torch.isnan(codebook).any())
