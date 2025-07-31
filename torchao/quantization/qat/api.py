@@ -26,7 +26,7 @@ from .fake_quantize_config import (
 from .linear import FakeQuantizedLinear
 
 
-class QATConfigStep(str, Enum):
+class QATStep(str, Enum):
     """
     Enum value for the `step` field in :class:`~torchao.quantization.qat.QATConfig`.
     """
@@ -124,7 +124,7 @@ class QATConfig(AOBaseConfig):
     base_config: Optional[AOBaseConfig]
     activation_config: Optional[FakeQuantizeConfigBase]
     weight_config: Optional[FakeQuantizeConfigBase]
-    step: QATConfigStep
+    step: QATStep
 
     # Express `step` as a keyword argument
     # TODO: Use `kw_only=True` instead, added in python 3.10
@@ -134,7 +134,7 @@ class QATConfig(AOBaseConfig):
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
         *,
-        step: QATConfigStep = "prepare",
+        step: QATStep = "prepare",
     ):
         self.base_config = base_config
         self.activation_config = activation_config
@@ -144,7 +144,7 @@ class QATConfig(AOBaseConfig):
 
     def __post_init__(self):
         self.step = self.step.lower()
-        all_step_values = [s.value for s in QATConfigStep]
+        all_step_values = [s.value for s in QATStep]
         if self.step not in all_step_values:
             raise ValueError("`step` must be one of %s" % all_step_values)
         if self.base_config is None and self.weight_config is None:
@@ -189,7 +189,7 @@ def _qat_config_transform(
     # Swap nn.Embedding -> FakeQuantizedEmbedding
     base_config = config.base_config
     step = config.step
-    if step == QATConfigStep.PREPARE:
+    if step == QATStep.PREPARE:
         if base_config is not None:
             (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         else:
@@ -212,7 +212,7 @@ def _qat_config_transform(
         # Swap FakeQuantizedLinear -> nn.Linear
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
-        assert step == QATConfigStep.CONVERT, "unexpected step '%s' in QATConfig" % step
+        assert step == QATStep.CONVERT, "unexpected step '%s' in QATConfig" % step
         assert base_config is not None, "expected `base_config` in convert step"
         if isinstance(module, FakeQuantizedLinear):
             module = module.to_linear()

@@ -16,7 +16,7 @@ please refer to the `QAT README <https://github.com/pytorch/ao/blob/main/torchao
     :nosignatures:
 
     QATConfig
-    QATConfigStep
+    QATStep
 
 Custom QAT APIs
 ---------------
