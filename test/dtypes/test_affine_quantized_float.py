@@ -319,7 +319,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         )
         test_linear = copy.deepcopy(ref_linear)
         quantize_(
-            test_linear, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+            test_linear,
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), VERSION=1),
         )
 
         quant_weight = test_linear.weight
@@ -471,7 +472,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize a model
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+            model,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, VERSION=1
+            ),
         )
 
         weight_impl = model.weight.original_weight_tensor.tensor_impl
@@ -505,7 +509,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize with per-tensor granularity
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
+            model,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerTensor(), VERSION=1
+            ),
         )
 
         original_weight = model.weight
@@ -536,7 +543,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize with per-row granularity
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+            model,
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), VERSION=1),
         )
 
         original_weight = model.weight  # Shape: (32, 64)
@@ -574,7 +582,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize a model
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
+            model,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerTensor(), VERSION=1
+            ),
         )
 
         original_weight = model.weight
@@ -612,7 +623,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         quant_model = copy.deepcopy(ref_model)
         quantize_(
             quant_model,
-            Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, VERSION=1
+            ),
         )
 
         # Create input with batch size that works well with slicing
