@@ -109,7 +109,7 @@ def _get_qmin_qmax(n_bit: int, symmetric: bool = True):
 
 
 # log deprecation warning only once per class
-_LOGGED_DEPRECATED_CLASS_NAMES = set()
+_LOGGED_DEPRECATED_CLASSES = set[type]()
 
 
 def _log_deprecation_warning(old_api_object: Any):
@@ -117,11 +117,10 @@ def _log_deprecation_warning(old_api_object: Any):
     Log a helpful deprecation message pointing users to the new QAT API,
     only once per deprecated class.
     """
-    global _LOGGED_DEPRECATED_CLASS_NAMES
-    deprecated_class_name = old_api_object.__class__.__name__
-    if deprecated_class_name in _LOGGED_DEPRECATED_CLASS_NAMES:
+    global _LOGGED_DEPRECATED_CLASSES
+    if old_api_object.__class__ in _LOGGED_DEPRECATED_CLASSES:
         return
-    _LOGGED_DEPRECATED_CLASS_NAMES.add(deprecated_class_name)
+    _LOGGED_DEPRECATED_CLASSES.add(old_api_object.__class__)
     logger = logging.getLogger(old_api_object.__module__)
     logger.warning(
         """'%s' is deprecated and will be removed in a future release. Please use the following API instead:
@@ -144,5 +143,5 @@ Alternatively, if you prefer to pass in fake quantization configs:
 
 Please see https://github.com/pytorch/ao/issues/2630 for more details.
         """
-        % deprecated_class_name
+        % old_api_object.__class__.__name__
     )

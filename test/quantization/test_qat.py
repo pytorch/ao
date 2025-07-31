@@ -1878,10 +1878,10 @@ class TestQAT(unittest.TestCase):
             from_intx_quantization_aware_training,
             intx_quantization_aware_training,
         )
-        from torchao.quantization.qat.utils import _LOGGED_DEPRECATED_CLASS_NAMES
+        from torchao.quantization.qat.utils import _LOGGED_DEPRECATED_CLASSES
 
         # Reset deprecation warning state, otherwise we won't log warnings here
-        _LOGGED_DEPRECATED_CLASS_NAMES.clear()
+        _LOGGED_DEPRECATED_CLASSES.clear()
 
         # Assert that the deprecation warning is logged
         self._test_deprecation(IntXQuantizationAwareTrainingConfig)
