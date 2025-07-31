@@ -37,7 +37,7 @@ from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
 
 
-@skip_if_rocm("ROCm enablement in progress")
+@skip_if_rocm("ROCm not supported")
 def test_valid_scaled_grouped_mm_2d_3d():
     out_dtype = torch.bfloat16
     device = "cuda"
@@ -91,6 +91,7 @@ def test_valid_scaled_grouped_mm_2d_3d():
     assert torch.equal(b_t.grad, ref_b_t.grad)
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("m", [16, 17])
 @pytest.mark.parametrize("k", [16, 18])
 @pytest.mark.parametrize("n", [32, 33])
@@ -219,6 +220,7 @@ def compute_reference_forward(
     return output_ref
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
@@ -249,6 +251,7 @@ def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_mxfp8_grouped_gemm_with_dq_fwd(M, K, N, num_experts):
