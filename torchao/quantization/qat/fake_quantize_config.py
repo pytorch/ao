@@ -26,7 +26,6 @@ from torchao.quantization.quant_primitives import (
 )
 
 
-@dataclass
 class FakeQuantizeConfigBase(abc.ABC):
     """
     Base class for representing fake quantization config.
