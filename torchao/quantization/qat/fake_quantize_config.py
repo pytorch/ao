@@ -28,7 +28,6 @@ from torchao.quantization.quant_primitives import (
 from .utils import _log_deprecation_warning
 
 
-@dataclass
 class FakeQuantizeConfigBase(abc.ABC):
     """
     Base class for representing fake quantization config.
