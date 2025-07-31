@@ -139,6 +139,12 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
         self.__post_init__()
 
+    def __post_init__(self):
+        """
+        For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630.
+        """
+        pass
+
     def _get_granularity(
         self,
         granularity: Union[Granularity, str, None],
