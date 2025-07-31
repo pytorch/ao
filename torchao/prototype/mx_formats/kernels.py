@@ -1394,7 +1394,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
             x_hp_d1_normalized.t(),
-            scale_e8m0_dim1,
+            scale_e8m0_dim1.unsqueeze(-1),
         )
 
     @triton.jit

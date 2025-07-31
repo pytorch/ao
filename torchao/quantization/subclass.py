@@ -9,10 +9,10 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.utils import (
+    _quant_int8_dynamic_per_token_linear,
     dequantize_per_channel,
     dynamically_quantize_per_channel,
     groupwise_affine_quantize_tensor,
-    quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
 from torchao.utils import (
@@ -244,7 +244,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        return quant_int8_dynamic_per_token_linear(
+        return _quant_int8_dynamic_per_token_linear(
             act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
         )
 

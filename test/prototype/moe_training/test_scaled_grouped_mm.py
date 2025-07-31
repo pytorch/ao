@@ -7,6 +7,9 @@
 import pytest
 import torch
 
+pytest.importorskip("triton", reason="Triton required to run this test")
+
+from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 # We need to skip before doing any imports which would use triton, since
@@ -25,10 +28,12 @@ from torchao.float8.config import (
 )
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
-from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _scaled_grouped_mm,
+    emulated_mxfp8_scaled_grouped_mm,
 )
+from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -212,3 +217,53 @@ def compute_reference_forward(
     # Concatenate the outputs and verify the full result is correct.
     output_ref = torch.cat(outputs, dim=0)
     return output_ref
+
+
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
+@pytest.mark.parametrize("num_experts", (1, 8, 16))
+def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
+    offs = generate_jagged_offs(num_experts, M)
+    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
+
+    # Quantize inputs to mxpf8 for emulated mxfp8 scaled grouped mm
+    block_size = 32
+    x_scale, x_mx = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+
+    # To cast B_t per-expert to mxfp8 across dim1, we transpose the experts, cast along dim -1, then untranspose.
+    w_scale, w_mx = to_mx(
+        w_t.transpose(-2, -1).contiguous(),
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+    )
+    w_t_scale, w_t_mx = w_scale.transpose(-2, -1), w_mx.transpose(-2, -1)
+
+    ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
+    out = emulated_mxfp8_scaled_grouped_mm(
+        x_mx, x_scale, w_t_mx, w_t_scale, offs=offs, out_dtype=torch.bfloat16
+    )
+
+    sqnr = compute_error(ref_out, out)
+    min_sqnr = 27.0
+    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
+@pytest.mark.parametrize("num_experts", (1, 8, 16))
+def test_mxfp8_grouped_gemm_with_dq_fwd(M, K, N, num_experts):
+    from torchao.prototype.moe_training.scaled_grouped_mm import (
+        _MXFP8GroupedMM,
+    )
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
+    offs = generate_jagged_offs(num_experts, M)
+    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
+    block_size = 32
+
+    out = _MXFP8GroupedMM.apply(x, w_t, offs, block_size, torch.bfloat16)
+    ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
+    sqnr = compute_error(ref_out, out)
+    min_sqnr = 27.0
+    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"

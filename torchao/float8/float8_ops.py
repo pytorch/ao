@@ -444,7 +444,6 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     when the input is a Float8TrainingTensor, presenting as a fp32
     tensor.
     """
-    _assert_tensorwise_scale(aten_op, args[0]._scale)
     assert isinstance(args[0], Float8TrainingTensor)
     assert len(kwargs) == 1 and "dtype" in kwargs, (
         "Only support dtype kwarg for autocast"
@@ -459,6 +458,7 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         kwargs["dtype"],
         args[0]._linear_mm_config,
         args[0]._gemm_input_role,
+        args[0]._axiswise_dim,
     )
 
 

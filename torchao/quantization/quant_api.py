@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2024-2025 Arm Limited and affiliates.
 # All rights reserved.
-
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -862,8 +862,9 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         assert self.weight_mapping_type in [
             MappingType.ASYMMETRIC,
             MappingType.SYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         ], (
-            f"weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.weight_mapping_type}"
+            f"weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.weight_mapping_type}"
         )
         assert self.act_mapping_type in [
             MappingType.ASYMMETRIC,
@@ -917,6 +918,12 @@ def _int8_dynamic_activation_intx_weight_transform(
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
 
     # We quantize with QDQLayout, and then construct the packed weight tensor later
+    # set preserve_zero based on weight mapping type
+    preserve_zero = weight_mapping_type in [
+        MappingType.SYMMETRIC,
+        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+    ]
+
     weight = to_affine_quantized_intx(
         input_float=weight,
         mapping_type=weight_mapping_type,
@@ -926,7 +933,7 @@ def _int8_dynamic_activation_intx_weight_transform(
         quant_max=quant_max,
         scale_dtype=weight_scale_dtype,
         zero_point_dtype=torch.int8,
-        preserve_zero=(weight_mapping_type == MappingType.SYMMETRIC),
+        preserve_zero=preserve_zero,
         zero_point_domain=ZeroPointDomain.INT,
         _layout=QDQLayout(),
     )
