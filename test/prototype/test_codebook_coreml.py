@@ -33,7 +33,7 @@ class TestCodebookQuantization(unittest.TestCase):
         codebook, wq = choose_qparams_and_quantize_codebook_coreml(
             self.input,
             self.code_dtype,
-            [self.input.shape[0], 4],
+            self.block_size,
         )
         group_size = self.block_size[-1]
         self.assertEqual(codebook.shape, (1, 256 // group_size, 2**self.nbits, 1))
