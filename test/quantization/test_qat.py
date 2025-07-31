@@ -35,6 +35,7 @@ from torchao.quantization.qat.api import (
     FromIntXQuantizationAwareTrainingConfig,
     IntXQuantizationAwareTrainingConfig,
     QATConfig,
+    QATStep,
     initialize_fake_quantizers,
 )
 from torchao.quantization.qat.embedding import (
@@ -1272,6 +1273,8 @@ class TestQAT(unittest.TestCase):
         # OK
         QATConfig(base_config, step="prepare")
         QATConfig(base_config, step="convert")
+        QATConfig(base_config, step=QATStep.PREPARE)
+        QATConfig(base_config, step=QATStep.CONVERT)
         QATConfig(activation_config=fq_config, weight_config=fq_config, step="prepare")
         QATConfig(weight_config=fq_config, step="prepare")
 

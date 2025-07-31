@@ -3,7 +3,7 @@ from .api import (
     FromIntXQuantizationAwareTrainingConfig,
     IntXQuantizationAwareTrainingConfig,
     QATConfig,
-    QATConfigStep,
+    QATStep,
     from_intx_quantization_aware_training,
     initialize_fake_quantizers,
     intx_quantization_aware_training,
@@ -27,7 +27,7 @@ from .linear import (
 
 __all__ = [
     "QATConfig",
-    "QATConfigStep",
+    "QATStep",
     "FakeQuantizeConfigBase",
     "IntxFakeQuantizeConfig",
     "FakeQuantizer",
