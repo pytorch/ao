@@ -8,24 +8,18 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-pytest.importorskip("triton", reason="Triton required to run this test")
-
-from torchao.prototype.moe_training.utils import (
-    _to_mxfp8_per_group_colwise,
-    _to_mxfp8_per_group_rowwise,
-    generate_jagged_offs,
-)
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 # We need to skip before doing any imports which would use triton, since
 # triton won't be available on CPU builds and torch < 2.5
 if not (
-    TORCH_VERSION_AT_LEAST_2_5
+    TORCH_VERSION_AT_LEAST_2_7
     and torch.cuda.is_available()
     and torch.cuda.get_device_capability()[0] >= 9
 ):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
+pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.float8.config import (
     Float8LinearConfig,
@@ -38,6 +32,11 @@ from torchao.prototype.moe_training.scaled_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
     _scaled_grouped_mm,
+)
+from torchao.prototype.moe_training.utils import (
+    _to_mxfp8_per_group_colwise,
+    _to_mxfp8_per_group_rowwise,
+    generate_jagged_offs,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
