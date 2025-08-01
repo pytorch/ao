@@ -45,7 +45,6 @@ kernel_configs_2D = [
 from torch.library import triton_op, wrap_triton
 
 
-
 @triton_op("torchao::triton_fp8_row_major_jagged_rowwise_scales", mutates_args={})
 def triton_fp8_row_major_jagged_rowwise_scales(
     hp_tensor: torch.Tensor,
@@ -206,6 +205,7 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
             + block_col_offs[None, :] * stride_output_col
         )
         tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
+
 
 @triton_op("torchao::triton_fp8_col_major_jagged_colwise_scales", mutates_args={})
 def triton_fp8_col_major_jagged_colwise_scales(

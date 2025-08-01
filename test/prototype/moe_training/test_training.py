@@ -34,9 +34,7 @@ except ImportError:
         ["does.not.exist"],
     ],
 )
-@pytest.mark.parametrize(
-    "compile", [False, True]
-)
+@pytest.mark.parametrize("compile", [False, True])
 def test_moe_float8_training(target_fqns: list[str], compile: bool):
     model_args = TransformerModelArgs(
         moe_enabled=True,
