@@ -3,12 +3,12 @@ from typing import Optional
 
 import sympy
 import torch
-from torch._inductor import realize_inputs
 from torch._inductor.ir import ChoiceCaller, FixedLayout, TensorBox, get_fill_order
 from torch._inductor.lowering import register_lowering
 from torch._inductor.select_algorithm import (
     ExternKernelChoice,
     autotune_select_algorithm,
+    realize_inputs,
 )
 from torch.utils._pytree import tree_map
 
