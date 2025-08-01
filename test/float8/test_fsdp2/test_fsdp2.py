@@ -9,12 +9,10 @@ import threading
 import unittest
 from typing import Any, List, Optional
 
-import pytest
-
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_89
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    raise unittest.SkipTest("Unsupported PyTorch version")
 
 
 import torch
@@ -49,10 +47,10 @@ from torchao.testing.training.fsdp2_utils import (
 )
 
 if not is_sm_at_least_89():
-    pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
+    raise unittest.SkipTest("Unsupported CUDA device capability version")
 
 if torch.version.hip is not None:
-    pytest.skip("ROCm enablement in progress", allow_module_level=True)
+    raise unittest.SkipTest("ROCm enablement in progress")
 
 
 class TestFloat8Common:
