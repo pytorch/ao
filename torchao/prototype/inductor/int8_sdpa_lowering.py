@@ -3,10 +3,14 @@ from typing import Optional
 import sympy
 import torch
 from torch._inductor.ir import ChoiceCaller, FixedLayout, TensorBox, get_fill_order
+
 try:
     from torch._inductor.kernel.flex_attention import construct_strides, maybe_realize
 except ModuleNotFoundError:
-    from torch._inductor.kernel.flex.flex_attention import construct_strides, maybe_realize
+    from torch._inductor.kernel.flex.flex_attention import (
+        construct_strides,
+        maybe_realize,
+    )
 from torch._inductor.lowering import register_lowering
 from torch._inductor.select_algorithm import (
     ExternKernelChoice,
