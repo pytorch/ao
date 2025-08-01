@@ -1,23 +1,55 @@
+from collections.abc import Sequence
 from typing import Optional
 
 import sympy
 import torch
+from torch._inductor import realize_inputs
 from torch._inductor.ir import ChoiceCaller, FixedLayout, TensorBox, get_fill_order
-
-try:
-    from torch._inductor.kernel.flex_attention import construct_strides, maybe_realize
-except ModuleNotFoundError:
-    from torch._inductor.kernel.flex.common import (
-        construct_strides,
-        maybe_realize,
-    )
 from torch._inductor.lowering import register_lowering
 from torch._inductor.select_algorithm import (
     ExternKernelChoice,
     autotune_select_algorithm,
 )
+from torch.utils._pytree import tree_map
 
 from .codegen.cpp_int8_sdpa_template import CppInt8SdpaTemplate
+
+
+# Copied directly from https://github.com/pytorch/pytorch/commit/e221a1c853b425b8d70b36d545ccb32ddc8176bd
+def maybe_realize(args):
+    """Accepts a list of optional IRNodes and returns a list of realized IRNodes"""
+    return tree_map(
+        lambda x: (
+            realize_inputs(x)
+            if x is not None and not isinstance(x, sympy.Symbol)
+            else x
+        ),
+        args,
+    )
+
+
+# Copied directly from https://github.com/pytorch/pytorch/commit/e221a1c853b425b8d70b36d545ccb32ddc8176bd
+def construct_strides(
+    sizes: Sequence[int],
+    fill_order: Sequence[int],
+) -> Sequence[int]:
+    """From a list of sizes and a fill order, construct the strides of the permuted tensor."""
+    # Initialize strides
+    assert len(sizes) == len(fill_order), (
+        "Length of sizes must match the length of the fill order"
+    )
+    strides = [0] * len(sizes)
+
+    # Start with stride 1 for the innermost dimension
+    current_stride = 1
+
+    # Iterate through the fill order populating strides
+    for dim in fill_order:
+        strides[dim] = current_stride
+        current_stride *= sizes[dim]
+
+    return strides
+
 
 op_int8_sdpa = ExternKernelChoice(
     torch.ops.torchao.qscaled_dot_product.default,
