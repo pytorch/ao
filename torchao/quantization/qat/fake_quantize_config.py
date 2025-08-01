@@ -37,6 +37,22 @@ class FakeQuantizeConfigBase(abc.ABC):
 
 
 @dataclass
+class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for fake quantizing weights or activations to NVIDIA's NVFP4 format
+    according to https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/.
+
+    Fake quantization numerics follow `NVFP4Tensor` closely: https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/nvfp4_tensor.py.
+
+    Args:
+        use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
+            after the initial fp8 (e4m3) block-wise scaling.
+    """
+
+    use_per_tensor_scale: bool = False
+
+
+@dataclass
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,

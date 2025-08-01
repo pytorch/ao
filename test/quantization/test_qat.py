@@ -12,6 +12,7 @@ import unittest
 import warnings
 from typing import List
 
+import pytest
 import torch
 import torch.nn.functional as F
 from parameterized import parameterized
@@ -44,6 +45,7 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.fake_quantize_config import (
     IntxFakeQuantizeConfig,
+    NVFP4FakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
     FakeQuantizer,
@@ -112,8 +114,8 @@ class M(torch.nn.Module):
         self.sub = Sub()
         self.linear2 = torch.nn.Linear(256, 512, bias=False).to(torch.float)
 
-    def example_inputs(self):
-        return (torch.randn(1, 512).to(torch.float),)
+    def example_inputs(self, device: torch.device = None):
+        return (torch.randn((1, 512), device=device).to(torch.float),)
 
     def _get_all_weight_qparams(self) -> List[torch.Tensor]:
         return [
@@ -1883,6 +1885,32 @@ class TestQAT(unittest.TestCase):
                     "is deprecated and will be removed in a future release",
                     str(w.message),
                 )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @pytest.mark.parametrize("use_per_tensor_scale", [True, False])
+    def test_qat_nvfp4(self, use_per_tensor_scale: bool = False):
+        """
+        Test QAT with `NVFP4FakeQuantizeConfig`.
+        """
+        torch.manual_seed(self.SEED)
+        m = M().cuda()
+        baseline_model = copy.deepcopy(m)
+        qat_config = QATConfig(
+            activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
+            weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
+            step="prepare",
+        )
+        quantize_(m, qat_config)
+
+        # Compare prepared values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs("cuda")
+        out = m(*x)
+        baseline_out = baseline_model(*x)
+        sqnr = compute_error(out, baseline_out).item()
+        # Use same SQNR threshold as `test_nvfp4_reconstruction`
+        # TODO: why is this 0.0 when `use_per_tensor_scale=True`?
+        self.assertGreater(sqnr, 8.0)
 
 
 if __name__ == "__main__":
