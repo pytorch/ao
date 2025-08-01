@@ -74,6 +74,7 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
     )
 
     if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
         model = torch.compile(model, fullgraph=False)
         ref_model = torch.compile(ref_model, fullgraph=False)
 
