@@ -381,6 +381,7 @@ class TestFloat8Linear:
         "linear_dtype", [torch.bfloat16, torch.float16, torch.float32]
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0")
     @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
@@ -389,11 +390,6 @@ class TestFloat8Linear:
         linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
-        if torch.cuda.get_device_capability() < (9, 0):
-            warnings.warn(
-                f"CUDA capability {torch.cuda.get_device_capability()} < (9.0)"
-            )
-            pytest.skip()
 
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
