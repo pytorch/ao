@@ -8,7 +8,6 @@ import itertools
 import random
 import re
 import unittest
-import warnings
 
 import pytest
 import torch
