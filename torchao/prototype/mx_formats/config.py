@@ -54,24 +54,29 @@ class MXLinearRecipeName(Enum):
 class ScaleCalculationMode(Enum):
     """
     Enum representing the different methods for calculating MX block scaling.
-    There are three methods available:
+    There are four methods available:
+
     FLOOR: This method is recommended by the OCP MX Spec 1.0 and uses X = 2^floor(log2(max_abs(v))-max_exp).
            It result in overflow issues for large values and bad for gradient quantization.
-    CEIL: This method avoids overflow issues, but small values may shift to 0 due to a large scaling factor.
-           It uses X = 2^ceil(log2(max_abs(v))-max_exp).
-    EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
-           It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+
     RCEIL: The method is to apply ceil to the ratio of max_abs(v) and max_pos.
            This method's detail is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
            Section "Computing scaling and conversion factors for FP8 with UE8M0 scales"
+
+    CEIL: This method avoids overflow issues, but small values may shift to 0 due to a large scaling factor.
+           It uses X = 2^ceil(log2(max_abs(v))-max_exp).
+
+    EVEN: This method is a trade-off between FLOOR and CEIL. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
+           It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+           Note: EVEN does not work with torch.compile yet:
+           https://gist.github.com/vkuzo/1a04845cd503b1c75291aa1ea3bf79c4
+
     """
 
     FLOOR = "floor"
-    CEIL = "ceil"
-    # Note: `even` does not work with torch.compile yet:
-    # https://gist.github.com/vkuzo/1a04845cd503b1c75291aa1ea3bf79c4
-    EVEN = "even"
     RCEIL = "rceil"
+    CEIL = "ceil"
+    EVEN = "even"
 
 
 def _validate_elem_dtype(elem_dtype):
@@ -180,7 +185,10 @@ class MXLinearConfig(AOBaseConfig):
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             # TODO(future PR): default to CUDA dim1 kernel
-            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
+            return MXLinearConfig(
+                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+            )
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
             return MXLinearConfig(
                 gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
@@ -213,5 +221,5 @@ class MXLinearConfig(AOBaseConfig):
         if self.use_fp4_custom_triton_dequant_kernel:
             s += ", use_fp4_custom_triton_dequant_kernel=True"
         if self.scale_calculation_mode != ScaleCalculationMode.FLOOR:
-            s += ", scale_calculation_mode={self.scale_calculation_mode}"
+            s += f", scale_calculation_mode={self.scale_calculation_mode}"
         return s
