@@ -29,6 +29,7 @@ from torchao.quantization.utils import (
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     IntxFakeQuantizeConfig,
+    NVFP4FakeQuantizeConfig,
 )
 from .utils import (
     _fake_quantize_per_channel_group,
@@ -46,13 +47,14 @@ class FakeQuantizer(torch.nn.Module):
         super().__init__()
         self.config = config
         self.enabled = True
-        self.scale: Optional[torch.Tensor] = None
-        self.zero_point: Optional[torch.Tensor] = None
 
-        # For range learning only
-        # TODO: make this configurable?
-        self._scale_eps = 1e-9
-        self._initialized = False
+        if isinstance(self.config, IntxFakeQuantizeConfig):
+            self.scale: Optional[torch.Tensor] = None
+            self.zero_point: Optional[torch.Tensor] = None
+            # For range learning only
+            # TODO: make this configurable?
+            self._scale_eps = 1e-9
+            self._initialized = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -62,9 +64,46 @@ class FakeQuantizer(torch.nn.Module):
         if not self.enabled:
             return x
 
-        if not isinstance(self.config, IntxFakeQuantizeConfig):
-            raise ValueError("Only IntxFakeQuantizeConfig is supported currently")
+        if isinstance(self.config, NVFP4FakeQuantizeConfig):
+            return self._nvfp4_forward(x)
+        elif isinstance(self.config, IntxFakeQuantizeConfig):
+            return self._intx_forward(x)
+        else:
+            raise ValueError(f"Unexpected config type {self.config}")
 
+    def _nvfp4_forward(self, x: torch.Tensor):
+        """
+        Apply NVFP4 fake quantization to the tensor following `NVFP4Tensor`.
+        """
+        from torchao.prototype.mx_formats.nvfp4_tensor import (
+            _nvfp4_quantize,
+            per_tensor_amax_to_scale,
+        )
+
+        block_size = 16
+        if self.config.use_per_tensor_scale:
+            tensor_amax = torch.max(torch.abs(x))
+            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+        else:
+            per_tensor_scale = None
+        scale, q = _nvfp4_quantize(
+            x,
+            block_size=block_size,
+            per_tensor_scale=per_tensor_scale,
+            skip_dtype_cast_and_packing=True,
+        )
+        assert q.dtype == x.dtype
+        assert scale.dtype == torch.float32
+        M, K = q.shape[0], q.shape[1]
+        q = q.view(M, K // block_size, block_size)
+        scale = scale.view(M, K // block_size, 1)
+        dq = q * scale
+        return dq.view(x.shape)
+
+    def _intx_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply intx fake quantization to the tensor.
+        """
         if (
             self.config.range_learning
             and not self._initialized
@@ -77,15 +116,15 @@ class FakeQuantizer(torch.nn.Module):
             )
 
         if isinstance(self.config.granularity, PerToken):
-            return self._per_token_forward(x)
+            return self._intx_per_token_forward(x)
         elif isinstance(self.config.granularity, (PerAxis, PerGroup)):
-            return self._per_channel_or_group_forward(x)
+            return self._intx_per_channel_or_group_forward(x)
         else:
             raise ValueError("Unknown granularity '%s'" % self.config.granularity)
 
-    def _per_token_forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _intx_per_token_forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Perform per token fake quantization on the tensor.
+        Perform intx per token fake quantization on the tensor.
         """
         if self.config.is_symmetric:
             raise NotImplementedError("Symmetric per token is not supported yet")
@@ -105,9 +144,9 @@ class FakeQuantizer(torch.nn.Module):
             self._maybe_update_qparams_for_range_learning()
         return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax)
 
-    def _per_channel_or_group_forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _intx_per_channel_or_group_forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Perform per channel or per group fake quantization on the tensor.
+        Perform intx per channel or per group fake quantization on the tensor.
         We express per channel using per group where the group size is the size
         of the last dimension of the tensor.
         """
