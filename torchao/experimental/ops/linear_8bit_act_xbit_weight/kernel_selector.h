@@ -184,7 +184,7 @@ void register_ukernel_config_lut(
     namespace kernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
-    if (cpuinfo_has_arm_neon_dot()) {
+    if (!cpuinfo_has_arm_neon_dot()) {
       return;
     }
     if (format.has_weight_zeros) {

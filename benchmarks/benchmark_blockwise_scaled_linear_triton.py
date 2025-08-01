@@ -13,7 +13,7 @@ if torch.cuda.is_available():
     from triton.testing import do_bench
 
     from torchao.float8.float8_utils import compute_error
-    from torchao.prototype.blockwise_fp8.blockwise_quantization import (
+    from torchao.prototype.blockwise_fp8_inference.blockwise_quantization import (
         blockwise_fp8_gemm,
         fp8_blockwise_act_quant,
         fp8_blockwise_weight_quant,
