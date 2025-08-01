@@ -124,7 +124,11 @@ class TestAffineQuantized(TestCase):
         ql = linear
         aqt = ql.weight
         aqt_shape = aqt.shape
+        import fbvscode; fbvscode.set_trace()
         self.assertEqual(aqt_shape, shape)
+        q = aqt.dequantize()
+        print(q.t()-aqt.dequantize().t())
+        print(q.t()-aqt.t().dequantize())
 
         # transpose shape test
         for _ in range(10):

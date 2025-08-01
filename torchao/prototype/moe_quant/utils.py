@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torchao
+import torch.nn.functional as F
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
 )
@@ -12,7 +14,7 @@ from torch.utils._python_dispatch import (
 aten = torch.ops.aten
 
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Callable
 
 from torchao.quantization.quant_api import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -21,18 +23,314 @@ from torchao.quantization.quant_api import (
     register_quantize_module_handler,
 )
 from torchao.utils import fill_defaults
+from torch.ao.quantization.utils import getattr_from_fqn
+from .quantizable_moe_modules import MoEFeedForwardAOQuantizable
+
+import warnings
+warnings.simplefilter("ignore", lineno=84)
+warnings.simplefilter("ignore", lineno=105)
+
+__all__ = [
+    "MoEQuantConfig",
+    "MoEMapping",
+    "FakeExtraDimTensor",
+    "UseFakeExtraDimTensor",
+    "moe_filter",
+]
 
 
-class DummyModule(torch.nn.Module):
-    """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
-    DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.
+class UseFakeExtraDimTensor(Enum):
+    """Enum that indicate whether to use FakeExtraDimTensor"""
+
+    TRUE = auto()
+    FALSE = auto()
+    AS_FALLBACK = auto()
+
+
+@dataclass
+class MoEQuantConfig(AOBaseConfig):
+    """Configuration for applying quantization to MoE
+    Args:
+        `Optional[base_config]`: normal AO Config to be applied to a MoEFeedforwardAOQuantizable module,
+            if None, then will only do the conversion to MoEFeedforwardAOQuantizable using the mapping
+        `Optional[mapping]`: MoEMapping, if None, then this will do no conversion, note: only 
+            MoEFeedforwardAOQuantizable modules can be quantized.
     """
 
-    def __init__(self, weight: torch.Tensor, bias: Optional[torch.Tensor] = None):
-        super().__init__()
-        self.weight = weight
-        self.bias = bias
+    base_config: Optional[AOBaseConfig] = None
+    mapping: Optional["MoEMapping"] = None
+    
+    use_fake_extra_dim_tensor: UseFakeExtraDimTensor = UseFakeExtraDimTensor.AS_FALLBACK
+    set_inductor_config: bool = True
 
+@register_quantize_module_handler(MoEQuantConfig)
+def moe_convert_and_quant_fn(module: torch.nn.Module, config: MoEQuantConfig):
+    mapping = config.mapping
+    base_config = config.base_config
+    assert mapping is not None or base_config is not None, "need one of mapping or base_config to use MoEQuantConfig"
+
+    # maybe convert module to quantizable
+    if mapping is not None and isinstance(module, mapping.target_module_type):
+        module=_convert_module_to_ao_quantizable(module, mapping)
+
+    # maybe quantize module
+    if base_config is not None and isinstance(module, MoEFeedForwardAOQuantizable):
+        pass
+        module = _quantize_moe_module(module, config)
+
+    return module     
+
+def _quantize_moe_module(module: torch.nn.Module, config: MoEQuantConfig):
+    assert isinstance(module, MoEFeedForwardAOQuantizable), f"can only apply quantization to MoEFeedForwardAOQuantizable modules but got {type(module)}"
+
+    experts = module.experts
+
+    for weight_attr in experts.weight_attrs:
+        param = getattr(experts, weight_attr)
+        assert param.dim() == 3, (
+            f"when applying moe_quant to {module} expected 3D tensor for {weight_attr} but got {param.dim()}"
+        )
+        assert isinstance(config.base_config, AOBaseConfig), (
+            f"MoEQuantConfig expected to be initialized with an AOBaseConfig but got {type(config.base_config)}"
+            + "this can happen if you initiaze with MoEQuantConfig(AOConfig) rather than MoEQuantConfig(AOConfig())"
+        )
+        new_param = _quantize_moe_tensor(param, config)
+        new_param = torch.nn.Parameter(new_param, requires_grad=False)
+        setattr(experts, weight_attr, new_param)
+        del param
+    return module
+
+
+
+# Module-level flag to track if we've already printed the error
+_quantize_moe_tensor_has_printed_error = False
+
+def _quantize_moe_tensor(weight: torch.Tensor, config: MoEQuantConfig):
+    def _quantize_moe_tensor_base(weight, config):
+        base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
+        dummy_mod = DummyModule(weight)
+        quant_mod = base_config_handler(dummy_mod, config.base_config)
+        return quant_mod.weight
+
+    def _quantize_moe_tensor_fake_extra_dim_tensor(weight: torch.Tensor, config: MoEQuantConfig):
+        base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
+        # break 3D tensor
+        tensors = [weight[i] for i in range(weight.shape[0])]
+        # put tensors into modules since the handlers target modules not tensors
+        dummy_modules = [DummyModule(tensor) for tensor in tensors]
+        # apply handler to each module
+        quant_mods = list(
+            map(lambda x: base_config_handler(x, config.base_config), dummy_modules)
+        )
+        # pack quantized subclasses into FakeExtraDimTensor
+        quant_weight = FakeExtraDimTensor([mod.weight for mod in quant_mods])
+        return quant_weight
+
+    global _quantize_moe_tensor_has_printed_error
+
+    use_fake = config.use_fake_extra_dim_tensor
+    if use_fake == UseFakeExtraDimTensor.FALSE:
+        return _quantize_moe_tensor_base(weight, config)
+    elif use_fake == UseFakeExtraDimTensor.AS_FALLBACK:
+        try:
+            return _quantize_moe_tensor_base(weight, config)
+        except Exception as e:
+            if not _quantize_moe_tensor_has_printed_error:
+                print(f"tried to do moe_quant but got error: {e}")
+                _quantize_moe_tensor_has_printed_error = True
+            return _quantize_moe_tensor_fake_extra_dim_tensor(weight, config)
+    else:  # This handles UseFakeExtraDimTensor.TRUE
+        return _quantize_moe_tensor_fake_extra_dim_tensor(weight, config)
+
+@dataclass
+class MoEMapping:
+    """This mapping dataclass is used to map an existing MoE module to the AOQuantizable one
+    and is used with the convert_moe_with_mapping fn to convert a model to use the AO moe modules
+    """
+    target_module_type: type
+
+    router_fqn: str="gate"
+    top_k_fqn: Optional[str]="num_activated_experts"
+
+    # if up_proj is a single tensor, leave up_proj_part2_fqn as None, otherwise list the fqn 
+    # for w1 and up_proj_fqn and w3 as up_proj_part2_fqn
+    up_proj_fqn: str="cond_ffn.w1"
+    up_proj_part2_fqn: Optional[str]="cond_ffn.w3"
+    down_proj_fqn: str="cond_ffn.w2" # also known as down_proj
+
+    # what is the order of indices of the weights,
+    # specifically which order are the experts, out_features, in_features indices in?
+    # for up_proj this would be experts, expert_dim*2, hidden_dim, 
+    # for down_proj this would be experts, hidden_dim, expert_dim,
+    order_of_weight_indices: Union[Tuple[int], Tuple[int]]=(0, 1, 2,)
+
+    # can't both be None
+    activation_fn: Optional[Callable[[torch.Tensor], torch.Tensor]]=F.silu
+    activation_fn_fqn: Optional[str]=None
+    
+    # Options
+    shared_expert_fqn: Optional[str]=None
+    return_scores: bool=False
+    use_grouped_mm: bool=True
+
+def _convert_module_to_ao_quantizable(module: torch.nn.Module, mapping: MoEMapping):
+    assert isinstance(module, mapping.target_module_type), (
+        f"_convert_module_to_ao_quantizable only works on modules of type {mapping.target_module_type} but got {type(module)}"
+    )
+
+
+    # get router and top_k
+    router = getattr_from_fqn(module, mapping.router_fqn)
+    top_k = getattr_from_fqn(module, mapping.top_k_fqn)
+
+
+    # get up and down_proj
+    order_of_indices = mapping.order_of_weight_indices
+    if mapping.up_proj_part2_fqn is None:
+        up_proj = getattr_from_fqn(module, mapping.up_proj_fqn).permute(*order_of_indices).contiguous()
+    else:
+        w1 = getattr_from_fqn(module, mapping.up_proj_fqn).permute(*order_of_indices)
+        w3 = getattr_from_fqn(module, mapping.up_proj_part2_fqn).permute(*order_of_indices)
+        up_proj = torch.cat((w1, w3), dim=1).contiguous()
+    
+
+    down_proj = getattr_from_fqn(module, mapping.down_proj_fqn).permute(*order_of_indices).contiguous()
+
+
+    # get sizes
+    num_experts, hidden_dim, expert_dim = down_proj.shape
+
+    # get activation_fn
+    activation_fn = mapping.activation_fn
+    if activation_fn is None:
+        activation_fn = getattr_from_fqn(module, mapping.activation_fn_fqn)
+    assert activation_fn is not None, "both activation_fn and activation_fn_fqn can't be None in the MoEMapping"
+
+
+    # get final options
+    shared_expert = None
+    if isinstance(mapping.shared_expert_fqn, str):
+        shared_expert = getattr_from_fqn(module, mapping.shared_expert_fqn)
+    return_scores = mapping.return_scores
+
+    # make new module
+    new_module = torchao.prototype.moe_quant.MoEFeedForwardAOQuantizable(
+        num_experts,
+        hidden_dim, 
+        expert_dim,  
+        top_k, 
+        activation_fn,
+        shared_expert,
+        return_scores,
+    )
+
+    new_module.router = router
+    new_module.experts.up_proj = torch.nn.Parameter(up_proj)
+    new_module.experts.down_proj = torch.nn.Parameter(down_proj)
+
+    return new_module
+
+# class TransposeTensor(torch.Tensor):
+#     """This is a subclass of torch.Tensor that handles transposition of the last 2 dimensions of the tensor. Rather than
+#     transposing the inner tensor, it keeps track of the transposition
+#     """
+#     def __new__(
+#         cls,
+#         tensor: torch.Tensor,
+#         transposed: bool=False,
+#     ):
+#         kwargs = {}
+#         kwargs["dtype"] = tensor.dtype
+#         kwargs["device"] = tensor.device
+#         kwargs["layout"] = tensor.layout
+#         kwargs["requires_grad"] = tensor.requires_grad
+#         new_shape = tensor.shape[:-2] + tensor.shape[-1:-3:-1] if transposed else tensor.shape
+#         return torch.Tensor._make_wrapper_subclass(cls, new_shape, **kwargs)
+
+#     def __init__(
+#         self,
+#         tensor: torch.Tensor,
+#         transposed: bool=False,
+#     ):  
+#         self.tensor = tensor
+#         self.transposed = transposed
+
+#     def __repr__(
+#         self,
+#     ):
+#         return f"{self.__class__.__name__}({self.tensor.__repr__})"
+
+#     def __tensor_flatten__(self):
+#         return ["tensor"], [self.transposed]
+
+#     @classmethod
+#     def __tensor_unflatten__(
+#         cls,
+#         tensor_data_dict,
+#         tensor_attributes,
+#         outer_size,
+#         outer_stride,
+#     ):
+#         tensor = tensor_data_dict["tensor"]
+#         transposed = tensor_attributes[0]
+#         return cls(tensor, transposed)
+
+#     @classmethod
+#     def __torch__function__(cls, func, types, args, kwargs=None):
+#         kwargs = {} if kwargs is None else kwargs
+#         if func is torch.nn.functional.linear:
+#             assert x.shape[-1] == w.shape[-1], f"need x.shape[-1] == w.tensor.shape[-1] but got shapes: {x.shape} and {w.tensor.shape}"
+#             x, w, bias = fill_defaults(args, 3, [None])
+#             return func(x, w.tensor, bias)
+#         try:
+#             with torch._C.DisableTorchFunctionSubclass():
+#                 return func(*args, **kwargs)
+#         except Exception as e:
+#             print(f"ERR: subclass {cls} doesn't implement {func}, got error: {e}")
+
+#     @classmethod
+#     def __torch_dispatch__(cls, func, types, args, kwargs=None):
+#         kwargs = {} if kwargs is None else kwargs
+#         if func == aten.t.default:
+#             if args[0].dim()==2:
+#                 return return_and_correct_aliasing(
+#                     func, args, kwargs, cls(args[0].tensor, not args[0].transposed)
+#                 )
+
+#         elif func == aten.transpose.int:
+#             self, dim0, dim1 = fill_defaults(args, 3, [-2, -1])
+#             dim0 = self.tensor.dim()-dim0 if dim0>0 else dim0
+#             dim1 = self.tensor.dim()-dim1 if dim1>0 else dim1
+#             if {dim0, dim1} == {-2, -1}:
+#                 return return_and_correct_aliasing(
+#                     func, args, kwargs, cls(self.tensor, not self.transposed)
+#                 )
+#         elif func == aten._grouped_mm.default:
+#             import fbvscode; fbvscode.set_trace()
+#             x, w, offs = args
+#             assert x.shape[-1] == w.shape[-2], f"need x.shape[-1] == w.shape[-2] but got shapes: {x.shape} and {w.shape}"
+#             try:
+#                 return torch._grouped_mm(x, w.tensor, offs)
+#             except:
+#                 return torchao.prototype.moe_quant.kernels.grouped_mm_linear_decomposition(
+#                     x, w, offs
+#                 )
+#         try:
+#             return return_and_correct_aliasing(
+#                 func,
+#                 args,
+#                 kwargs,
+#                 cls(func(args[0].tensor, *args[1:], **kwargs), args[0].transposed),
+#             )
+#         except Exception as e:
+#             print(
+#                 f"function {func} failed for TransposeTensor, following error occured when trying to"
+#                 "run the function on its elements: "
+#             )
+#             raise e 
+
+    
+        
 
 class FakeExtraDimTensor(torch.Tensor):
     """This is a subclass of torch.Tensor that simulates a tensor of n+1 dimensions, akin to concatenating several tensors along the 0th dimension.
@@ -220,94 +518,16 @@ class FakeExtraDimTensor(torch.Tensor):
             raise e
 
 
-class UseFakeExtraDimTensor(Enum):
-    """Enum that indicate whether to use FakeExtraDimTensor"""
-
-    TRUE = auto()
-    FALSE = auto()
-    AS_FALLBACK = auto()
-
-
-@dataclass
-class MoEQuantConfig(AOBaseConfig):
-    """Configuration for applying quantization to MoE
-    Args:
-        `base_config`: normal AO Config
+class DummyModule(torch.nn.Module):
+    """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
+    DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.
     """
 
-    base_config: AOBaseConfig
-    use_fake_extra_dim_tensor: UseFakeExtraDimTensor = UseFakeExtraDimTensor.AS_FALLBACK
-    set_inductor_config: bool = True
+    def __init__(self, weight: torch.Tensor, bias: Optional[torch.Tensor] = None):
+        super().__init__()
+        self.weight = weight
+        self.bias = bias
 
 
-# Module-level flag to track if we've already printed the error
-_moe_quant_tensor_has_printed_error = False
-
-
-def _moe_quant_tensor(weight, config):
-    def _moe_quant_tensor_base(weight, config):
-        base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
-        dummy_mod = DummyModule(weight)
-        quant_mod = base_config_handler(dummy_mod, config.base_config)
-        return quant_mod.weight
-
-    def _moe_quant_tensor_fake_extra_dim_tensor(weight, config):
-        base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
-        # break 3D tensor
-        tensors = [weight[i] for i in range(weight.shape[0])]
-        # put tensors into modules since the handlers target modules not tensors
-        dummy_modules = [DummyModule(tensor) for tensor in tensors]
-        # apply handler to each module
-        quant_mods = list(
-            map(lambda x: base_config_handler(x, config.base_config), dummy_modules)
-        )
-        # pack quantized subclasses into FakeExtraDimTensor
-        quant_weight = FakeExtraDimTensor([mod.weight for mod in quant_mods])
-        return quant_weight
-
-    global _moe_quant_tensor_has_printed_error
-
-    use_fake = config.use_fake_extra_dim_tensor
-    if use_fake == UseFakeExtraDimTensor.FALSE:
-        return _moe_quant_tensor_base(weight, config)
-    elif use_fake == UseFakeExtraDimTensor.AS_FALLBACK:
-        try:
-            return _moe_quant_tensor_base(weight, config)
-        except Exception as e:
-            if not _moe_quant_tensor_has_printed_error:
-                print(f"tried to do moe_quant but got error: {e}")
-                _moe_quant_tensor_has_printed_error = True
-            return _moe_quant_tensor_fake_extra_dim_tensor(weight, config)
-    else:  # This handles UseFakeExtraDimTensor.TRUE
-        return _moe_quant_tensor_fake_extra_dim_tensor(weight, config)
-
-
-@register_quantize_module_handler(MoEQuantConfig)
-def moe_quant_fn(module, config: MoEQuantConfig):
-    import warnings
-
-    warnings.simplefilter("ignore", lineno=84)
-    warnings.simplefilter("ignore", lineno=105)
-
-    for weight_attr in ["w1", "w2", "w3"]:
-        param = getattr(module, weight_attr)
-        assert param.dim() == 3, (
-            f"when applying moe_quant to {module} expected 3D tensor for {weight_attr} but got {param.dim()}"
-        )
-        assert isinstance(config.base_config, AOBaseConfig), (
-            f"MoEQuantConfig expected to be initialized with an AOBaseConfig but got {type(config.base_config)}"
-            + "this can happen if you initiaze with MoEQuantConfig(AOConfig) rather than MoEQuantConfig(AOConfig())"
-        )
-        new_param = _moe_quant_tensor(param, config)
-        new_param = torch.nn.Parameter(new_param, requires_grad=False)
-        setattr(module, weight_attr, new_param)
-        del param
-    return module
-
-
-def moe_filter(module, fqn):
-    return "MOEFeedForwardAOQuantizable" in str(type(module))
-
-
-def cond_ffn_filter(module, fqn):
-    return "ConditionalFeedForwardAOQuantizable" in str(type(module))
+def moe_filter(module: torch.nn.Module, fqn: str):
+    return "MoEFeedForwardAOQuantizable" in str(type(module))

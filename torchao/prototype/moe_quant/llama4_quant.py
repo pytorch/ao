@@ -17,7 +17,7 @@ from transformers import AutoTokenizer, Llama4ForCausalLM
 from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
 from torchao.prototype.moe_quant.quantizable_moe_modules import (
-    MOEFeedForwardAOQuantizable,
+    MoEFeedForwardAOQuantizable,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
@@ -35,7 +35,7 @@ def convert_fn(module):
     act_fn = module.experts.act_fn
     shared_expert = module.shared_expert
     return_scores = True
-    new_mod = MOEFeedForwardAOQuantizable(
+    new_mod = MoEFeedForwardAOQuantizable(
         hidden_dim,
         expert_dim,
         num_experts,

@@ -240,7 +240,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     ):
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
-        self.transposed = False
+        self.transposed = transposed
         self._layout = _layout
 
     def __tensor_flatten__(self):
@@ -344,6 +344,10 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
 
+        if func is aten._grouped_mm.default:
+            from torchao.prototype.moe_quant.kernels import grouped_mm_linear_decomposition
+            return grouped_mm_linear_decomposition(*args)
+
         if func is aten.detach.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
@@ -388,6 +392,22 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                 args[0]._layout,
             )
             return return_and_correct_aliasing(func, args, kwargs, transposed)
+
+        if func is aten.transpose.int:
+            assert len(args) == 3, f"expected transpose to have 3 args but got {args}"
+            self, dim0, dim1 = args
+            dims=self.shape
+            dim0 = dim0 - dims if dim0 > 0 else dim0
+            dim1 = dim1 - dims if dim1 > 0 else dim1
+            if {dim0, dim1} == {-1, -2}:
+                transposed = TensorCoreTiledAQTTensorImpl(
+                    args[0].packed_weight,
+                    args[0].scale_and_zero,
+                    not args[0].transposed,
+                    args[0]._layout,
+                )
+                return return_and_correct_aliasing(func, args, kwargs, transposed)
+
 
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
@@ -520,6 +540,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             quant_min,
             quant_max,
         )
+        int_data = int_data.transpose(-2, -1) if self.transposed else int_data
+        scale = scale.transpose(-2, -1) if self.transposed else scale
+        zero = zero.transpose(-2, -1) if self.transposed else zero
         return int_data, scale, zero
 
     def get_layout(self) -> Layout:

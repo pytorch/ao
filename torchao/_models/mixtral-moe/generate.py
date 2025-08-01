@@ -14,6 +14,9 @@ import torch._dynamo.config
 import torch._inductor.config
 
 from torchao.utils import get_model_size_in_bytes
+from torchao.prototype.moe_quant import MoEFeedForwardAOQuantizable
+from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from model import MoEFeedForward
 
 torch.manual_seed(0)
 
@@ -187,7 +190,6 @@ def _load_model(checkpoint_path, device, precision):
 
 B_INST, E_INST = "[INST]", "[/INST]"
 
-
 def main(
     prompt: str = "Hello, my name is",
     interactive: bool = False,
@@ -199,6 +201,7 @@ def main(
     checkpoint_path: Path = Path("checkpoints/mistralai/Mixtral-8x7B-v0.1/model.pth"),
     compile: bool = True,
     compile_prefill: bool = False,
+    compile_mode: str = "reduce-overhead",
     moe_quant: Optional[str] = None,
     profile: Optional[Path] = None,
     memory_profile: Optional[Path] = None,
@@ -211,6 +214,13 @@ def main(
     print(f"Using device={device}")
     precision = torch.bfloat16
     is_chat = "chat" in str(checkpoint_path)
+
+    if batch_size > 1 and moe_quant is None:
+        print(
+            "Warning: Detected no moe_quant but batchsize>1. The default MoE implementation uses a lot of memory when batched,"+
+            " if it OOMs you can instead run without quantization by specifying --moe_quant noquant which uses the AO quantizable"+
+            "module without quantization to run the quantizable module without quantization"
+        )
 
     if device == "cuda" and memory_profile is not None:
         torch.cuda.memory._record_memory_history(
@@ -236,10 +246,12 @@ def main(
         ]
     )
 
-    from torchao.prototype.moe_quant.utils import (
+    from torchao.prototype.moe_quant import (
         MoEQuantConfig,
+        MoEMapping,
         UseFakeExtraDimTensor,
-        cond_ffn_filter,
+        MoEFeedForwardAOQuantizable,
+
     )
     from torchao.quantization.quant_api import (
         Float8DynamicActivationFloat8WeightConfig,
@@ -255,71 +267,62 @@ def main(
 
     if moe_quant:
         torch._dynamo.config.capture_dynamic_output_shape_ops = True
-        config = None
+        config = MoEQuantConfig(mapping=MoEMapping(target_module_type=MoEFeedForward))
         if "int8wo-base" in moe_quant:
-            config = MoEQuantConfig(Int8WeightOnlyConfig())
+            config.base_config = Int8WeightOnlyConfig()
 
         elif "int8wo" in moe_quant:
-            config = MoEQuantConfig(
-                Int8WeightOnlyConfig(),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
+            config.base_config = Int8WeightOnlyConfig()
+            config.use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
 
         elif "int8dq-base" in moe_quant:
-            config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
+            config.base_config = Int8DynamicActivationInt8WeightConfig()
 
         elif "int8dq" in moe_quant:
-            config = MoEQuantConfig(
-                Int8DynamicActivationInt8WeightConfig(),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
+            config.base_config = Int8DynamicActivationInt8WeightConfig()
+            config.use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
 
         elif "int4wo-base" in moe_quant:
-            config = MoEQuantConfig(Int4WeightOnlyConfig())
+            config.base_config = Int4WeightOnlyConfig()
 
         elif "int4wo" in moe_quant:
-            config = MoEQuantConfig(
-                Int4WeightOnlyConfig(),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
+            config.base_config = Int4WeightOnlyConfig()
+            config.use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
 
         elif "fp8wo-base" in moe_quant:
-            config = MoEQuantConfig(Float8WeightOnlyConfig())
+            config.base_config = Float8WeightOnlyConfig()
 
         elif "fp8wo" in moe_quant:
-            config = MoEQuantConfig(
-                Float8WeightOnlyConfig(),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
+            config.base_config = Float8WeightOnlyConfig()
+            config.use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
 
         elif "fp8dq-base" in moe_quant:
-            config = MoEQuantConfig(
-                Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
-            )
+            config.base_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 
         elif "fp8dq" in moe_quant:
-            config = MoEQuantConfig(
-                Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
+            config.base_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+            config.use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
 
         elif "intxdq" in moe_quant:
-            config = MoEQuantConfig(
-                Int8DynamicActivationIntxWeightConfig(
+            config.base_config = Int8DynamicActivationIntxWeightConfig(
                     layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
                 ),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
+            config.use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+        elif "noquant" in moe_quant:
+            pass
         else:
             assert config is not None, (
                 f"expected moe_quant to match one of the options but got {moe_quant}"
             )
 
-        if config is not None:
-            quantize_(model, config, filter_fn=cond_ffn_filter, device=device)
-            print(
-                f"Time to apply quantization with config {config} to model: {time.time() - t0:.02f} seconds"
-            )
+        def filter_fn(mod, fqn):
+            return isinstance(mod, MoEFeedForward)
+
+        quantize_(model, config, filter_fn=filter_fn, device=device)
+
+        print(
+            f"Time to apply quantization with config {config} to model: {time.time() - t0:.02f} seconds"
+        )
 
     model.to(device=device)
     device_sync(device=device)
@@ -335,12 +338,12 @@ def main(
 
         global decode_one_token, prefill
 
-        if batch_size == 1 and (isinstance(moe_quant, str) and "base" in moe_quant):
+        if (batch_size == 1 and (isinstance(moe_quant, str) and "base" in moe_quant)):
             decode_one_token = torch.compile(
-                decode_one_token, mode="reduce-overhead", fullgraph=True
+                decode_one_token, mode=compile_mode, fullgraph=True
             )
         else:
-            decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead")
+            decode_one_token = torch.compile(decode_one_token, mode=compile_mode)
 
         if args.compile_prefill:
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
@@ -474,6 +477,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to compile the prefill (improves prefill perf, but higher compile times)",
     )
+    parser.add_argument(
+        "--compile_mode",
+        type=str,
+        default="reduce-overhead",
+        help="which torch.compile mode to use: reduce-overhead or max-autotune, does nothing if --compile is not set.",
+    )
     # parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo, fp8')
     parser.add_argument(
         "--moe_quant",
@@ -499,6 +508,7 @@ if __name__ == "__main__":
         args.checkpoint_path,
         args.compile,
         args.compile_prefill,
+        args.compile_mode,
         args.moe_quant,
         args.profile,
         args.memory_profile,

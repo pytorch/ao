@@ -639,7 +639,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
     def test_moe_quant_intx(self):
         from torchao.prototype.moe_quant.quantizable_moe_modules import (
-            MOEFeedForwardAOQuantizable,
+            MoEFeedForwardAOQuantizable,
         )
         from torchao.prototype.moe_quant.utils import (
             FakeExtraDimTensor,
@@ -655,7 +655,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         from torchao.quantization.utils import compute_error
 
         with torch.device("cpu"):
-            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
+            model = MoEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
                 torch.float32
             )
             x = torch.randn(8, 512, dtype=torch.float32)
