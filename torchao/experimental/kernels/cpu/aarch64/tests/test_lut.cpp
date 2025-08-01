@@ -71,7 +71,13 @@ void test_groupwise_lowbit_lut_kernel(
   std::vector<float> packed_activations_buffer(
       kernel_api::packed_activations_size(m, k, mr_, kr_, sr_));
   kernel_api::pack_activations<mr_, kr_, sr_>(
-      packed_activations_buffer.data(), m, k, source_activations.data());
+      packed_activations_buffer.data(),
+      m,
+      k,
+      source_activations.data(),
+      mr_,
+      kr_,
+      sr_);
   // 3. Pack Weights
   std::vector<char> packed_weights(kernel_api::packed_weights_size(
       n,
@@ -83,19 +89,21 @@ void test_groupwise_lowbit_lut_kernel(
       nr_,
       kr_,
       sr_));
-  kernel_api::
-      pack_weights_for_groupwise_lut_kernel<weight_nbit_, nr_, kr_, sr_>(
-          packed_weights.data(),
-          test_case.weight_qval_indices.data(),
-          test_case.weight_scales.data(),
-          test_case.weight_luts.data(),
-          n,
-          k,
-          flat_scale_group_size,
-          flat_lut_group_size,
-          has_scales_,
-          has_bias,
-          test_case.bias.data());
+  kernel_api::pack_weights<weight_nbit_, nr_, kr_, sr_>(
+      packed_weights.data(),
+      test_case.weight_qval_indices.data(),
+      test_case.weight_scales.data(),
+      test_case.weight_luts.data(),
+      n,
+      k,
+      flat_scale_group_size,
+      flat_lut_group_size,
+      has_scales_,
+      has_bias,
+      test_case.bias.data(),
+      nr_,
+      kr_,
+      sr_);
 
   // 4. Run the kernel
   std::vector<float> output(m * n);

@@ -13,9 +13,7 @@
 #include <unordered_map>
 
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
-#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
-#include <torchao/experimental/kernels/cpu/aarch64/linear/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.h>
-#endif // TORCHAO_ENABLE_ARM_NEON_DOT
+#include <torchao/experimental/kernels/cpu/aarch64/linear/groupwise_lowbit_weight/groupwise_lowbit_weight_lut.h>
 #endif // TORCHAO_BUILD_CPU_AARCH64
 
 namespace torchao::ops::groupwise_lowbit_weight_lut {
@@ -122,19 +120,22 @@ void register_ukernel_config(
       torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
 
   using kernel_fn_ptr_t =
-      decltype(&kernel_api::kernel_lowbit_1x4x32_f32<weight_nbit, true>);
+      decltype(&kernel_api::groupwise_lowbit_weight_lut_kernel_1x4x32<
+               weight_nbit,
+               true>);
   kernel_fn_ptr_t kernel_dispatcher;
 
   if (format.has_scales) {
-    kernel_dispatcher =
-        &kernel_api::kernel_lowbit_1x4x32_f32<weight_nbit, /*has_scales=*/true>;
+    kernel_dispatcher = &kernel_api::groupwise_lowbit_weight_lut_kernel_1x4x32<
+        weight_nbit,
+        /*has_scales=*/true>;
   } else {
-    kernel_dispatcher =
-        &kernel_api::
-            kernel_lowbit_1x4x32_f32<weight_nbit, /*has_scales=*/false>;
+    kernel_dispatcher = &kernel_api::groupwise_lowbit_weight_lut_kernel_1x4x32<
+        weight_nbit,
+        /*has_scales=*/false>;
   }
   if (format.nr == 4 && format.kr == 32 && format.sr == 8) {
-    log_registration(format, "lut: kernel_lowbit_1x4x32_f32");
+    log_registration(format, "lut: groupwise_lowbit_weight_lut_kernel_1x4x32");
     constexpr int nr = 4;
     constexpr int kr = 32;
     constexpr int sr = 8;
@@ -152,22 +153,25 @@ void register_ukernel_config(
         /*has_scales=*/format.has_scales,
         /*has_bias=*/format.has_bias,
         /*packed_weights_size_fn_type=*/
-        &kernel_api::packed_weights_size<weight_nbit, nr, kr, sr>,
+        &kernel_api::packed_weights_size,
+        /*packed_weights_offset_fn_type=*/
+        &kernel_api::packed_weights_offset,
         /*pack_weights_fn_type=*/
         &kernel_api::
-            pack_weights_for_groupwise_lut_kernel<weight_nbit, nr, kr, sr>,
+            pack_weights<weight_nbit, nr, kr, sr>,
         /*configs=*/{});
 
-    uk.configs[0] = UKernelConfig::group_config_type(
+    uk.configs[0] = UKernelConfig::config_type
         {m_step,
          mr,
          &kernel_api::packed_activations_size,
          &kernel_api::packed_activations_offset,
          &kernel_api::pack_activations<mr, kr, sr>,
-         kernel_dispatcher});
+         kernel_dispatcher};
 
     // Resgister the kernel config.
     table.register_ukernel_config(format, uarch, std::move(uk));
+    return;
   }
 }
 #endif // TORCHAO_BUILD_CPU_AARCH64
@@ -206,7 +210,9 @@ UKernelConfig select_ukernel_config(torchao::ops::PackedWeightsHeader header) {
   register_ukernel_config<weight_nbit>(table, format, uarch);
 
   ukernel = table.get_ukernel_config(header, uarch);
-  assert(ukernel.has_value() && "Kernel registration failed for the current CPU microarchitecture.");
+  assert(
+      ukernel.has_value() &&
+      "Kernel registration failed for the current CPU microarchitecture.");
   return ukernel.value();
 #else
   throw std::runtime_error(
