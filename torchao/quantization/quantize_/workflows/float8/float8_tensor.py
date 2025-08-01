@@ -169,7 +169,7 @@ class Float8Tensor(TorchAOBaseTensor):
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
         granularity: FP8Granularity = PerRow(),
         mm_config: Optional[Float8MMConfig] = None,
-        hp_value_lb: Optional[float] = None,
+        hp_value_lb: Optional[float] = 1e-12,
         hp_value_ub: Optional[float] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
@@ -209,8 +209,10 @@ class Float8Tensor(TorchAOBaseTensor):
                 block_size=block_size,
                 hp_value_lb=hp_value_lb,
                 hp_value_ub=hp_value_ub,
+                reverse=True,
             )
-            data = _quantize_affine_float8(hp_tensor, scale, float8_dtype)
+            data = _quantize_affine_float8(hp_tensor, scale, float8_dtype, reverse=True)
+            scale = 1.0 / scale
 
         hp_dtype = hp_tensor.dtype
         return Float8Tensor(
