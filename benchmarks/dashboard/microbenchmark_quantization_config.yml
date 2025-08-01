@@ -14,6 +14,7 @@ model_params:
         min_power: 10
         max_power: 15
     high_precision_dtype: "torch.bfloat16"
+    use_torch_compile: true
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"

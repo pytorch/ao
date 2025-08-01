@@ -120,26 +120,22 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
         result = run_inference(config)
 
         if result is not None:
-            ## Create benchmark result in OSS format
-
-            # Compile mode speedup
-            compile_speedup_result = create_benchmark_result(
+            # Create benchmark result in OSS format
+            speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
                 metric_name="Fwd Speedup (x)",
-                metric_values=[result.compile_speedup_on_baseline],
+                metric_values=[result.speedup],
                 quant_type=config.quantization,
                 device=config.device,
                 torch_compile_mode=config.torch_compile_mode,
             )
-            results.append(compile_speedup_result)
-
-            # Compile mode baseline
-            compile_baseline_time_result = create_benchmark_result(
+            results.append(speedup_result)
+            baseline_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
                 metric_name="Bfloat16 Fwd Time (ms)",
-                metric_values=[result.compile_baseline_inference_time_in_ms],
+                metric_values=[result.baseline_inference_time_in_ms],
                 quant_type=config.quantization,
                 device=config.device,
                 torch_compile_mode=config.torch_compile_mode,
@@ -147,14 +143,12 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                     "unit": "ms",
                 },
             )
-            results.append(compile_baseline_time_result)
-
-            # Compile mode quantized
-            compile_quantize_time_result = create_benchmark_result(
+            results.append(baseline_time_result)
+            quantize_time_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
                 metric_name="Quantized Fwd Time (ms)",
-                metric_values=[result.compile_model_inference_time_in_ms],
+                metric_values=[result.model_inference_time_in_ms],
                 quant_type=config.quantization,
                 device=config.device,
                 torch_compile_mode=config.torch_compile_mode,
@@ -162,63 +156,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
                     "unit": "ms",
                 },
             )
-            results.append(compile_quantize_time_result)
-
-            # Eager mode speedup
-            eager_speedup_result = create_benchmark_result(
-                benchmark_name="TorchAO Quantization Benchmark",
-                shape=[config.m, config.k, config.n],
-                metric_name="Fwd Speedup w/ Eager (x)",
-                metric_values=[result.eager_speedup_on_baseline],
-                quant_type=config.quantization,
-                device=config.device,
-                torch_compile_mode=config.torch_compile_mode,
-            )
-            results.append(eager_speedup_result)
-
-            # Eager mode baseline
-            eager_baseline_time_result = create_benchmark_result(
-                benchmark_name="TorchAO Quantization Benchmark",
-                shape=[config.m, config.k, config.n],
-                metric_name="Bfloat16 Fwd Time w/ Eager (ms)",
-                metric_values=[result.eager_baseline_inference_time_in_ms],
-                quant_type=config.quantization,
-                device=config.device,
-                torch_compile_mode=config.torch_compile_mode,
-                metric_extra_info={
-                    "unit": "ms",
-                },
-            )
-            results.append(eager_baseline_time_result)
-
-            # Eager mode quantized
-            eager_quantize_time_result = create_benchmark_result(
-                benchmark_name="TorchAO Quantization Benchmark",
-                shape=[config.m, config.k, config.n],
-                metric_name="Quantized Fwd Time w/ Eager (ms)",
-                metric_values=[result.eager_model_inference_time_in_ms],
-                quant_type=config.quantization,
-                device=config.device,
-                torch_compile_mode=config.torch_compile_mode,
-                metric_extra_info={
-                    "unit": "ms",
-                },
-            )
-            results.append(eager_quantize_time_result)
-
-            ## Compile vs eager results
-            compile_eager_speedup_result = create_benchmark_result(
-                benchmark_name="TorchAO Quantization Benchmark",
-                shape=[config.m, config.k, config.n],
-                metric_name="Eager vs Compile Fwd Speedup (x)",
-                metric_values=[result.compile_speedup_on_eager],
-                quant_type=config.quantization,
-                device=config.device,
-                torch_compile_mode=config.torch_compile_mode,
-            )
-            results.append(compile_eager_speedup_result)
-
-            ## Memory results
+            results.append(quantize_time_result)
             allocated_memory_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
