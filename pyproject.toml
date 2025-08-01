@@ -1,0 +1,122 @@
+[build-system]
+requires = [
+    "setuptools>=70.0",
+    "wheel", 
+    "torch>=2.0.0",
+    "cmake>=3.18",
+    "ninja",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "torchao"
+dynamic = ["version"]
+description = "Package for applying ao techniques to GPU models"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [
+    {name = "PyTorch Team", email = "packages@pytorch.org"},
+]
+maintainers = [
+    {name = "PyTorch Team", email = "packages@pytorch.org"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["pytorch", "machine learning", "optimization", "quantization"]
+
+# Runtime dependencies
+dependencies = [
+    "torch>=2.0.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "expecttest",
+    "unittest-xml-reporting>=3.2.0,<4.0.0",
+    "pre-commit",
+    "pytest",
+    "pytest-timeout>=2.2.0",
+    "pytest-rerunfailures>=10.3",
+    "bitsandbytes",
+    "lm-eval",
+    "pandas",
+    "tabulate",
+    "torch-tb-profiler",
+    "xdoctest==1.0.2",
+    "torchprofile",
+    "optree",
+    "ruff==0.3.5",
+    "transformers",
+    "datasets",
+    "huggingface_hub",
+    "parameterized",
+    "scikit-learn",
+    "sentencepiece",
+    "tabulate",
+    "mpmath==1.3.0",
+    "gguf==0.6.0",
+    "einops",
+    "tokenizers",
+    "matplotlib",
+    "wandb",
+    "scipy",
+    "psutil",
+    "accelerate",
+    "tiktoken",
+    "loguru",
+    "safetensors",
+    "mypy==1.11.1",
+    "gitpython",
+    "mkl-static==2025.0.1",
+    "mkl-include==2025.0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/pytorch/ao"
+Repository = "https://github.com/pytorch/ao"
+Issues = "https://github.com/pytorch/ao/issues"
+Documentation = "https://github.com/pytorch/ao#readme"
+
+[tool.setuptools]
+packages = {find = {exclude = ["benchmarks", "benchmarks.*", "test", "test.*", "tests", "tests.*"]}}
+include-package-data = true
+py-modules = ["backend"]
+
+[tool.setuptools.package-data]
+"torchao.kernel.configs" = ["*.pkl"]
+"*" = ["*.so", "*.dylib", "*.dll", "*.pyd"]
+
+[tool.setuptools.dynamic]
+version = {attr = "backend.get_version"}
+
+[tool.ruff]
+# Reuse existing ruff configuration
+extend = "ruff.toml"
+
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-*"
+skip = "*-musllinux_* *-win32 *-manylinux_i686"
+
+[tool.cibuildwheel.linux]
+before-build = "bash packaging/pre_build_script.sh"
+environment = { USE_CPP="1" }
+
+[tool.cibuildwheel.macos]
+before-build = "bash packaging/pre_build_script.sh"
+environment = { USE_CPP="1", MACOSX_DEPLOYMENT_TARGET="10.15" }
+
+[tool.cibuildwheel.windows]
+before-build = "packaging\\pre_build_script.bat"
+environment = { USE_CPP="1" }
