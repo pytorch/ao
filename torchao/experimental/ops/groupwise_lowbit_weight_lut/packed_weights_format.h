@@ -63,7 +63,7 @@ struct PackedWeightsFormat {
         static_cast<bool>(header.params[4]), // has_bias
         header.params[5], // nr
         header.params[6], // kr
-        header.params[7], // sr
+        header.params[7] // sr
     );
   }
 
