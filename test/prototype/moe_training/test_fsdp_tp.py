@@ -30,12 +30,10 @@ try:
         parallelize_module,
     )
 except ImportError:
-    import warnings
-
-    warnings.warn(
-        "torch version is too old, these tests require nightly build. Skipping MoE training tests."
+    pytest.skip(
+        "torch version is too old, these tests require nightly build. Skipping MoE training tests.",
+        allow_module_level=True
     )
-    pytest.skip(allow_module_level=True)
 
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
@@ -60,10 +58,7 @@ try:
     from torchtitan.experiments.llama4.model.args import TransformerModelArgs
     from torchtitan.experiments.llama4.model.moe import MoE
 except ImportError:
-    import warnings
-
-    warnings.warn("torchtitan not installed, skipping MoE tests.")
-    pytest.skip(allow_module_level=True)
+    pytest.skip("torchtitan not installed, skipping MoE tests.", allow_module_level=True)
 
 
 @pytest.mark.parametrize(
