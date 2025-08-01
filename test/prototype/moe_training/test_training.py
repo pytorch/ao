@@ -22,7 +22,9 @@ try:
     from torchtitan.experiments.llama4.model.args import TransformerModelArgs
     from torchtitan.experiments.llama4.model.moe import MoE
 except ImportError:
-    pytest.skip("torchtitan not installed, skipping MoE tests.", allow_module_level=True)
+    pytest.skip(
+        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
+    )
 
 
 @pytest.mark.parametrize(
