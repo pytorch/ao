@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import logging
+import warnings
 from typing import Any
 
 import torch
@@ -108,21 +108,12 @@ def _get_qmin_qmax(n_bit: int, symmetric: bool = True):
     return (qmin, qmax)
 
 
-# log deprecation warning only once per class
-_LOGGED_DEPRECATED_CLASSES = set[type]()
-
-
 def _log_deprecation_warning(old_api_object: Any):
     """
     Log a helpful deprecation message pointing users to the new QAT API,
     only once per deprecated class.
     """
-    global _LOGGED_DEPRECATED_CLASSES
-    if old_api_object.__class__ in _LOGGED_DEPRECATED_CLASSES:
-        return
-    _LOGGED_DEPRECATED_CLASSES.add(old_api_object.__class__)
-    logger = logging.getLogger(old_api_object.__module__)
-    logger.warning(
+    warnings.warn(
         """'%s' is deprecated and will be removed in a future release. Please use the following API instead:
 
     base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
