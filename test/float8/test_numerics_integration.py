@@ -165,8 +165,8 @@ class TestFloat8NumericsIntegrationTest(TestCase):
         "scaling_type_grad_output",
         [ScalingType.DYNAMIC],
     )
-    @unittest.skipIf(not is_sm_at_least_89(), reason="requires SM89 compatible machine")
-    @unittest.skipIf(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    @unittest.skipIf(not is_sm_at_least_89(), "requires SM89 compatible machine")
+    @unittest.skipIf(IS_ROCM, "test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_config_params(
         self,
         scaling_type_input: ScalingType,
@@ -188,8 +188,8 @@ class TestFloat8NumericsIntegrationTest(TestCase):
             Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
         ],
     )
-    @unittest.skipIf(not is_sm_at_least_90(), reason="requires SM90 compatible machine")
-    @unittest.skipIf(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    @unittest.skipIf(not is_sm_at_least_90(), "requires SM90 compatible machine")
+    @unittest.skipIf(IS_ROCM, "test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(
         self,
         recipe_name: str,
