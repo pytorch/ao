@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 import unittest
 
-import pytest
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -76,7 +75,7 @@ class TestFloat8Utils(TestCase):
     )
     def test_non_float32_input(self, invalid_dtype: torch.dtype):
         non_float32_tensor = torch.tensor([3.0], dtype=invalid_dtype)
-        with pytest.raises(AssertionError, match="scale must be float32 tensor"):
+        with self.assertRaisesRegex(AssertionError, "scale must be float32 tensor"):
             _round_scale_down_to_power_of_2(non_float32_tensor)
 
 
