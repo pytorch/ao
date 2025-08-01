@@ -24,7 +24,7 @@ Custom QAT APIs
     :toctree: generated/
     :nosignatures:
 
-    FakeQuantizeConfig
+    IntxFakeQuantizeConfig
     FakeQuantizedLinear
     FakeQuantizedEmbedding
     FakeQuantizer

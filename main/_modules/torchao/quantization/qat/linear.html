@@ -454,7 +454,10 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_group_qparams_symmetric</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">FakeQuantizeConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantize_config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">FakeQuantizeConfigBase</span><span class="p">,</span>
+    <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizer</span><span class="p">,</span>
     <span class="n">_Float8RowwiseActivationFakeQuantizer</span><span class="p">,</span>
@@ -473,12 +476,12 @@
 
 <span class="sd">    Example usage::</span>
 
-<span class="sd">        activation_config = FakeQuantizeConfig(</span>
+<span class="sd">        activation_config = IntxFakeQuantizeConfig(</span>
 <span class="sd">            dtype=torch.int8,</span>
 <span class="sd">            granularity=&quot;per_token&quot;,</span>
 <span class="sd">            is_symmetric=False,</span>
 <span class="sd">        )</span>
-<span class="sd">        weight_config = FakeQuantizeConfig(</span>
+<span class="sd">        weight_config = IntxFakeQuantizeConfig(</span>
 <span class="sd">            dtype=torch.int4,</span>
 <span class="sd">            group_size=8,</span>
 <span class="sd">            is_symmetric=True,</span>
@@ -494,8 +497,8 @@
         <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-        <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">,</span>
         <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -554,8 +557,8 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">from_linear</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">,</span>
-        <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="n">new_linear</span> <span class="o">=</span> <span class="n">FakeQuantizedLinear</span><span class="p">(</span>
             <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
@@ -606,10 +609,10 @@
 <span class="sd">    Base class for sharing common methods across legacy QAT quantizers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="kc">None</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="kc">None</span>
 
 
@@ -708,10 +711,10 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_convert_qat_linear_8da4w</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="n">_get_8da4w_activation_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">activation_scales_precision</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="n">_get_8da4w_weight_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scales_precision</span><span class="p">)</span></div>
 
 
@@ -781,13 +784,15 @@
         <span class="n">mod</span><span class="o">.</span><span class="n">disable_fake_quant</span><span class="p">()</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_get_8da4w_activation_config</span><span class="p">(</span><span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FakeQuantizeConfig</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_8da4w_activation_config</span><span class="p">(</span>
+    <span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Return the activation `FakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.</span>
+<span class="sd">    Return the activation `IntxFakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># TODO: generalize this</span>
     <span class="k">assert</span> <span class="n">qparams_precision</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
-    <span class="k">return</span> <span class="n">FakeQuantizeConfig</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
         <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
         <span class="n">granularity</span><span class="o">=</span><span class="s2">&quot;per_token&quot;</span><span class="p">,</span>
         <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
@@ -801,11 +806,11 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_8da4w_weight_config</span><span class="p">(</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FakeQuantizeConfig</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Return the weight `FakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.</span>
+<span class="sd">    Return the weight `IntxFakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">FakeQuantizeConfig</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
         <span class="n">dtype</span><span class="o">=</span><span class="n">TorchAODType</span><span class="o">.</span><span class="n">INT4</span><span class="p">,</span>
         <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
         <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -909,7 +914,7 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_convert_qat_linear_4w</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="n">_get_4w_weight_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scales_precision</span><span class="p">)</span></div>
 
 
@@ -980,11 +985,11 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_4w_weight_config</span><span class="p">(</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FakeQuantizeConfig</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Return the weight `FakeQuantizeConfig` for `Int4WeightOnlyQATQuantizer`.</span>
+<span class="sd">    Return the weight `IntxFakeQuantizeConfig` for `Int4WeightOnlyQATQuantizer`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">FakeQuantizeConfig</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
         <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">,</span>
         <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
         <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
@@ -1022,7 +1027,7 @@
             <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">&quot;per_group&quot;</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">&quot;per_channel&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_weight_config</span> <span class="o">=</span> <span class="n">FakeQuantizeConfig</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span>
             <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span>
             <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
@@ -1059,10 +1064,10 @@
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Float8 FakeQuantizeConfig does not exist yet&quot;</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfig</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span></div>
 </pre></div>
 
