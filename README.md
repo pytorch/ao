@@ -283,7 +283,7 @@ If you find the torchao library useful, please cite it in your work as below.
 @software{torchao,
   title={TorchAO: PyTorch-Native Training-to-Serving Model Optimization},
   author={torchao},
-  url={https://github.com/pytorch/torchao},
+  url={https://github.com/pytorch/ao},
   license={BSD-3-Clause},
   month={oct},
   year={2024}

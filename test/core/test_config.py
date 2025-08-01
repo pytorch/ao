@@ -187,5 +187,19 @@ def test_version_mismatch():
             config_from_dict(reconstructable)
 
 
+def test_default_version():
+    """Making sure the default version for a new config inheriting from AOBaseConfig is always 1
+    because it's the default VERSION that all children has when they haven't explicitly
+    defined a VERSION class variable
+    """
+
+    @dataclass
+    class DummyConfig(AOBaseConfig):
+        pass
+
+    config = DummyConfig()
+    assert config.VERSION == 1, "Default version must be 1"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

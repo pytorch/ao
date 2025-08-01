@@ -146,7 +146,7 @@ class QATConfig(AOBaseConfig):
         self.step = self.step.lower()
         all_step_values = [s.value for s in QATStep]
         if self.step not in all_step_values:
-            raise ValueError("`step` must be one of %s" % all_step_values)
+            raise ValueError(f"`step` must be one of {all_step_values}")
         if self.base_config is None and self.weight_config is None:
             raise ValueError(
                 "One of `base_config` or `weight_config` must be specified"
@@ -162,12 +162,12 @@ class QATConfig(AOBaseConfig):
         if isinstance(self.base_config, FakeQuantizeConfigBase):
             config_type = self.base_config.__class__.__name__
             raise ValueError(
-                "%s was passed as `base_config`. Did you mean to do the following instead?\n"
+                f"{config_type} was passed as `base_config`. Did you mean to do the following instead?\n"
                 "    qat_config = QATConfig(\n"
-                "        activation_config=%s(...),\n"
-                "        weight_config=%s(...),\n"
+                f"        activation_config={config_type}(...),\n"
+                f"        weight_config={config_type}(...),\n"
                 '        step="prepare",\n'
-                "    )" % (config_type, config_type, config_type)
+                "    )"
             )
 
 
