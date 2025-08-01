@@ -197,8 +197,16 @@ def get_extensions():
             )
         )
     
-    # Experimental CMake extensions (only if explicitly requested)
-    if os.getenv("BUILD_TORCHAO_EXPERIMENTAL", "0") == "1":
+    # Experimental CMake extensions (explicit request OR specific experimental flags)
+    experimental_flags = [
+        "BUILD_TORCHAO_EXPERIMENTAL",
+        "TORCHAO_BUILD_CPU_AARCH64", 
+        "TORCHAO_BUILD_KLEIDIAI",
+        "TORCHAO_BUILD_EXPERIMENTAL_MPS",
+    ]
+    build_experimental = any(os.getenv(flag, "0") == "1" for flag in experimental_flags)
+    
+    if build_experimental:
         # Custom CMake build extension
         class CMakeBuildExtension(BuildExtension):
             def build_extensions(self):
@@ -232,10 +240,22 @@ def get_extensions():
             "torchao/experimental",
             [
                 f"-DCMAKE_BUILD_TYPE={'Debug' if debug_mode else 'Release'}",
-                f"-DTORCHAO_BUILD_CPU_AARCH64={'ON' if is_arm64 and is_macos else 'OFF'}",
+                f"-DTORCHAO_BUILD_CPU_AARCH64={'ON' if os.getenv('TORCHAO_BUILD_CPU_AARCH64', '1' if is_arm64 and is_macos else '0') == '1' else 'OFF'}",
+                f"-DTORCHAO_BUILD_KLEIDIAI={'ON' if os.getenv('TORCHAO_BUILD_KLEIDIAI', '0') == '1' else 'OFF'}",
+                f"-DTORCHAO_BUILD_MPS_OPS={'ON' if os.getenv('TORCHAO_BUILD_EXPERIMENTAL_MPS', '0') == '1' else 'OFF'}",
+                f"-DTORCHAO_ENABLE_ARM_NEON_DOT={'ON' if os.getenv('TORCHAO_ENABLE_ARM_NEON_DOT', '1' if is_arm64 and is_macos else '0') == '1' else 'OFF'}",
+                f"-DTORCHAO_ENABLE_ARM_I8MM={'ON' if os.getenv('TORCHAO_ENABLE_ARM_I8MM', '0') == '1' else 'OFF'}",
                 f"-DTORCHAO_PARALLEL_BACKEND={os.getenv('TORCHAO_PARALLEL_BACKEND', 'aten_openmp')}",
             ]
         )
+        
+        # Add torch directory
+        try:
+            from distutils.sysconfig import get_python_lib
+            torch_dir = os.path.join(get_python_lib(), "torch", "share", "cmake", "Torch")
+            cmake_ext._cmake_info.cmake_args.append(f"-DTorch_DIR={torch_dir}")
+        except:
+            pass
         extensions.append(cmake_ext)
     
     return extensions
