@@ -17,6 +17,8 @@ from torchao.prototype.moe_training.kernels import (
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
+    _to_mxfp8_per_group_colwise,
+    _to_mxfp8_per_group_rowwise,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
@@ -319,7 +321,50 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):
-        raise NotImplementedError
+        A, B_t, offs = ctx.saved_tensors
+        block_size = ctx.block_size
+        out_dtype = ctx.out_dtype
+        # Compute grad_A.
+        # grad_A = grad_output @ B
+        # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
+        grad_out_scale, grad_out_mx = to_mx(
+            grad_out, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+        )
+        B_t_scale, B_t_mx = _to_mxfp8_3d_expert_weights_dim1(
+            B_t.transpose(-2, -1).contiguous(),
+            block_size=block_size,
+            elem_dtype=torch.float8_e4m3fn,
+        )
+        grad_A = emulated_mxfp8_scaled_grouped_mm(
+            grad_out_mx,
+            grad_out_scale,
+            B_t_mx,
+            B_t_scale,
+            offs=offs,
+            out_dtype=out_dtype,
+        )
+        # Compute grad_B = grad_output_t @ A
+        grad_out_t_mx, grad_out_t_scale = _to_mxfp8_per_group_rowwise(
+            grad_out.transpose(-2, -1).contiguous(),
+            offs=offs,
+            block_size=block_size,
+        )
+        A_mx, A_scale = _to_mxfp8_per_group_colwise(
+            A,
+            offs=offs,
+            block_size=block_size,
+        )
+        grad_B = emulated_mxfp8_scaled_grouped_mm(
+            grad_out_t_mx,
+            grad_out_t_scale,
+            A_mx,
+            A_scale,
+            offs=offs,
+        )
+        # In forward we receive pre-transposed weights B_t as input
+        grad_B_t = grad_B.transpose(-2, -1)
+
+        return grad_A, grad_B_t, None, None, None
 
 
 def _to_mxfp8_3d_expert_weights_dim1(
