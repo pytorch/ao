@@ -25,6 +25,8 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 
+from .utils import _log_deprecation_warning
+
 
 class FakeQuantizeConfigBase(abc.ABC):
     """
@@ -133,6 +135,14 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         # Dynamic is not compatible with range learning
         if is_dynamic and range_learning:
             raise ValueError("`is_dynamic` is not compatible with `range_learning`")
+
+        self.__post_init__()
+
+    def __post_init__(self):
+        """
+        For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630.
+        """
+        pass
 
     def _get_granularity(
         self,
@@ -260,7 +270,13 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
 
 # For BC
-FakeQuantizeConfig = IntxFakeQuantizeConfig
+class FakeQuantizeConfig(IntxFakeQuantizeConfig):
+    """
+    (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizeConfig` instead.
+    """
+
+    def __post_init__(self):
+        _log_deprecation_warning(self)
 
 
 def _infer_fake_quantize_configs(

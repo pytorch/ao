@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
+from typing import Any
 
 import torch
 
@@ -104,3 +106,33 @@ def _get_qmin_qmax(n_bit: int, symmetric: bool = True):
         qmin = 0
         qmax = 2**n_bit - 1
     return (qmin, qmax)
+
+
+def _log_deprecation_warning(old_api_object: Any):
+    """
+    Log a helpful deprecation message pointing users to the new QAT API,
+    only once per deprecated class.
+    """
+    warnings.warn(
+        """'%s' is deprecated and will be removed in a future release. Please use the following API instead:
+
+    base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+    quantize_(model, QATConfig(base_config, step="prepare"))
+    # train (not shown)
+    quantize_(model, QATConfig(base_config, step="convert"))
+
+Alternatively, if you prefer to pass in fake quantization configs:
+
+    activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+    weight_config = IntxFakeQuantizeConfig(torch.int4, group_size=32)
+    qat_config = QATConfig(
+        activation_config=activation_config,
+        weight_config=weight_config,
+        step="prepare",
+    )
+    quantize_(model, qat_config)
+
+Please see https://github.com/pytorch/ao/issues/2630 for more details.
+        """
+        % old_api_object.__class__.__name__
+    )

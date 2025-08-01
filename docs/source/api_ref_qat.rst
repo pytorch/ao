@@ -32,15 +32,13 @@ Custom QAT APIs
     linear.enable_linear_fake_quant
     linear.disable_linear_fake_quant
 
-Legacy QAT APIs
+Legacy QAT Quantizers
 ---------------------
 
 .. autosummary::
     :toctree: generated/
     :nosignatures:
 
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
     Int4WeightOnlyQATQuantizer
     linear.Int4WeightOnlyQATLinear
     Int8DynActInt4WeightQATQuantizer
