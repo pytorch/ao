@@ -1,29 +1,23 @@
-from setuptools import setup
-import sys
-import os
+#!/usr/bin/env python3
+"""
+Ultra-minimal setup.py for complex C++ extension building.
+All metadata is in pyproject.toml - this only handles extensions.
+"""
 
-# Ensure backend module can be found
-sys.path.insert(0, os.path.dirname(__file__))
+def main():
+    try:
+        from backend import get_extensions, get_cmdclass, check_submodules
+        check_submodules()
+        ext_modules = get_extensions()
+        cmdclass = get_cmdclass()
+    except ImportError:
+        # Graceful fallback if backend isn't available (e.g., during isolated builds)
+        print("Warning: backend module not available, building without C++ extensions")
+        ext_modules = []
+        cmdclass = {}
+    
+    from setuptools import setup
+    setup(ext_modules=ext_modules, cmdclass=cmdclass)
 
-# Import backend functions with error handling
-try:
-    from backend import get_extensions, get_cmdclass, check_submodules
-    
-    # Initialize submodules before building
-    check_submodules()
-    
-    # Get dynamic configuration
-    ext_modules = get_extensions()
-    cmdclass = get_cmdclass()
-    
-except ImportError as e:
-    print(f"Warning: Could not import backend module: {e}")
-    print("Building without C++ extensions")
-    ext_modules = []
-    cmdclass = {}
-
-# Use setuptools with dynamic configuration
-setup(
-    ext_modules=ext_modules,
-    cmdclass=cmdclass,
-)
+if __name__ == "__main__":
+    main()
