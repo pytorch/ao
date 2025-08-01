@@ -179,12 +179,17 @@ With this quantization flow, we achieve **67% VRAM reduction and 12-20% speedup*
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization-Aware Training (QAT) to overcome this limitation, especially for lower bit-width dtypes such as int4. In collaboration with [TorchTune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md#quantization-aware-training-qat), we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). For more details, please refer to the [QAT README](torchao/quantization/qat/README.md) and the [original blog](https://pytorch.org/blog/quantization-aware-training/):
 
 ```python
-from torchao.quantization import quantize_
-from torchao.quantization.qat import IntxFakeQuantizeConfig, IntXQuantizationAwareTrainingConfig
-activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-weight_config = IntxFakeQuantizeConfig(torch.int4, group_size=32)
-qat_config = IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
-quantize_(my_model, qat_config)
+from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+from torchao.quantization.qat import QATConfig
+
+# prepare
+base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+quantize_(my_model, QATConfig(base_config, step="prepare"))
+
+# train model (not shown)
+
+# convert
+quantize_(my_model, QATConfig(base_config, step="convert"))
 ```
 
 Users can also combine LoRA + QAT to speed up training by [1.89x](https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700) compared to vanilla QAT using this [fine-tuning recipe](https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py).

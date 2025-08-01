@@ -205,21 +205,14 @@ because we are not actually casting the fake quantized values.
 
 .. code:: py
 
-  from torchao.quantization import (
-      quantize_,
-  )
-  from torchao.quantization.qat import (
-      FakeQuantizeConfig,
-      IntXQuantizationAwareTrainingConfig,
-  )
+  from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+  from torchao.quantization.qat import QATConfig
+
   model = get_model()
 
-  # prepare: insert fake quantization ops
-  # swaps `torch.nn.Linear` with `FakeQuantizedLinear`
-  activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-  weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
-  qat_config = IntXQuantizationAwareTrainingConfig(activation_config, weight_config)
-  quantize_(model, qat_config)
+  # prepare: swap `torch.nn.Linear` -> `FakeQuantizedLinear`
+  base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+  quantize_(model, QATConfig(base_config, step="prepare"))
 
   # fine-tune
   train_loop(model)
@@ -232,18 +225,12 @@ The next step is to actually quantize the model:
 
 .. code:: py
 
-  from torchao.quantization import (
-      Int8DynamicActivationInt4WeightConfig,
-  )
-  from torchao.quantization.qat import (
-      FromIntXQuantizationAwareTrainingConfig,
-  )
+  from torchao.quantization import Int8DynamicActivationInt4WeightConfig
 
-  # convert: transform fake quantization ops into actual quantized ops
-  # swap `FakeQuantizedLinear` back to `torch.nn.Linear` and inserts
-  # quantized activation and weight tensor subclasses
-  quantize_(model, FromIntXQuantizationAwareTrainingConfig())
-  quantize_(model, Int8DynamicActivationInt4WeightConfig(group_size=32))
+  # convert: swap `FakeQuantizedLinear` -> `torch.nn.Linear`, then quantize using `base_config`
+  quantize_(model, QATConfig(base_config, step="convert"))
+
+  # inference or generate
 
 Now our model is ready for serving, and will typically have higher quantized
 accuracy than if we did not apply the prepare step (fake quantization) during

@@ -4,14 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import functools
-from typing import Callable, Dict
+from typing import Callable, Dict, Type
 
 import torch
 
 from torchao.core.config import AOBaseConfig
 
 _QUANTIZE_CONFIG_HANDLER: Dict[
-    AOBaseConfig,
+    Type[AOBaseConfig],
     Callable[[torch.nn.Module, AOBaseConfig], torch.nn.Module],
 ] = {}
 

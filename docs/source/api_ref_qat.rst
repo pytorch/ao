@@ -6,7 +6,7 @@ torchao.quantization.qat
 
 .. currentmodule:: torchao.quantization.qat
 
-QAT Configs for quantize_
+Main Config for quantize_
 ---------------------------------------
 For a full example of how to use QAT with our main `quantize_` API,
 please refer to the `QAT README <https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/README.md#quantize_-api-recommended>`__.
@@ -15,8 +15,8 @@ please refer to the `QAT README <https://github.com/pytorch/ao/blob/main/torchao
     :toctree: generated/
     :nosignatures:
 
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
+    QATConfig
+    QATStep
 
 Custom QAT APIs
 ---------------
@@ -24,6 +24,7 @@ Custom QAT APIs
     :toctree: generated/
     :nosignatures:
 
+    FakeQuantizeConfigBase
     IntxFakeQuantizeConfig
     FakeQuantizedLinear
     FakeQuantizedEmbedding
@@ -31,13 +32,15 @@ Custom QAT APIs
     linear.enable_linear_fake_quant
     linear.disable_linear_fake_quant
 
-Legacy QAT Quantizers
+Legacy QAT APIs
 ---------------------
 
 .. autosummary::
     :toctree: generated/
     :nosignatures:
 
+    IntXQuantizationAwareTrainingConfig
+    FromIntXQuantizationAwareTrainingConfig
     Int4WeightOnlyQATQuantizer
     linear.Int4WeightOnlyQATLinear
     Int8DynActInt4WeightQATQuantizer

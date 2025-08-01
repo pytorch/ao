@@ -34,6 +34,8 @@ from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FromIntXQuantizationAwareTrainingConfig,
     IntXQuantizationAwareTrainingConfig,
+    QATConfig,
+    QATStep,
     initialize_fake_quantizers,
 )
 from torchao.quantization.qat.embedding import (
@@ -59,7 +61,7 @@ from torchao.quantization.qat.utils import (
     _get_qmin_qmax,
 )
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int4_weight,
+    Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -1261,11 +1263,67 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_quantize_api_standalone(self):
+    def test_qat_config_init(self):
+        """
+        Test that the correct errors are thrown if `QATConfig` is not instantiated properly.
+        """
+        base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+        fq_config = IntxFakeQuantizeConfig(torch.int8, "per_channel")
+
+        # OK
+        QATConfig(base_config, step="prepare")
+        QATConfig(base_config, step="convert")
+        QATConfig(base_config, step=QATStep.PREPARE)
+        QATConfig(base_config, step=QATStep.CONVERT)
+        QATConfig(activation_config=fq_config, weight_config=fq_config, step="prepare")
+        QATConfig(weight_config=fq_config, step="prepare")
+
+        # OK: good step values
+        self.assertEqual(QATConfig(base_config).step, "prepare")
+        self.assertEqual(QATConfig(base_config, step="Prepare").step, "prepare")
+        self.assertEqual(QATConfig(base_config, step="CONVERT").step, "convert")
+
+        # Bad step
+        with self.assertRaisesRegex(ValueError, "`step` must be one of"):
+            QATConfig(base_config, step="blah")
+
+        # Step was not a keyword arg
+        with self.assertRaisesRegex(
+            TypeError, "4 positional arguments but 5 were given"
+        ):
+            QATConfig(base_config, None, None, "prepare")
+
+        # No configs are provided
+        with self.assertRaisesRegex(
+            ValueError, "One of `base_config` or `weight_config` must be specified"
+        ):
+            QATConfig(step="prepare")
+
+        # Clashing configs are provided
+        with self.assertRaisesRegex(ValueError, "Cannot specify both"):
+            QATConfig(base_config, weight_config=fq_config, step="prepare")
+        with self.assertRaisesRegex(ValueError, "Cannot specify both"):
+            QATConfig(base_config, activation_config=fq_config, step="prepare")
+        with self.assertRaisesRegex(
+            ValueError, "must be specified in the convert step"
+        ):
+            QATConfig(weight_config=fq_config, step="convert")
+
+        # FakeQuantizeConfigBase was specified as base_config
+        with self.assertRaisesRegex(
+            ValueError,
+            "was passed as `base_config`. Did you mean to do the following instead?",
+        ):
+            QATConfig(fq_config, step="prepare")
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_quantize_api_prepare(self):
         """
         Test that the following:
 
-            quantize_(model, IntXQuantizationAwareTrainingConfig(...))
+            quantize_(model, QATConfig(...))
 
         can produce the same results as `ComposableQATQuantizer`.
         """
@@ -1290,20 +1348,15 @@ class TestQAT(unittest.TestCase):
         baseline_model = baseline_quantizer.prepare(baseline_model)
 
         # quantize_ API
-        activation_config = IntxFakeQuantizeConfig(
-            torch.int8,
-            "per_token",
-            is_symmetric=False,
-        )
+        act_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
         weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
-        quantize_(
-            m,
-            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+        qat_config1 = QATConfig(
+            activation_config=act_config, weight_config=weight_config
         )
+        qat_config2 = QATConfig(weight_config=weight_config)
+        quantize_(m, qat_config1)
         quantize_(
-            m,
-            IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
-            filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding),
+            m, qat_config2, filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding)
         )
 
         # Compare model values
@@ -1322,37 +1375,29 @@ class TestQAT(unittest.TestCase):
         Test that we throw exceptions with helpful error messages if `quantize_`
         runs into unexpected configurations.
         """
-        my_config = IntxFakeQuantizeConfig(torch.int8, group_size=32)
+        fq_config = IntxFakeQuantizeConfig(torch.int8, group_size=32)
+        qat_config = QATConfig(activation_config=fq_config, weight_config=fq_config)
         m = M3()
 
         # Embedding currently only supports weight-only quantization
         with self.assertRaisesRegex(
             ValueError, "Activation fake quantization is not supported for embedding"
         ):
-            quantize_(
-                m,
-                IntXQuantizationAwareTrainingConfig(my_config, my_config),
-                lambda m, _: isinstance(m, torch.nn.Embedding),
-            )
+            quantize_(m, qat_config, lambda m, _: isinstance(m, torch.nn.Embedding))
 
         # Only linear and embedding are supported currently
         with self.assertRaisesRegex(ValueError, "does not have QAT support"):
-            quantize_(
-                m,
-                IntXQuantizationAwareTrainingConfig(my_config, my_config),
-                lambda m, _: isinstance(m, torch.nn.ReLU),
-            )
+            quantize_(m, qat_config, lambda m, _: isinstance(m, torch.nn.ReLU))
 
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_quantize_api_convert_path(self):
+    def test_quantize_api_e2e(self):
         """
         Test that the following:
 
-            quantize_(model, IntXQuantizationAwareTrainingConfig(...))
-            quantize_(model, FromIntXQuantizationAwareTrainingConfig(...))
-            quantize_(model, int8_dynamic_activation_int4_weight())
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
 
         can produce the same results as `Int8DynActInt4WeightQATQuantizer` prepare + convert.
         """
@@ -1370,16 +1415,8 @@ class TestQAT(unittest.TestCase):
         baseline_model = baseline_quantizer.prepare(baseline_model)
 
         # quantize_ prepare
-        activation_config = IntxFakeQuantizeConfig(
-            torch.int8,
-            "per_token",
-            is_symmetric=False,
-        )
-        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
-        quantize_(
-            m,
-            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
-        )
+        base_config = Int8DynamicActivationInt4WeightConfig(group_size=group_size)
+        quantize_(m, QATConfig(base_config, step="prepare"))
 
         # Compare prepared values
         torch.manual_seed(self.SEED)
@@ -1393,8 +1430,7 @@ class TestQAT(unittest.TestCase):
         baseline_model = baseline_quantizer.convert(baseline_model)
 
         # quantize_ convert
-        quantize_(m, FromIntXQuantizationAwareTrainingConfig())
-        quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size))
+        quantize_(m, QATConfig(base_config, step="convert"))
 
         # Compare converted values
         torch.manual_seed(self.SEED)
@@ -1447,14 +1483,12 @@ class TestQAT(unittest.TestCase):
         Test that QAT supports linear bias.
         """
         m = ModelWithLinearBias()
-        activation_config = IntxFakeQuantizeConfig(
-            torch.int8, "per_token", is_symmetric=False
-        )
+        act_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
         weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=32)
-        quantize_(
-            m,
-            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+        qat_config = QATConfig(
+            activation_config=act_config, weight_config=weight_config
         )
+        quantize_(m, qat_config)
         example_inputs = m.example_inputs()
         m(*example_inputs)
 
@@ -1653,7 +1687,7 @@ class TestQAT(unittest.TestCase):
         )
         m = M()
         example_inputs = m.example_inputs()
-        quantize_(m, IntXQuantizationAwareTrainingConfig(weight_config=config))
+        quantize_(m, QATConfig(weight_config=config))
 
         # Not initialized, should fail
         for t in m._get_all_weight_qparams():
@@ -1755,6 +1789,60 @@ class TestQAT(unittest.TestCase):
         self.assertIsNotNone(new_weight.grad)
         self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
         self.assertFalse(torch.equal(new_weight, prev_weight))
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_legacy_quantize_api_e2e(self):
+        """
+        Test that the following two APIs are numerically equivalent:
+
+        New API:
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
+
+        Old API:
+            quantize_(model, IntXQuantizationAwareTrainingConfig(...))
+            quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+            quantize_(model, Int8DynamicActivationInt4WeightConfig())
+        """
+        group_size = 16
+        torch.manual_seed(self.SEED)
+        m = M()
+        baseline_model = copy.deepcopy(m)
+
+        # Baseline prepare
+        act_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        old_qat_config = IntXQuantizationAwareTrainingConfig(act_config, weight_config)
+        quantize_(baseline_model, old_qat_config)
+
+        # QATConfig prepare
+        base_config = Int8DynamicActivationInt4WeightConfig(group_size=group_size)
+        quantize_(m, QATConfig(base_config, step="prepare"))
+
+        # Compare prepared values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs()
+        x2 = copy.deepcopy(x)
+        out = m(*x)
+        baseline_out = baseline_model(*x2)
+        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
+
+        # Baseline convert
+        quantize_(baseline_model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(baseline_model, base_config)
+
+        # quantize_ convert
+        quantize_(m, QATConfig(base_config, step="convert"))
+
+        # Compare converted values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs()
+        x2 = copy.deepcopy(x)
+        out = m(*x)
+        baseline_out = baseline_model(*x2)
+        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
 
 if __name__ == "__main__":

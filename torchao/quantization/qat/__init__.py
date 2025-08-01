@@ -2,6 +2,8 @@ from .api import (
     ComposableQATQuantizer,
     FromIntXQuantizationAwareTrainingConfig,
     IntXQuantizationAwareTrainingConfig,
+    QATConfig,
+    QATStep,
     from_intx_quantization_aware_training,
     initialize_fake_quantizers,
     intx_quantization_aware_training,
@@ -24,21 +26,25 @@ from .linear import (
 )
 
 __all__ = [
-    "ComposableQATQuantizer",
+    "QATConfig",
+    "QATStep",
     "FakeQuantizeConfigBase",
+    "IntxFakeQuantizeConfig",
+    "FakeQuantizer",
     "FakeQuantizedLinear",
     "FakeQuantizedEmbedding",
-    "FakeQuantizer",
+    # Prototype
+    "initialize_fake_quantizers",
+    # Legacy quantizers
+    "ComposableQATQuantizer",
     "Float8ActInt4WeightQATQuantizer",
-    "FromIntXQuantizationAwareTrainingConfig",
     "Int4WeightOnlyEmbeddingQATQuantizer",
     "Int4WeightOnlyQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
-    "IntxFakeQuantizeConfig",
-    "IntXQuantizationAwareTrainingConfig",
-    "initialize_fake_quantizers",
     # for BC
     "FakeQuantizeConfig",
     "from_intx_quantization_aware_training",
+    "FromIntXQuantizationAwareTrainingConfig",
     "intx_quantization_aware_training",
+    "IntXQuantizationAwareTrainingConfig",
 ]

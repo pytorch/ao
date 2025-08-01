@@ -6,10 +6,11 @@
 
 import abc
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch
 
+from torchao.core.config import AOBaseConfig
 from torchao.quantization.granularity import (
     Granularity,
     PerAxis,
@@ -36,7 +37,8 @@ class FakeQuantizeConfigBase(abc.ABC):
 @dataclass
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
-    Config for how to fake quantize weights or activations.
+    Config for how to fake quantize weights or activations,
+    targeting integer dtypes up to torch.int8.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -259,3 +261,43 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
 # For BC
 FakeQuantizeConfig = IntxFakeQuantizeConfig
+
+
+def _infer_fake_quantize_configs(
+    base_config: AOBaseConfig,
+) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
+    """
+    Given a base post-training quantization (PTQ) config, infer the corresponding
+    `FakeQuantizeConfigBase`s for both the activations and the weights.
+    This is called during the prepare phase of QAT.
+
+    Return a 2-tuple of (activation_config, weight_config) for fake quantization.
+    """
+    # avoid circular imports
+    from torchao.quantization import (
+        Int4WeightOnlyConfig,
+        Int8DynamicActivationInt4WeightConfig,
+    )
+
+    if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
+        act_config = IntxFakeQuantizeConfig(
+            dtype=torch.int8,
+            granularity="per_token",
+            is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=TorchAODType.INT4,
+            group_size=base_config.group_size,
+            is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
+        )
+        return (act_config, weight_config)
+    elif isinstance(base_config, Int4WeightOnlyConfig):
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=torch.uint4,
+            group_size=base_config.group_size,
+            is_symmetric=False,
+            zero_point_domain=base_config.zero_point_domain,
+        )
+        return (None, weight_config)
+    else:
+        raise ValueError("Unexpected base config: %s" % base_config)
