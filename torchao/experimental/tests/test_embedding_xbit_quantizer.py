@@ -21,9 +21,9 @@ from torchao.experimental.quant_api import (
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
-    FakeQuantizeConfig,
     FromIntXQuantizationAwareTrainingConfig,
     Int4WeightOnlyEmbeddingQATQuantizer,
+    IntxFakeQuantizeConfig,
     IntXQuantizationAwareTrainingConfig,
 )
 from torchao.quantization.quant_api import (
@@ -282,7 +282,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         )
 
         embedding_filter = lambda m, fqn: isinstance(m, torch.nn.Embedding)
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             weight_dtype,
             group_size=group_size,
             is_symmetric=is_symmetric,
