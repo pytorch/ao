@@ -17,13 +17,12 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
   * Zeros: N/A
 """
 
-from enum import Enum, auto
 from typing import Callable, Dict, Union
 
 import torch
 from torch.distributed._tensor import DTensor
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice, ScaleCalculationMode
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP6_E2M3,
@@ -66,29 +65,6 @@ EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
 EBITS_F8_E4M3, MBITS_F8_E4M3 = 4, 3
 EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
-
-
-class ScaleCalculationMode(Enum):
-    """
-    Enum representing the different methods for calculating MX block scaling.
-    There are three methods available:
-    FLOOR: This method is recommended by the OCP MX Spec 1.0 and uses X = 2^floor(log2(max_abs(v))-max_exp).
-           It result in overflow issues for large values and bad for gradient quantization.
-    CEIL: This method avoids overflow issues, but small values may shift to 0 due to a large scaling factor.
-           It uses X = 2^ceil(log2(max_abs(v))-max_exp).
-    EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
-           It provides better accuracy for MX4 training compared to FLOOR and CEIL.
-    RCEIL: The method is to apply ceil to the ratio of max_abs(v) and max_pos.
-           This method's detail is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
-           Section "Computing scaling and conversion factors for FP8 with UE8M0 scales"
-
-    By default, we use the EVEN method for better accuracy.
-    """
-
-    FLOOR = auto()
-    CEIL = auto()
-    EVEN = auto()
-    RCEIL = auto()
 
 
 def _to_mx_rceil(

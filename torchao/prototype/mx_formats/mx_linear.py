@@ -17,6 +17,7 @@ from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     MXGemmKernelChoice,
     MXLinearConfig,
+    ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import (
     mxfp8_quantize_cuda,
@@ -35,15 +36,21 @@ def _to_mxfp8_dim1_kernel_wrapper(
     hp_dtype,
     gemm_kernel_choice,
     cast_kernel_choice,
+    scale_calculation_mode: ScaleCalculationMode,
 ):
     if cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        assert scale_calculation_mode == ScaleCalculationMode.FLOOR
         a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        )
         _, a_data, _, a_scale = mxfp8_quantize_cuda(
             a,
             rowwise=False,
             colwise=True,
-            scaling_mode="floor",
+            scaling_mode=scale_calculation_mode.value,
         )
     else:
         raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
@@ -105,6 +112,7 @@ class mx_mm(torch.autograd.Function):
         block_size: int,
         gemm_kernel_choice: MXGemmKernelChoice,
         mxfp8_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
+        scale_calculation_mode: ScaleCalculationMode,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
@@ -113,16 +121,25 @@ class mx_mm(torch.autograd.Function):
         ctx.block_size = block_size
         ctx.gemm_kernel_choice = gemm_kernel_choice
         ctx.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
+        ctx.scale_calculation_mode = scale_calculation_mode
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
         input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
 
         input_mx_r_dim0 = MXTensor.to_mx(
-            input_hp_r, in_elem_dtype, block_size, gemm_kernel_choice=gemm_kernel_choice
+            input_hp_r,
+            in_elem_dtype,
+            block_size,
+            gemm_kernel_choice=gemm_kernel_choice,
+            scaling_mode=scale_calculation_mode,
         )
         weight_mx_dim0 = MXTensor.to_mx(
-            weight_hp, w_elem_dtype, block_size, gemm_kernel_choice=gemm_kernel_choice
+            weight_hp,
+            w_elem_dtype,
+            block_size,
+            gemm_kernel_choice=gemm_kernel_choice,
+            scaling_mode=scale_calculation_mode,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
@@ -138,6 +155,7 @@ class mx_mm(torch.autograd.Function):
         block_size = ctx.block_size
         gemm_kernel_choice = ctx.gemm_kernel_choice
         mxfp8_cast_kernel_choice = ctx.mxfp8_cast_kernel_choice
+        scale_calculation_mode = ctx.scale_calculation_mode
 
         grad_output_orig_shape = grad_output_hp.shape
         grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
@@ -151,6 +169,7 @@ class mx_mm(torch.autograd.Function):
             grad_elem_dtype,
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
+            scaling_mode=scale_calculation_mode,
         )
 
         if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
@@ -161,6 +180,7 @@ class mx_mm(torch.autograd.Function):
                 weight_hp.dtype,
                 gemm_kernel_choice,
                 mxfp8_cast_kernel_choice,
+                scale_calculation_mode,
             )
         else:
             weight_hp_t_c = weight_hp.t().contiguous()
@@ -169,6 +189,7 @@ class mx_mm(torch.autograd.Function):
                 w_elem_dtype,
                 block_size,
                 gemm_kernel_choice=gemm_kernel_choice,
+                scaling_mode=scale_calculation_mode,
             )
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
@@ -184,6 +205,7 @@ class mx_mm(torch.autograd.Function):
                 grad_output_hp_r.dtype,
                 gemm_kernel_choice,
                 mxfp8_cast_kernel_choice,
+                scale_calculation_mode,
             )
         else:
             grad_output_mx_dim1 = MXTensor.to_mx(
@@ -191,6 +213,7 @@ class mx_mm(torch.autograd.Function):
                 grad_elem_dtype,
                 block_size,
                 gemm_kernel_choice=gemm_kernel_choice,
+                scaling_mode=scale_calculation_mode,
             )
 
         if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
@@ -201,6 +224,7 @@ class mx_mm(torch.autograd.Function):
                 input_hp_r.dtype,
                 gemm_kernel_choice,
                 mxfp8_cast_kernel_choice,
+                scale_calculation_mode,
             )
             input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         else:
@@ -209,11 +233,12 @@ class mx_mm(torch.autograd.Function):
                 in_elem_dtype,
                 block_size,
                 gemm_kernel_choice=gemm_kernel_choice,
+                scaling_mode=scale_calculation_mode,
             )
             input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
-        return grad_input, grad_weight, None, None, None, None, None, None
+        return grad_input, grad_weight, None, None, None, None, None, None, None
 
 
 class MXLinear(torch.nn.Linear):
@@ -258,6 +283,7 @@ class MXLinear(torch.nn.Linear):
             config.block_size,
             config.gemm_kernel_choice,
             config.mxfp8_cast_kernel_choice,
+            config.scale_calculation_mode,
         )
         if self.bias is not None:
             y = y + self.bias

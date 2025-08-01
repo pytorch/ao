@@ -188,6 +188,7 @@ def get_tensor_memory_traffic_ovhd_s(
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
+            "mxfp8_cublas_rceil",
         ), "unsupported"
         # For now, assume that we can't profitably fuse kernel 1 and kernel 2
         # x_bf16 = ...
@@ -234,6 +235,7 @@ def get_individual_gemm_time_sympy(
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
+            "mxfp8_cublas_rceil",
         ), "unsupported"
         assert dtype in (torch.float8_e4m3fn, torch.float8_e5m2), "unsupported"
         # adjust reads for MX scaling

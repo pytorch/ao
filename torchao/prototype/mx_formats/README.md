@@ -23,20 +23,23 @@ We plan to add the following features in the near future:
 ```python
 import torch
 from torchao.quantization import quantize_
-from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice
+from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice, ScaleCalculationMode
 
 # on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
 gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
 # gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
-
 # on older NVIDIA gpus, you can run training with emulated MX gemm
 # gemm_kernel_choice = MXGemmKernelChoice.EMULATED
+
+scale_calculation_mode = ScaleCalculationMode.FLOOR
+# other supported modes: RCEIL, CEIL, EVEN
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 config = MXLinearConfig(
     elem_dtype=torch.float8_e4m3fn,
     block_size=32,
     gemm_kernel_choice=gemm_kernel_choice,
+    scale_calculation_mode=scale_calculation_mode,
 )
 quantize_(m, config)
 
