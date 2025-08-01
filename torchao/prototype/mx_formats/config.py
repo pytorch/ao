@@ -185,10 +185,7 @@ class MXLinearConfig(AOBaseConfig):
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             # TODO(future PR): default to CUDA dim1 kernel
-            return MXLinearConfig(
-                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
-                mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
-            )
+            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
             return MXLinearConfig(
                 gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
