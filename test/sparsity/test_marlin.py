@@ -4,8 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import unittest
 
-import pytest
 import torch
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
@@ -41,7 +41,7 @@ class SparseMarlin24(TestCase):
             .cuda()
         )
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_eager(self):
         apply_fake_sparsity(self.model)
@@ -58,8 +58,8 @@ class SparseMarlin24(TestCase):
             "Results are not close"
         )
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Needs PyTorch 2.5+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_compile(self):
         apply_fake_sparsity(self.model)
@@ -79,7 +79,7 @@ class SparseMarlin24(TestCase):
             "Results are not close"
         )
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_pack_unpack_equivalence(self):
         num_bits = 4
         group_size = 128
