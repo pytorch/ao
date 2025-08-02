@@ -13,15 +13,15 @@ Test numerics of bf16 versus float8 with FSDP on. At a high level:
 
 import copy
 import os
+import unittest
 import warnings
 
 import fire
-import pytest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    raise unittest.SkipTest("Unsupported PyTorch version")
 
 import torch
 import torch.distributed as dist

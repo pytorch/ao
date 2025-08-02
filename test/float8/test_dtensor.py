@@ -11,14 +11,14 @@ TODO(future): make this run in CI
 """
 
 import os
+import unittest
 
-import pytest
 import torch
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    raise unittest.SkipTest("Unsupported PyTorch version")
 
 from torch.distributed._tensor import DTensor, Replicate, Shard, distribute_tensor
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
