@@ -177,7 +177,6 @@ class TestFloat8Tensor(TestCase):
                 config = Float8DynamicActivationFloat8WeightConfig(
                     granularity=granularity,
                     kernel_preference=kernel_preference,
-                    VERSION=2,
                 )
             else:
                 assert mode == "weight-only", f"Unsupported mode: {mode}"
@@ -198,9 +197,7 @@ class TestFloat8Tensor(TestCase):
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_slice(self, granularity):
-        config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=granularity, VERSION=2
-        )
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
         device = "cuda"
         dummy = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
@@ -261,9 +258,7 @@ class TestFloat8Tensor(TestCase):
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_slice_preserves_aliasing(self, granularity):
-        config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=granularity, VERSION=2
-        )
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
         l.weight = torch.nn.Parameter(
             torch.zeros(1024, 1024, dtype=torch.bfloat16, device="cuda")
@@ -284,9 +279,7 @@ class TestFloat8Tensor(TestCase):
 
         dtype = torch.bfloat16
         device = "cuda"
-        config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=granularity, VERSION=2
-        )
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
         quantize_(l, config)
 
@@ -323,9 +316,7 @@ class TestFloat8Tensor(TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
     def test_bmm(self):
         # only support per row quantization
-        config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=PerRow(), VERSION=2
-        )
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 
         class M(torch.nn.Module):
             def __init__(self, weight):
@@ -357,9 +348,7 @@ class TestFloat8Tensor(TestCase):
         ],
     )
     def test_to_device(self, granularity, sizes):
-        config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=granularity, VERSION=2
-        )
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         M, N, K = sizes
         dtype = torch.bfloat16
         for device in self.GPU_DEVICES:
@@ -389,9 +378,7 @@ class TestFloat8Tensor(TestCase):
         ],
     )
     def test_cat(self, granularity, sizes):
-        config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=granularity, VERSION=2
-        )
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
         device = "cuda"
         M, N, K = sizes
@@ -449,9 +436,7 @@ class TestFloat8Tensor(TestCase):
         dtype = torch.bfloat16
         device = "cuda"
 
-        bmm_config = Float8DynamicActivationFloat8WeightConfig(
-            granularity=granularity, VERSION=2
-        )
+        bmm_config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         moe_config = MoEQuantConfig(bmm_config)
 
         batch_size = 4

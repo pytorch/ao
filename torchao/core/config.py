@@ -8,13 +8,13 @@ import dataclasses
 import enum
 import importlib
 import json
+import warnings
 from typing import Any, ClassVar, Dict
 
 import torch
 
 __all__ = [
     "AOBaseConfig",
-    "VersionMismatchError",
     "config_from_dict",
     "config_to_dict",
     "ALLOWED_AO_MODULES",
@@ -61,20 +61,6 @@ class AOBaseConfig(abc.ABC):
     VERSION: ClassVar[int] = _DEFAULT_VERSION
 
 
-class VersionMismatchError(Exception):
-    """Raised when trying to deserialize a config with a different version"""
-
-    def __init__(self, type_path, stored_version, current_version):
-        self.type_path = type_path
-        self.stored_version = stored_version
-        self.current_version = current_version
-        message = (
-            f"Version mismatch for {type_path}: "
-            f"stored version {stored_version} != current version {current_version}"
-        )
-        super().__init__(message)
-
-
 class ConfigJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for AOBaseConfig objects"""
 
@@ -91,7 +77,9 @@ class ConfigJSONEncoder(json.JSONEncoder):
             return {
                 # Only store the class name, not the full module path
                 "_type": o.__class__.__name__,
-                "_version": getattr(o.__class__, "VERSION", 1),
+                # not using class VERSION since we might be explicitly
+                # setting a different VERSION for the object itself
+                "_version": getattr(o, "VERSION", 1),
                 "_data": data_dict,
             }
 
@@ -105,7 +93,9 @@ class ConfigJSONEncoder(json.JSONEncoder):
 
             return {
                 "_type": o.__class__.__name__,
-                "_version": getattr(o.__class__, "VERSION", 1),
+                # not using class VERSION since we might be explicitly
+                # setting a different VERSION for the object itself
+                "_version": getattr(o, "VERSION", 1),
                 "_data": processed_data,
             }
 
@@ -120,7 +110,9 @@ class ConfigJSONEncoder(json.JSONEncoder):
             return {
                 # Only store the class name for dataclasses too
                 "_type": o.__class__.__name__,
-                "_version": getattr(o.__class__, "VERSION", 1),
+                # not using class VERSION since we might be explicitly
+                # setting a different VERSION for the object itself
+                "_version": getattr(o, "VERSION", 1),
                 "_data": data_dict,
             }
 
@@ -217,7 +209,6 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         An instance of the appropriate AOBaseConfig subclass
 
     Raises:
-        VersionMismatchError: If the stored version doesn't match the class version
         ValueError: If deserialization fails for other reasons
     """
     if not isinstance(data, dict):
@@ -252,10 +243,11 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
             f"Failed to find class {type_path} in any of the allowed modules: {allowed_modules_str}"
         )
 
-    # Check version - require exact match
     current_version = getattr(cls, "VERSION", 1)
     if stored_version != current_version:
-        raise VersionMismatchError(type_path, stored_version, current_version)
+        warnings.warn(
+            f"Stored version is not the same as current default version of the config: {stored_version=}, {current_version=}, please check the deprecation warning"
+        )
 
     # Handle the case where obj_data is not a dictionary
     if not isinstance(obj_data, dict):
