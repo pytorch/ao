@@ -123,7 +123,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
         return f"ScaledGroupedMMTensor(data={self._data})"
 
     def __tensor_flatten__(self):
-        return ["_data"]
+        # Metadata is empty but needed to make the subclass traceable for torch.compile.
+        metadata = {}
+        return ["_data"], metadata
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
