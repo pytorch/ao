@@ -122,7 +122,6 @@ model_params:
         min_power: 10
         max_power: 15
     high_precision_dtype: "torch.bfloat16"
-    use_torch_compile: true
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
@@ -199,9 +198,8 @@ python -m unittest discover benchmarks/microbenchmarks/test
 ### Common Issues
 
 1. **CUDA Out of Memory**: Reduce batch size or matrix dimensions
-2. **Compilation Errors**: Set `use_torch_compile: false` for debugging
-3. **Missing Quantization Methods**: Ensure TorchAO is properly installed
-4. **Device Not Available**: Check device availability and drivers
+2. **Missing Quantization Methods**: Ensure TorchAO is properly installed
+3. **Device Not Available**: Check device availability and drivers
 
 ### Best Practices
 

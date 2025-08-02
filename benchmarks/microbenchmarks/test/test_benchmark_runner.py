@@ -39,7 +39,6 @@ class TestBenchmarkRunner(unittest.TestCase):
                         }
                     ],
                     "high_precision_dtype": "torch.bfloat16",
-                    "use_torch_compile": True,
                     "torch_compile_mode": "max-autotune",
                     "device": "cpu",
                     "model_type": "linear",
@@ -130,7 +129,6 @@ class TestBenchmarkRunner(unittest.TestCase):
         self.assertEqual(len(shapes), 1)
         self.assertEqual(shapes[0], ("custom", [1024, 1024, 1024]))
         self.assertEqual(params["high_precision_dtype"], "torch.bfloat16")
-        self.assertEqual(params["use_torch_compile"], True)
 
     @patch("argparse.Namespace")
     def test_load_benchmark_configs(self, mock_args):
