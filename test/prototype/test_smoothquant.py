@@ -8,6 +8,7 @@ import unittest
 from copy import deepcopy
 
 import torch
+from torch.testing._internal import common_utils
 
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
@@ -21,7 +22,6 @@ from torchao.quantization.utils import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,
 )
-from torchao.testing import common_utils
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
@@ -73,10 +73,6 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
     def test_smoothquant_accuracy(self, bias, alpha, quant_mode, device, input_dtype):
         """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
-        self._run_compute_accuracy_test(bias, alpha, quant_mode, device, input_dtype)
-
-    def _run_compute_accuracy_test(self, bias, alpha, quant_mode, device, input_dtype):
-        """Single compute accuracy test"""
 
         class SimpleLinear(torch.nn.Module):
             def __init__(self, bias: bool):
@@ -111,9 +107,60 @@ class TestSmoothQuant(unittest.TestCase):
             q_out = m(test_data)
 
             # Step 3: Compute reference
-            reference_out = self._compute_reference_out(
-                m_ref, test_data, alpha, quant_mode, bias, input_dtype
+            weight = m_ref.fc.weight.data.float()
+            b = m_ref.fc.bias if bias else None
+            x_abs_max_per_ic = torch.abs(test_data).max(dim=0).values
+            w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
+
+            if alpha is not None:
+                # Apply SmoothQuant
+                smoothing_factor = torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
+                    w_abs_max_per_ic, 1 - alpha
+                )
+            else:
+                smoothing_factor = torch.ones_like(x_abs_max_per_ic)
+
+            # Apply smoothing to activations and weights
+            smoothed_activation = test_data / smoothing_factor
+            smoothed_weight = weight * smoothing_factor
+
+            # Quantize weights using per-channel quantization
+            qw, w_scales, w_zps = dynamically_quantize_per_channel(
+                smoothed_weight, -127, 127, torch.int8
             )
+            fq_wei = dequantize_per_channel(qw, w_scales, w_zps, input_dtype)
+
+            # Handle activation quantization based on mode
+            if quant_mode == "static":
+                # activation is quantized per-tensor
+                act_min, act_max = torch.aminmax(smoothed_activation.float())
+                max_val_pos = torch.max(-act_min, act_max)
+                activation_scale = max_val_pos / 127.0
+
+                fq_act = (
+                    torch.quantize_per_tensor(
+                        smoothed_activation.float(),
+                        scale=activation_scale.item(),
+                        zero_point=0,
+                        dtype=torch.qint8,
+                    )
+                    .dequantize()
+                    .to(input_dtype)
+                )
+            else:
+                # activation is quantized per-row (batch * sequence_length)
+                qx, x_scales, x_zps = dynamically_quantize_per_channel(
+                    smoothed_activation.float(), -127, 127, torch.int8
+                )
+                fq_act = dequantize_per_channel(
+                    qx,
+                    x_scales,
+                    x_zps,
+                    input_dtype,
+                )
+
+            # Compute final linear operation
+            reference_out = torch.nn.functional.linear(fq_act, fq_wei, b)
 
             # Step 4: Validate numerical accuracy
             tolerance = (
@@ -130,62 +177,6 @@ class TestSmoothQuant(unittest.TestCase):
                 f"device={device}, dtype={input_dtype}",
             )
 
-    def _compute_reference_out(self, m_ref, data, alpha, quant_mode, bias, input_dtype):
-        """Compute the expected SmoothQuant output."""
-        weight = m_ref.fc.weight.data.float()
-        b = m_ref.fc.bias if bias else None
-        x_abs_max_per_ic = torch.abs(data).max(dim=0).values
-        w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
-        if alpha is not None:
-            # Apply SmoothQuant
-            smoothing_factor = torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
-                w_abs_max_per_ic, 1 - alpha
-            )
-        else:
-            smoothing_factor = torch.ones_like(x_abs_max_per_ic)
-
-        # Apply smoothing to activations and weights
-        smoothed_activation = data / smoothing_factor
-        smoothed_weight = weight * smoothing_factor
-
-        # Quantize weights using per-channel quantization
-        qw, w_scales, w_zps = dynamically_quantize_per_channel(
-            smoothed_weight, -127, 127, torch.int8
-        )
-        fq_wei = dequantize_per_channel(qw, w_scales, w_zps, input_dtype)
-
-        # Handle activation quantization based on mode
-        if quant_mode == "static":
-            # activation is quantized per-tensor
-            act_min, act_max = torch.aminmax(smoothed_activation.float())
-            max_val_pos = torch.max(-act_min, act_max)
-            activation_scale = max_val_pos / 127.0
-
-            fq_act = (
-                torch.quantize_per_tensor(
-                    smoothed_activation.float(),
-                    scale=activation_scale.item(),
-                    zero_point=0,
-                    dtype=torch.qint8,
-                )
-                .dequantize()
-                .to(input_dtype)
-            )
-        else:
-            # activation is quantized per-row (batch * sequence_length)
-            qx, x_scales, x_zps = dynamically_quantize_per_channel(
-                smoothed_activation.float(), -127, 127, torch.int8
-            )
-            fq_act = dequantize_per_channel(
-                qx,
-                x_scales,
-                x_zps,
-                input_dtype,
-            )
-
-        # Compute final linear operation
-        return torch.nn.functional.linear(fq_act, fq_wei, b)
-
     @unittest.skip("This test is broken on recent PyTorch, TODO(#1639): fix it")
     @common_utils.parametrize("alpha", [None, 0.5, 0.75])
     @common_utils.parametrize("quant_mode", ["static", "dynamic"])
@@ -195,10 +186,6 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
     def test_save_load_recipe(self, alpha, quant_mode, device, input_dtype):
         """Test save/load recipe functionality."""
-        self._run_save_load_recipe_test(alpha, quant_mode, device, input_dtype)
-
-    def _run_save_load_recipe_test(self, alpha, quant_mode, device, input_dtype):
-        """Single save/load recipe test."""
         dataset_size = 20
         layer_dims = (512, 256, 128)  # Input, hidden, output dimensions
         n_calib_examples = 10
