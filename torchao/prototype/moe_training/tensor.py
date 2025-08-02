@@ -30,6 +30,7 @@ _ops_to_preserve_subclass = {
     torch.ops.aten._pin_memory.default,
     torch.ops.aten.split.Tensor,
     torch.ops.aten.clone.default,
+    torch.ops.aten.transpose.int,
 }
 
 

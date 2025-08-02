@@ -95,10 +95,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert not _is_column_major(A), "A must be row-major"
 
         # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
-        if not _is_column_major(B_t):
-            # FSDP will complain if B_t (weights) is not contiguous, we can't require B_t to be column-major.
-            # TODO: figure out better solution than transposing for each forward pass.
-            B_t = B_t.transpose(-2, -1).contiguous().transpose(-2, -1)
+        assert _is_column_major(B_t), "B must be column-major"
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K) or (B, M, K)
