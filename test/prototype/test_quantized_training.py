@@ -213,7 +213,9 @@ class TestQuantizedTraining(TestCase):
 
         def snr(ref, actual):
             error = actual - ref
-            return 20 * torch.log10(ref.norm() / error.norm())
+            return 20 * torch.log10(
+                torch.linalg.vector_norm(ref) / torch.linalg.vector_norm(error)
+            )
 
         assert snr(outputs_ref, outputs_int8mp) > 20
         assert snr(inputs_ref.grad, inputs_int8mp.grad) > 20
