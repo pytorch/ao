@@ -10,14 +10,6 @@ import torch
 from torchao._models.llama.model import Transformer
 from torchao.testing import common_utils
 
-_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
-_BATCH_SIZES = [1, 4]
-_TRAINING_MODES = [True, False]
-
-# Define test parameters
-COMMON_DEVICES = common_utils.parametrize("device", _AVAILABLE_DEVICES)
-COMMON_DTYPES = common_utils.parametrize("dtype", [torch.float32, torch.bfloat16])
-
 
 def init_model(name="stories15M", device="cpu", precision=torch.bfloat16):
     """Initialize and return a Transformer model with specified configuration."""
@@ -29,9 +21,11 @@ def init_model(name="stories15M", device="cpu", precision=torch.bfloat16):
 class TorchAOBasicTestCase(unittest.TestCase):
     """Test suite for basic Transformer inference functionality."""
 
-    @COMMON_DEVICES
-    @common_utils.parametrize("batch_size", _BATCH_SIZES)
-    @common_utils.parametrize("is_training", _TRAINING_MODES)
+    @common_utils.parametrize(
+        "device", ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
+    )
+    @common_utils.parametrize("batch_size", [1, 4])
+    @common_utils.parametrize("is_training", [True, False])
     def test_ao_inference_mode(self, device, batch_size, is_training):
         # Initialize model with specified device
         random_model = init_model(device=device)
