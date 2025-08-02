@@ -39,14 +39,15 @@ else:
 
 class Int4PreshuffledTensor(TorchAOBaseTensor):
     """
-    Groupwise int4 weight only quantization
+    int4 quantization with preshuffled packing format (for all granularities)
 
     Tensor Attributes:
-        _data: packed int4 weight, either 2D (N, K/2) or 3D (B, N, K/2), last dimension is packed
+        _data: preshuffled and packed int4 weight, either 2D (N, K/2) or 3D (B, N, K/2), last dimension is packed
+               preshuffling is specific to fbgemm kernels, see Note for motivation, detailed layout doc is WIP
         for bf16 activation:
-            group_scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
+            group_scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor, where B is batch size,
                    dtype is the same as the original Tensor dtype
-            group_zero: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor
+            group_zero: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor, where B is batch size,
                    dtype is the same as the original Tensor dtype
         for float8 activation:
             group_scale: (K/group_size/8, 8, N) for 2D Tensor, (B, K/group_size/8, 8, N) for 3D Tensor
@@ -55,7 +56,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
                    dtype is the same as the original Tensor dtype
 
     Non-Tensor Attributes:
-        group_size: the group size for groupwise quantization
+        block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
         shape_multiplier: is the multipler from _data to the real weight, since
         we pack the weight for int4, for example, when we pack the last dimension for
         a 2D tensor, the shape_multiplier will be [1, 2]
@@ -80,7 +81,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
     """
 
     tensor_data_attrs = ["_data", "group_scale"]
-    tensor_attributes = ["group_size", "shape_multiplier", "shape"]
+    tensor_attributes = ["block_size", "shape_multiplier", "shape"]
 
     def __new__(
         cls,
@@ -88,7 +89,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         group_scale,
         group_zero,
         row_scale,
-        group_size,
+        block_size,
         shape_multiplier,
         shape,
     ):
@@ -104,7 +105,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         group_scale: torch.Tensor,
         group_zero: Optional[torch.Tensor],
         row_scale: Optional[torch.Tensor],
-        group_size: int,
+        block_size: List[int],
         shape_multiplier: List[int],
         shape: List[int],
     ):
@@ -116,7 +117,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         self.group_zero = group_zero
         self.row_scale = row_scale
         self.shape_multiplier = shape_multiplier
-        self.group_size = group_size
+        self.block_size = block_size
 
     def __tensor_flatten__(self):
         if getattr(self, "group_zero") is None:
@@ -154,13 +155,13 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(weight={self._data}, group_size={self.group_size}, "
+            f"{self.__class__.__name__}(weight={self._data}, block_size={self.block_size}, "
             f"shape_multiplier={self.shape_multiplier}, shape={self.shape}, device={self.device}, dtype={self.dtype}, "
             f"requires_grad={self.requires_grad})"
         )
 
     def _quantization_type(self):
-        return f"shape={self.shape}, group_size={self.group_size}, device={self.device}"
+        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -170,7 +171,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
             self.group_scale.to(device),
             self.group_zero.to(device) if self.group_zero is not None else None,
             self.row_scale.to(device) if self.row_scale is not None else None,
-            self.group_size,
+            self.block_size,
             self.shape_multiplier,
             self.shape,
         )
@@ -186,6 +187,10 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
 
+        assert all(x == 1 for x in block_size[:-1]), (
+            f"Only per group quantization is supported, got block_size: {block_size}"
+        )
+
         _SUPPORTED_DTYPE_TO_STR = {
             torch.bfloat16: "bf16",
             torch.float8_e4m3fn: "fp8",
@@ -197,18 +202,20 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         if quantize_int4_preshuffle is None:
             raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
 
-        assert all(x == 1 for x in block_size[:-1]), (
+        assert all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1, (
             "Only groupwise quant is supported right now"
         )
-        group_size = block_size[-1]
         original_shape = w.shape
+        group_size = block_size[-1]
 
         activation_dtype_str = _SUPPORTED_DTYPE_TO_STR[activation_dtype]
 
         if w.ndim >= 3:
             wq, scales = zip(
                 *[
-                    quantize_int4_preshuffle(i.cuda(), dtype=activation_dtype_str)
+                    quantize_int4_preshuffle(
+                        i.cuda(), group_size=group_size, dtype=activation_dtype_str
+                    )
                     for i in w
                 ]
             )
@@ -220,7 +227,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
             group_scale = torch.stack(group_scale, dim=0).contiguous()
         else:
             wq, (group_scale, group_zero_or_row_scale) = quantize_int4_preshuffle(
-                w.cuda(), dtype=activation_dtype_str
+                w.cuda(), group_size=group_size, dtype=activation_dtype_str
             )
 
         if activation_dtype == torch.bfloat16:
@@ -239,7 +246,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
             group_scale=group_scale,
             group_zero=group_zero,
             row_scale=row_scale,
-            group_size=group_size,
+            block_size=block_size,
             shape_multiplier=shape_multiplier,
             shape=original_shape,
         )
@@ -346,7 +353,7 @@ def _same_metadata(self: "Int4PreshuffledTensor", src: "Int4PreshuffledTensor") 
             if self.row_scale is not None
             else src.row_scale is None
         )
-        and self.group_size == src.group_size
+        and self.block_size == src.block_size
         and self.shape_multiplier == src.shape_multiplier
     )
 
@@ -376,7 +383,7 @@ def _(func, types, args, kwargs):
         assert tensor_0._data.ndim == tensors[i]._data.ndim
         assert tensor_0.group_scale.ndim == tensors[i].group_scale.ndim
         assert tensor_0.group_zero.ndim == tensors[i].group_zero.ndim
-        assert tensor_0.group_size == tensors[i].group_size
+        assert tensor_0.block_size == tensors[i].block_size
         assert tensor_0.shape_multiplier == tensors[i].shape_multiplier
 
     _data = [t._data for t in tensors]
@@ -402,7 +409,7 @@ def _(func, types, args, kwargs):
         cat_data,
         cat_group_scale,
         cat_group_zero,
-        group_size=tensor_0.group_size,
+        block_size=tensor_0.block_size,
         shape_multiplier=tensor_0.shape_multiplier,
         shape=new_shape,
     )
@@ -427,7 +434,7 @@ def _(func, types, args, kwargs):
         _data,
         self.group_scale,
         self.group_zero,
-        self.group_size,
+        self.block_size,
         shape_multiplier,
         tensor_shape,
     )
