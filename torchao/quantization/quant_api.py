@@ -1640,7 +1640,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     mm_config: Optional[Float8MMConfig] = None
-    activation_value_lb: Optional[float] = None
+    activation_value_lb: Optional[float] = 1e-12
     activation_value_ub: Optional[float] = None
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True

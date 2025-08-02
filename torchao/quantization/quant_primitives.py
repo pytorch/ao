@@ -2185,8 +2185,9 @@ def _choose_scale_float8(
     block_size: List[int],
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
     scale_dtype: torch.dtype = torch.float32,
-    hp_value_lb: Optional[float] = None,
+    hp_value_lb: Optional[float] = 1e-12,
     hp_value_ub: Optional[float] = None,
+    reverse: bool = False,
 ) -> torch.Tensor:
     """
     Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
@@ -2214,7 +2215,11 @@ def _choose_scale_float8(
         max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
         if hp_value_lb is not None or hp_value_ub is not None:
             max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
+        if reverse:
+            scale = quant_max / max_abs.to(torch.float32)
+            scale[scale == float("inf")] = 1.0
+        else:
+            scale = max_abs / quant_max
         # Reshape scale back to match the expected output shape
         # The scale tensor should have the same shape as the input divided by block_size
         output_shape = [
@@ -2284,6 +2289,7 @@ def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
+    reverse: bool = False,
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
@@ -2293,7 +2299,10 @@ def _quantize_affine_float8(
     # Expand scale to match tensor dimensions for block-wise quantization
     scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
 
-    tensor_scaled = tensor_fp32 / scale_expanded
+    if reverse:
+        tensor_scaled = tensor_fp32 * scale_expanded
+    else:
+        tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
     fp8_tensor = tensor_clamped.to(float8_dtype)
