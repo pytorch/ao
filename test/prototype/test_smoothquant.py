@@ -63,21 +63,6 @@ class TestSmoothQuant(unittest.TestCase):
             # This test case will trigger recompilation many times, so set a large cache_size_limit here
             torch._dynamo.config.cache_size_limit = 128
 
-    def _setup_quantized_model(self, model, alpha, quant_mode, calibration_data):
-        """Setup for quantized models with observer insertion and calibration."""
-        insert_smooth_quant_observer_(model, alpha, quant_mode)
-
-        for data in calibration_data:
-            model(data)
-
-        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-        quantize_(model, SmoothQuantConfig(), is_observed_linear)
-
-        if TORCH_VERSION_AT_LEAST_2_5:
-            model = torch.compile(model, fullgraph=True)
-
-        return model
-
     @unittest.skip("This test is broken on recent PyTorch, TODO(#1639): fix it")
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("alpha", [None, 0.5, 0.75])
@@ -107,8 +92,19 @@ class TestSmoothQuant(unittest.TestCase):
         m_ref = deepcopy(m)
         test_data = torch.randn(2, 32, dtype=input_dtype, device=device)
 
-        # Step 1: Get calibration from observed SmoothQuant
-        m = self._setup_quantized_model(m, alpha, quant_mode, [test_data])
+        # Step 1: Setup quantized model with observer insertion and calibration
+        insert_smooth_quant_observer_(m, alpha, quant_mode)
+
+        # Perform calibration with test data
+        m(test_data)
+
+        # Apply quantization configuration
+        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
+        quantize_(m, SmoothQuantConfig(), is_observed_linear)
+
+        # Apply compilation if supported
+        if TORCH_VERSION_AT_LEAST_2_5:
+            m = torch.compile(m, fullgraph=True)
 
         # Step 2: Inference quantized model
         with torch.inference_mode():
@@ -221,8 +217,20 @@ class TestSmoothQuant(unittest.TestCase):
         )
         calibration_data = dataset[:n_calib_examples]
 
-        # Step 1: Setup quantized models
-        m = self._setup_quantized_model(m, alpha, quant_mode, calibration_data)
+        # Step 1: Setup first quantized model with observer insertion and calibration
+        insert_smooth_quant_observer_(m, alpha, quant_mode)
+
+        # Perform calibration with calibration data
+        for data in calibration_data:
+            m(data)
+
+        # Apply quantization configuration
+        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
+        quantize_(m, SmoothQuantConfig(), is_observed_linear)
+
+        # Apply compilation if supported
+        if TORCH_VERSION_AT_LEAST_2_5:
+            m = torch.compile(m, fullgraph=True)
 
         # Step 2: Setup save/load model with recipe functionality
         insert_smooth_quant_observer_(m_save_load, alpha, quant_mode)
