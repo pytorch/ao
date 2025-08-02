@@ -8,8 +8,15 @@ import unittest
 import torch
 
 from torchao._models.llama.model import Transformer
+from torchao.testing import common_utils
 
 _AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_BATCH_SIZES = [1, 4]
+_TRAINING_MODES = [True, False]
+
+# Define test parameters
+COMMON_DEVICES = common_utils.parametrize("device", _AVAILABLE_DEVICES)
+COMMON_DTYPES = common_utils.parametrize("dtype", [torch.float32, torch.bfloat16])
 
 
 def init_model(name="stories15M", device="cpu", precision=torch.bfloat16):
@@ -19,30 +26,13 @@ def init_model(name="stories15M", device="cpu", precision=torch.bfloat16):
     return model.eval()
 
 
-class TestAOLlamaModel(unittest.TestCase):
-    """Test suite for AO Llama model inference functionality."""
+class TorchAOBasicTestCase(unittest.TestCase):
+    """Test suite for basic Transformer inference functionality."""
 
-    def test_ao_llama_model_inference_mode(self):
-        """Test model inference across different devices, batch sizes, and training modes."""
-        # Define test parameters
-        devices = _AVAILABLE_DEVICES
-        batch_sizes = [1, 4]
-        training_modes = [True, False]
-
-        # Iterate through all parameter combinations
-        for device in devices:
-            for batch_size in batch_sizes:
-                for is_training in training_modes:
-                    # Use subTest to create individual test cases for each parameter combination
-                    with self.subTest(
-                        device=device, batch_size=batch_size, is_training=is_training
-                    ):
-                        self._test_ao_llama_model_inference_mode(
-                            device, batch_size, is_training
-                        )
-
-    def _test_ao_llama_model_inference_mode(self, device, batch_size, is_training):
-        """Helper method to run a single inference test with given parameters."""
+    @COMMON_DEVICES
+    @common_utils.parametrize("batch_size", _BATCH_SIZES)
+    @common_utils.parametrize("is_training", _TRAINING_MODES)
+    def test_ao_inference_mode(self, device, batch_size, is_training):
         # Initialize model with specified device
         random_model = init_model(device=device)
 
@@ -64,6 +54,8 @@ class TestAOLlamaModel(unittest.TestCase):
             out = random_model(input_ids, input_pos)
             self.assertIsNotNone(out, f"Model failed to run on iteration {i}")
 
+
+common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
 
 if __name__ == "__main__":
     unittest.main()
