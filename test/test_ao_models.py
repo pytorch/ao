@@ -6,9 +6,9 @@
 import unittest
 
 import torch
+from torch.testing._internal import common_utils
 
 from torchao._models.llama.model import Transformer
-from torchao.testing import common_utils
 
 
 def init_model(name="stories15M", device="cpu", precision=torch.bfloat16):
