@@ -17,6 +17,8 @@ from torchao.prototype.moe_training.kernels import (
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
+    _to_mxfp8_per_group_colwise,
+    _to_mxfp8_per_group_rowwise,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
@@ -300,6 +302,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B_t, offs)
+        ctx.block_size = block_size
         ctx.out_dtype = out_dtype
 
         # Perform scaled grouped GEMM and return result.
@@ -317,8 +320,51 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         return out
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        raise NotImplementedError
+    def backward(ctx, grad_out: torch.Tensor):
+        A, B_t, offs = ctx.saved_tensors
+        block_size = ctx.block_size
+        out_dtype = ctx.out_dtype
+        # Compute grad_A.
+        # grad_A = grad_output @ B
+        # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
+        grad_out_scale, grad_out_mx = to_mx(
+            grad_out, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+        )
+        B_t_scale, B_t_mx = _to_mxfp8_3d_expert_weights_dim1(
+            B_t.transpose(-2, -1).contiguous(),
+            block_size=block_size,
+            elem_dtype=torch.float8_e4m3fn,
+        )
+        grad_A = emulated_mxfp8_scaled_grouped_mm(
+            grad_out_mx,
+            grad_out_scale,
+            B_t_mx,
+            B_t_scale,
+            offs=offs,
+            out_dtype=out_dtype,
+        )
+        # Compute grad_B = grad_output_t @ A
+        grad_out_t_mx, grad_out_t_scale = _to_mxfp8_per_group_rowwise(
+            grad_out.transpose(-2, -1).contiguous(),
+            offs=offs,
+            block_size=block_size,
+        )
+        A_mx, A_scale = _to_mxfp8_per_group_colwise(
+            A,
+            offs=offs,
+            block_size=block_size,
+        )
+        grad_B = emulated_mxfp8_scaled_grouped_mm(
+            grad_out_t_mx,
+            grad_out_t_scale,
+            A_mx,
+            A_scale,
+            offs=offs,
+        )
+        # In forward we receive pre-transposed weights B_t as input
+        grad_B_t = grad_B.transpose(-2, -1)
+
+        return grad_A, grad_B_t, None, None, None
 
 
 def _to_mxfp8_3d_expert_weights_dim1(
@@ -345,6 +391,27 @@ def _to_mxfp8_3d_expert_weights_dim1(
 
 
 def emulated_mxfp8_scaled_grouped_mm(
+    A_mx: torch.Tensor,
+    A_scale: torch.Tensor,
+    B_t_mx: torch.Tensor,
+    B_t_scale: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    block_size: int = 32,
+) -> torch.Tensor:
+    if A_mx.ndim == 2 and B_t_mx.ndim == 3:
+        return _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+            A_mx, A_scale, B_t_mx, B_t_scale, offs, out_dtype, block_size
+        )
+    elif A_mx.ndim == 2 and B_t_mx.ndim == 2:
+        return _emulated_mxfp8_scaled_grouped_mm_2d_2d(
+            A_mx, A_scale, B_t_mx, B_t_scale, offs, out_dtype, block_size
+        )
+    else:
+        raise NotImplementedError
+
+
+def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     A_mx: torch.Tensor,
     A_scale: torch.Tensor,
     B_t_mx: torch.Tensor,
@@ -396,4 +463,101 @@ def emulated_mxfp8_scaled_grouped_mm(
 
     # Perform bf16 grouped GEMM.
     out = torch._grouped_mm(A, B_t, offs=offs, out_dtype=out_dtype)
+    return out
+
+
+def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
+    A_mx: torch.Tensor,  # (M, K)
+    A_scale: torch.Tensor,  # (M, K//block_size)
+    B_mx: torch.Tensor,  # (K, N)
+    B_scale: torch.Tensor,  # (K//block_size, N)
+    offs: torch.Tensor,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    block_size: int = 32,
+) -> torch.Tensor:
+    assert A_mx.ndim == 2, "A must be 2D"
+    assert B_mx.ndim == 2, "B must be 2D"
+    A = torch.zeros(
+        A_mx.shape,
+        dtype=torch.bfloat16,
+        device=A_mx.device,
+        requires_grad=A_mx.requires_grad,
+    )
+    B = torch.zeros(
+        B_mx.shape,
+        dtype=torch.bfloat16,
+        device=B_mx.device,
+        requires_grad=B_mx.requires_grad,
+    )
+
+    # Dequantize input per each scaling group
+    scales_start_idx = 0
+    group_start_idx = 0
+    for group_end_idx in offs.tolist():
+        group_size = group_end_idx - group_start_idx
+        scale_group_size = group_size // block_size
+        if group_size == 0:
+            group_start_idx = group_end_idx
+            continue
+
+        # -- Dequantize A tensor
+        # A_group shape: (M, group_size)
+        # A_scale shape: (M, group_size//block_size)
+        A_group = A_mx[:, group_start_idx:group_end_idx]
+        A_group_shape = A_group.shape
+
+        # Get scales for this group.
+        # scales shape: (M, group_size//block_size)
+        scales = A_scale[:, scales_start_idx : scales_start_idx + scale_group_size]
+
+        # Reshape to be able to do per-scaling group multiplication
+        # A_group shape: (M, group_size//block_size, block_size)
+        # A_scale shape: (M, group_size//block_size, 1)
+        A_group = A_group.reshape(
+            *A_group.shape[:-1], A_group.shape[-1] // block_size, block_size
+        )
+        scales = scales.unsqueeze(-1)
+
+        # Rescale and cast to bfloat16
+        A_group = A_group.to(torch.bfloat16) * scales.to(torch.bfloat16)
+
+        # Reshape back to original shape and store in dequantized A buffer
+        # A shape: (M, group_size)
+        A_group = A_group.reshape(A_group_shape)
+        A[:, group_start_idx:group_end_idx] = A_group
+
+        # -- Dequantize B tensor
+        # B_group shape is (group_size, N)
+        B_group = B_mx[group_start_idx:group_end_idx, :]
+        B_group_shape = B_group.shape
+
+        # Scales shape is (group_size//block_size, N)
+        scales = B_scale[scales_start_idx : scales_start_idx + scale_group_size, :]
+
+        # Transpose B to get scaling group on rightmost dim, to make things easier
+        # B_group_shape = (N, group_size)
+        # scales shape = N, group_size//block_size)
+        B_group, scales = B_group.transpose(-2, -1), scales.transpose(-2, -1)
+
+        # Reshape B to be able to do per-scaling group multiplication
+        # B_group shape: (N, group_size//block_size, block_size)
+        # scales shape: (N, group_size//block_size, 1)
+        B_group = B_group.reshape(
+            *B_group.shape[:-1], B_group.shape[-1] // block_size, block_size
+        )
+        scales = scales.unsqueeze(-1)
+
+        # Cast to bf16 and perform scaling
+        B_group = B_group.to(torch.bfloat16) * scales.to(torch.bfloat16)
+
+        # Reshape B_group back to original shape and store in dequantized B buffer
+        B_group = B_group.reshape(B_group_shape[1], B_group_shape[0]).transpose(-2, -1)
+        B[group_start_idx:group_end_idx, :] = B_group
+
+        # Increment group start and scale start indices
+        group_start_idx = group_end_idx
+        scales_start_idx += scale_group_size
+
+    # Perform bf16 grouped GEMM using dequantized A and B.
+    out = torch._grouped_mm(A, B, offs=offs, out_dtype=out_dtype)
     return out

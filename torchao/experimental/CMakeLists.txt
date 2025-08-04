@@ -116,6 +116,8 @@ if(TORCHAO_BUILD_ATEN_OPS)
         ops/embedding_xbit/op_embedding_xbit_aten.cpp
         ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
         ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight_aten.cpp
+        ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+        ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_aten.cpp
     )
     list(TRANSFORM _torchao_op_srcs_aten PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_aten SHARED ${_torchao_op_srcs_aten})
@@ -161,7 +163,9 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
         ops/embedding_xbit/op_embedding_xbit_executorch.cpp
         ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
         ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight_executorch.cpp
-    )
+        ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+        ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_executorch.cpp)
+
     list(TRANSFORM _torchao_op_srcs_executorch PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_executorch STATIC ${_torchao_op_srcs_executorch})
     target_link_torchao_parallel_backend(torchao_ops_executorch executorch)

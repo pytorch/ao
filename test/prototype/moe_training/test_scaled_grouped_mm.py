@@ -6,21 +6,20 @@
 
 import pytest
 import torch
+from torch.nn import functional as F
 
-pytest.importorskip("triton", reason="Triton required to run this test")
-
-from torchao.prototype.moe_training.utils import generate_jagged_offs
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 # We need to skip before doing any imports which would use triton, since
 # triton won't be available on CPU builds and torch < 2.5
 if not (
-    TORCH_VERSION_AT_LEAST_2_5
+    TORCH_VERSION_AT_LEAST_2_7
     and torch.cuda.is_available()
     and torch.cuda.get_device_capability()[0] >= 9
 ):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
+pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.float8.config import (
     Float8LinearConfig,
@@ -30,8 +29,14 @@ from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.scaled_grouped_mm import (
+    _emulated_mxfp8_scaled_grouped_mm_2d_2d,
+    _emulated_mxfp8_scaled_grouped_mm_2d_3d,
     _scaled_grouped_mm,
-    emulated_mxfp8_scaled_grouped_mm,
+)
+from torchao.prototype.moe_training.utils import (
+    _to_mxfp8_per_group_colwise,
+    _to_mxfp8_per_group_rowwise,
+    generate_jagged_offs,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
@@ -223,7 +228,7 @@ def compute_reference_forward(
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
+def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
     offs = generate_jagged_offs(num_experts, M)
@@ -242,7 +247,7 @@ def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
     w_t_scale, w_t_mx = w_scale.transpose(-2, -1), w_mx.transpose(-2, -1)
 
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
-    out = emulated_mxfp8_scaled_grouped_mm(
+    out = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
         x_mx, x_scale, w_t_mx, w_t_scale, offs=offs, out_dtype=torch.bfloat16
     )
 
@@ -252,21 +257,96 @@ def test_emulate_mxfp8_grouped_gemm(M, K, N, num_experts):
 
 
 @skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("M", (1024, 4096))
+@pytest.mark.parametrize("N", (1024, 4096))
+@pytest.mark.parametrize("num_experts", (8, 16))
+def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
+    # Simluate 2d-2d grouped gemm grad_weight = grad_output_t @ x
+    block_size = 32
+    grad_out = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+    grad_out_t = grad_out.t().contiguous()
+    x = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+    x_ref, grad_out_t_ref, offs_ref = x.clone(), grad_out_t.clone(), offs.clone()
+
+    # bf16 reference grouped gemm
+    ref_out = torch._grouped_mm(
+        grad_out_t_ref,
+        x_ref,
+        offs=offs_ref,
+        out_dtype=torch.bfloat16,
+    )
+
+    # mxpf8 grouped gemm
+    x_scale, x_mx = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+    grad_out_t_mx, grad_out_t_scale = _to_mxfp8_per_group_rowwise(
+        grad_out_t,
+        offs=offs,
+        block_size=block_size,
+    )
+    x_mx, x_scale = _to_mxfp8_per_group_colwise(
+        x,
+        offs=offs,
+        block_size=block_size,
+    )
+    out = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
+        grad_out_t_mx,
+        grad_out_t_scale,
+        x_mx,
+        x_scale,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        block_size=block_size,
+    )
+
+    sqnr = compute_error(ref_out, out)
+    min_sqnr = 27.0
+    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-def test_mxfp8_grouped_gemm_with_dq_fwd(M, K, N, num_experts):
+def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):
     from torchao.prototype.moe_training.scaled_grouped_mm import (
         _MXFP8GroupedMM,
     )
 
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
-    offs = generate_jagged_offs(num_experts, M)
-    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
     block_size = 32
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w_t = torch.randn(
+        num_experts, K, N, dtype=torch.bfloat16, device="cuda", requires_grad=True
+    )
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+    x_ref, w_t_ref, offs_ref = (
+        x.clone().detach().requires_grad_(True),
+        w_t.clone().detach().requires_grad_(True),
+        offs.clone(),
+    )
 
+    # Forward
     out = _MXFP8GroupedMM.apply(x, w_t, offs, block_size, torch.bfloat16)
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)
     min_sqnr = 27.0
-    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+    assert sqnr >= min_sqnr, f"Output sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+    # Backward
+    labels = torch.ones_like(ref_out)
+    ref_loss = F.mse_loss(ref_out, labels)
+    out_loss = F.mse_loss(out, labels)
+    ref_loss.backward()
+    out_loss.backward()
+
+    # Check input grads
+    min_input_grad_sqnr = 26.0
+    sqnr = compute_error(x_ref.grad, x.grad)
+    assert sqnr >= min_input_grad_sqnr, (
+        f"Input grad sqnr {sqnr} is too low, must be >= {min_input_grad_sqnr}"
+    )
+
+    # Check weight grads
+    min_weight_grad_sqnr = 24.0
+    sqnr = compute_error(w_t_ref.grad, w_t.grad)
+    assert sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad sqnr {sqnr} is too low, must be >= {min_weight_grad_sqnr}"
+    )

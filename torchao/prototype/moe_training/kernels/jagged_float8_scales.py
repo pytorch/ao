@@ -42,7 +42,10 @@ kernel_configs_2D = [
     for block_size_cols in block_sizes
 ]
 
+from torch.library import triton_op, wrap_triton
 
+
+@triton_op("torchao::triton_fp8_row_major_jagged_rowwise_scales", mutates_args={})
 def triton_fp8_row_major_jagged_rowwise_scales(
     hp_tensor: torch.Tensor,
     offsets: torch.Tensor,
@@ -90,7 +93,7 @@ def triton_fp8_row_major_jagged_rowwise_scales(
         triton.cdiv(m, meta["BLOCK_SIZE_ROWS"]),
         offsets.numel(),
     )
-    _triton_fp8_row_major_jagged_rowwise_scales[grid](
+    wrap_triton(_triton_fp8_row_major_jagged_rowwise_scales)[grid](
         hp_tensor,
         offsets,
         output_buffer,
@@ -204,6 +207,7 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
         tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
 
+@triton_op("torchao::triton_fp8_col_major_jagged_colwise_scales", mutates_args={})
 def triton_fp8_col_major_jagged_colwise_scales(
     hp_tensor: torch.Tensor,
     offsets: torch.Tensor,
@@ -251,7 +255,7 @@ def triton_fp8_col_major_jagged_colwise_scales(
         triton.cdiv(n, meta["BLOCK_SIZE_COLS"]),
         offsets.numel(),
     )
-    _triton_fp8_col_major_jagged_colwise_scales[grid](
+    wrap_triton(_triton_fp8_col_major_jagged_colwise_scales)[grid](
         hp_tensor,
         offsets,
         output_buffer,
