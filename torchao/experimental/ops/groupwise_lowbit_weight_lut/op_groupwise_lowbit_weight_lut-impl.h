@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include <ATen/Functions.h>
-#include <torch/library.h>
 #include <torchao/experimental/ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.h>
 #include <torchao/experimental/ops/groupwise_lowbit_weight_lut/kernel_selector.h>
 #include <torchao/experimental/ops/library.h>
