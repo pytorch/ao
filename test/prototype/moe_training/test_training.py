@@ -19,11 +19,11 @@ from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
+    from torchtitan.experiments.llama4.infra.expert_parallel import (
+        set_token_group_alignment_size_m,
+    )
     from torchtitan.experiments.llama4.model.args import TransformerModelArgs
     from torchtitan.experiments.llama4.model.moe import MoE
-    from torchtitan.experiments.llama4.infra.expert_parallel import (
-        set_token_group_alignment_size_m
-    )
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
