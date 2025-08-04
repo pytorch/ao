@@ -119,10 +119,10 @@ class BenchmarkResult:
     ):
         self.config = config
         self.output_dir = config.output_dir
-        self.eager_baseline_inference_time_in_ms = 0.0
-        self.eager_model_inference_time_in_ms = 0.0
-        self.compile_baseline_inference_time_in_ms = 0.0
-        self.compile_model_inference_time_in_ms = 0.0
+        self.baseline_model_eager_inference_time_in_ms = 0.0
+        self.quantized_model_eager_inference_time_in_ms = 0.0
+        self.baseline_model_compiled_inference_time_in_ms = 0.0
+        self.quantized_model_compiled_inference_time_in_ms = 0.0
         self.eager_speedup_on_baseline = 0.0
         self.compile_speedup_on_baseline = 0.0
         self.compile_speedup_on_eager = 0.0
@@ -135,10 +135,10 @@ class BenchmarkResult:
         """Convert result to dictionary for main function"""
         result_dict = {
             **self.config.to_dict(),
-            "eager_baseline_inference_time_in_ms": self.eager_baseline_inference_time_in_ms,
-            "eager_model_inference_time_in_ms": self.eager_model_inference_time_in_ms,
-            "compile_baseline_inference_time_in_ms": self.compile_baseline_inference_time_in_ms,
-            "compile_model_inference_time_in_ms": self.compile_model_inference_time_in_ms,
+            "baseline_model_eager_inference_time_in_ms": self.baseline_model_eager_inference_time_in_ms,
+            "quantized_model_eager_inference_time_in_ms": self.quantized_model_eager_inference_time_in_ms,
+            "baseline_model_compiled_inference_time_in_ms": self.baseline_model_compiled_inference_time_in_ms,
+            "quantized_model_compiled_inference_time_in_ms": self.quantized_model_compiled_inference_time_in_ms,
             "eager speedup on baseline": self.eager_speedup_on_baseline,
             "compile speedup on baseline": self.compile_speedup_on_baseline,
             "eager vs compile speedup": self.compile_speedup_on_eager,
@@ -410,11 +410,11 @@ def print_results(results: List[BenchmarkResult]):
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
             f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
-            f"{result.eager_baseline_inference_time_in_ms:.2f}",
-            f"{result.eager_model_inference_time_in_ms:.2f}",
+            f"{result.baseline_model_eager_inference_time_in_ms:.2f}",
+            f"{result.quantized_model_eager_inference_time_in_ms:.2f}",
             f"{result.eager_speedup_on_baseline:.2f}x",
-            f"{result.compile_baseline_inference_time_in_ms:.2f}",
-            f"{result.compile_model_inference_time_in_ms:.2f}",
+            f"{result.baseline_model_compiled_inference_time_in_ms:.2f}",
+            f"{result.quantized_model_compiled_inference_time_in_ms:.2f}",
             f"{result.compile_speedup_on_baseline:.2f}x",
             f"{result.compile_speedup_on_eager:.2f}x",
             str(result.config.enable_profiler),

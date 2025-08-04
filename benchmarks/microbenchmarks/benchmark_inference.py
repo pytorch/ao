@@ -38,12 +38,12 @@ from torchao.testing.model_architectures import (
 # -----------------------------------------------------------------------------
 # Baseline caching
 #
-# ``_BASELINE_CACHE`` maps a unique key to a tuple
+# ``_BASELINE_CACHE`` maps a unique key constructed using _make_cache_key(config) -> (model_type, m, k, n, high_precision_dtype, device, torch_compile_mode) to a tuple
 # ``(eager_baseline_time, compile_baseline_time)``.  See ``_make_cache_key`` for the key
 # construction.  Users should not access this cache directly; it is
-# internal to this module.  The cache intentionally holds the
-# uncompiled base model so that quantized versions can be derived
-# without mutating the cached copy.
+# internal to this module.
+# Eg: (linear, 1024, 1024, 1024, torch.bfloat16, cuda, default) -> (95.00, 56.00)
+# -----------------------------------------------------------------------------
 
 _BASELINE_CACHE: Dict[Tuple, Tuple[float, float]] = {}
 
@@ -114,30 +114,31 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         # Check if the baseline for this configuration has been computed
         if cache_key not in _BASELINE_CACHE:
             # Switch model to eval and move to device
-            base_model = base_model.eval().to(config.device)
+            m_copy = deepcopy(base_model)
+            m_copy = m_copy.eval().to(config.device)
             print("Benchmarking eager baseline inference.....")
             eager_baseline_time = model_inference_time_in_ms(
-                model=base_model, input_data=input_data
+                model=m_copy, input_data=input_data
             )
 
             print("Benchmarking compile baseline inference.....")
-            base_model = torch.compile(
-                base_model, mode=config.torch_compile_mode, fullgraph=True
+            m_copy = torch.compile(
+                m_copy, mode=config.torch_compile_mode, fullgraph=True
             )
             compile_baseline_time = model_inference_time_in_ms(
-                model=base_model, input_data=input_data
+                model=m_copy, input_data=input_data
             )
 
             # Store uncompiled model, input and baseline time
             _BASELINE_CACHE[cache_key] = (eager_baseline_time, compile_baseline_time)
 
-            result.eager_baseline_inference_time_in_ms = eager_baseline_time
-            result.compile_baseline_inference_time_in_ms = compile_baseline_time
+            result.baseline_model_eager_inference_time_in_ms = eager_baseline_time
+            result.baseline_model_compiled_inference_time_in_ms = compile_baseline_time
         else:
             # Retrieve cached values
             cached_eager_time, cached_compile_time = _BASELINE_CACHE[cache_key]
-            result.eager_baseline_inference_time_in_ms = cached_eager_time
-            result.compile_baseline_inference_time_in_ms = cached_compile_time
+            result.baseline_model_eager_inference_time_in_ms = cached_eager_time
+            result.baseline_model_compiled_inference_time_in_ms = cached_compile_time
 
         # At this point, ``base_model`` is an uncompiled model ready for quantization,
         # and ``input_data`` is the corresponding input tensor.  The baseline time
@@ -180,34 +181,34 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
 
         # Measure inference time for quantized model
         print("Benchmarking eager quantized model.....")
-        result.eager_model_inference_time_in_ms = model_inference_time_in_ms(
+        result.quantized_model_eager_inference_time_in_ms = model_inference_time_in_ms(
             model=m_copy, input_data=input_data
         )
 
         # Measure inference time for compiled quantized model
         print("Benchmarking quantized model.....")
         m_copy = torch.compile(m_copy, mode=config.torch_compile_mode, fullgraph=True)
-        result.compile_model_inference_time_in_ms = model_inference_time_in_ms(
-            model=m_copy, input_data=input_data
+        result.quantized_model_compiled_inference_time_in_ms = (
+            model_inference_time_in_ms(model=m_copy, input_data=input_data)
         )
 
         # Compute eager speedup relative to baseline
         result.eager_speedup_on_baseline = round(
-            result.eager_baseline_inference_time_in_ms
-            / result.eager_model_inference_time_in_ms,
-            2,
+            result.baseline_model_eager_inference_time_in_ms
+            / result.quantized_model_eager_inference_time_in_ms,
+            ndigits=2,
         )
         # Compute compile speedup relative to baseline
         result.compile_speedup_on_baseline = round(
-            result.compile_baseline_inference_time_in_ms
-            / result.compile_model_inference_time_in_ms,
-            2,
+            result.baseline_model_compiled_inference_time_in_ms
+            / result.quantized_model_compiled_inference_time_in_ms,
+            ndigits=2,
         )
         # Compute compile speedup for quantized model relative to eager quantized model
         result.compile_speedup_on_eager = round(
-            result.eager_model_inference_time_in_ms
-            / result.compile_model_inference_time_in_ms,
-            2,
+            result.quantized_model_eager_inference_time_in_ms
+            / result.quantized_model_compiled_inference_time_in_ms,
+            ndigits=2,
         )
 
         # Run profiler if enabled

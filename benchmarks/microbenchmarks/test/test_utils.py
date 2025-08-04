@@ -74,7 +74,7 @@ class TestUtils(unittest.TestCase):
         result = BenchmarkResult(config=config)
 
         self.assertEqual(result.config, config)
-        self.assertEqual(result.compile_model_inference_time_in_ms, 0.0)
+        self.assertEqual(result.quantized_model_compiled_inference_time_in_ms, 0.0)
 
     def test_get_default_device(self):
         # Test CPU fallback

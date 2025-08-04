@@ -45,7 +45,9 @@ class TestBenchmarkInference(unittest.TestCase):
 
         result = run(self.config)
         self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(hasattr(result, "compile_model_inference_time_in_ms"))
+        self.assertTrue(
+            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
+        )
 
     @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
     def test_run_inference_with_semi_sparse_marlin(self, mock_string_to_config):
@@ -73,7 +75,9 @@ class TestBenchmarkInference(unittest.TestCase):
         )
         result = run(config)
         self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(hasattr(result, "compile_model_inference_time_in_ms"))
+        self.assertTrue(
+            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
+        )
 
     @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
     def test_run_inference_with_block_sparsity(self, mock_string_to_config):
@@ -100,7 +104,9 @@ class TestBenchmarkInference(unittest.TestCase):
         )
         result = run(config)
         self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(hasattr(result, "compile_model_inference_time_in_ms"))
+        self.assertTrue(
+            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
+        )
 
 
 if __name__ == "__main__":
