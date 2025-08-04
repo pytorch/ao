@@ -172,7 +172,7 @@ def dequantize_codebook(
 
     # Compute shape of lookup group indices from codes shape and block size
     code_shape = codes.shape
-    ndim = code_shape.ndim
+    ndim = codes.ndim
     assert len(block_size) == ndim, "block_size must match dimensionality of codes"
 
     # Compute which codebook slice to use for each element
