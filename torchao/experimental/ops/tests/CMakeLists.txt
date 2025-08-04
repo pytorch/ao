@@ -82,5 +82,25 @@ if (TORCHAO_BUILD_CPU_AARCH64)
 endif()
 target_link_torchao_parallel_backend(test_linear_8bit_act_xbit_weight "${TORCHAO_PARALLEL_BACKEND}")
 
+add_executable(
+  test_groupwise_lowbit_weight_lut
+  test_groupwise_lowbit_weight_lut.cpp
+  ${TORCHAO_ROOT}/ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+)
+target_link_libraries(
+  test_groupwise_lowbit_weight_lut
+  PRIVATE
+  GTest::gtest_main
+)
+if (TORCHAO_BUILD_CPU_AARCH64)
+  target_link_libraries(
+    test_groupwise_lowbit_weight_lut
+    PRIVATE
+    torchao_kernels_aarch64
+  )
+endif()
+target_link_torchao_parallel_backend(test_groupwise_lowbit_weight_lut "${TORCHAO_PARALLEL_BACKEND}")
+
 include(GoogleTest)
+gtest_discover_tests(test_groupwise_lowbit_weight_lut)
 gtest_discover_tests(test_linear_8bit_act_xbit_weight)
