@@ -40,7 +40,7 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="IntxFakeQuantizeConfig" href="torchao.quantization.qat.IntxFakeQuantizeConfig.html" />
+    <link rel="next" title="Int4WeightOnlyQATQuantizer" href="torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html" />
     <link rel="prev" title="IntXQuantizationAwareTrainingConfig" href="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -436,7 +436,8 @@
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">FromIntXQuantizationAwareTrainingConfig</span></span><a class="reference internal" href="../_modules/torchao/quantization/qat/api.html#FromIntXQuantizationAwareTrainingConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig" title="Permalink to this definition">¶</a></dt>
-<dd><p>Config for converting a model with fake quantized modules,
+<dd><p>(Will be deprecated soon)
+Config for converting a model with fake quantized modules,
 such as <a class="reference internal" href="torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear" title="torchao.quantization.qat.linear.FakeQuantizedLinear"><code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedLinear()</span></code></a>
 and <code class="xref py py-func docutils literal notranslate"><span class="pre">FakeQuantizedEmbedding()</span></code>,
 back to model with the original, corresponding modules without
@@ -462,7 +463,7 @@ fake quantization. This should be used with
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.qat.IntxFakeQuantizeConfig.html" class="btn btn-neutral float-right" title="IntxFakeQuantizeConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html" class="btn btn-neutral float-right" title="Int4WeightOnlyQATQuantizer" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html" class="btn btn-neutral" title="IntXQuantizationAwareTrainingConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>

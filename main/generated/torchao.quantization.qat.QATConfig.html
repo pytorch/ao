@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>IntXQuantizationAwareTrainingConfig &mdash; torchao main documentation</title>
+  <title>QATConfig &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="FromIntXQuantizationAwareTrainingConfig" href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html" />
-    <link rel="prev" title="disable_linear_fake_quant" href="torchao.quantization.qat.linear.disable_linear_fake_quant.html" />
+    <link rel="next" title="QATStep" href="torchao.quantization.qat.QATStep.html" />
+    <link rel="prev" title="torchao.quantization.qat" href="../api_ref_qat.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -395,13 +395,13 @@
         
           <li><a href="../api_ref_qat.html">torchao.quantization.qat</a> &gt;</li>
         
-      <li>IntXQuantizationAwareTrainingConfig</li>
+      <li>QATConfig</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.qat.QATConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -431,33 +431,97 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="intxquantizationawaretrainingconfig">
-<h1>IntXQuantizationAwareTrainingConfig<a class="headerlink" href="#intxquantizationawaretrainingconfig" title="Permalink to this heading">¶</a></h1>
+  <section id="qatconfig">
+<h1>QATConfig<a class="headerlink" href="#qatconfig" title="Permalink to this heading">¶</a></h1>
 <dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">IntXQuantizationAwareTrainingConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">activation_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase"><span class="pre">FakeQuantizeConfigBase</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase"><span class="pre">FakeQuantizeConfigBase</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/qat/api.html#IntXQuantizationAwareTrainingConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig" title="Permalink to this definition">¶</a></dt>
-<dd><p>(Will be deprecated soon)
-Config for applying fake quantization to a <cite>torch.nn.Module</cite>.
+<dt class="sig sig-object py" id="torchao.quantization.qat.QATConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">QATConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><span class="pre">AOBaseConfig</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">activation_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase"><span class="pre">FakeQuantizeConfigBase</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase"><span class="pre">FakeQuantizeConfigBase</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.qat.QATStep.html#torchao.quantization.qat.QATStep" title="torchao.quantization.qat.api.QATStep"><span class="pre">QATStep</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'prepare'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/qat/api.html#QATConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.QATConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Config for applying quantization-aware training (QAT) to a <cite>torch.nn.Module</cite>,
 to be used with <code class="xref py py-func docutils literal notranslate"><span class="pre">quantize_()</span></code>.</p>
+<p>This config has two steps, “prepare” and “convert”. The prepare step applies
+“fake” quantization to the model and should be applied before training, while
+the convert step converts the model into an actual quantized model. Fake
+quantization here refers to simulating the quantization numerics (e.g. int4)
+using high precision arithmetic (e.g. bf16), with the goal of reducing
+eventual degradation from quantization.</p>
+<p>There are two ways to use this config. The first involves passing a base
+post-training quantization (PTQ) config, which we will use to automatically
+infer the corresponding fake quantization schemes to use in the prepare phase.
+In the convert phase, we will then apply the base PTQ config to the model.
+This will be the most common use case.</p>
+<p>Example usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">quantize_</span><span class="p">,</span>
+    <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">QATConfig</span>
+
+<span class="n">base_config</span> <span class="o">=</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">))</span>
+<span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;convert&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>Currently only the following are supported as base configs:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig" title="torchao.quantization.Int8DynamicActivationInt4WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></a></p></li>
+<li><p><a class="reference internal" href="torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig" title="torchao.quantization.Int4WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int4WeightOnlyConfig</span></code></a></p></li>
+</ul>
+</div></blockquote>
+<p>The second way to use this config involves specifying the fake quantization
+schemes directly. Users will pass in <a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.FakeQuantizeConfigBase"><code class="xref py py-class docutils literal notranslate"><span class="pre">FakeQuantizeConfigBase</span></code></a>
+for weights and/or activations instead of the base PTQ config. This use case
+is mostly for experimentation, e.g. when the corresponding PTQ config does
+not exist yet.</p>
 <p>Example usage:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntxFakeQuantizeConfig</span>
+
 <span class="n">activation_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="s2">&quot;per_token&quot;</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="n">quantize_</span><span class="p">(</span>
-    <span class="n">model</span><span class="p">,</span>
-    <span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">activation_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">),</span>
+<span class="n">qat_config</span> <span class="o">=</span> <span class="n">QATConfig</span><span class="p">(</span>
+    <span class="c1"># must specify one of `base_config` or `weight_config`</span>
+    <span class="n">activation_config</span><span class="o">=</span><span class="n">act_config</span><span class="p">,</span>
+    <span class="n">weight_config</span><span class="o">=</span><span class="n">weight_config</span><span class="p">,</span>
+    <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">qat_config</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Note: If the config is applied on a module that is not
-<cite>torch.nn.Linear</cite> or <cite>torch.nn.Embedding</cite>, or it is applied on
-<cite>torch.nn.Embedding</cite> with an activation config, then we will raise
-ValueError as these are not supported.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_config</strong> (<em>Optional</em><em>[</em><em>AOBaseConfig</em><em>]</em>) – Base PTQ config to infer the fake
+quantization configs during the prepare phase, and to apply directly
+during the convert phase.</p></li>
+<li><p><strong>activation_config</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.FakeQuantizeConfigBase"><em>FakeQuantizeConfigBase</em></a><em>]</em>) – Custom fake
+quantization config for input activations, always optional.
+Must be None if <cite>base_config</cite> is used.</p></li>
+<li><p><strong>weight_config</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.FakeQuantizeConfigBase"><em>FakeQuantizeConfigBase</em></a><em>]</em>) – Custom fake quantization
+config for weights. Must be None if <cite>base_config</cite> is used.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Keyword Arguments<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>step</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – One of “prepare” or “convert”, determines the QAT phase</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If <cite>base_config</cite> and <cite>activation_config</cite> are both specified</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If <cite>base_config</cite> and <cite>weight_config</cite> are both specified</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If neither <cite>base_config</cite> nor <cite>weight_config</cite> is specified</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If <cite>step</cite> is not one of “prepare” or “convert”</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If <cite>base_config</cite> is None but <cite>step</cite> is “convert”</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If the config is applied on a module that is not a
+    <cite>torch.nn.Linear</cite> or <cite>torch.nn.Embedding</cite>, or it is applied on
+    <cite>torch.nn.Embedding</cite> with an activation config</p></li>
+</ul>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -470,10 +534,10 @@ ValueError as these are not supported.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html" class="btn btn-neutral float-right" title="FromIntXQuantizationAwareTrainingConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.qat.QATStep.html" class="btn btn-neutral float-right" title="QATStep" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.qat.linear.disable_linear_fake_quant.html" class="btn btn-neutral" title="disable_linear_fake_quant" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="../api_ref_qat.html" class="btn btn-neutral" title="torchao.quantization.qat" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -505,7 +569,7 @@ ValueError as these are not supported.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">IntXQuantizationAwareTrainingConfig</a></li>
+<li><a class="reference internal" href="#">QATConfig</a></li>
 </ul>
 
             </div>

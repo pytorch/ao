@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>IntXQuantizationAwareTrainingConfig &mdash; torchao main documentation</title>
+  <title>FakeQuantizeConfigBase &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="FromIntXQuantizationAwareTrainingConfig" href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html" />
-    <link rel="prev" title="disable_linear_fake_quant" href="torchao.quantization.qat.linear.disable_linear_fake_quant.html" />
+    <link rel="next" title="IntxFakeQuantizeConfig" href="torchao.quantization.qat.IntxFakeQuantizeConfig.html" />
+    <link rel="prev" title="QATStep" href="torchao.quantization.qat.QATStep.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -395,13 +395,13 @@
         
           <li><a href="../api_ref_qat.html">torchao.quantization.qat</a> &gt;</li>
         
-      <li>IntXQuantizationAwareTrainingConfig</li>
+      <li>FakeQuantizeConfigBase</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.qat.FakeQuantizeConfigBase.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -431,33 +431,12 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="intxquantizationawaretrainingconfig">
-<h1>IntXQuantizationAwareTrainingConfig<a class="headerlink" href="#intxquantizationawaretrainingconfig" title="Permalink to this heading">¶</a></h1>
+  <section id="fakequantizeconfigbase">
+<h1>FakeQuantizeConfigBase<a class="headerlink" href="#fakequantizeconfigbase" title="Permalink to this heading">¶</a></h1>
 <dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">IntXQuantizationAwareTrainingConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">activation_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase"><span class="pre">FakeQuantizeConfigBase</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase" title="torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase"><span class="pre">FakeQuantizeConfigBase</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/qat/api.html#IntXQuantizationAwareTrainingConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig" title="Permalink to this definition">¶</a></dt>
-<dd><p>(Will be deprecated soon)
-Config for applying fake quantization to a <cite>torch.nn.Module</cite>.
-to be used with <code class="xref py py-func docutils literal notranslate"><span class="pre">quantize_()</span></code>.</p>
-<p>Example usage:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntxFakeQuantizeConfig</span>
-<span class="n">activation_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="s2">&quot;per_token&quot;</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">quantize_</span><span class="p">(</span>
-    <span class="n">model</span><span class="p">,</span>
-    <span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">activation_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">),</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>Note: If the config is applied on a module that is not
-<cite>torch.nn.Linear</cite> or <cite>torch.nn.Embedding</cite>, or it is applied on
-<cite>torch.nn.Embedding</cite> with an activation config, then we will raise
-ValueError as these are not supported.</p>
+<dt class="sig sig-object py" id="torchao.quantization.qat.FakeQuantizeConfigBase">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.</span></span><span class="sig-name descname"><span class="pre">FakeQuantizeConfigBase</span></span><a class="reference internal" href="../_modules/torchao/quantization/qat/fake_quantize_config.html#FakeQuantizeConfigBase"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.FakeQuantizeConfigBase" title="Permalink to this definition">¶</a></dt>
+<dd><p>Base class for representing fake quantization config.</p>
 </dd></dl>
 
 </section>
@@ -470,10 +449,10 @@ ValueError as these are not supported.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html" class="btn btn-neutral float-right" title="FromIntXQuantizationAwareTrainingConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.qat.IntxFakeQuantizeConfig.html" class="btn btn-neutral float-right" title="IntxFakeQuantizeConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.quantization.qat.linear.disable_linear_fake_quant.html" class="btn btn-neutral" title="disable_linear_fake_quant" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.qat.QATStep.html" class="btn btn-neutral" title="QATStep" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -505,7 +484,7 @@ ValueError as these are not supported.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">IntXQuantizationAwareTrainingConfig</a></li>
+<li><a class="reference internal" href="#">FakeQuantizeConfigBase</a></li>
 </ul>
 
             </div>

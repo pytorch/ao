@@ -598,21 +598,14 @@ we use int8 per token dynamic activations and int4 symmetric per group weights
 as our quantization scheme. Note that although we are targeting lower integer
 precisions, training still performs arithmetic in higher float precision (float32)
 because we are not actually casting the fake quantized values.</p>
-<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">quantize_</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">FakeQuantizeConfig</span><span class="p">,</span>
-    <span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">,</span>
-<span class="p">)</span>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">QATConfig</span>
+
 <span class="n">model</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">()</span>
 
-<span class="c1"># prepare: insert fake quantization ops</span>
-<span class="c1"># swaps `torch.nn.Linear` with `FakeQuantizedLinear`</span>
-<span class="n">activation_config</span> <span class="o">=</span> <span class="n">FakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="s2">&quot;per_token&quot;</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<span class="n">weight_config</span> <span class="o">=</span> <span class="n">FakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
-<span class="n">qat_config</span> <span class="o">=</span> <span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">activation_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">qat_config</span><span class="p">)</span>
+<span class="c1"># prepare: swap `torch.nn.Linear` -&gt; `FakeQuantizedLinear`</span>
+<span class="n">base_config</span> <span class="o">=</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">))</span>
 
 <span class="c1"># fine-tune</span>
 <span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
@@ -623,18 +616,12 @@ This fine-tuned model has the exact same structure as the original model.
 The only difference is the QAT fine-tuned model has weights that are more
 attuned to quantization, which will be beneficial later during inference.
 The next step is to actually quantize the model:</p>
-<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">FromIntXQuantizationAwareTrainingConfig</span><span class="p">,</span>
-<span class="p">)</span>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
 
-<span class="c1"># convert: transform fake quantization ops into actual quantized ops</span>
-<span class="c1"># swap `FakeQuantizedLinear` back to `torch.nn.Linear` and inserts</span>
-<span class="c1"># quantized activation and weight tensor subclasses</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">FromIntXQuantizationAwareTrainingConfig</span><span class="p">())</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">))</span>
+<span class="c1"># convert: swap `FakeQuantizedLinear` -&gt; `torch.nn.Linear`, then quantize using `base_config`</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;convert&quot;</span><span class="p">))</span>
+
+<span class="c1"># inference or generate</span>
 </pre></div>
 </div>
 <p>Now our model is ready for serving, and will typically have higher quantized
