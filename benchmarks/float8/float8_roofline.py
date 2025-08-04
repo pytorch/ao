@@ -48,7 +48,6 @@ import pandas as pd
 import sympy
 import torch
 import torch.nn as nn
-import torch.utils.benchmark as benchmark
 import tqdm
 from torch.profiler import ProfilerActivity, profile
 from utils import (
@@ -57,6 +56,7 @@ from utils import (
     profiler_output_to_filtered_time_by_kernel_name,
 )
 
+import torchao
 from torchao.float8 import (
     Float8LinearConfig,
     convert_to_float8_training,
@@ -81,20 +81,6 @@ class LNLinearSigmoid(torch.nn.Module):
         x = self.fc(x)
         x = self.sigmoid(x)
         return x
-
-
-# TODO(next): hook this up
-
-
-def benchmark_fn_in_sec(f, *args, **kwargs):
-    # Manual warmup
-    for _ in range(4):
-        f(*args, **kwargs)
-    t0 = benchmark.Timer(
-        stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
-    )
-    measurement = t0.blocked_autorange()
-    return measurement.mean
 
 
 def get_gpu_kernel_time(m, x, grad_output):
@@ -232,6 +218,8 @@ def run(
         float8_recipe_name = "tensorwise"
 
     print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"torch version: {torch.__version__}")
+    print(f"torchao version: {torchao.__version__}")
     print(f"do_benchmarks: {do_benchmarks}")
     print(f"shape_gen_name: {shape_gen_name}")
     print(f"float8_recipe_name: {float8_recipe_name}")

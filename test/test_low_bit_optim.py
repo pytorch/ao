@@ -187,6 +187,27 @@ class TestOptim(TestCase):
         finally:
             torch.set_default_dtype(old_dtype)
 
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("device", _DEVICES)
+    def test_param_groups(self, optim_name, device):
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device)
+        param_groups = [
+            dict(params=list(model[0].parameters()), lr=1e-4),
+            dict(params=list(model[2].parameters()), lr=1e-5),
+        ]
+        optimizer = getattr(optim, optim_name)(param_groups)
+
+        x = torch.randn(4, 32, device=device)
+        loss = model(x).sum()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
     # test 2 times with different world size, and persist checkpoint across the 2 runs.

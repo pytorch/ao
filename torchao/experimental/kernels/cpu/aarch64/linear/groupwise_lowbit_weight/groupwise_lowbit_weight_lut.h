@@ -54,7 +54,7 @@ inline void pack_activations(
     int sr) {
   (void)mr; // unused
   (void)kr; // unused
-  (void)sr; // unused
+  (void)sr; // unused {
   activation_packing::pack_activations<mr_, kr_, sr_>(output, m, k, input);
 }
 
@@ -130,7 +130,6 @@ void pack_weights(
   (void)nr; // unused
   (void)kr; // unused
   (void)sr; // unused
-
   weight_packing::pack_weights<weight_nbit_, nr_, kr_, sr_>(
       packed_weights_ptr,
       weight_qvals_indices,
@@ -212,7 +211,6 @@ packed_activations_offset(int m_idx, int k, int mr, int kr, int sr) {
   (void)mr; // unused
   (void)kr; // unused
   (void)sr; // unused
-
   // For a simple padded row-major format, the offset is just m_idx * k.
   return sizeof(float) * m_idx * k;
 }

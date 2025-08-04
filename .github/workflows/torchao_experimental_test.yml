@@ -53,6 +53,7 @@ jobs:
           pytest torchao/experimental/tests/test_int8_dynamic_activation_intx_weight.py
           python torchao/experimental/tests/test_embedding_xbit_quantizer.py
           python torchao/experimental/tests/test_quant_passes.py
+          pytest -s test/prototype/test_dynamic_activation_lut.py
       - name: Run kernels/cpu/aarch64/tests
         if: runner.os == 'macOS'
         run: |
@@ -106,7 +107,7 @@ jobs:
   #         conda run -n test-mps-ops-env pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
   #     - name: Print torch version
   #       run: |
-          
+
   #         conda run -n test-mps-ops-env python -c "import torch; print(torch.__version__)"
   #     - name: Install requirements
   #       run: |

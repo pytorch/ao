@@ -23,10 +23,10 @@ from torchao.quantization.quant_primitives import (
 
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
+    _quantize_activation_per_token_absmax,
     get_group_qparams_symmetric,
     groupwise_affine_dequantize_tensor_from_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
-    quantize_activation_per_token_absmax,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
@@ -355,7 +355,7 @@ class TestQuantPrimitives(unittest.TestCase):
     )
     def test_quantize_activation_per_token_abs_max(self):
         input = torch.randn(10, 10)
-        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+        quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
 
         mapping_type = MappingType.SYMMETRIC
         block_size = list(input.shape)
@@ -389,22 +389,22 @@ class TestQuantPrimitives(unittest.TestCase):
     def test_quantize_activation_per_token_abs_max_zero_input(self):
         input = torch.zeros(10, 10)
         # make sure it still works
-        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+        quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
 
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
     def test_quantize_activation_per_token_abs_max_dtype(self):
         input = torch.zeros(10, 10, dtype=torch.bfloat16)
-        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+        quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
         self.assertTrue(scale_ref.dtype, torch.bfloat16)
 
         input = torch.zeros(10, 10, dtype=torch.float32)
-        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+        quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
         self.assertTrue(scale_ref.dtype, torch.float32)
 
         input = torch.zeros(10, 10, dtype=torch.float16)
-        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+        quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
         self.assertTrue(scale_ref.dtype, torch.float32)
 
     @unittest.skipIf(

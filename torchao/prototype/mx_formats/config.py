@@ -12,8 +12,6 @@ import torch
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP6_E2M3,
-    DTYPE_FP6_E3M2,
     DTYPE_TO_SHORT_STR,
     SUPPORTED_ELEM_DTYPES,
 )
@@ -31,6 +29,17 @@ class MXGemmKernelChoice(Enum):
     # available on recent versions of PyTorch nightly, with https://github.com/pytorch/pytorch/pull/147548
     # note: torch.compile does not work yet, see https://github.com/pytorch/pytorch/issues/147873
     CUBLAS = "cublas"
+
+
+class MXFP8Dim1CastKernelChoice(Enum):
+    """
+    Defines which kernel to use for mxfp8 casting. Currently custom casting kernels are
+    only for scaling along dim1, and torch native code is always used for scaling along dim0.
+    """
+
+    TRITON = "triton"
+    CUDA = "cuda"
+    TORCH = "torch"
 
 
 # Pre-made recipes for common configurations
@@ -85,10 +94,12 @@ class MXLinearConfig(AOBaseConfig):
     # on the given hardware an exception will be thrown
     gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
 
-    # If True, uses a custom triton kernel for cast to mxfp8 across dim1
+    # define which kernel to use for mxfp8 casting
     # TODO(1945): remove this config option once torch.compile gives us
     # a fast kernel
-    use_fp8_dim1_cast_triton_kernel: bool = False
+    mxfp8_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
+        MXFP8Dim1CastKernelChoice.TORCH
+    )
 
     # If True, uses a custom triton kernel for fp4 dequantize
     use_fp4_custom_triton_dequant_kernel: bool = False
@@ -146,51 +157,7 @@ class MXLinearConfig(AOBaseConfig):
         if self.elem_dtype_grad_output_override is not None:
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
         s += f", kernel={self.gemm_kernel_choice.value}"
-        if self.use_fp8_dim1_cast_triton_kernel:
-            s += ", use_fp8_dim1_cast_triton_kernel=True"
+        s += f", mxfp8_cast_kernel_choice={self.mxfp8_cast_kernel_choice.value}"
         if self.use_fp4_custom_triton_dequant_kernel:
             s += ", use_fp4_custom_triton_dequant_kernel=True"
         return s
-
-
-@dataclass
-class MXInferenceLinearConfig(AOBaseConfig):
-    # block size for scaling, default is 32 to match
-    # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf,
-    # section 5.2
-    block_size: int = 32
-
-    # element dtype, used for activations, weights and gradients
-    elem_dtype: Any = torch.float8_e4m3fn
-    # TODO(future PR): support different elem_dtype for activations vs weights
-
-    # defines the gemm kernel choice, if the chosen kernel is not supported
-    # on the given hardware an exception will be thrown
-    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
-
-    # If True, uses a custom triton kernel for fp4 dequantize
-    use_fp4_custom_triton_dequant_kernel: bool = False
-
-    # If True, packs 4xFP6 into 3xuint8 containers for inference, using custom triton
-    # kernels (fused unpack/dequantize).
-    pack_fp6: bool = True
-
-    def __post_init__(self):
-        _validate_elem_dtype(self.elem_dtype)
-        _validate_gemm_kernel_choice(
-            self.gemm_kernel_choice, self.block_size, self.elem_dtype
-        )
-
-    def short_str(self) -> str:
-        """
-        Returns a concise representation of the current config.
-        """
-        s = f"bl_sz={self.block_size}, lp_dtype={DTYPE_TO_SHORT_STR[self.elem_dtype]}"
-        s += f", kernel={self.gemm_kernel_choice.value}"
-        if self.use_fp4_custom_triton_dequant_kernel:
-            s += ", use_fp4_custom_triton_dequant_kernel=True"
-        if self.elem_dtype in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2) and self.pack_fp6:
-            s += ", pack_fp6=True"
-        return s
-
-    # TODO(future PR): add a recipe to config API for inference

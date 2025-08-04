@@ -48,6 +48,7 @@ def apply_spinquant(
     use_r2=False,
     use_r4=True,
     pretrained_rotation_path=None,
+    qkv_split=False,
 ):
     """
     Apply SpinQuant to a Transformer model: https://arxiv.org/abs/2405.16406
@@ -57,9 +58,9 @@ def apply_spinquant(
     which appears to show best results in many cases (see https://github.com/pytorch/ao/pull/983).
 
     Note that the R3 rotation matrix and Cayley optimization for R1/R2 are currently not implemented.
-    """
-    assert isinstance(model, Transformer), "Only Transformer models are supported"
 
+    qkv_split should be set to True if attention modules have separate tensors wq, wk, wv instead of wqkv
+    """
     original_device = next(model.parameters()).device
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device=device)
@@ -75,18 +76,21 @@ def apply_spinquant(
         assert Path(pretrained_rotation_path).suffix == ".bin", "Expected a .bin file."
 
     if use_r1:
-        fuse_layernorm_into_linear(model)
-        apply_spinquant_r1(model, device, pretrained_rotation_path)
+        fuse_layernorm_into_linear(model, qkv_split)
+        apply_spinquant_r1(model, device, pretrained_rotation_path, qkv_split)
     if use_r2:
-        apply_spinquant_r2(model, device, pretrained_rotation_path)
+        apply_spinquant_r2(model, device, pretrained_rotation_path, qkv_split)
     if use_r4:
         apply_spinquant_r4(model, device)
 
     model.to(device=original_device)
 
 
-def apply_spinquant_r1(model, device, pretrained_rotation_path=None):
-    """Apply the SpinQuant R1 rotation matrix to the model."""
+def apply_spinquant_r1(model, device, pretrained_rotation_path=None, qkv_split=False):
+    """
+    Apply the SpinQuant R1 rotation matrix to the model.
+    qkv_split should be set to True if attention modules have separate tensors wq, wk, wv instead of wqkv
+    """
 
     if pretrained_rotation_path is not None:
         R1 = torch.load(pretrained_rotation_path)["R1"].to(device).to(torch.float64)
@@ -97,11 +101,14 @@ def apply_spinquant_r1(model, device, pretrained_rotation_path=None):
     else:
         R1 = random_hadamard_matrix(model.config.dim, device)
 
-    _rotate_model_r1(model, R1)
+    _rotate_model_r1(model, R1, qkv_split=qkv_split)
 
 
-def apply_spinquant_r2(model, device, pretrained_rotation_path=None):
-    """Apply the SpinQuant R2 rotation matrices to the model."""
+def apply_spinquant_r2(model, device, pretrained_rotation_path=None, qkv_split=False):
+    """
+    Apply the SpinQuant R2 rotation matrices to the model.
+    qkv_split should be set to True if attention modules have separate tensors wq, wk, wv instead of wqkv
+    """
 
     R2s = []  # note that unlike R1, there are multiple R2 matrices (one per layer)
     head_dim = model.config.head_dim
@@ -118,7 +125,7 @@ def apply_spinquant_r2(model, device, pretrained_rotation_path=None):
             R2 = random_hadamard_matrix(head_dim, device)
         R2s.append(R2)
 
-    _rotate_model_r2(model, R2s)
+    _rotate_model_r2(model, R2s, qkv_split=qkv_split)
 
 
 def apply_spinquant_r4(model, device):
@@ -154,19 +161,19 @@ def _fuse_layernorm_into_linear(
 
 
 @torch.no_grad()
-def _rotate_model_r1(model, R1):
+def _rotate_model_r1(model, R1, qkv_split=False):
     _rotate_embeddings(model, R1)
     _rotate_head(model, R1)
 
     for layer in model.layers:
-        _rotate_attention_inputs(layer, R1)
+        _rotate_attention_inputs(layer, R1, qkv_split=qkv_split)
         _rotate_attention_output(layer, R1)
         _rotate_mlp_input(layer, R1)
         _rotate_mlp_output(layer, R1)
 
 
 @torch.no_grad()
-def _rotate_model_r2(model, R2s):
+def _rotate_model_r2(model, R2s, qkv_split=False):
     """Rotate the W_v and W_o weights of the multi-head self-attention modules."""
 
     head_dim = model.config.head_dim
@@ -180,25 +187,28 @@ def _rotate_model_r2(model, R2s):
         # Rotate W_o
         apply_exact_had_to_linear(attn.wo, had_dim=head_dim, output=False, R2=R2)
 
-        # Extract W_v
-        kv_size = model.config.n_local_heads * head_dim
-        wq, wk, wv = attn.wqkv.weight.data.split(
-            [model.config.dim, kv_size, kv_size], dim=0
-        )
-        out_features, in_features = wv.shape
-        wv_mod = nn.Linear(
-            in_features,
-            out_features,
-            bias=attn.wqkv.bias is not None,
-            device=wv.device,
-            dtype=wv.dtype,
-        )
-        wv_mod.weight.data = wv
+        if qkv_split:
+            apply_exact_had_to_linear(attn.wv, had_dim=head_dim, output=True, R2=R2)
+        else:
+            # Extract W_v
+            kv_size = model.config.n_local_heads * head_dim
+            wq, wk, wv = attn.wqkv.weight.data.split(
+                [model.config.dim, kv_size, kv_size], dim=0
+            )
+            out_features, in_features = wv.shape
+            wv_mod = nn.Linear(
+                in_features,
+                out_features,
+                bias=attn.wqkv.bias is not None,
+                device=wv.device,
+                dtype=wv.dtype,
+            )
+            wv_mod.weight.data = wv
 
-        # Rotate W_v
-        apply_exact_had_to_linear(wv_mod, had_dim=head_dim, output=True, R2=R2)
+            # Rotate W_v
+            apply_exact_had_to_linear(wv_mod, had_dim=head_dim, output=True, R2=R2)
 
-        attn.wqkv.weight.data = torch.cat([wq, wk, wv_mod.weight.data], dim=0)
+            attn.wqkv.weight.data = torch.cat([wq, wk, wv_mod.weight.data], dim=0)
 
 
 @torch.no_grad()
@@ -226,12 +236,14 @@ def _add_activation_wrappers_r4(model):
 
 
 @torch.no_grad()
-def fuse_layernorm_into_linear(model):
+def fuse_layernorm_into_linear(model, qkv_split=False):
     """
     Fuse RMSNorm weights into the subsequent linear layers.
 
     This is done in the paper specifically to make pre-norm LLMs like LLaMa
     rotation-invariant when quantization is not present.
+
+    qkv_split should be set to True if attention modules have separate tensors wq, wk, wv instead of wqkv
     """
     # Embedding fusion (from SpinQuant repo: utils/fuse_norm_utils.py:43)
     # I currently don't understand why this is necessary, so I contacted the
@@ -244,7 +256,13 @@ def fuse_layernorm_into_linear(model):
         _fuse_layernorm_into_linear(
             layer.ffn_norm, [layer.feed_forward.w1, layer.feed_forward.w3]
         )
-        _fuse_layernorm_into_linear(layer.attention_norm, [layer.attention.wqkv])
+        if qkv_split:
+            _fuse_layernorm_into_linear(
+                layer.attention_norm,
+                [layer.attention.wq, layer.attention.wk, layer.attention.wv],
+            )
+        else:
+            _fuse_layernorm_into_linear(layer.attention_norm, [layer.attention.wqkv])
 
     _fuse_layernorm_into_linear(model.norm, [model.output])
 
@@ -270,8 +288,13 @@ def _rotate_attention_output(layer, R1):
         mod.bias.data = torch.matmul(R1.T, b).to(dtype=mod.weight.dtype)
 
 
-def _rotate_attention_inputs(layer, R1):
-    _rotate_mod_weight_right(layer.attention.wqkv, R1)
+def _rotate_attention_inputs(layer, R1, qkv_split=False):
+    if qkv_split:
+        _rotate_mod_weight_right(layer.attention.wq, R1)
+        _rotate_mod_weight_right(layer.attention.wk, R1)
+        _rotate_mod_weight_right(layer.attention.wv, R1)
+    else:
+        _rotate_mod_weight_right(layer.attention.wqkv, R1)
 
 
 def _rotate_head(model, R1):

@@ -12,6 +12,17 @@ from typing import Any, ClassVar, Dict
 
 import torch
 
+__all__ = [
+    "AOBaseConfig",
+    "VersionMismatchError",
+    "config_from_dict",
+    "config_to_dict",
+    "ALLOWED_AO_MODULES",
+]
+
+# the default version for all configs, should never change
+_DEFAULT_VERSION = 1
+
 
 class AOBaseConfig(abc.ABC):
     """
@@ -38,8 +49,16 @@ class AOBaseConfig(abc.ABC):
 
     """
 
-    # Base Version of a config
-    VERSION: ClassVar[int] = 1
+    """
+    Note: this is not the version of AOBaseConfig, but the default version for all child configs
+    inheriting from AOBaseConfig, and it should be `_DEFAULT_VERSION` and never change
+    this is making sure all configs has a version defined, when they need to bump the version
+    they have to define a class variable VERSION for the child config to overwrite the default VERSION
+    that's defined here. Different child configs will maintain their own VERSION.
+
+    default Version of a config, should never change
+    """
+    VERSION: ClassVar[int] = _DEFAULT_VERSION
 
 
 class VersionMismatchError(Exception):
@@ -183,6 +202,7 @@ ALLOWED_AO_MODULES = {
     "torchao.prototype.quantization",
     "torchao.prototype.mx_formats",
     "torchao.dtypes",
+    "torchao.prototype.awq",
 }
 
 

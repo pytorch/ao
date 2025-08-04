@@ -3,145 +3,94 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from enum import Enum
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
 
-from torchao.dtypes import to_affine_quantized_intx
-from torchao.dtypes.uintx.uintx_layout import UintxLayout
-from torchao.quantization.granularity import Granularity
-from torchao.quantization.observer import (
-    AffineQuantizedObserverBase,
+from torchao.core.config import AOBaseConfig
+from torchao.quantization.transform_module import (
+    _QUANTIZE_CONFIG_HANDLER,
 )
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
+from torchao.utils import DummyModule
 
 
-class AWQObserver(AffineQuantizedObserverBase):
+# can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
+# after python 3.10 is end of life (https://devguide.python.org/versions/)
+class AWQStep(str, Enum):
+    PREPARE = "prepare"
+    CONVERT = "convert"
+    PREPARE_FOR_LOADING = "prepare_for_loading"
+
+
+@torch.no_grad()
+def get_act_scale(x):
+    return x.abs().view(-1, x.shape[-1]).mean(0)
+
+
+class AWQObserver(torch.nn.Module):
     def __init__(
         self,
         weight: torch.Tensor,
-        bias: torch.Tensor,
-        quantization_granularity: Granularity,
-        mapping_type: MappingType,
-        target_dtype: torch.dtype,
-        n_validation_examples: int,
-        validation_sequence_len: int,
+        bias: Optional[torch.Tensor],
+        base_config: AOBaseConfig,
         scale_search_space_size: int = 20,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int] = None,
-        eps: Optional[float] = None,
-        scale_dtype: Optional[torch.dtype] = None,
-        zero_point_dtype: Optional[torch.dtype] = None,
-        preserve_zero: Optional[bool] = True,
-        zero_point_domain=ZeroPointDomain.INT,
     ):
         """
         A custom observer for Activation aware Weight Quantization (AWQ)
+        Note: this only applies to weight only quantization: https://github.com/pytorch/ao/issues/2388#issuecomment-3062863647
 
         Args:
-            weight: The weight tensor to be observed.
-            bias: The bias tensor to be observed.
-            quantization_granularity: Granularity which specifies how many weights share the same scale/zero point
-            input_dtype: The data type of the input tensor.
-            mapping_type: Always set to asymmetric
-            target_dtype: The target data type of the quantized tensor
-            n_validation_examples: Number of examples used to calibrate observer
-            validation_sequence_len: Number of tokens in each example
-            scale_search_space_size: The number of scales to search for.
-            quant_min: The minimum quantized value
-            quant_max: The maximum quantized value
-            eps: The minimum scale.
-            scale_dtype: The data type of the scale tensor.
-            zero_point_dtype: The data type of the zero point tensor.
-            preserve_zero: A flag to indicate whether we need zero to be exactly
-                representable or not.
-            zero_point_domain: The domain of the zero point.
+            weight (torch.Tensor: The weight tensor to be observed.
+            bias (Optional[torch.Tensor]): The bias tensor to be observed.
+            config (AOBaseConfig): the configuration for quantize_, that we'll use to apply awq on top of
+            scale_search_space_size (int): search space size for searching the best scale for weight and input activation
         """
-        super().__init__(
-            mapping_type,
-            target_dtype,
-            quantization_granularity,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-        )
-        self.quantization_granularity = quantization_granularity
+        super().__init__()
+        self.base_config = base_config
         self.weight = weight
         self.bias = bias
-        self.n_validation_examples = n_validation_examples
-        self.validation_sequence_len = validation_sequence_len
-        self.calibration_token_count = 0
         self.inputs = []
-        self.outputs = []
         self.scale_options = scale_search_space_size
         self.device = self.weight.device
-        self.average = torch.zeros((1, weight.shape[1]), device=self.device)
         if self.bias is not None:
             self.bias.to(self.device)
 
     @torch.no_grad()
     def forward(self, input: torch.Tensor, output: torch.Tensor):
-        # import pdb
-        # pdb.set_trace()
-        # print(input.shape, input.abs().sum(1).shape, self.average.shape)
-        if len(self.inputs) < self.n_validation_examples:
-            self.inputs.append(input.to("cpu"))
-            self.outputs.append(output.to("cpu"))
-        self.calibration_token_count += input.shape[-2]
-        self.average += input.abs().sum(-2)
+        self.inputs.append(input.to("cpu"))
 
     def calculate_qparams(self):
-        # import pdb
-        # pdb.set_trace()
-        assert self.outputs != None, (
+        assert self.inputs != None, (
             "calibrate observer first by running model on exemplar data"
         )
-        self.average /= self.calibration_token_count
-        for i in range(self.n_validation_examples):
+        for i in range(len(self.inputs)):
             self.inputs[i] = self.inputs[i].to(self.device)
-            self.outputs[i] = self.outputs[i].to(self.device)
+            if self.bias is not None:
+                self.bias = self.bias.to(self.device)
+
+        acc = torch.cat(self.inputs, dim=-2)
+        x_max = get_act_scale(acc)
 
         best_loss = float("inf")
         best_scales = None
         for i in range(self.scale_options):
             ratio = i * 1 / self.scale_options
-            scales = self.average.pow(ratio).to(self.weight.dtype)
+            scales = x_max.pow(ratio).to(self.weight.dtype).clamp(min=1e-4).view(-1)
+            if best_scales is None:
+                best_scales = scales
             scales = scales / (scales.max() * scales.min()).sqrt()
-            layout = UintxLayout(self.target_dtype)
-            # regardless of weight dtype, we have to store as packed uint8 tensors
-            tensor_dtype = torch.uint8
-            w = to_affine_quantized_intx(
-                self.weight * scales,
-                self.mapping_type,
-                (1, self.quantization_granularity.group_size),
-                tensor_dtype,
-                quant_min=self.quant_min,
-                quant_max=self.quant_max,
-                eps=self.eps,
-                scale_dtype=self.scale_dtype,
-                zero_point_dtype=self.zero_point_dtype,
-                preserve_zero=self.preserve_zero,
-                zero_point_domain=self.zero_point_domain,
-                _layout=layout,
-            )
-            loss = 0
-            for i in range(self.n_validation_examples):
-                q_out = F.linear(self.inputs[i] / scales, w, self.bias)
-                loss += (self.outputs[i] - q_out).pow(2).mean().item()
+            config_handler = _QUANTIZE_CONFIG_HANDLER[type(self.base_config)]
+            dummy_mod = DummyModule(self.weight * scales)
+            quant_mod = config_handler(dummy_mod, self.base_config)
+            w = quant_mod.weight
+            orig_out = F.linear(acc, self.weight, self.bias)
+            q_out = F.linear(acc / scales, w, self.bias)
+            loss = (orig_out - q_out).pow(2).mean().item()
             if loss < best_loss:
                 best_scales = scales
                 best_loss = loss
-            for i in range(self.n_validation_examples):
-                self.inputs[i].to("cpu")
-                self.outputs[i].to("cpu")
         return best_scales.detach()
 
 

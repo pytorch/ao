@@ -20,16 +20,12 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.utils import TorchAOBaseTensor
 
-from .utils import (
-    _UnwrapAffineFakeQuantizedTensor,
-)
-
 aten = torch.ops.aten
 
 
 class _ToAffineFakeQuantized(torch.autograd.Function):
     """
-    Differentiable constructor for `AffineFakeQuantizedTensor`,
+    Differentiable constructor for `_AffineFakeQuantizedTensor`,
     needed for input activation fake quantization.
     """
 
@@ -47,12 +43,12 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-    ) -> "AffineFakeQuantizedTensor":
+    ) -> "_AffineFakeQuantizedTensor":
         if zero_point_domain is None:
             raise ValueError("Please use ZeroPointDomain.NONE instead of None")
 
         def apply_fake_quant_fn(t: torch.Tensor):
-            assert isinstance(t, AffineFakeQuantizedTensor)
+            assert isinstance(t, _AffineFakeQuantizedTensor)
             qmin, qmax = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
             if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
                 scale, zero_point = _choose_qparams_affine_tinygemm(
@@ -102,7 +98,7 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
             )
             return fq
 
-        return AffineFakeQuantizedTensor(
+        return _AffineFakeQuantizedTensor(
             original_tensor,
             apply_fake_quant_fn,
             fake_quant_enabled=True,
@@ -113,7 +109,7 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
         return gy, None, None, None, None, None, None, None, None, None, None
 
 
-class AffineFakeQuantizedTensor(TorchAOBaseTensor):
+class _AffineFakeQuantizedTensor(TorchAOBaseTensor):
     """
     Affine fake quantized tensor subclass. Affine quantization means we quantize the floating point tensor
     with an affine transformation:
@@ -212,7 +208,7 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
         if self.fake_quant_enabled:
             return self.apply_fake_quant_fn(self)
         else:
-            return _UnwrapAffineFakeQuantizedTensor.apply(self)
+            return self.original_tensor
 
     def _get_to_kwargs(self, *args, **kwargs):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
@@ -243,14 +239,14 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
 
     def _apply_fn_to_data(self, fn: Callable):
         """
-        Create a new `AffineFakeQuantizedTensor` with `fn` applied to the
+        Create a new `_AffineFakeQuantizedTensor` with `fn` applied to the
         original tensor, to be called within __torch_dispatch__.
         """
         return self._create_new(fn(self.original_tensor))
 
     def _create_new(self, new_value: torch.Tensor):
         """
-        Create a new `AffineFakeQuantizedTensor` with a new value,
+        Create a new `_AffineFakeQuantizedTensor` with a new value,
         to be called within __torch_dispatch__.
 
         Note: `requires_grad` must be False here because tensors created
@@ -267,7 +263,7 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
         )
 
 
-implements = AffineFakeQuantizedTensor.implements
+implements = _AffineFakeQuantizedTensor.implements
 
 
 @implements(torch.nn.functional.linear)
@@ -277,9 +273,9 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    if isinstance(input_tensor, AffineFakeQuantizedTensor):
+    if isinstance(input_tensor, _AffineFakeQuantizedTensor):
         input_tensor = input_tensor.get_value()
-    if isinstance(weight_tensor, AffineFakeQuantizedTensor):
+    if isinstance(weight_tensor, _AffineFakeQuantizedTensor):
         weight_tensor = weight_tensor.get_value()
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
@@ -288,9 +284,9 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     input_tensor = args[0]
     weight_tensor = args[1]
-    if isinstance(input_tensor, AffineFakeQuantizedTensor):
+    if isinstance(input_tensor, _AffineFakeQuantizedTensor):
         input_tensor = input_tensor.get_value()
-    if isinstance(weight_tensor, AffineFakeQuantizedTensor):
+    if isinstance(weight_tensor, _AffineFakeQuantizedTensor):
         weight_tensor = weight_tensor.get_value()
     return func(input_tensor, weight_tensor)
 
@@ -300,9 +296,9 @@ def _(func, types, args, kwargs):
     bias = args[0]
     input_tensor = args[1]
     weight_tensor = args[2]
-    if isinstance(input_tensor, AffineFakeQuantizedTensor):
+    if isinstance(input_tensor, _AffineFakeQuantizedTensor):
         input_tensor = input_tensor.get_value()
-    if isinstance(weight_tensor, AffineFakeQuantizedTensor):
+    if isinstance(weight_tensor, _AffineFakeQuantizedTensor):
         weight_tensor = weight_tensor.get_value()
     return func(bias, input_tensor, weight_tensor)
 
@@ -348,10 +344,10 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     assert len(args) == 2, f"dispatched the wrong op to the binary handler: {func}"
     new_args = pytree.tree_map_only(
-        AffineFakeQuantizedTensor, lambda x: x.original_tensor, args
+        _AffineFakeQuantizedTensor, lambda x: x.original_tensor, args
     )
     first_afq_tensor = (
-        args[0] if isinstance(args[0], AffineFakeQuantizedTensor) else args[1]
+        args[0] if isinstance(args[0], _AffineFakeQuantizedTensor) else args[1]
     )
     new_value = func(*new_args, **kwargs)
     out = first_afq_tensor._create_new(new_value)
@@ -384,4 +380,4 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-to_affine_fake_quantized = AffineFakeQuantizedTensor.from_float
+_to_affine_fake_quantized = _AffineFakeQuantizedTensor.from_float
