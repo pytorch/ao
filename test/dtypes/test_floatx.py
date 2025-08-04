@@ -33,9 +33,9 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode, get_available_devices
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_DEVICES = get_available_devices()
 _Floatx_DTYPES = [(3, 2), (2, 2)]
 
 
@@ -87,7 +87,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         )
         torch.testing.assert_close(actual, expected)
 
-    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("device", _DEVICES)
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     def test_to_copy_device(self, ebits, mbits):
         from torchao.quantization.quant_primitives import (
@@ -101,12 +101,10 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         _layout = FloatxTensorCoreLayout(ebits, mbits)
         floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(
             x, scale, None, _layout
-        ).cuda()
-        assert floatx_tensor_impl.device.type == "cuda"
-        floatx_tensor_impl = floatx_tensor_impl.cpu()
-        assert floatx_tensor_impl.device.type == "cpu"
+        ).to(device)
+        assert floatx_tensor_impl.device.type == device
 
-    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("device", _DEVICES)
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_5,
         reason="quantization only works with torch.compile for 2.5+",
@@ -116,9 +114,8 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("dtype", [torch.half, torch.bfloat16])
     @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
     @skip_if_rocm("ROCm enablement in progress")
-    def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
+    def test_fpx_weight_only(self, device, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
-        device = "cuda"
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=dtype)
         fpx_linear = copy.deepcopy(linear)
