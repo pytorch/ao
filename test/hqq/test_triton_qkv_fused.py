@@ -20,6 +20,9 @@ import itertools
 import torch
 
 from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
 
 torch.manual_seed(0)
 # N, K = shape
@@ -54,7 +57,7 @@ def _arg_to_id(arg):
 
 
 def quantize_helper(
-    weight_shape, quant_config, dtype, device="cuda", quant_dtype=torch.uint8
+    weight_shape, quant_config, dtype, device=_DEVICE, quant_dtype=torch.uint8
 ):
     N, K = weight_shape
     linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
@@ -120,7 +123,7 @@ def test_mixed_mm(
     transposed,
     kernel_type,
     seqlen=16,
-    device="cuda",
+    device=_DEVICE,
     quant_dtype=torch.uint8,
 ):
     """
