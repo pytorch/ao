@@ -28,10 +28,12 @@ void pack_weights_operator(
     const float* weight_scales,
     const float* weight_luts,
     const float* bias) {
-  TORCHAO_CHECK(
-      lut_group_size % scale_group_size == 0,
-      "scale_group_size must devide lut_group_size");
-  TORCHAO_CHECK(k % scale_group_size == 0, "scale_group_size must divide k");
+  if (uk.has_scales) {
+    TORCHAO_CHECK(
+        lut_group_size % scale_group_size == 0,
+        "scale_group_size must devide lut_group_size");
+    TORCHAO_CHECK(k % scale_group_size == 0, "scale_group_size must divide k");
+  }
   TORCHAO_CHECK(
       lut_group_size % (k * uk.nr) == 0,
       "lut_group_size must be a multiple of k*nr");
@@ -139,14 +141,17 @@ void groupwise_lowbit_weight_lut_parallel_operator(
     bool has_clamp,
     float clamp_min,
     float clamp_max) {
-  TORCHAO_CHECK(
-      lut_group_size % scale_group_size == 0,
-      "scale_group_size must divide lut_group_size");
-  TORCHAO_CHECK(k % scale_group_size == 0, "scale_group_size must divide k");
+  if (uk.has_scales) {
+    TORCHAO_CHECK(
+        lut_group_size % scale_group_size == 0,
+        "scale_group_size must divide lut_group_size");
+    TORCHAO_CHECK(k % scale_group_size == 0, "scale_group_size must divide k");
+    TORCHAO_CHECK(
+        scale_group_size % uk.kr == 0, "kr must divide scale_group_size");
+  }
+
   TORCHAO_CHECK(
       lut_group_size % (k * uk.nr) == 0, "(k * nr) must divide lut_group_size");
-  TORCHAO_CHECK(
-      scale_group_size % uk.kr == 0, "kr must divide scale_group_size");
   int config_idx = uk.select_config_idx(m);
   auto& kernel_config = uk.configs[config_idx];
   int n_step = uk.n_step;
@@ -191,7 +196,7 @@ void groupwise_lowbit_weight_lut_parallel_operator(
         mc_tile_size,
         k,
         activation_row_ptr,
-        kernel_config.mr,
+        uk.nr,
         uk.kr,
         uk.sr);
 

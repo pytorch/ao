@@ -150,32 +150,37 @@ struct UKernelConfig {
         packed_weights_offset != nullptr,
         "packed_weights_offset_fn_type must be set");
     TORCHAO_CHECK(pack_weights != nullptr, "pack_weights must be set");
-
     // 2. Validate the Array of Linear Configurations
     // At least one configuration must be defined.
     TORCHAO_CHECK(
         !configs.empty(),
         "At least one valid kernel configuration must be provided.");
 
+    bool configs_set = true; // first linear config must be set
     for (size_t i = 0; i < configs.size(); ++i) {
-      const auto& config = configs[i];
+      if (configs_set) {
+        const auto& config = configs[i];
 
-      TORCHAO_CHECK(
-          config.packed_activations_size != nullptr,
-          "config.packed_activations_size must be set");
-      TORCHAO_CHECK(
-          config.pack_activations != nullptr,
-          "config.pack_activations must be set");
-      TORCHAO_CHECK(config.kernel != nullptr, "config.kernel must be set");
+        TORCHAO_CHECK(
+            config.packed_activations_size != nullptr,
+            "config.packed_activations_size must be set");
+        TORCHAO_CHECK(
+            config.pack_activations != nullptr,
+            "config.pack_activations must be set");
+        TORCHAO_CHECK(config.kernel != nullptr, "config.kernel must be set");
 
-      if (i > 0) {
-        const auto& prev_config = configs[i - 1];
-        TORCHAO_CHECK(
-            prev_config.m_step > 0,
-            "There cannot be a gap in configurations (m_step=0 followed by m_step>0)");
-        TORCHAO_CHECK(
-            prev_config.m_step < config.m_step,
-            "m_step values in configs must be strictly increasing.");
+        if (i > 0) {
+          const auto& prev_config = configs[i - 1];
+          TORCHAO_CHECK(
+              prev_config.m_step > 0,
+              "There cannot be a gap in configurations (m_step=0 followed by m_step>0)");
+          TORCHAO_CHECK(
+              prev_config.m_step < config.m_step,
+              "m_step values in configs must be strictly increasing.");
+        }
+        if (i + 1 < configs.size()) {
+          configs_set = (configs[i + 1].m_step >= 1);
+        }
       }
     }
   }

@@ -251,6 +251,7 @@ Tensor pack_weights_with_lut_cpu(
       "weight_scales must be float32");
   TORCHAO_CHECK(weight_scales.dim() == 1, "weight_scales must be 1D");
   TORCHAO_CHECK(group_size >= 1, "group_size must be >= 1");
+  TORCHAO_CHECK(group_size % 16 == 0, "group_size must be a multiple of 16");
   TORCHAO_CHECK(
       weight_scales.size(0) == ((n * k) / group_size),
       "expected 1 scale per group");
@@ -285,8 +286,8 @@ Tensor pack_weights_with_lut_cpu(
           weight_nbit>(target, has_weight_zeros, has_bias);
   TORCHAO_CHECK(packed_weights_format.nr == 8, "nr must be 8");
   TORCHAO_CHECK(
-        lut_channel_group_size % 8 == 0,
-        "the lut_channel_group_size must be a multiple of nr (8)");
+        lut_channel_group_size == n || lut_channel_group_size % 8 == 0,
+        "the lut_channel_group_size must be n or a multiple of nr (8)");
 
   auto packed_weights_header = packed_weights_format.to_packed_weights_header();
   auto uk = torchao::ops::linear_8bit_act_xbit_weight::select_ukernel_config<

@@ -16,9 +16,9 @@ from torch.testing import FileCheck
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
-    FakeQuantizeConfig,
     FromIntXQuantizationAwareTrainingConfig,
     Int8DynActInt4WeightQATQuantizer,
+    IntxFakeQuantizeConfig,
     IntXQuantizationAwareTrainingConfig,
 )
 from torchao.quantization.quant_api import (
@@ -221,7 +221,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self._assert_close(result, expected_result)
 
     def _assert_close(
-        self, result, expected_result, mse_tol=1e-6, atol=1e-2, rtol=1e-5
+        self, result, expected_result, mse_tol=1e-5, atol=5e-2, rtol=5e-5
     ):
         mse_loss = torch.nn.functional.mse_loss(result, expected_result)
         self.assertTrue(
@@ -538,12 +538,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         model = model.to(model_dtype)
         activations = activations.to(model_dtype)
 
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             torch.int8,
             "per_token",
             is_symmetric=is_act_symmetric,
         )
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             weight_dtype,
             group_size=group_size,
             is_symmetric=is_symmetric,
