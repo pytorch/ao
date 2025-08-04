@@ -21,6 +21,9 @@ from .testing_utils import _validate_model_conversion
 try:
     from torchtitan.experiments.llama4.model.args import TransformerModelArgs
     from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.experiments.llama4.infra.expert_parallel import (
+        set_token_group_alignment_size_m
+    )
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
@@ -36,6 +39,7 @@ except ImportError:
 )
 @pytest.mark.parametrize("compile", [False, True])
 def test_moe_float8_training(target_fqns: list[str], compile: bool):
+    set_token_group_alignment_size_m(16)
     model_args = TransformerModelArgs(
         moe_enabled=True,
         num_experts=8,
