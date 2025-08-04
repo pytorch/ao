@@ -14,7 +14,6 @@ from torchao.prototype.quantization.codebook_coreml import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_no_cuda
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, is_package_at_least
 
 
@@ -36,7 +35,7 @@ class TestCodebookQuantization(unittest.TestCase):
             self.block_size,
         )
         group_size = self.block_size[-1]
-        self.assertEqual(codebook.shape, (256 // group_size, 2**self.nbits, 1))
+        self.assertEqual(codebook.shape, (1, 256 // group_size, 2**self.nbits, 1))
         self.assertEqual(wq.shape, (100, 256))
 
         self.assertFalse(torch.isnan(codebook).any())
@@ -76,7 +75,6 @@ class TestCodebookQuantization(unittest.TestCase):
         )
         assert type(m[0].weight) == CodebookQuantizedTensor
 
-    @skip_if_no_cuda()
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "requires 2.6+.")
     def test_export(self):
         m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(torch.float32)
