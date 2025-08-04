@@ -49,10 +49,10 @@ def choose_qparams_and_quantize_codebook_coreml(
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]  The codebook (lookup table) Tensor and the quantized Tensor (codes, torch.uint8)
-        The LUT table has dimension input_tensor.dim() + 2, where:
-         * The first input_tensor.dim() dimensions index over the different tables (input_tensor.shape[i] // block_size[i] in each dimension)
-         * The input_tensor.dim() + 1 dimension indexes over the nbit indices (2 ** nbits)
-         * The input_tensor.dim() + 2 dimension indexes over the look up values (shape = 1 for scalar)
+        The LUT table has dimension (g0, .., g(N-1), 2**nbits, vec_dim), where:
+         * The first N dimensions index over the different tables (gi = input_tensor.shape[i] // block_size[i] in each dimension)
+         * The N + 1 dimension indexes over the nbit indices (2 ** nbits)
+         * The N + 2 dimension indexes over the look up values (shape = 1 for scalar)
     """
     assert code_dtype in list(_SUB_BYTE_UINT_BOUNDS.keys()) + [torch.uint8]
     nbits = _DTYPE_TO_BIT_WIDTH[code_dtype]
@@ -137,7 +137,8 @@ def dequantize_codebook(
             General shape: (d0 // block_size[0], ..., dN // block_size[N], 2**nbits, vec_dim), where vec_dim = 1 for scalar look up values
             Simple example shape: (1, group_size, 2 ** nbits, 1) for scalar look up values, with 1 table per group_size columns
         nbits: int: number of bits for the quantization
-        block_size (List[int]): a slice of elements with shape block_size will share the same lookup table
+        block_size (List[int]): a slice of elements with shape block_size will share the same lookup table.
+            If block_size[i] == -1, then the entire dimension is used.
         output_dtype (torch.dtype): dtype for the output tensor.
 
     Returns:
@@ -171,26 +172,39 @@ def dequantize_codebook(
 
     # Compute shape of lookup group indices from codes shape and block size
     code_shape = codes.shape
-    ndim = len(code_shape)
+    ndim = code_shape.ndim
     assert len(block_size) == ndim, "block_size must match dimensionality of codes"
 
     # Compute which codebook slice to use for each element
     group_indices = []
-    for dim, bsz in zip(code_shape, block_size):
-        assert bsz >= 1 and dim % bsz == 0, (
-            f"dimension {dim} not divisible by block size {bsz}"
+    for i in range(ndim):
+        assert block_size[i] >= 1 and code_shape[i] % block_size[i] == 0, (
+            f"dimension {code_shape[i]} not divisible by block size {block_size[i]}"
         )
-    for i, bsz in enumerate(block_size):
-        indices = torch.arange(code_shape[i], device=codes.device) // bsz
-        group_indices.append(indices)
 
-    # Broadcast group_indices to shape of codes
-    mesh = torch.meshgrid(*group_indices, indexing="ij")
-    group_index_tensor = torch.stack(mesh, dim=-1)  # shape (..., N), where N = ndim
+        # Index of block
+        idx = (
+            torch.arange(code_shape[i], device=codes.device) // block_size[i]
+        )  # shape (di,)
+
+        # Reshape idx to broadcast along all other dims
+        shape = [1] * ndim
+        shape[i] = code_shape[i]
+        idx = idx.view(*shape)  # shape (1, ..., 1, di, 1, ..., 1)
+        idx = idx.expand(code_shape)  # shape (d0, ..., dN)
+        group_indices.append(idx)
+
+    # Stack the broadcasted group indices
+    # group_index_tensor at (i0, i1, ..., iN) is the gives the group indices (g0, ..., gN)
+    # for the element at (i0, i1, ..., iN) in the original code
+    # If code.shape = (d1, d2, d3), then group_index_tensor.shape = (d1, d2, d3, 3)
+    group_index_tensor = torch.stack(
+        group_indices, dim=-1
+    )  # shape (d0, d1, ..., dN, ndim)
 
     # Flatten everything to index efficiently
-    flat_codes = codes.reshape(-1)
-    flat_groups = group_index_tensor.reshape(-1, ndim)  # (..., ndim)
+    flat_codes = codes.reshape(-1)  # shape (numel,)
+    flat_groups = group_index_tensor.reshape(-1, ndim)  # (numel, ndim)
 
     # Compute dequantized values via indexing
     # index into codebook with (*group_index, code_index, :)
