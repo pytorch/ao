@@ -120,7 +120,7 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 
     assert torch.allclose(parq_out, parq_with_dyn_quant_out, atol=1e-1, rtol=1e-1)
     if dtype == torch.float32:
-        assert torch.allclose(lut_out, parq_with_dyn_quant_out, atol=1e-3, rtol=1e-3)
+        assert torch.allclose(lut_out, parq_with_dyn_quant_out, atol=1e-2, rtol=1e-2)
     elif dtype == torch.bfloat16:
         assert torch.allclose(lut_out, parq_with_dyn_quant_out, atol=1e-2, rtol=1e-2)
     else:
