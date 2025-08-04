@@ -84,11 +84,13 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_6,
+    auto_detect_device,
 )
 
 # TODO: put this in a common test utils file
-_CUDA_IS_AVAILABLE = torch.cuda.is_available()
+_GPU_IS_AVAILABLE = True if torch.cuda.is_available() or torch.xpu.is_available() else False
 
+_DEVICE = auto_detect_device()
 
 class Sub(torch.nn.Module):
     def __init__(self):
@@ -330,7 +332,7 @@ class TestQAT(unittest.TestCase):
                 group_size,
             )
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                q_weight.to("cuda"),
+                q_weight.to(_DEVICE),
                 qat_linear.inner_k_tiles,
             )
             ptq_linear.weight = q_weight
@@ -601,13 +603,13 @@ class TestQAT(unittest.TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
         inner_k_tiles = 8
         scales_precision = torch.bfloat16
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256, dtype=dtype, device=device)
@@ -655,13 +657,13 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
     def test_qat_4w_linear(self):
         from torchao.quantization.GPTQ import WeightOnlyInt4Linear
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
 
         group_size = 128
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         qat_linear = Int4WeightOnlyQATLinear(
@@ -702,14 +704,14 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
         group_size = 32
         inner_k_tiles = 8
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         m = M().to(device).to(dtype)
