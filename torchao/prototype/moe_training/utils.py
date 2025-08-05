@@ -146,7 +146,7 @@ def torch_to_float8_per_group_rowwise(
 
 
 def torch_to_3d_rowwise_float8_transpose_rhs(
-    input_hp: torch.Tensor,  # (E, K, N)
+    input_hp_t: torch.Tensor,  # (E, K, N)
     target_dtype: torch.dtype = torch.float8_e4m3fn,
     round_scales_to_power_of_2: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -162,9 +162,10 @@ def torch_to_3d_rowwise_float8_transpose_rhs(
         Output shape: (E, N, K)
         Scales shape: (E, 1, K
     """
-    input_hp_t = input_hp.transpose(-2, -1)  # (E, N, K)
+    assert _is_column_major(input_hp_t), "input tensor must be column-major"
+    input_hp = input_hp_t.transpose(-2, -1)  # (E, N, K)
     scales = tensor_to_scale(
-        input_hp_t,
+        input_hp,
         target_dtype,
         scaling_granularity=ScalingGranularity.AXISWISE,
         axiswise_dim=-2,
@@ -172,7 +173,7 @@ def torch_to_3d_rowwise_float8_transpose_rhs(
     )  # (E, 1, K)
 
     # Apply scales to tensor and convert to float8.
-    tensor_scaled = input_hp_t.to(torch.float32) * scales
+    tensor_scaled = input_hp.to(torch.float32) * scales
     float8_tensor = to_fp8_saturated(tensor_scaled, target_dtype)
 
     # To column major
