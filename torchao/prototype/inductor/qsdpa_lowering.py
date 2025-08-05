@@ -21,6 +21,7 @@ op_qsdpa = ExternKernelChoice(
 )
 quantize_dtypes = [torch.uint8, torch.float8_e4m3fn]
 
+
 def register_qsdpa():
     @register_lowering(
         torch.ops.torchao.qscaled_dot_product.default, type_promotion_kind=None

@@ -30,6 +30,7 @@ __all__ = [
 aten = torch.ops.aten
 quantize_dtypes = [torch.uint8, torch.float8_e4m3fn]
 
+
 def _is_valid_qsdpa_pattern():
     def fn(match):
         assert all(k in match.kwargs for k in ("query", "key", "value"))
@@ -117,7 +118,9 @@ def _register_qsdpa_pattern(pattern, custom_pass_dict):
     return qsdpa
 
 
-def _generate_dequant_pattern(input_pattern, qtype, is_reduced_type, scale: str, zp: str=None):
+def _generate_dequant_pattern(
+    input_pattern, qtype, is_reduced_type, scale: str, zp: str = None
+):
     if qtype == torch.uint8:
         assert zp is not None, "Zero point must be provided for uint8 dequantization"
         return CallFunction(
@@ -146,7 +149,7 @@ def _generate_dequant_pattern(input_pattern, qtype, is_reduced_type, scale: str,
             )
 
 
-def _generate_quant_pattern(input_pattern, qtype, scale: str, zp: str=None):
+def _generate_quant_pattern(input_pattern, qtype, scale: str, zp: str = None):
     if qtype == torch.uint8:
         assert zp is not None, "Zero point must be provided for uint8 quantization"
         return CallFunction(
@@ -168,7 +171,11 @@ def _generate_quant_pattern(input_pattern, qtype, scale: str, zp: str=None):
 
 
 def _get_qsdpa_qkv_pattern(
-    qtype, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool, input_name: str
+    qtype,
+    is_batch_size_1: bool,
+    is_reduced_type: bool,
+    has_convert: bool,
+    input_name: str,
 ):
     assert input_name in ["query", "key", "value"]
     qsdpa_qkv_pattern_before_dequant = CallFunction(
@@ -221,7 +228,12 @@ def _get_qsdpa_qkv_pattern(
 
 
 def _get_qsdpa_score_pattern(
-    qtype, has_mask: bool, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool, is_inv_scale: bool
+    qtype,
+    has_mask: bool,
+    is_batch_size_1: bool,
+    is_reduced_type: bool,
+    has_convert: bool,
+    is_inv_scale: bool,
 ):
     qsdpa_q_pattern = _get_qsdpa_qkv_pattern(
         qtype, is_batch_size_1, is_reduced_type, has_convert, "query"
@@ -276,7 +288,12 @@ def _get_qsdpa_score_pattern(
 
 
 def _get_qsdpa_exp_pattern(
-    qtype, has_mask: bool, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool, is_inv_scale: bool
+    qtype,
+    has_mask: bool,
+    is_batch_size_1: bool,
+    is_reduced_type: bool,
+    has_convert: bool,
+    is_inv_scale: bool,
 ):
     qsdpa_score_pattern = _get_qsdpa_score_pattern(
         qtype, has_mask, is_batch_size_1, is_reduced_type, has_convert, is_inv_scale
@@ -298,15 +315,15 @@ def _get_qsdpa_exp_pattern(
             _users=2,
         )
     elif is_inv_scale:
-            return CallFunction(
-                aten.exp.default,
-                CallFunction(
-                    aten.div.Tensor,
-                    qsdpa_exp_basic_pattern,
-                    KeywordArg("inv_scale"),
-                ),
-                _users=2,
-            )
+        return CallFunction(
+            aten.exp.default,
+            CallFunction(
+                aten.div.Tensor,
+                qsdpa_exp_basic_pattern,
+                KeywordArg("inv_scale"),
+            ),
+            _users=2,
+        )
     else:
         return CallFunction(
             aten.exp.default,
@@ -320,7 +337,12 @@ def _get_qsdpa_exp_pattern(
 
 
 def _get_qsdpa_attn_pattern(
-    qtype, has_mask: bool, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool, is_inv_scale: bool
+    qtype,
+    has_mask: bool,
+    is_batch_size_1: bool,
+    is_reduced_type: bool,
+    has_convert: bool,
+    is_inv_scale: bool,
 ):
     qsdpa_exp_pattern = _get_qsdpa_exp_pattern(
         qtype, has_mask, is_batch_size_1, is_reduced_type, has_convert, is_inv_scale
@@ -396,7 +418,12 @@ def _get_qsdpa_attn_pattern(
 #   has_convert: convert type if dequant out dtype is assigned
 #   is_inv_scale: if the scale in SDPA is inversed, in which case it is multiplied instead of divided
 def _get_qsdpa_final_pattern(
-    qtype, has_mask: bool, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool, is_inv_scale: bool
+    qtype,
+    has_mask: bool,
+    is_batch_size_1: bool,
+    is_reduced_type: bool,
+    has_convert: bool,
+    is_inv_scale: bool,
 ):
     qsdpa_v_pattern = _get_qsdpa_qkv_pattern(
         qtype, is_batch_size_1, is_reduced_type, has_convert, "value"
@@ -429,8 +456,20 @@ def _get_qsdpa_final_pattern(
 
 
 def _register_qsdpa_lowerings(custom_pass_dict):
-    for qtype, has_mask, is_batch_size_1, is_reduced_type, has_convert, is_inv_scale in itertools.product(
-        quantize_dtypes, [True, False], [True, False], [True, False], [True, False], [True, False]
+    for (
+        qtype,
+        has_mask,
+        is_batch_size_1,
+        is_reduced_type,
+        has_convert,
+        is_inv_scale,
+    ) in itertools.product(
+        quantize_dtypes,
+        [True, False],
+        [True, False],
+        [True, False],
+        [True, False],
+        [True, False],
     ):
         _register_qsdpa_pattern(
             _get_qsdpa_final_pattern(
