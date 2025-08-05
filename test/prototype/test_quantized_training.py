@@ -40,7 +40,9 @@ from torchao.prototype.quantized_training import (
 )
 from torchao.quantization.quant_api import quantize_
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()
 
 
 def _reset():
@@ -184,12 +186,11 @@ class TestQuantizedTraining(TestCase):
         ],
     )
     @parametrize("module_swap", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
         embed_dim = 64
-        device = "cuda"
+        device = _DEVICE
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
@@ -221,7 +222,6 @@ class TestQuantizedTraining(TestCase):
 
     @pytest.mark.skip("Flaky on CI")
     @parametrize("compile", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_bitnet_training(self, compile):
         # reference implementation
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
@@ -246,7 +246,7 @@ class TestQuantizedTraining(TestCase):
         _reset()
         bsize = 4
         embed_dim = 32
-        device = "cuda"
+        device = _DEVICE
 
         # only use 1 matmul shape to reduce triton autotune time
         model_ref = nn.Sequential(
@@ -343,7 +343,7 @@ class TestFSDP2(FSDPTest):
             dropout_p=0,
         )
         torch.manual_seed(42)
-        base_model = Transformer(model_args).cuda()
+        base_model = Transformer(model_args).to(_DEVICE)
         fsdp_model = copy.deepcopy(base_model)
 
         quantize_(base_model.layers, quantize_fn)
@@ -363,7 +363,7 @@ class TestFSDP2(FSDPTest):
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
-            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
+            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device=_DEVICE)
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = fsdp_model(inp).sum()
             fsdp_loss.backward()
@@ -394,7 +394,7 @@ class TestFSDP2(FSDPTest):
             precompute_bitnet_scale_for_fsdp,
         )
 
-        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).to(_DEVICE)
         model_fsdp = copy.deepcopy(model)
         quantize_(model_fsdp, bitnet_training())
         fully_shard(model_fsdp)

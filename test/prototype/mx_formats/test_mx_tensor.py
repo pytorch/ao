@@ -25,10 +25,13 @@ from torchao.prototype.mx_formats.mx_tensor import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
+    auto_detect_device,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
+
+_DEVICE = auto_detect_device()
 
 torch.manual_seed(2)
 
@@ -79,35 +82,31 @@ def _test_mx(
     assert data_mx._scale_e8m0.shape == (*prev_dims, K // block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_hello_world(elem_dtype):
-    data = torch.randn(8, 8, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(8, 8, device=_DEVICE, dtype=torch.bfloat16)
     block_size = 4
     _test_mx(data, elem_dtype, block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("scale_calculation_mode", [s for s in ScaleCalculationMode])
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_realistic_numerics(elem_dtype, scale_calculation_mode):
-    data = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(128, 128, device=_DEVICE, dtype=torch.bfloat16)
     block_size = 32
     _test_mx(data, elem_dtype, block_size, scale_calculation_mode)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_all_zeros(elem_dtype):
-    data = torch.zeros(4, 4, device="cuda", dtype=torch.bfloat16)
+    data = torch.zeros(4, 4, device=_DEVICE, dtype=torch.bfloat16)
     block_size = 4
     _test_mx(data, elem_dtype, block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_some_zeros(elem_dtype):
-    data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(4, 4, device=_DEVICE, dtype=torch.bfloat16)
     data[0, :] = 0.0
     data[:, 2] = 0.0
     block_size = 4
@@ -116,7 +115,6 @@ def test_some_zeros(elem_dtype):
 
 # TODO(future PR): fix and reenable this test
 @pytest.mark.skip(reason="does not pass on B200 yet")
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_to_mx_rceil():
     # nan
     # fmt: off
@@ -329,7 +327,6 @@ def test_to_mx_rceil():
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_in(elem_dtype):
     """
@@ -337,7 +334,7 @@ def test_exponent_nan_in(elem_dtype):
     value is set to is NaN
     """
     tensor_hp = torch.tensor(
-        [float("nan"), 1, 2, 3, 4, 5, 6, 7], device="cuda", dtype=torch.bfloat16
+        [float("nan"), 1, 2, 3, 4, 5, 6, 7], device=_DEVICE, dtype=torch.bfloat16
     )
     block_size = 4
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
@@ -345,7 +342,6 @@ def test_exponent_nan_in(elem_dtype):
     assert not torch.any(torch.isnan(tensor_mx._scale_e8m0[1:]))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("pack_fp6", [False, True])
 def test_exponent_nan_out(elem_dtype, pack_fp6):
@@ -356,25 +352,25 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         pytest.skip("invalid configuration")
 
     scale_e8m0 = torch.tensor(
-        [float("nan"), 1.0], dtype=torch.float8_e8m0fnu, device="cuda"
+        [float("nan"), 1.0], dtype=torch.float8_e8m0fnu, device=_DEVICE
     )
 
     block_size = 4
 
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5, 6, 7], dtype=elem_dtype, device="cuda"
+            [0, 1, 2, 3, 4, 5, 6, 7], dtype=elem_dtype, device=_DEVICE
         )  # noqa: E501
     elif elem_dtype in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2):
         data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
+            [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device=_DEVICE
         )  # noqa: E501
         if pack_fp6:
             data_bits = data_bits.reshape(-1, block_size)
             data_bits = pack_uint6(data_bits)
     elif elem_dtype == torch.float4_e2m1fn_x2:
         data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
+            [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device=_DEVICE
         )  # noqa: E501
         data_bits = pack_uint4(data_bits)
     else:
@@ -396,7 +392,6 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
     assert not torch.any(torch.isnan(tensor_hp.flatten()[4:]))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_ranks(elem_dtype):
     """
@@ -405,11 +400,11 @@ def test_ranks(elem_dtype):
     B = 4
     shapes = ((B * 4,), (B * 4, 4), (B * 4, 4, 4), (B * 4, 4, 4, 4))
     for s in shapes:
-        tensor_hp = torch.randn(*s, device="cuda", dtype=torch.bfloat16)
+        tensor_hp = torch.randn(*s, device=_DEVICE, dtype=torch.bfloat16)
         _test_mx(tensor_hp, elem_dtype, B)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("B", [1, 4, 32])
 def test_block_sizes(elem_dtype, B):
@@ -420,11 +415,10 @@ def test_block_sizes(elem_dtype, B):
         pytest.skip("unsupported configuration")
     elif B % 4 != 0 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
         pytest.skip("unsupported configuration")
-    tensor_hp = torch.randn(B, device="cuda", dtype=torch.bfloat16)
+    tensor_hp = torch.randn(B, device=_DEVICE, dtype=torch.bfloat16)
     _test_mx(tensor_hp, elem_dtype, B)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("fp4_triton", [False, True])
 def test_transpose(elem_dtype, fp4_triton):
@@ -436,7 +430,7 @@ def test_transpose(elem_dtype, fp4_triton):
 
     M, K = 128, 256
     block_size = 32
-    tensor_hp = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    tensor_hp = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
     tensor_mx = MXTensor.to_mx(
         tensor_hp,
         elem_dtype,
@@ -452,20 +446,18 @@ def test_transpose(elem_dtype, fp4_triton):
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_view(elem_dtype):
-    x = torch.randn(1, 2, 4, device="cuda")
+    x = torch.randn(1, 2, 4, device=_DEVICE)
     block_size = 4
     x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
     x_mx_2 = x_mx.view(2, 4)  # noqa: F841
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
 @pytest.mark.parametrize("pack_fp6", [False, True])
 def test_fp6_packing(elem_dtype, pack_fp6):
-    x = torch.randn(1, 2, 4, device="cuda")
+    x = torch.randn(1, 2, 4, device=_DEVICE)
     block_size = 4
     x_mx = MXTensor.to_mx(x, elem_dtype, block_size, pack_fp6=pack_fp6)
     if pack_fp6:
@@ -476,7 +468,6 @@ def test_fp6_packing(elem_dtype, pack_fp6):
     assert x_mx._data.shape == expected_packed_shape
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("all_zeros", [False, True])
@@ -491,9 +482,9 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
     shape = 4, 8
     if not all_zeros:
-        x = torch.randn(*shape, dtype=hp_dtype, device="cuda")
+        x = torch.randn(*shape, dtype=hp_dtype, device=_DEVICE)
     else:
-        x = torch.zeros(*shape, dtype=hp_dtype, device="cuda")
+        x = torch.zeros(*shape, dtype=hp_dtype, device=_DEVICE)
     block_size = 4
     to_mx_c = torch.compile(MXTensor.to_mx, fullgraph=True)
 
@@ -532,7 +523,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
@@ -544,14 +534,13 @@ def test_to_mx_inductor_single_kernel():
     """
     # TODO(future PR): add fp4 and fp6 here
     # TODO(#1773): add swizzled scale format here
-    x = torch.randn(2048, 2048, dtype=torch.bfloat16, device="cuda")
+    x = torch.randn(2048, 2048, dtype=torch.bfloat16, device=_DEVICE)
     block_size = 32
     to_mx_c = torch.compile(MXTensor.to_mx, fullgraph=True)
     out, code = run_and_get_code(to_mx_c, x, torch.float8_e4m3fn, block_size)
     FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(code[0])
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
@@ -568,7 +557,7 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
             -1 * max_val,
         ],
         dtype=torch.bfloat16,
-        device="cuda",
+        device=_DEVICE,
     )
 
     # create example data outside the representable range
@@ -578,7 +567,7 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
             -1 * (max_val * 2),
         ],
         dtype=torch.bfloat16,
-        device="cuda",
+        device=_DEVICE,
     )
 
     # verify that in eager mode PyTorch casting to float8 is unsaturated
@@ -612,7 +601,6 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
         (torch.bfloat16, (64, 128), True),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
 )
@@ -622,7 +610,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         per_tensor_amax_to_scale,
     )
 
-    x = torch.randn(shape, dtype=dtype, device="cuda")
+    x = torch.randn(shape, dtype=dtype, device=_DEVICE)
     if use_per_tensor_scale:
         tensor_amax = torch.max(torch.abs(x))
         scale = per_tensor_amax_to_scale(tensor_amax)
@@ -680,7 +668,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     ],
 )
 @pytest.mark.parametrize(
-    "use_triton_kernel", [False, True] if torch.cuda.is_available() else [False]
+    "use_triton_kernel", [False, True] if torch.cuda.is_available() or torch.xpu.is_available else [False]
 )
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
@@ -689,7 +677,7 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 
     rows, cols = shape
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = _DEVICE
 
     original = torch.randint(0, 255, (rows, cols), device=device, dtype=torch.uint8)
 
@@ -718,7 +706,6 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     """
     Test that NVFP4Tensor can be constructed with swizzled scales and
@@ -727,7 +714,7 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = shape
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
     assert tensor._is_swizzled_scales == is_swizzled_scales
@@ -753,7 +740,6 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
         pytest.param(1, slice(1024, 2048), id="slice_cols[1024:2048]_quarter"),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
 )
@@ -772,7 +758,7 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         # For column slicing, need multiples of 64 columns for alignment
         M, K = 128, 4096
 
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
     assert tensor._is_swizzled_scales == True
@@ -848,7 +834,6 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         ),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
 )
@@ -859,7 +844,7 @@ def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_er
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 256, 4096
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
 
     with pytest.raises(RuntimeError, match=expected_error):
@@ -869,7 +854,6 @@ def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_er
             _ = tensor[:, slice_spec]
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
 )
@@ -880,7 +864,7 @@ def test_nvfp4_swizzled_scales_view_semantics():
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 256, 4096
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
 
     # Test row slicing (should maintain views)
@@ -896,7 +880,6 @@ def test_nvfp4_swizzled_scales_view_semantics():
     assert full_width_slice._data.data_ptr() == tensor._data.data_ptr()
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
 )
@@ -907,7 +890,7 @@ def test_nvfp4_swizzled_scales_serialization():
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 32, 64
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
 
     # Create tensor with swizzled scales
     original_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
@@ -938,7 +921,6 @@ def test_nvfp4_swizzled_scales_serialization():
     torch.testing.assert_close(original_dq, reconstructed_dq, atol=1e-6, rtol=1e-6)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
 )
@@ -949,7 +931,7 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 32, 64
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
 
     # Create tensors with both storage methods
     regular_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=False)
@@ -966,7 +948,6 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     assert swizzled_scales.shape == expected_shape
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
 )
@@ -988,7 +969,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     )
 
     torch.manual_seed(42)
-    x = torch.randn(M, N, dtype=dtype, device="cuda")
+    x = torch.randn(M, N, dtype=dtype, device=_DEVICE)
 
     per_tensor_scale = None
     if use_per_tensor_scale:

@@ -12,7 +12,7 @@ import torch
 from torchao.utils import is_sm_at_least_90
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
-if not is_sm_at_least_90():
+if torch.cuda.is_available and not is_sm_at_least_90():
     pytest.skip("This test requires SM90 or higher", allow_module_level=True)
 
 
@@ -21,8 +21,10 @@ from torchao.prototype.blockwise_fp8_training.linear import Float8BlockwiseLinea
 
 torch.random.manual_seed(0)
 
+from torchao.utils import auto_detect_device
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+_DEVICE = auto_detect_device()
+
 @pytest.mark.parametrize("in_features", [4096])
 @pytest.mark.parametrize("out_features", [128256])
 @pytest.mark.parametrize("batch_size", [1, 8])
@@ -40,12 +42,12 @@ def test_blockwise_quant_linear_fwd_bwd(
         in_features=in_features,
         out_features=out_features,
         bias=False,
-    ).cuda()
+    ).to(_DEVICE)
 
     layer_test = Float8BlockwiseLinear.from_float(copy.deepcopy(layer_ref))
 
     # Create input tensor
-    x_test = torch.randn(batch_size, 256, in_features).cuda().requires_grad_(True)
+    x_test = torch.randn(batch_size, 256, in_features).to(_DEVICE).requires_grad_(True)
     x_ref = x_test.clone().detach().requires_grad_(True)
 
     # Forward pass

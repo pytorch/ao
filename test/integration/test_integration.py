@@ -10,6 +10,7 @@ import itertools
 import logging
 import os
 import unittest
+import pytest
 from functools import partial
 
 import torch
@@ -79,6 +80,7 @@ from torchao.quantization.utils import (
 )
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
+    get_available_devices,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -106,7 +108,7 @@ logger = logging.getLogger("INFO")
 torch.manual_seed(0)
 config.cache_size_limit = 100
 
-COMMON_DEVICES = ["cpu", "cuda"]
+COMMON_DEVICES = get_available_devices()
 
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
@@ -392,14 +394,13 @@ class SmoothquantUnitTest(unittest.TestCase):
         y = m_copy(x)
         assert torch.allclose(y_ref, y)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "newer dtypes not supported")
-    def test_weight_t_and_non_t_numerics_match(self):
+    def test_weight_t_and_non_t_numerics_match(self, device):
         # verify that numerics match whether weight is stored
         # in transposed format (for cuBLAS) vs non-transposed format
         # (for torch.compile)
         dtype = torch.half
-        device = "cuda"
         lin_ref = nn.Linear(32, 16, dtype=dtype, device=device)
         lin_eager_t = copy.deepcopy(lin_ref)
         lin_opt_t = copy.deepcopy(lin_eager_t)
@@ -598,14 +599,14 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_per_token_linear_impl("cuda", dtype)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test__int_mm(self):
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
+    def test__int_mm(self, device):
         # TODO(future): figure out what here needs to move to PT core,
         # if it's not already tested there
 
         m, k, n = 32, 32, 16
-        x = torch.randint(-128, 127, (m, k), dtype=torch.int8, device="cuda")
-        w = torch.randint(-128, 127, (k, n), dtype=torch.int8, device="cuda")
+        x = torch.randint(-128, 127, (m, k), dtype=torch.int8, device=device)
+        w = torch.randint(-128, 127, (k, n), dtype=torch.int8, device=device)
 
         y_ref = torch.matmul(x.float(), w.float()).to(torch.int32)
         y_raw = safe_int_mm(x, w)
@@ -619,13 +620,13 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_raw, atol=0, rtol=0)
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test__int_mm_eager_and_torch_compile_numerics(self):
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
+    def test__int_mm_eager_and_torch_compile_numerics(self, device):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
             w = w.cpu().to(torch.int32)
             y = torch.matmul(x, w)
-            return y.cuda()
+            return y.to(device)
 
         shapes = (
             # minimal test shape
@@ -653,8 +654,8 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
                 wrap_torch_int_mm, mode="max-autotune"
             )
 
-            x = torch.randint(-128, 127, x_shape, dtype=torch.int8, device="cuda")
-            w = torch.randint(-128, 127, w_shape, dtype=torch.int8, device="cuda")
+            x = torch.randint(-128, 127, x_shape, dtype=torch.int8, device=device)
+            w = torch.randint(-128, 127, w_shape, dtype=torch.int8, device=device)
 
             z_ref = __int_mm_ref(x, w)
             z_eager = wrap_torch_int_mm(x, w)
@@ -754,6 +755,7 @@ class TestSubclass(unittest.TestCase):
                             test_dtype=dtype,
                         )
 
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
     @run_supported_device_dtype
     def _test_lin_weight_subclass_impl(
         self,
@@ -763,8 +765,6 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32),
     ):
-        if not "cuda" in test_device:
-            self.skipTest("test requires cuda")
         with torch.no_grad():
             m, k, n = test_shape
             x = torch.randn(m, k, device=test_device, dtype=test_dtype)
@@ -1240,15 +1240,8 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         undo_recommended_configs()
-        if device != "cuda":
-            self.skipTest(
-                f"weight_only_quant_force_mixed_mm can't be constructed on {device}"
-            )
-        if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
-            self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
 
         mixed_mm_key, mixed_mm_val = (
@@ -1276,14 +1269,9 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 self.assertGreaterEqual(sqnr, 38)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
         undo_recommended_configs()
-        if device != "cuda":
-            self.skipTest(
-                f"weight_only_quant_force_mixed_mm can't be constructed on {device}"
-            )
-        if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+        if dtype == torch.bfloat16 and torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
@@ -1414,17 +1402,17 @@ class TestSaveLoadMeta(unittest.TestCase):
 
 
 class TorchCompileUnitTest(unittest.TestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_3, "fullgraph requires torch nightly."
     )
-    def test_fullgraph(self):
-        lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
+    def test_fullgraph(self, device):
+        lin_fp16 = nn.Linear(32, 16, device=device, dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
             lin_fp16, alpha=0.25
         )
 
-        x0 = torch.randn(17, 1, 32, device="cuda", dtype=torch.float16)
+        x0 = torch.randn(17, 1, 32, device=device, dtype=torch.float16)
 
         # calibrate
         _ = lin_smooth(x0)
@@ -1465,7 +1453,7 @@ class UtilsUnitTest(unittest.TestCase):
 
 class SmoothquantIntegrationTest(unittest.TestCase):
     @torch.no_grad()
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "newer dtypes not supported")
     def test_non_dynamically_quantizable_linear(self):
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1475,10 +1463,10 @@ class SmoothquantIntegrationTest(unittest.TestCase):
                 torch.nn.modules.linear.NonDynamicallyQuantizableLinear(32, 32),
                 torch.nn.ReLU(),
             )
-            .to("cuda")
+            .to(device)
             .to(torch.bfloat16)
         )
-        example_input = torch.randn(32, 32, device="cuda", dtype=torch.bfloat16)
+        example_input = torch.randn(32, 32, device=device, dtype=torch.bfloat16)
         ref = model(example_input)
         swap_linear_with_smooth_fq_linear(model)
         model(ref)
@@ -1561,12 +1549,11 @@ class TestAutoQuant(unittest.TestCase):
             ],
         )
     )
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype, m, k, n):
         undo_recommended_configs()
         print("(m, k, n): ", (m, k, n))
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1658,8 +1645,6 @@ class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_mha(self, device, dtype):
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
 
         class MHAModel(torch.nn.Module):
             def __init__(self):
@@ -1687,8 +1672,6 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1737,8 +1720,6 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1784,8 +1765,6 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "autoquant requires 2.3+.")
     def test_autoquant_double_access(self, device, dtype, m, k, n):
         undo_recommended_configs()
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1811,8 +1790,7 @@ class TestAutoQuant(unittest.TestCase):
         assert not isinstance(model.lin1.weight.weight, AutoQuantizableLinearWeight)
         model(x_in)
 
-    @parameterized.expand(list(itertools.product(["cuda"], COMMON_DTYPES)))
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_autoquant_min_sqnr(self, device, dtype):
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
@@ -1833,12 +1811,12 @@ class TestAutoQuant(unittest.TestCase):
         # setting min_sqnr for individual linear to be 60 allows us to achieve >= 50 final sqnr
         self.assertTrue(sqnr >= 50, f"sqnr: {sqnr}")
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "autoquant float option requires 2.4+."
     )
-    def test_autoquant_hp_float(self):
-        device = "cuda"
+    def test_autoquant_hp_float(self, device):
+        device = device
         dtype = torch.float32
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
@@ -1866,7 +1844,7 @@ class TestAutoQuant(unittest.TestCase):
             self.assertGreater(compute_error(out, ref), 40)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @pytest.mark.parametrize("device", COMMON_DEVICES)
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_5, "autoquant int4 option requires 2.5+."
     )
@@ -1904,7 +1882,7 @@ class TestAutoQuant(unittest.TestCase):
             self.assertGreater(compute_error(ref, out), 20)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_5, "autoquant int4 option requires 2.5+."
     )
@@ -1948,7 +1926,7 @@ class TestAutoQuant(unittest.TestCase):
 
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
-@unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
+@pytest.mark.parametrize("device", COMMON_DEVICES)
 @unittest.skip(
     "AOTI tests are failing right now, repro by commenting out the skip and run:"
     "python test/integration/test_integration.py -k TestAOTI.test_aoti_06"
@@ -1958,7 +1936,7 @@ class TestAOTI(unittest.TestCase):
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
     def test_aoti(self, api, test_device, test_dtype):
-        if api is change_linear_weights_to_int8_dqtensors and test_device == "cuda":
+        if api is change_linear_weights_to_int8_dqtensors and test_device == device:
             self.skipTest(
                 f"{api} in {test_device} is not support for aoti compilation yet"
             )
@@ -2011,7 +1989,6 @@ class TestAOTI(unittest.TestCase):
 
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
-@unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
 class TestExport(unittest.TestCase):
     @parameterized.expand(
         list(
@@ -2094,8 +2071,8 @@ class TestExport(unittest.TestCase):
             def forward(self, x):
                 return self.linear(x)
 
-        model = SimpleNetwork().eval().cuda()
-        inp = torch.randn(2, 32).cuda()
+        model = SimpleNetwork().eval().to(device)
+        inp = torch.randn(2, 32).to(device)
         config = Float8DynamicActivationFloat8WeightConfig()
         quantize_(model, config)
 
@@ -2114,8 +2091,6 @@ class TestUtils(unittest.TestCase):
     def test_get_model_size_aqt(self, api, test_device, test_dtype):
         if test_dtype != torch.bfloat16:
             self.skipTest(f"{api} in {test_dtype} is not supported yet")
-        if test_device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"{api} currently does not support {test_device}")
         k, n = 1024, 1024
         model = (
             torch.nn.Sequential(
@@ -2164,6 +2139,9 @@ class TestBenchmarkModel(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_benchmark_model_cuda(self):
         assert self.run_benchmark_model("cuda") is not None
+
+    def test_benchmark_model_xpu(self):
+        assert self.run_benchmark_model("xpu") is not None
 
     def test_benchmark_model_cpu(self):
         assert self.run_benchmark_model("cpu") is not None

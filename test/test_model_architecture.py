@@ -17,8 +17,6 @@ class TestModels(unittest.TestCase):
     @parameterized.expand([(device,) for device in get_available_devices()])
     def test_toy_linear_model(self, device):
         # Skip if device is not available
-        if device == "cuda" and not torch.cuda.is_available():
-            self.skipTest("CUDA not available")
 
         model, input_data = create_model_and_input_data(
             "linear", 10, 64, 32, device=device
@@ -29,8 +27,6 @@ class TestModels(unittest.TestCase):
     @parameterized.expand([(device,) for device in get_available_devices()])
     def test_ln_linear_activation_model(self, device):
         # Skip if device is not available
-        if device == "cuda" and not torch.cuda.is_available():
-            self.skipTest("CUDA not available")
 
         model, input_data = create_model_and_input_data(
             "ln_linear_sigmoid", 10, 64, 32, device=device
@@ -41,8 +37,6 @@ class TestModels(unittest.TestCase):
     @parameterized.expand([(device,) for device in get_available_devices()])
     def test_transformer_block(self, device):
         # Skip if device is not available
-        if device == "cuda" and not torch.cuda.is_available():
-            self.skipTest("CUDA not available")
 
         model, input_data = create_model_and_input_data(
             "transformer_block", 10, 64, 32, device=device

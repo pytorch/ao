@@ -33,8 +33,13 @@ from torchao.utils import (
     compute_max_diff,
 )
 
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
+
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 IS_ROCM = torch.cuda.is_available() and torch.version.hip
+IS_XPU = torch.xpu.is_available() and torch.version.xpu
 
 try:
     import torchao.ops
@@ -60,7 +65,6 @@ class TestOps(TestCase):
         fp16_act = torch.rand(BS, IC).to(dtype) + 0.5
         return floatx_weight.to(device), scale.to(device), fp16_act.to(device)
 
-    @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
     def test_quant_llm_linear(self, ebits, mbits, dtype):
@@ -69,7 +73,7 @@ class TestOps(TestCase):
         IC = 256
         splitK = 1
         floatx_weight, scale, fp16_act = self._create_floatx_inputs(
-            ebits, mbits, BS, OC, IC, "cuda", dtype
+            ebits, mbits, BS, OC, IC, _DEVICE, dtype
         )
 
         # smoke test
@@ -90,7 +94,6 @@ class TestOps(TestCase):
             test_utils=test_utils,
         )
 
-    @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
@@ -99,7 +102,7 @@ class TestOps(TestCase):
     ):
         # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/tests/python/kernel_test_fpx.py
         floatx_weight, scale, fp16_act = self._create_floatx_inputs(
-            ebits, mbits, BS, OC, IC, "cuda", dtype
+            ebits, mbits, BS, OC, IC, _DEVICE, dtype
         )
 
         results_floatx = torchao.ops.quant_llm_linear(
@@ -287,7 +290,7 @@ def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
     assert K % (inner_k_tiles * kTileSizeK) == 0 and N % kTileSizeN == 0
 
-    t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
+    t = torch.randint(0, 16, dtype=torch.int, size=shape, device=_DEVICE)
     if TORCH_VERSION_AT_LEAST_2_5:
         t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
@@ -312,7 +315,7 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
 
-    t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
+    t = torch.randint(0, 16, dtype=torch.int, size=shape, device=_DEVICE)
     if TORCH_VERSION_AT_LEAST_2_5:
         t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
@@ -355,7 +358,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(
     n, k = shape
     dtype = torch.bfloat16
 
-    device = "cuda"
+    device = _DEVICE
 
     t = torch.randn(n, k, dtype=dtype, device=device)
     scales, zeros = get_groupwise_affine_qparams(
@@ -422,7 +425,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(
 ):
     n, k = shape
     dtype = torch.bfloat16
-    device = "cuda"
+    device = _DEVICE
 
     # Quantize and pack
     t = torch.randn(n, k, dtype=dtype, device=device)
@@ -485,7 +488,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(
 )
 def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
     n, k = shape
-    device = "cuda"
+    device = _DEVICE
 
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
     if TORCH_VERSION_AT_LEAST_2_5:
@@ -603,9 +606,9 @@ def test_marlin_24(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_facto
     size_n = n_chunk * n_factor
 
     a_input = torch.randn(
-        (batch_size, size_m, size_k), dtype=torch.float16, device="cuda"
+        (batch_size, size_m, size_k), dtype=torch.float16, device=_DEVICE
     )
-    b_weight = torch.rand((size_k, size_n), dtype=torch.float16, device="cuda")
+    b_weight = torch.rand((size_k, size_n), dtype=torch.float16, device=_DEVICE)
 
     # Inject 2:4 sparsity
     w_24, _ = inject_24(b_weight, size_k, size_n)

@@ -20,15 +20,19 @@ from torchao.prototype.sparsity.activation.srelu_linear import (
 )
 from torchao.sparsity import sparsify_
 from torchao.sparsity.utils import create_semi_structured_tensor
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import (
+    is_sm_at_least_90,
+    auto_detect_device,
+)
 
+_DEVICE = auto_detect_device()
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+@unittest.skipIf( torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_sm90_sparsify_identity(
     M=512, K=1024, fp8=torch.float8_e4m3fn
 ) -> None:
     torch.manual_seed(0)
-    A_sp_ref = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+    A_sp_ref = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(_DEVICE)
 
     # Test with act="identity"
     A_packed_ref, A_mdata_ref = to_sparse_semi_structured_cutlass_sm9x_f8(
@@ -50,13 +54,13 @@ def test_sparse24_sm90_sparsify_identity(
     assert torch.allclose(A_packed.float().sum(), A_packed_ref.float().sum())
 
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_sm90_sparsify_identity_scaled(
     M=512, K=1024, fp8=torch.float8_e4m3fn
 ) -> None:
     torch.manual_seed(0)
-    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
-    A_scale = torch.randn([M, 1], device="cuda", dtype=torch.float32).abs() + 0.1
+    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(_DEVICE)
+    A_scale = torch.randn([M, 1], device=_DEVICE, dtype=torch.float32).abs() + 0.1
     A_sp_ref = (A_dense / A_scale).bfloat16()
 
     A_packed_ref, A_mdata_ref = to_sparse_semi_structured_cutlass_sm9x_f8(
@@ -77,10 +81,10 @@ def test_sparse24_sm90_sparsify_identity_scaled(
     )
 
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_sm90_sparsify_srelu(M=512, K=1024, fp8=torch.float8_e4m3fn) -> None:
     torch.manual_seed(0)
-    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(_DEVICE)
     A_sp_ref = (A_dense.float().relu() ** 2).bfloat16()
 
     # Test with act="srelu"
@@ -102,14 +106,14 @@ def test_sparse24_sm90_sparsify_srelu(M=512, K=1024, fp8=torch.float8_e4m3fn) ->
     assert (A_packed != A_packed_ref).float().mean().item() < 0.1
 
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
     with torch.no_grad():
         torch.manual_seed(0)
-        input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+        input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(_DEVICE)
         # we have to wrap in a sequential block for quantize_ to work properly
         reference_linear = torch.nn.Sequential(
-            torch.nn.Linear(K, N, bias=False).cuda().to(torch.bfloat16)
+            torch.nn.Linear(K, N, bias=False).to(_DEVICE).to(torch.bfloat16)
         )
         reference_linear_copy = copy.deepcopy(reference_linear)
 
@@ -144,13 +148,13 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
 
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_fp8_sm90_cutlass_gemm_eye(
     M=512, K=256, dtype=torch.float8_e4m3fn
 ) -> None:
     torch.manual_seed(0)
 
-    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(_DEVICE)
     A_aqt = _float8_cutlass_quant(A_dense, dtype)
     A = A_aqt.tensor_impl.float8_data
 
@@ -179,7 +183,7 @@ def test_sparse24_fp8_sm90_cutlass_gemm_eye(
     )
 
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_fp8_sm90_cutlass_gemm_random_tensor(
     M=512, N=1024, K=256, dtype=torch.float8_e4m3fn
 ) -> None:
@@ -190,10 +194,10 @@ def test_sparse24_fp8_sm90_cutlass_gemm_random_tensor(
         return x, x_scale
 
     torch.manual_seed(0)
-    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(_DEVICE)
     A, a_scale = _to_fp8_rowwise(A_dense, dtype)
 
-    B_dense = torch.randn([N, K], device="cuda", dtype=torch.bfloat16)
+    B_dense = torch.randn([N, K], device=_DEVICE, dtype=torch.bfloat16)
     B, b_scale = _to_fp8_rowwise(B_dense, dtype)
 
     B = B.T

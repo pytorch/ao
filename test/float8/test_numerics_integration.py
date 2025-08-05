@@ -35,6 +35,10 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_utils import IS_ROCM, compute_error
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
+
 torch.manual_seed(0)
 
 
@@ -94,7 +98,7 @@ class TestFloat8NumericsIntegrationTest:
                 multiple_of=1024,
                 ffn_dim_multiplier=1.3,
             )
-            .cuda()
+            .to(_DEVICE)
             .to(data_dtype)
         )
 
@@ -115,8 +119,8 @@ class TestFloat8NumericsIntegrationTest:
         # logic of delayed scaling behaves as dynamic scaling
         # TODO(future PR): delete ^, since we deleted delayed scaling
         shape = (1, 8192, 4096)
-        data1 = torch.randn(*shape, device="cuda", dtype=data_dtype)
-        data2 = torch.randn(*shape, device="cuda", dtype=data_dtype)
+        data1 = torch.randn(*shape, device=_DEVICE, dtype=data_dtype)
+        data2 = torch.randn(*shape, device=_DEVICE, dtype=data_dtype)
 
         model_ref(data1).sum().backward()
         # zero out grads without stepping, since we just want to compare grads
@@ -160,7 +164,7 @@ class TestFloat8NumericsIntegrationTest:
         [ScalingType.DYNAMIC],
     )
     @pytest.mark.skipif(
-        not is_sm_at_least_89(), reason="requires SM89 compatible machine"
+        torch.cuda.is_available() and not is_sm_at_least_89(), reason="requires SM89 compatible machine"
     )
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_config_params(

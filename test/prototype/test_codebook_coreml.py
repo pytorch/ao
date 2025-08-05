@@ -76,7 +76,6 @@ class TestCodebookQuantization(unittest.TestCase):
         )
         assert type(m[0].weight) == CodebookQuantizedTensor
 
-    @skip_if_no_cuda()
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "requires 2.6+.")
     def test_export(self):
         m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(torch.float32)

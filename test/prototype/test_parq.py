@@ -48,7 +48,9 @@ from torchao.utils import (
     check_cpu_version,
 )
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
 
 
 def split_param_groups(model):

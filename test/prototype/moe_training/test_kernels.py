@@ -9,16 +9,6 @@ import torch
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
-# We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds and torch < 2.5
-if not (
-    TORCH_VERSION_AT_LEAST_2_5
-    and torch.cuda.is_available()
-    and torch.cuda.get_device_capability()[0] >= 9
-):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
-
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
@@ -28,15 +18,19 @@ from torchao.prototype.moe_training.utils import (
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,
 )
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import( 
+    skip_if_rocm,
+)
+from torchao.utils import auto_detect_device
 
+_DEVICE = auto_detect_device()
 
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
-    device = "cuda"
+    device = _DEVICE
     m, k, n_groups = 256, 256, 4
     x = torch.randn(m, k * n_groups, device=device)
     colwise_offs = torch.arange(k, k * n_groups + 1, k, device=device)
@@ -64,7 +58,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end row indexes (offsets).
-    device = "cuda"
+    device = _DEVICE
     m, k, n_groups = 256, 256, 4
     x = torch.randn(m * n_groups, k, device=device).t().contiguous().t()
     rowwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)

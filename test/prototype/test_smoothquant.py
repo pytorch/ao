@@ -23,7 +23,10 @@ from torchao.quantization.utils import (
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
+    get_available_devices,
 )
+
+devices = get_available_devices()
 
 if torch.version.hip is not None:
     pytest.skip("Skipping the test in ROCm", allow_module_level=True)
@@ -56,9 +59,6 @@ class ToyLinearModel(torch.nn.Module):
 bias_list = [True, False]
 alpha_list = [None, 0.5, 0.75]
 quant_mode_list = ["static", "dynamic"]
-devices = ["cpu"]
-if torch.cuda.is_available():
-    devices.append("cuda")
 idtypes = (torch.float, torch.bfloat16, torch.half)
 
 if TORCH_VERSION_AT_LEAST_2_5:
@@ -71,7 +71,6 @@ if TORCH_VERSION_AT_LEAST_2_5:
 @pytest.mark.parametrize("quant_mode", quant_mode_list)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
-@pytest.mark.skip("this test is broken on recent PyTorch, TODO(#1639): fix it")
 def test_compute(bias, alpha, quant_mode, device, idtype):
     class Linear(torch.nn.Module):
         def __init__(self, bias: bool):

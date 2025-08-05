@@ -34,12 +34,16 @@ except ImportError:
         allow_module_level=True,
     )
 
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
 
 # this feature requires CUDA and SM89+
-if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
-    pytest.skip(
-        "CUDA not available or compute capability < 8.9", allow_module_level=True
-    )
+if torch.cuda.is_available():
+    if torch.cuda.get_device_capability() < (8, 9):
+        pytest.skip(
+            "CUDA not available or compute capability < 8.9", allow_module_level=True
+        )
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
@@ -72,7 +76,6 @@ except ImportError:
     ],
 )
 def test_moe_float8_training_tp(target_fqns: list[str]):
-    assert torch.cuda.is_available()
 
     # setup distributed for tp
     mesh = setup_distributed()
@@ -85,10 +88,10 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
         vocab_size=1024,
     )
     init_std = 0.02
-    device = torch.device("cuda")
+    device = torch.device(_DEVICE)
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    ref_model = MoE(model_args).to(torch.bfloat16).to(_DEVICE)
     torch.manual_seed(1)
     ref_model.init_weights(init_std, device)
 
@@ -184,10 +187,13 @@ def setup_distributed():
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    device_mesh = init_device_mesh("cuda", (world_size,))
+    device_mesh = init_device_mesh(_DEVICE, (world_size,))
     # seed must be the same in all processes
     torch.manual_seed(1)
-    torch.cuda.set_device(rank)
+    if _DEVICE == "cuda":
+        torch.cuda.set_device(rank)
+    elif _DEVICE == "xpu":
+        torch.xpu.set_device(rank)
     return device_mesh
 
 

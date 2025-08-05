@@ -23,7 +23,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    auto_detect_device
 )
+
+_DEVICE = auto_detect_device()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -32,17 +35,16 @@ logging.basicConfig(
 
 class TestSemiStructuredSparse(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skip("Temporarily skipping to unpin nightlies")
     def test_sparse(self):
-        input = torch.rand((128, 128)).half().cuda()
+        input = torch.rand((128, 128)).half().to(_DEVICE)
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
                 nn.Linear(256, 128),
             )
             .half()
-            .cuda()
+            .to(_DEVICE)
             .eval()
         )
 
@@ -60,7 +62,6 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
 class TestQuantSemiSparse(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [False])
     @unittest.skip("Temporarily skip to unbreak CI")
     def test_quant_semi_sparse(self, compile):
@@ -72,14 +73,14 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
-        input = torch.rand((128, 128)).half().cuda()
+        input = torch.rand((128, 128)).half().to(_DEVICE)
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
                 nn.Linear(256, 128),
             )
             .half()
-            .cuda()
+            .to(_DEVICE)
             .eval()
         )
         apply_fake_sparsity(model)
@@ -98,20 +99,19 @@ class TestQuantSemiSparse(common_utils.TestCase):
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse_marlin(self, compile):
         if not torch.backends.cusparselt.is_available():
             self.skipTest("Need cuSPARSELt")
 
-        input = torch.rand((256, 256)).half().cuda()
+        input = torch.rand((256, 256)).half().to(_DEVICE)
         model = (
             nn.Sequential(
                 nn.Linear(256, 1024),
                 nn.Linear(1024, 256),
             )
             .half()
-            .cuda()
+            .to(_DEVICE)
             .eval()
         )
 
@@ -136,18 +136,17 @@ class TestBlockSparseWeight(common_utils.TestCase):
         not TORCH_VERSION_AT_LEAST_2_4,
         "pytorch 2.4+ feature due to need for custom op support",
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("input_shape", [1, 1024])
     def test_sparse(self, compile, input_shape):
-        input = torch.rand((input_shape, 1024)).half().cuda()
+        input = torch.rand((input_shape, 1024)).half().to(_DEVICE)
         model = (
             nn.Sequential(
                 nn.Linear(1024, 2048),
                 nn.Linear(2048, 1024),
             )
             .half()
-            .cuda()
+            .to(_DEVICE)
             .eval()
         )
 
@@ -171,17 +170,16 @@ class TestBlockSparseWeight(common_utils.TestCase):
 
 class TestQuantBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "pytorch 2.6+ feature")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse(self, compile):
-        input = torch.rand((256, 128)).to(torch.bfloat16).cuda()
+        input = torch.rand((256, 128)).to(torch.bfloat16).to(_DEVICE)
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
                 nn.Linear(256, 128),
             )
             .to(torch.bfloat16)
-            .cuda()
+            .to(_DEVICE)
             .eval()
         )
         from torchao.sparsity.utils import create_block_sparse_tensor
@@ -189,7 +187,7 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
         M, N = model[0].weight.shape
         model[0].weight.data = (
             create_block_sparse_tensor(M, N, 64, 0.5, torch.bfloat16)
-            * torch.rand(M, N, dtype=torch.bfloat16).cuda()
+            * torch.rand(M, N, dtype=torch.bfloat16).to(_DEVICE)
         )
         M, N = model[1].weight.shape
         model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.bfloat16)
