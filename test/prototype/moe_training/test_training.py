@@ -19,6 +19,9 @@ from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
+    from torchtitan.experiments.llama4.infra.expert_parallel import (
+        set_token_group_alignment_size_m,
+    )
     from torchtitan.experiments.llama4.model.args import TransformerModelArgs
     from torchtitan.experiments.llama4.model.moe import MoE
 except ImportError:
@@ -36,6 +39,11 @@ except ImportError:
 )
 @pytest.mark.parametrize("compile", [False, True])
 def test_moe_float8_training(target_fqns: list[str], compile: bool):
+    # Set token group alignment size to 16. This is required so that
+    # each logically distinct gemm in the grouped gemm `grad_weight = grad_output_t @ input`
+    # has the contraction dim be divisible by 16. 16 byte alignment is required
+    # for the slowest moving dim (stride 1), so 16 bytes / 1 byte per element in fp8 = 16 elements.
+    set_token_group_alignment_size_m(16)
     model_args = TransformerModelArgs(
         moe_enabled=True,
         num_experts=8,
