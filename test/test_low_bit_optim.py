@@ -16,6 +16,7 @@ from torch.distributed._composable.fsdp import (
     OffloadPolicy,
     fully_shard,
 )
+from torch.testing._internal import common_utils
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -24,7 +25,6 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torch.testing._internal import common_utils
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
