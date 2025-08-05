@@ -9,6 +9,7 @@
 
 import copy
 import unittest
+import warnings
 from typing import List
 
 import torch
@@ -1843,6 +1844,45 @@ class TestQAT(unittest.TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_api_deprecation(self):
+        """
+        Test that the appropriate deprecation warning is logged exactly once per class.
+        """
+        from torchao.quantization.qat import (
+            FakeQuantizeConfig,
+            from_intx_quantization_aware_training,
+            intx_quantization_aware_training,
+        )
+
+        # Reset deprecation warning state, otherwise we won't log warnings here
+        warnings.resetwarnings()
+
+        # Map from deprecated API to the args needed to instantiate it
+        deprecated_apis_to_args = {
+            IntXQuantizationAwareTrainingConfig: (),
+            FromIntXQuantizationAwareTrainingConfig: (),
+            intx_quantization_aware_training: (),
+            from_intx_quantization_aware_training: (),
+            FakeQuantizeConfig: (torch.int8, "per_channel"),
+        }
+
+        with warnings.catch_warnings(record=True) as _warnings:
+            # Call each deprecated API twice
+            for cls, args in deprecated_apis_to_args.items():
+                cls(*args)
+                cls(*args)
+
+            # Each call should trigger the warning only once
+            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
+            for w in _warnings:
+                self.assertIn(
+                    "is deprecated and will be removed in a future release",
+                    str(w.message),
+                )
 
 
 if __name__ == "__main__":
