@@ -452,6 +452,8 @@
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
 <span class="p">)</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_log_deprecation_warning</span>
+
 
 <div class="viewcode-block" id="FakeQuantizeConfigBase"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizeConfigBase</span><span class="p">(</span><span class="n">abc</span><span class="o">.</span><span class="n">ABC</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -560,6 +562,14 @@
         <span class="c1"># Dynamic is not compatible with range learning</span>
         <span class="k">if</span> <span class="n">is_dynamic</span> <span class="ow">and</span> <span class="n">range_learning</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;`is_dynamic` is not compatible with `range_learning`&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__post_init__</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_get_granularity</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -687,7 +697,13 @@
 
 
 <span class="c1"># For BC</span>
-<span class="n">FakeQuantizeConfig</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizeConfig</span><span class="p">(</span><span class="n">IntxFakeQuantizeConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizeConfig` instead.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_infer_fake_quantize_configs</span><span class="p">(</span>

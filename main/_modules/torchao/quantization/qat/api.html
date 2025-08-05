@@ -451,6 +451,7 @@
     <span class="n">_infer_fake_quantize_configs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">FakeQuantizedLinear</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_log_deprecation_warning</span>
 
 
 <div class="viewcode-block" id="QATStep"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.QATStep.html#torchao.quantization.qat.QATStep">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">QATStep</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
@@ -651,11 +652,11 @@
         <span class="k">return</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)](</span><span class="n">module</span><span class="p">,</span> <span class="n">base_config</span><span class="p">)</span>
 
 
-<span class="c1"># TODO: deprecate</span>
 <div class="viewcode-block" id="IntXQuantizationAwareTrainingConfig"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">IntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    (Will be deprecated soon)</span>
+<span class="sd">    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.</span>
+
 <span class="sd">    Config for applying fake quantization to a `torch.nn.Module`.</span>
 <span class="sd">    to be used with :func:`~torchao.quantization.quant_api.quantize_`.</span>
 
@@ -681,11 +682,15 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
+    <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
 
 
 <span class="c1"># for BC</span>
-<span class="n">intx_quantization_aware_training</span> <span class="o">=</span> <span class="n">IntXQuantizationAwareTrainingConfig</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">intx_quantization_aware_training</span><span class="p">(</span><span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">):</span>
+    <span class="k">pass</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">IntXQuantizationAwareTrainingConfig</span><span class="p">)</span>
@@ -713,10 +718,11 @@
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Module of type &#39;</span><span class="si">%s</span><span class="s2">&#39; does not have QAT support&quot;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">mod</span><span class="p">))</span>
 
 
-<span class="c1"># TODO: deprecate</span>
-<div class="viewcode-block" id="FromIntXQuantizationAwareTrainingConfig"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FromIntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<div class="viewcode-block" id="FromIntXQuantizationAwareTrainingConfig"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">[docs]</a><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FromIntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    (Will be deprecated soon)</span>
+<span class="sd">    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.</span>
+
 <span class="sd">    Config for converting a model with fake quantized modules,</span>
 <span class="sd">    such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`</span>
 <span class="sd">    and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,</span>
@@ -733,11 +739,13 @@
 <span class="sd">        )</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">pass</span></div>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
 
 
 <span class="c1"># for BC</span>
-<span class="n">from_intx_quantization_aware_training</span> <span class="o">=</span> <span class="n">FromIntXQuantizationAwareTrainingConfig</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">from_intx_quantization_aware_training</span><span class="p">(</span><span class="n">FromIntXQuantizationAwareTrainingConfig</span><span class="p">):</span>
+    <span class="k">pass</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">FromIntXQuantizationAwareTrainingConfig</span><span class="p">)</span>
