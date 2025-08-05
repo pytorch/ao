@@ -95,15 +95,17 @@ endif()
 if (NOT TARGET cpuinfo)
     # For some reason cpuinfo package has unused functions/variables
     # TODO (T215533422): fix upstream
-    set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "Disable unit tests" FORCE)
-    set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Disable mock tests" FORCE)
-    set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks" FORCE)
     add_compile_options(-Wno-unused-function -Wno-unused-variable)
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     include(FetchContent)
     FetchContent_Declare(cpuinfo
         GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
-        GIT_TAG c61fe919607bbc534d7a5a5707bdd7041e72c5ff)
+        GIT_TAG c61fe919607bbc534d7a5a5707bdd7041e72c5ff
+        CMAKE_ARGS
+            -DCPUINFO_BUILD_UNIT_TESTS=OFF
+            -DCPUINFO_BUILD_MOCK_TESTS=OFF
+            -DCPUINFO_BUILD_BENCHMARKS=OFF
+    )
     FetchContent_MakeAvailable(
         cpuinfo)
 endif()
@@ -168,17 +170,13 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
 
     list(TRANSFORM _torchao_op_srcs_executorch PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_executorch STATIC ${_torchao_op_srcs_executorch})
-    target_link_torchao_parallel_backend(torchao_ops_executorch executorch)
-    target_include_directories(torchao_ops_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
+
     target_compile_definitions(torchao_ops_executorch PRIVATE USE_EXECUTORCH=1)
+
+    # This links to ExecuTorch
+    target_link_torchao_parallel_backend(torchao_ops_executorch executorch)
     if (TORCHAO_BUILD_CPU_AARCH64)
         target_link_libraries(torchao_ops_executorch PRIVATE torchao_kernels_aarch64)
     endif()
     target_link_libraries(torchao_ops_executorch PRIVATE cpuinfo)
-    install(
-        TARGETS
-            torchao_ops_executorch
-        EXPORT _targets
-        DESTINATION lib
-    )
 endif()

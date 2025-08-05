@@ -13,20 +13,20 @@ if (TORCHAO_BUILD_CPU_AARCH64)
     ${CMAKE_CURRENT_SOURCE_DIR}/valpacking/interleave.cpp
   )
   if (TORCHAO_BUILD_KLEIDIAI)
-    include(FetchContent)
-    # KleidiAI is an open-source library that provides optimized
-    # performance-critical routines, also known as micro-kernels, for artificial
-    # intelligence (AI) workloads tailored for Arm® CPUs.
-    FetchContent_Declare(kleidiai
-          GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
-          GIT_TAG v1.5.0)
-    FetchContent_MakeAvailable(kleidiai)
-
+    if (NOT TARGET kleidiai)
+      include(FetchContent)
+      # KleidiAI is an open-source library that provides optimized
+      # performance-critical routines, also known as micro-kernels, for artificial
+      # intelligence (AI) workloads tailored for Arm® CPUs.
+      FetchContent_Declare(kleidiai
+            GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
+            GIT_TAG v1.12.0
+            CMAKE_ARGS
+              -DKLEIDIAI_BUILD_TESTS=OFF
+              -DKLEIDIAI_BUILD_BENCHMARKS=OFF
+      )
+      FetchContent_MakeAvailable(kleidiai)
+    endif()
     target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)
   endif()
-
-install(
-  TARGETS torchao_kernels_aarch64
-  DESTINATION lib
-)
 endif()
