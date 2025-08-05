@@ -304,6 +304,7 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):

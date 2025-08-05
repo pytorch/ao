@@ -15,6 +15,7 @@ import copy
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+import torch.testing._internal.common_utils as common_utils
 from torch import nn
 from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
@@ -39,6 +40,9 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
+
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
