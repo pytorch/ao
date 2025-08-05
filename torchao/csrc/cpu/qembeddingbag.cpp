@@ -11,8 +11,7 @@ namespace torchao {
 namespace {
 
 #if defined(CPU_CAPABILITY_AVX512)
-static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn *x,
-                                             float *buf) {
+static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn *x) {
   __m512 o;
   __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(x));
   at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(v, o);
@@ -32,7 +31,6 @@ inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);
-    float buf[16];
     for (int64_t b = bs_begin; b < bs_end; ++b) {
       __m512 x0, x1, x2, x3, x4, x5, x6, x7;
       int64_t start_idx = offsets[b];
@@ -43,32 +41,25 @@ inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
         // load first indices
         int64_t idx = indices[start_idx] * emb_dim + block_dim * block_id;
         float *block_result = result + block_dim * block_id;
-        x0 = _mm512_load_e4m3_cvt_ps(&weight[idx], buf);
-        x1 = _mm512_load_e4m3_cvt_ps(&weight[idx + 16], buf);
-        x2 = _mm512_load_e4m3_cvt_ps(&weight[idx + 32], buf);
-        x3 = _mm512_load_e4m3_cvt_ps(&weight[idx + 48], buf);
-        x4 = _mm512_load_e4m3_cvt_ps(&weight[idx + 64], buf);
-        x5 = _mm512_load_e4m3_cvt_ps(&weight[idx + 80], buf);
-        x6 = _mm512_load_e4m3_cvt_ps(&weight[idx + 96], buf);
-        x7 = _mm512_load_e4m3_cvt_ps(&weight[idx + 112], buf);
+        x0 = _mm512_load_e4m3_cvt_ps(&weight[idx]);
+        x1 = _mm512_load_e4m3_cvt_ps(&weight[idx + 16]);
+        x2 = _mm512_load_e4m3_cvt_ps(&weight[idx + 32]);
+        x3 = _mm512_load_e4m3_cvt_ps(&weight[idx + 48]);
+        x4 = _mm512_load_e4m3_cvt_ps(&weight[idx + 64]);
+        x5 = _mm512_load_e4m3_cvt_ps(&weight[idx + 80]);
+        x6 = _mm512_load_e4m3_cvt_ps(&weight[idx + 96]);
+        x7 = _mm512_load_e4m3_cvt_ps(&weight[idx + 112]);
         for (int64_t j = start_idx + 1; j < end_idx; ++j) {
           // add following idx
           idx = indices[j] * emb_dim + block_dim * block_id;
-          x0 = _mm512_add_ps(x0, _mm512_load_e4m3_cvt_ps(&weight[idx], buf));
-          x1 = _mm512_add_ps(x1,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 16], buf));
-          x2 = _mm512_add_ps(x2,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 32], buf));
-          x3 = _mm512_add_ps(x3,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 48], buf));
-          x4 = _mm512_add_ps(x4,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 64], buf));
-          x5 = _mm512_add_ps(x5,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 80], buf));
-          x6 = _mm512_add_ps(x6,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 96], buf));
-          x7 = _mm512_add_ps(x7,
-                             _mm512_load_e4m3_cvt_ps(&weight[idx + 112], buf));
+          x0 = _mm512_add_ps(x0, _mm512_load_e4m3_cvt_ps(&weight[idx]));
+          x1 = _mm512_add_ps(x1, _mm512_load_e4m3_cvt_ps(&weight[idx + 16]));
+          x2 = _mm512_add_ps(x2, _mm512_load_e4m3_cvt_ps(&weight[idx + 32]));
+          x3 = _mm512_add_ps(x3, _mm512_load_e4m3_cvt_ps(&weight[idx + 48]));
+          x4 = _mm512_add_ps(x4, _mm512_load_e4m3_cvt_ps(&weight[idx + 64]));
+          x5 = _mm512_add_ps(x5, _mm512_load_e4m3_cvt_ps(&weight[idx + 80]));
+          x6 = _mm512_add_ps(x6, _mm512_load_e4m3_cvt_ps(&weight[idx + 96]));
+          x7 = _mm512_add_ps(x7, _mm512_load_e4m3_cvt_ps(&weight[idx + 112]));
         }
         x0 = _mm512_mul_ps(x0, scale_v);
         x1 = _mm512_mul_ps(x1, scale_v);
