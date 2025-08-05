@@ -19,8 +19,8 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_row_major_jagged_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
-    _to_2d_jagged_float8_tensor_colwise,
-    _to_2d_jagged_float8_tensor_rowwise,
+    torch_to_float8_per_group_colwise,
+    torch_to_float8_per_group_rowwise,
 )
 
 device = torch.device("cuda")
@@ -98,13 +98,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     def run_torch(
         input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        _ = _to_2d_jagged_float8_tensor_rowwise(
+        _ = torch_to_float8_per_group_rowwise(
             input_row_major,
             offs,
             target_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = _to_2d_jagged_float8_tensor_colwise(
+        _ = torch_to_float8_per_group_colwise(
             input_col_major,
             offs,
             target_dtype=torch.float8_e4m3fn,
