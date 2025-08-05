@@ -3,24 +3,21 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import pytest
+import unittest
 
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version")
 
 import copy
 import io
 import random
-import unittest
-from contextlib import nullcontext
 from functools import partial
 from typing import Tuple
 
-import pytest
 import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.profiler import ProfilerActivity, profile
@@ -99,68 +96,68 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     "Static quantization only supports PerTensor granularity"
                 )
 
-        error_context = (
-            pytest.raises(AssertionError, match=error_message)
-            if error_message
-            else nullcontext()
+        if error_message:
+            with self.assertRaisesRegex(AssertionError, error_message):
+                self._run_fp8_linear_variant(dtype, mode, compile, sizes, granularity)
+        else:
+            self._run_fp8_linear_variant(dtype, mode, compile, sizes, granularity)
+
+    def _run_fp8_linear_variant(self, dtype, mode, compile, sizes, granularity):
+        M, N, K = sizes
+        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
+        # Get a "reasonable" scale for the input tensor even though
+        # we use the same scale for multiple activations
+        scale, _ = choose_qparams_affine(
+            input_tensor,
+            MappingType.SYMMETRIC,
+            input_tensor.shape,
+            torch.float8_e4m3fn,
+            scale_dtype=torch.float32,
         )
+        mode_map = {
+            "dynamic": partial(
+                float8_dynamic_activation_float8_weight, granularity=granularity
+            ),
+            "weight-only": float8_weight_only,
+            "static": partial(
+                float8_static_activation_float8_weight,
+                scale=scale,
+                granularity=granularity,
+            ),
+        }
 
-        with error_context:
-            M, N, K = sizes
-            input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
-            # Get a "reasonable" scale for the input tensor even though
-            # we use the same scale for multiple activations
-            scale, _ = choose_qparams_affine(
-                input_tensor,
-                MappingType.SYMMETRIC,
-                input_tensor.shape,
-                torch.float8_e4m3fn,
-                scale_dtype=torch.float32,
-            )
-            mode_map = {
-                "dynamic": partial(
-                    float8_dynamic_activation_float8_weight, granularity=granularity
-                ),
-                "weight-only": float8_weight_only,
-                "static": partial(
-                    float8_static_activation_float8_weight,
-                    scale=scale,
-                    granularity=granularity,
-                ),
-            }
+        # Create a linear layer with bfloat16 dtype
+        model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
 
-            # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+        quantized_model = copy.deepcopy(model)
+        factory = mode_map[mode]()
+        quantize_(quantized_model, factory)
 
-            quantized_model = copy.deepcopy(model)
-            factory = mode_map[mode]()
-            quantize_(quantized_model, factory)
+        if compile:
+            quantized_model = torch.compile(quantized_model, fullgraph=True)
 
-            if compile:
-                quantized_model = torch.compile(quantized_model, fullgraph=True)
+        output_original = model(input_tensor)
+        output_quantized = quantized_model(input_tensor)
 
-            output_original = model(input_tensor)
-            output_quantized = quantized_model(input_tensor)
-
-            error = compute_error(output_original, output_quantized)
-            assert compute_error(output_original, output_quantized) > 20, (
-                f"Quantization error is too high got a SQNR of {error}"
-            )
+        error = compute_error(output_original, output_quantized)
+        self.assertGreater(
+            error, 20, f"Quantization error is too high got a SQNR of {error}"
+        )
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_invalid_granularity(self):
-        with pytest.raises(ValueError, match="Invalid granularity specification"):
+        with self.assertRaisesRegex(ValueError, "Invalid granularity specification"):
             float8_dynamic_activation_float8_weight(granularity="invalid")
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_mismatched_granularity(self):
-        with pytest.raises(
+        with self.assertRaisesRegex(
             ValueError,
-            match="Different granularities for activation and weight are not supported",
+            "Different granularities for activation and weight are not supported",
         ):
             float8_dynamic_activation_float8_weight(granularity=(PerTensor(), PerRow()))
 
@@ -171,7 +168,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         class UnsupportedGranularity:
             pass
 
-        with pytest.raises(ValueError, match="Invalid granularity types"):
+        with self.assertRaisesRegex(ValueError, "Invalid granularity types"):
             float8_dynamic_activation_float8_weight(
                 granularity=(UnsupportedGranularity(), UnsupportedGranularity())
             )
@@ -181,9 +178,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_per_row_with_float32(self):
-        with pytest.raises(
+        with self.assertRaisesRegex(
             AssertionError,
-            match="PerRow quantization only works for bfloat16 precision",
+            "PerRow quantization only works for bfloat16 precision",
         ):
             model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
             quantize_(
@@ -792,4 +789,4 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    unittest.main()
