@@ -51,14 +51,11 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+@unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
 class TestSmoothQuant(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up class-level configuration for tests."""
-        # Skip tests on ROCm (AMD GPU) due to compatibility issues
-        if torch.version.hip is not None:
-            raise unittest.SkipTest("Skipping the tests in ROCm")
-
         if TORCH_VERSION_AT_LEAST_2_5:
             # This test case will trigger recompilation many times, so set a large cache_size_limit here
             torch._dynamo.config.cache_size_limit = 128
