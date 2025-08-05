@@ -57,8 +57,13 @@ class TransformerEvalWrapper(eval_wrapper):
 
         max_seq_length = min(max(inps.size()), self.max_length)
         with torch.device(self._device):
-            self._model.setup_caches(self.batch_size, max_seq_length)
+            if hasattr(self._model, "setup_caches"):
+                self._model.setup_caches(self.batch_size, max_seq_length)
         logits = self._model(*input)
+        from transformers.modeling_outputs import CausalLMOutputWithPast
+
+        if isinstance(logits, CausalLMOutputWithPast):
+            logits = logits.logits
         return logits
 
     def run_eval(self, tasks, limit):
@@ -84,7 +89,11 @@ class TransformerEvalWrapper(eval_wrapper):
         try:
             return self.tokenizer.eos_id()
         except:
-            return self.tokenizer.eos_id
+            try:
+                return self.tokenizer.eos_id
+            except:
+                idx = self.tokenizer.all_special_tokens.index("<|endoftext|>")
+                return self.tokenizer.all_special_ids[idx]
 
     @property
     def max_length(self):
@@ -102,8 +111,8 @@ class TransformerEvalWrapper(eval_wrapper):
     def device(self):
         return self._device
 
-    def tok_decode(self, tokens):
-        decoded = self.tokenizer.decode(tokens)
+    def tok_decode(self, tokens, **kwargs):
+        decoded = self.tokenizer.decode(tokens, **kwargs)
         return decoded
 
     def tok_encode(self, string: str, **kwargs):
@@ -114,9 +123,6 @@ class TransformerEvalWrapper(eval_wrapper):
             except:
                 tokens = [self.tokenizer.bos_id] + tokens
         return tokens
-
-    def _model_generate(self, context, max_length, eos_token_id):
-        raise Exception("unimplemented")
 
 
 class LMEvalInputRecorder(TransformerEvalWrapper):

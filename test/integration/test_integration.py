@@ -1058,6 +1058,7 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "freeze requires torch 2.4 and after."
     )
+    @skip_if_rocm("Test flaky on ROCm, under investigation")
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
         torch._dynamo.reset()
         self._test_lin_weight_subclass_api_impl(

@@ -2279,7 +2279,6 @@ def _expand_scale_to_tensor_shape(
     return expanded_scale
 
 
-@_register_custom_op(quant_lib, False)
 def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2298,15 +2297,6 @@ def _quantize_affine_float8(
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
     fp8_tensor = tensor_clamped.to(float8_dtype)
     return fp8_tensor
-
-
-@_register_meta_op(quant_lib, "quantize_affine_float8")
-def _quantize_affine_float8_meta(
-    tensor: torch.Tensor,
-    scale: torch.Tensor,
-    float8_dtype: torch.dtype = torch.float8_e4m3fn,
-) -> torch.Tensor:
-    return torch.empty_like(tensor, dtype=float8_dtype)
 
 
 @_register_custom_op(quant_lib, False)

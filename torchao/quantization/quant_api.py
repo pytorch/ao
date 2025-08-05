@@ -545,10 +545,10 @@ def _quantization_type(weight: torch.Tensor):
     if hasattr(weight, "_quantization_type"):
         return f"{weight.__class__.__name__}({weight._quantization_type()})"
 
-    if type(weight) is torch.Tensor:
-        return "not quantized"
+    if type(weight) is torch.Tensor or isinstance(weight, torch.nn.Parameter):
+        return f"Tensor: {type(weight)}"
 
-    return "not recognized"
+    return f"not recognized: {type(weight)}"
 
 
 def _linear_extra_repr(self):
