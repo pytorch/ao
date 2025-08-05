@@ -4,26 +4,19 @@
 #include <c10/util/Unroll.h>
 #include <c10/util/Float8_e4m3fn.h>
 #include <ATen/native/EmbeddingBag.h>
+#include <ATen/cpu/vec/vec512/vec512_float8.h>
 
 namespace torchao {
 
 namespace {
 
 #if defined(CPU_CAPABILITY_AVX512)
-// Hardware not support e4m3 intrinsic yet
-// Will change to use intrinsic after it is supported
-__m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn * weight, float* buf) {
-  for (int i = 0; i < 16; i++) {
-    buf[i] = static_cast<float>(weight[i]);
-  }
-  return _mm512_loadu_ps(buf);
-}
-
-void _mm512_store_ps_cvt_e4m3(at::Float8_e4m3fn* result, const __m512 x, float * buf) {
-  _mm512_storeu_ps(buf, x);
-  for (int i = 0; i < 16; i++) {
-    result[i] = static_cast<at::Float8_e4m3fn>(buf[i]);
-  }
+static inline __m512  _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn * x, float * buf) {
+  __m512 o;
+  __m128i v =
+    _mm_loadu_si128(reinterpret_cast<const __m128i*>(x));
+  at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(v, o);
+  return o;
 }
 #endif
 
