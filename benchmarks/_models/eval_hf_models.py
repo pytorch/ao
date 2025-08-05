@@ -147,7 +147,7 @@ if __name__ == "__main__":
         "--device", type=str, default="cuda:0", help="Device to run the model on."
     )
     parser.add_argument(
-        "--batch_size", type=int, default=1, help="Batch size for lm_eval."
+        "--batch_size", type=str, default="auto", help="Batch size for lm_eval."
     )
     parser.add_argument(
         "--prompt",
