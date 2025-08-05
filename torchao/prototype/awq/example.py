@@ -93,7 +93,9 @@ def wiki2_eval(
 
 
 # adapted from Hicham Badri (@mobicham)
-def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
+def benchmark(
+    model, tokenizer, max_length, tasks=None, evaluation_limit=None, device="cuda"
+):
     import lm_eval
     import numpy as np
 
@@ -126,21 +128,33 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
         for task in [("truthfulqa_mc2", 0)]:
             tag, fewshot = task
             results[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results[tag])
     if "winogrande" in tasks:
         for task in [("winogrande", 5)]:
             tag, fewshot = task
             results[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results[tag])
     if "arc_challenge" in tasks:
         for task in [("arc_challenge", 25)]:
             tag, fewshot = task
             results[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results[tag])
 
@@ -149,14 +163,22 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
         for task in [("hellaswag", 10)]:
             tag, fewshot = task
             results[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results[tag])
     if "gsm8k" in tasks:
         for task in [("gsm8k", 5)]:
             tag, fewshot = task
             results[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results[tag])
     # ############################################
@@ -167,7 +189,11 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
         for task in [("mmlu", 5)]:
             tag, fewshot = task
             results_mmlu[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results_mmlu[tag])
 
@@ -188,7 +214,11 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
         for task in [("leaderboard_bbh", 3)]:
             tag, fewshot = task
             results[tag] = lm_eval.evaluator.simple_evaluate(
-                model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size
+                model_eval,
+                tasks=[tag],
+                num_fewshot=fewshot,
+                batch_size=eval_batch_size,
+                limit=evaluation_limit,
             )["results"]
             print(tag, results[tag])
             results["bbh"] = results[tag]
@@ -202,7 +232,7 @@ def quantize_and_eval(
     tasks: list[str],
     max_seq_length: int,
     calibration_limit: int,
-    validation_size: int,
+    evaluation_limit: int,
     device: str,
     precision: torch.dtype,
     compile: bool,
@@ -223,18 +253,26 @@ def quantize_and_eval(
     if quant.startswith("awq-int4wo"):
         group_size = int(quant.split("-")[2])
         print(f"running {quant} quantization with group size {group_size}")
-        # TODO: this is temporary, we'll be using Int4WeightOnlyConfig soon
-        from torchao.quantization import FbgemmConfig
+        from torchao.dtypes import Int4CPULayout
+        from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig
 
         # use_hqq = True
         # base_config = Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        if device == "cuda":
+            # TODO: this is temporary, we'll be using Int4WeightOnlyConfig for CUDA soon
+            base_config = FbgemmConfig(
+                input_dtype=torch.bfloat16,
+                weight_dtype=torch.int4,
+                output_dtype=torch.bfloat16,
+                block_size=[1, group_size],
+                preshuffle=False,
+            )
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, layout=Int4CPULayout(), set_inductor_config=False
+            )
+        else:
+            assert False, "Unsupported device: {}".format(device)
         print(f"running {quant} prepare and calibrate")
         t0 = time.time()
         quant_config = AWQConfig(base_config, step="prepare")
@@ -291,7 +329,14 @@ def quantize_and_eval(
     if compile:
         model = torch.compile(model)
 
-    return benchmark(model, tokenizer, max_seq_length, tasks=tasks, device=device)
+    return benchmark(
+        model,
+        tokenizer,
+        max_seq_length,
+        tasks=tasks,
+        evaluation_limit=evaluation_limit,
+        device=device,
+    )
 
 
 if __name__ == "__main__":
@@ -310,8 +355,8 @@ if __name__ == "__main__":
         "--tasks",
         nargs="+",
         type=str,
-        help="Task to benchmark model on. Either PPL or QA",
-        default=["PPL"],
+        help="Task to benchmark model on. Here is the list of tasks you can use: https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/README.md",
+        default=["hellaswag"],
     )
     parser.add_argument(
         "--calibration_limit",
@@ -320,7 +365,10 @@ if __name__ == "__main__":
         help="Number of samples to use for calibration. Default is 10.",
     )
     parser.add_argument(
-        "--validation_size", type=int, default=1, help="Validation size. Default is 1."
+        "--evaluation_limit",
+        type=int,
+        default=None,
+        help="Number of samples to use for evaluation. Default is None (all).",
     )
     parser.add_argument(
         "--device",
@@ -368,7 +416,7 @@ if __name__ == "__main__":
         args.tasks,
         args.max_seq_length,
         args.calibration_limit,
-        args.validation_size,
+        args.evaluation_limit,
         args.device,
         args.precision,
         args.compile,
