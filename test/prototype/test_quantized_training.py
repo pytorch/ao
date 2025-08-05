@@ -40,6 +40,10 @@ from torchao.prototype.quantized_training import (
 )
 from torchao.quantization.quant_api import quantize_
 
+import torch.testing._internal.common_utils as common_utils
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
+
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
 
