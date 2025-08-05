@@ -24,6 +24,10 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+from torch.testing._internal import common_utils
+
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
 
 from packaging.version import Version
 from torchao import optim

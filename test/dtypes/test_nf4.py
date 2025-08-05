@@ -28,6 +28,10 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+from torch.testing._internal import common_utils
+
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
 
 import torchao
 from packaging import version

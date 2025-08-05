@@ -26,6 +26,9 @@ from torchao.quantization.observer import PerRow, PerTensor
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
+
 try:
     import gemlite  # noqa: F401
 
