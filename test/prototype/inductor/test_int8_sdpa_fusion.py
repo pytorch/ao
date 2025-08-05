@@ -11,8 +11,8 @@ from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
 
 import torchao
-from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import (
-    _int8_sdpa_init,
+from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
+    _qsdpa_init,
     custom_pass,
 )
 from torchao.utils import torch_version_at_least
@@ -120,7 +120,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             )
             source_code = "\n".join(source_code)
             if has_fuse_pattern:
-                self.assertGreaterEqual(counters["inductor"]["int8_fuse_attention"], 1)
+                self.assertGreaterEqual(counters["inductor"]["qsdpa_fuse_attention"], 1)
             if contains:
                 self.assertTrue(
                     any(
@@ -193,7 +193,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 ),
                 config.patch(post_grad_custom_pre_pass=custom_pass),
             ):
-                _int8_sdpa_init()
+                _qsdpa_init()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
                 quantizer.set_function_type_qconfig(
