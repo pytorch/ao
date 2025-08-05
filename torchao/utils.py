@@ -435,7 +435,20 @@ def _implements_common_tensor_ops(cls):
     aten = torch.ops.aten
 
     @implements(
-        [aten.detach.default, aten.clone.default, aten.alias.default, aten.contiguous]
+        [
+            torch.Tensor.contiguous,
+        ]
+    )
+    def _(func, types, args, kwargs):
+        return args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs))
+
+    @implements(
+        [
+            aten.detach.default,
+            aten.clone.default,
+            aten.alias.default,
+            aten.contiguous.default,
+        ]
     )
     def _(func, types, args, kwargs):
         return return_and_correct_aliasing(
