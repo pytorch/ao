@@ -152,7 +152,7 @@ def torch_to_3d_rowwise_float8_transpose_rhs(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     This function converts the 3D input tensor to a float8 tensor, with scales computed along logical columns
-    on a per-expert basis.
+    on a per-expert basis. Output will be in column-major memory layout.
 
     Args:
         x (torch.Tensor): The input tensor to be converted to a float8 tensor. Shape (E, K, N).

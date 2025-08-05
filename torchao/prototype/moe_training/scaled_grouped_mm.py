@@ -15,6 +15,7 @@ from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
@@ -142,20 +143,11 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Precompute non-transposed B column-major for backward, to save memory by storing the
         # low precision B tensor instead of the high precision B tensor.
         # In the backward this is needed for grad_A: grad_output @ B.
-        B = B_t.contiguous().transpose(-2, -1)
-
-        # - B shape: (E, N, K)
-        # - B scales must be computed rowwise keeping the outer/final dim, so:
-        # - B_scale shape: (E, 1, K)
-        B_scales = tensor_to_scale(
-            B,
-            torch.float8_e4m3fn,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-2,
+        B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
+            B_t,
+            output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        B_scaled = B.to(torch.float32) * B_scales
-        B_fp8_col_major = to_fp8_saturated(B_scaled, torch.float8_e4m3fn)
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B_fp8_col_major, B_scales, offs)
