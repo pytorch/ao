@@ -8,6 +8,7 @@
 # This test takes a long time to run
 import copy
 import gc
+import itertools
 import tempfile
 import unittest
 from pathlib import Path
@@ -857,6 +858,57 @@ class TestQuantFlow(TestCase):
                 sd[k] = v.to("cuda")
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
+
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::qembeddingbag"),
+        reason="cpp kernels not built",
+    )
+    def test_embeddingbag_cpu(self):
+        qtype = torch.float8_e4m3fn
+        index_type = torch.int64
+        multi_hot_list = [1, 2, 3, 10]
+        batch_size_list = [1, 128]
+        vector_size_list = [1, 128, 512]
+        dtype = torch.float32
+        weight_scale = torch.tensor([2.0])
+        include_last_offset = True
+        mode = "sum"
+
+        cases = itertools.product(multi_hot_list, vector_size_list, batch_size_list)
+        for multi_hot, vector_size, batch_size in cases:
+            if mode == "sum":
+                mode_enum = 0
+            elif mode == "mean":
+                mode_enum = 1
+            elif mode == "max":
+                mode_enum = 2
+            indices = torch.randint(1000, (batch_size * multi_hot,)).to(index_type)
+            offsets = torch.arange(0, batch_size * multi_hot + 1, multi_hot).to(
+                index_type
+            )
+
+            m = torch.nn.EmbeddingBag(
+                1000,
+                vector_size,
+                mode=mode,
+                dtype=dtype,
+                include_last_offset=include_last_offset,
+            )
+            fp8_weight = m.weight.data.to(qtype)
+            m.weight.data = fp8_weight.to(m.weight.dtype)
+
+            with torch.no_grad():
+                refe_out = m.forward(indices, offsets) * weight_scale
+                test_out = torch.ops.torchao.qembeddingbag(
+                    fp8_weight,
+                    indices,
+                    offsets,
+                    weight_scale,
+                    1.0,
+                    mode_enum,
+                    include_last_offset,
+                ).to(dtype)
+                torch.testing.assert_close(refe_out, test_out, atol=0, rtol=0)
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
