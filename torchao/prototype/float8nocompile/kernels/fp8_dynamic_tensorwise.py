@@ -14,7 +14,11 @@ import torch
 import triton
 import triton.language as tl
 
-from torchao.float8.float8_tensor import Float8Tensor, GemmInputRole, LinearMMConfig
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
+    GemmInputRole,
+    LinearMMConfig,
+)
 
 EPS = 1e-12
 
@@ -487,7 +491,7 @@ def _scale_atomic(
         tl.float32
     )
 
-    # store scale for use in Float8Tensor constructor
+    # store scale for use in Float8TrainingTensor constructor
     scale_off = tl.arange(0, 1)
     tl.store(scale_out_ptr + scale_off, scale)
 
@@ -541,7 +545,7 @@ def hp_to_fp8_row_major(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     num_elements = hp_tensor.numel()
@@ -576,8 +580,8 @@ def hp_to_fp8_row_major(
         EPS=EPS,
     )
 
-    # wrap output tensor in Float8Tensor
-    fp8_tensor_row_major = Float8Tensor(
+    # wrap output tensor in Float8TrainingTensor
+    fp8_tensor_row_major = Float8TrainingTensor(
         output_buffer,
         scale,
         orig_dtype=hp_tensor.dtype,
@@ -593,7 +597,7 @@ def hp_to_fp8_row_major_t(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     num_elements = hp_tensor.numel()
@@ -641,8 +645,8 @@ def hp_to_fp8_row_major_t(
         EPS=EPS,
     )
 
-    # wrap output tensor in Float8Tensor
-    fp8_tensor_row_major_t = Float8Tensor(
+    # wrap output tensor in Float8TrainingTensor
+    fp8_tensor_row_major_t = Float8TrainingTensor(
         output_buffer,
         scale,
         orig_dtype=hp_tensor.dtype,
@@ -658,7 +662,7 @@ def hp_to_fp8_col_major(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     num_elements = hp_tensor.numel()
@@ -705,8 +709,8 @@ def hp_to_fp8_col_major(
     col_major_strides = (1, num_rows)
     output_buffer = output_buffer.as_strided(output_buffer.size(), col_major_strides)
 
-    # wrap output tensor in Float8Tensor
-    fp8_tensor_col_major = Float8Tensor(
+    # wrap output tensor in Float8TrainingTensor
+    fp8_tensor_col_major = Float8TrainingTensor(
         output_buffer,
         scale,
         orig_dtype=hp_tensor.dtype,
@@ -722,7 +726,7 @@ def hp_to_fp8_col_major_t(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     num_elements = hp_tensor.numel()
@@ -757,8 +761,8 @@ def hp_to_fp8_col_major_t(
         EPS=EPS,
     )
 
-    # wrap output tensor in Float8Tensor
-    fp8_tensor_col_major_t = Float8Tensor(
+    # wrap output tensor in Float8TrainingTensor
+    fp8_tensor_col_major_t = Float8TrainingTensor(
         output_buffer,
         scale,
         orig_dtype=hp_tensor.dtype,
@@ -774,7 +778,7 @@ def hp_to_fp8_row_and_col_major(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
@@ -830,15 +834,15 @@ def hp_to_fp8_row_and_col_major(
         fp8_output_col_major.size(), col_major_strides
     )
 
-    # wrap outputs in Float8Tensors
-    fp8_tensor_row_major = Float8Tensor(
+    # wrap outputs in Float8TrainingTensors
+    fp8_tensor_row_major = Float8TrainingTensor(
         fp8_output_row_major,
         scale,
         orig_dtype=hp_tensor.dtype,
         linear_mm_config=linear_mm_config,
         gemm_input_role=gemm_input_role,
     )
-    fp8_tensor_col_major = Float8Tensor(
+    fp8_tensor_col_major = Float8TrainingTensor(
         fp8_output_col_major,
         scale,
         orig_dtype=hp_tensor.dtype,
@@ -854,7 +858,7 @@ def hp_to_fp8_row_major_t_and_non_t(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
@@ -912,15 +916,15 @@ def hp_to_fp8_row_major_t_and_non_t(
         EPS=EPS,
     )
 
-    # wrap outputs in Float8Tensors
-    fp8_tensor_row_major = Float8Tensor(
+    # wrap outputs in Float8TrainingTensors
+    fp8_tensor_row_major = Float8TrainingTensor(
         fp8_output_row_major,
         scale,
         orig_dtype=hp_tensor.dtype,
         linear_mm_config=linear_mm_config,
         gemm_input_role=gemm_input_role,
     )
-    fp8_tensor_row_major_t = Float8Tensor(
+    fp8_tensor_row_major_t = Float8TrainingTensor(
         fp8_output_row_major_t,
         scale,
         orig_dtype=hp_tensor.dtype,
@@ -936,7 +940,7 @@ def hp_to_fp8_col_major_t_and_non_t(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
@@ -999,15 +1003,15 @@ def hp_to_fp8_col_major_t_and_non_t(
         fp8_output_col_major.size(), col_major_strides
     )
 
-    # wrap outputs in Float8Tensors
-    fp8_tensor_col_major = Float8Tensor(
+    # wrap outputs in Float8TrainingTensors
+    fp8_tensor_col_major = Float8TrainingTensor(
         fp8_output_col_major,
         scale,
         orig_dtype=hp_tensor.dtype,
         linear_mm_config=linear_mm_config,
         gemm_input_role=gemm_input_role,
     )
-    fp8_tensor_col_major_t = Float8Tensor(
+    fp8_tensor_col_major_t = Float8TrainingTensor(
         fp8_output_col_major_t,
         scale,
         orig_dtype=hp_tensor.dtype,

@@ -99,6 +99,7 @@ if (NOT TARGET cpuinfo)
     set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Disable mock tests" FORCE)
     set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks" FORCE)
     add_compile_options(-Wno-unused-function -Wno-unused-variable)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     include(FetchContent)
     FetchContent_Declare(cpuinfo
         GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
@@ -115,6 +116,8 @@ if(TORCHAO_BUILD_ATEN_OPS)
         ops/embedding_xbit/op_embedding_xbit_aten.cpp
         ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
         ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight_aten.cpp
+        ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+        ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_aten.cpp
     )
     list(TRANSFORM _torchao_op_srcs_aten PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_aten SHARED ${_torchao_op_srcs_aten})
@@ -160,13 +163,14 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
         ops/embedding_xbit/op_embedding_xbit_executorch.cpp
         ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
         ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight_executorch.cpp
-    )
+        ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+        ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_executorch.cpp)
+
     list(TRANSFORM _torchao_op_srcs_executorch PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_executorch STATIC ${_torchao_op_srcs_executorch})
     target_link_torchao_parallel_backend(torchao_ops_executorch executorch)
     target_include_directories(torchao_ops_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
     target_compile_definitions(torchao_ops_executorch PRIVATE USE_EXECUTORCH=1)
-    target_link_libraries(torchao_ops_executorch PRIVATE "${EXECUTORCH_LIBRARIES}")
     if (TORCHAO_BUILD_CPU_AARCH64)
         target_link_libraries(torchao_ops_executorch PRIVATE torchao_kernels_aarch64)
     endif()

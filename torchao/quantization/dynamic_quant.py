@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 
 from .utils import (
+    _quant_int8_dynamic_per_token_linear,
     dynamically_quantize_per_channel,
-    quant_int8_dynamic_per_token_linear,
 )
 
 __all__ = ["DynamicallyPerAxisQuantizedLinear"]
@@ -44,7 +44,7 @@ class DynamicallyPerAxisQuantizedLinear(torch.nn.Linear):
 
         """
 
-        Y = quant_int8_dynamic_per_token_linear(
+        Y = _quant_int8_dynamic_per_token_linear(
             X, self.W_int_repr_t, self.W_scales, self.bias, X.dtype
         )
         return Y

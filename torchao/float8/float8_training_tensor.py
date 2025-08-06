@@ -66,7 +66,7 @@ class LinearMMConfig(NamedTuple):
     Configuration for different gemm operations in LinearMM.
 
     This configuration is not user-facing and exists for convenience,
-    allowing Float8Tensor to use the right config based on which gemm
+    allowing Float8TrainingTensor to use the right config based on which gemm
     from gemms with outputs `output`, `grad_input`, `grad_weight` is being called.
 
     Attributes:
@@ -82,7 +82,7 @@ class LinearMMConfig(NamedTuple):
 
 class GemmInputRole(enum.Enum):
     """
-    Given a Float8Tensor, the enum below describes the expected role of this
+    Given a Float8TrainingTensor, the enum below describes the expected role of this
     tensor in the three gemms present in the fw + bw pass of a Linear layer.
     This is used to choose the right config for a float8 gemm when the
     gemm is performed.
@@ -138,7 +138,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         axiswise_dim: Optional[int] = None,
     ):
         """
-        This function will apply the scaling, and then convert to a Float8Tensor
+        This function will apply the scaling, and then convert to a Float8TrainingTensor
 
         Note:
         We will call this function with a DTensor subclass. Ideally this would be an aten OP
@@ -161,7 +161,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
             bits_placements = bits_fp8.placements
             local_bits = bits_fp8.to_local()
             local_scale = scale.to_local()
-            inner_float8_tensor = Float8Tensor(
+            inner_float8_tensor = Float8TrainingTensor(
                 local_bits,
                 local_scale,
                 tensor.dtype,
@@ -178,7 +178,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
                 stride=bits_fp8.stride(),
             )
 
-        return Float8Tensor(
+        return Float8TrainingTensor(
             bits_fp8,
             scale,
             tensor.dtype,
@@ -219,10 +219,10 @@ def hp_tensor_and_scale_to_float8(
 ):
     """
     Given a high precision tensor `hp_tensor` and a precalculated scale `s`,
-    scales `hp_tensor` by `s` and returns a `Float8Tensor` of the result.
+    scales `hp_tensor` by `s` and returns a `Float8TrainingTensor` of the result.
 
     Autograd-aware, the derivative is pass-through.
-    DTensor-aware, if the input is a DTensor the output will be DTensor(Float8Tensor).
+    DTensor-aware, if the input is a DTensor the output will be DTensor(Float8TrainingTensor).
 
     Args:
         hp_tensor: the tensor to convert
@@ -239,7 +239,7 @@ def hp_tensor_and_scale_to_float8(
     )
 
 
-class Float8Tensor(torch.Tensor):
+class Float8TrainingTensor(torch.Tensor):
     """
     Note: this is **not** a public API and is only intended to be used
     inside of this repository. Please file an issue if you would benefit
@@ -319,7 +319,7 @@ class Float8Tensor(torch.Tensor):
         return self
 
     def __repr__(self):
-        return f"Float8Tensor(dtype={self._data.dtype}, scale={self._scale}, linear_mm_config={self._linear_mm_config}, axiswise_dim={self._axiswise_dim}\ngemm_input_role={self._gemm_input_role}\nas_orig_prec={self.to_original_precision()}"
+        return f"Float8TrainingTensor(lp_dtype={self._data.dtype}, scale={self._scale}, linear_mm_config={self._linear_mm_config}, axiswise_dim={self._axiswise_dim}\ngemm_input_role={self._gemm_input_role}\nas_orig_prec={self.to_original_precision()}"
 
     def __tensor_flatten__(self):
         ctx = {
@@ -333,7 +333,7 @@ class Float8Tensor(torch.Tensor):
     @staticmethod
     def __tensor_unflatten__(inner_tensors: Dict, metadata, outer_size, outer_stride):
         assert len(inner_tensors) == 2
-        return Float8Tensor(
+        return Float8TrainingTensor(
             inner_tensors["_data"],
             inner_tensors["_scale"],
             metadata["_orig_dtype"],
@@ -355,7 +355,7 @@ class Float8Tensor(torch.Tensor):
         # Lazy import to avoid circular dependency
         from torchao.float8.float8_ops import FLOAT8_OPS_TABLE
 
-        # All ops in the FLOAT8_OPS_TABLE expect Float8Tensor as inputs
+        # All ops in the FLOAT8_OPS_TABLE expect Float8TrainingTensor as inputs
         # And don't support mixed tensor subclasses. This will trigger the handler for
         # the next type in the dispatch list
         def allowed_subclasses(type):
@@ -374,5 +374,5 @@ class Float8Tensor(torch.Tensor):
             return FLOAT8_OPS_TABLE[func](func, args, kwargs)
         raise NotImplementedError(f"attempting to run {func}, this is not supported")
 
-    # Do not force the Float8Tensor type on the returned tensor
+    # Do not force the Float8TrainingTensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
