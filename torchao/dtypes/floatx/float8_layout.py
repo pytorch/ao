@@ -32,6 +32,12 @@ aten = torch.ops.aten
 FLOAT8_IMPL_OPS_TABLE: Dict[Any, Any] = {}
 
 
+grouped_mm = [
+    aten._grouped_mm.default if hasattr(aten, "_grouped_mm") else None,
+    torch._grouped_mm if hasattr(torch, "_grouped_mm") else None,
+]
+
+
 def implements(aten_ops: List[Any]):
     """Register aten ops to the float8 op table"""
 
@@ -265,7 +271,7 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements([aten._grouped_mm.default])
+@implements(grouped_mm)
 def _(func, types, args, kwargs):
     input, weight, offs = args[0], args[1], args[2]
     assert len(args) == 3, (

@@ -21,6 +21,12 @@ __all__ = [
 aten = torch.ops.aten
 
 
+grouped_mm = [
+    aten._grouped_mm.default if hasattr(aten, "_grouped_mm") else None,
+    torch._grouped_mm if hasattr(torch, "_grouped_mm") else None,
+]
+
+
 class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     """
     Applies activation quantization for linear operator, this is used to support
@@ -193,7 +199,7 @@ def _(func, types, args, kwargs):
         return func(qtensor, original_weight_tensor)
 
 
-@implements([torch._grouped_mm, aten._grouped_mm.default])
+@implements(grouped_mm)
 def _(func, types, args, kwargs):
     kwargs = {} if kwargs is None else kwargs
     input_tensor, weight_tensor, offs = args[0], args[1], args[2]

@@ -120,6 +120,10 @@ class ExpertsAOQuantizable(nn.Module):
         down_proj: Tensor,
         act_fn: Callable[Tensor, Tensor],
     ):
+        assert hasattr(torch, "_grouped_mm"), (
+            "the _grouped_mm op was not found, try installing pytorch nightly or test with: >python -c 'import torch; print(torch._grouped_mm)'"
+        )
+
         # get shapes
         num_experts, hidden_dim, expert_dim = down_proj.shape
         num_tokens, top_k = expert_indices.shape

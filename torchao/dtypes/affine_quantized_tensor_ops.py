@@ -109,6 +109,11 @@ logger = logging.getLogger(__name__)
 
 aten = torch.ops.aten
 
+grouped_mm = [
+    aten._grouped_mm.default if hasattr(aten, "_grouped_mm") else None,
+    torch._grouped_mm if hasattr(torch, "_grouped_mm") else None,
+]
+
 
 _AQT_QLINEAR_DISPATCH_TABLE = {}
 
@@ -296,7 +301,7 @@ def _(func, types, args, kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-@implements([torch._grouped_mm])
+@implements(grouped_mm)
 def _(func, types, args, kwargs):
     new_arg0 = (
         args[0].tensor_impl if isinstance(args[0], AffineQuantizedTensor) else args[0]
