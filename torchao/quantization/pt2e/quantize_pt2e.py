@@ -116,6 +116,8 @@ def prepare_pt2e(
     model = quantizer.transform_for_annotation(model)
     quantizer.annotate(model)
     quantizer.validate(model)
+    # Store the 'custom' meta data if any added by quantizer
+    annotated_meta = model.meta.get("custom", {})
     model = prepare(
         model,
         node_name_to_scope,
@@ -123,6 +125,8 @@ def prepare_pt2e(
         obs_or_fq_callback=quantizer.prepare_obs_or_fq_callback,
     )
     model.meta.update(original_graph_meta)
+    # Update the 'custom' meta data from quantizer
+    model.meta.update({"custom": annotated_meta})
     model = _disallow_eval_train(model)
     return model
 
