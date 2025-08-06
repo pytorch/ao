@@ -33,7 +33,10 @@ from torchao.float8.config import (
     e5m2_dtype,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_linear_utils import (
+    _populate_debug_fqns,
+    convert_to_float8_training,
+)
 from torchao.float8.float8_ops import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
@@ -399,6 +402,32 @@ class TestFloat8Linear:
             m_ref,
             config,
         )
+
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [
+            Float8LinearRecipeName.TENSORWISE,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
+        ],
+    )
+    def test_debug_logging(self, recipe_name):
+        x = torch.randn(1, 16, 16, device="cuda", dtype=torch.bfloat16)
+        m = nn.Sequential(
+            nn.Linear(16, 32, bias=False, device="cuda", dtype=torch.bfloat16),
+            nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(32, 64, bias=False, device="cuda", dtype=torch.bfloat16),
+            ),
+        )
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
+        object.__setattr__(config, "_enable_debug_logging", True)
+        m = convert_to_float8_training(m, config=config)
+        _populate_debug_fqns(m)
+        m = torch.compile(m)
+        y = m(x)
+        y.sum().backward()
+        # TODO(before land): actually test the values logged to stdout
 
     @pytest.mark.parametrize(
         "emulate", [True, False] if is_sm_at_least_89() else [True]

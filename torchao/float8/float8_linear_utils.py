@@ -196,3 +196,9 @@ def _auto_filter_for_tensorwise(
     if K <= 4096 and N <= 1024:
         return False
     return True
+
+
+def _populate_debug_fqns(model: nn.Module):
+    for name, mod in model.named_modules():
+        if isinstance(mod, Float8Linear):
+            mod._debug_fqn = name
