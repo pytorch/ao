@@ -16,7 +16,11 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_7,
+    is_sm_at_least_100,
+)
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -1390,7 +1394,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
             x_hp_d1_normalized.t(),
-            scale_e8m0_dim1,
+            scale_e8m0_dim1.unsqueeze(-1),
         )
 
     @triton.jit
@@ -1400,6 +1404,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_cols,
         output_ptr,
         input_row_stride,
+        input_col_stride,
         output_block_stride,
         BLOCK_ROWS: tl.constexpr,
         BLOCK_COLS: tl.constexpr,
@@ -1419,7 +1424,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         mask = (global_rows < scale_rows) & (global_cols < scale_cols)
 
         input_scales = tl.load(
-            scale_ptr + global_rows * input_row_stride + global_cols,
+            scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
             mask=mask,
             other=0.0,
         )
@@ -1459,7 +1464,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         assert scale_tensor.element_size() == 1, (
             "Expected element size to be 1 byte (8 bits)"
         )
-        assert scale_tensor.is_contiguous(), "Input tensor must be contiguous"
 
         rows, cols = scale_tensor.shape
 
@@ -1472,7 +1476,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         out = scale_tensor.new_empty((padded_rows, padded_cols))
 
         # Input stride (for row-major format)
-        input_row_stride = cols
+        input_row_stride = scale_tensor.stride()[0]
+        input_col_stride = scale_tensor.stride()[1]
 
         # We probably want handle multiple blocks per tile but for now keep it simple
         BLOCK_ROWS, BLOCK_COLS = 128, 4
@@ -1491,6 +1496,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             cols,
             out.view(torch.uint8),
             input_row_stride,
+            input_col_stride,
             output_block_stride,
             BLOCK_ROWS=BLOCK_ROWS,
             BLOCK_COLS=BLOCK_COLS,
@@ -1718,7 +1724,8 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
@@ -1729,3 +1736,129 @@ else:
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
+
+
+# MXFP8 CUDA kernel is only built on SM100+
+if is_sm_at_least_100():
+    from torchao.prototype import mxfp8_cuda
+
+    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
+    # Currently we have to use an arbitrary string because custom ops don't support enum
+    # params.
+    @torch.library.custom_op("torchao::mxfp8_quantize_cuda", mutates_args=())
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Input shape must be 2D.
+        assert x.ndim == 2
+        rows, cols = x.shape
+
+        # Block size must be a multiple of 32.
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+
+        # Convert scaling mode to expected string format and call into kernel.
+        output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
+            mxfp8_cuda.quantize(
+                x,
+                rowwise=rowwise,
+                colwise=colwise,
+                scaling_mode=scaling_mode,
+            )
+        )
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @mxfp8_quantize_cuda.register_fake
+    def _(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert x.ndim == 2
+        rows, cols = x.shape
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+        num_row_blocks = rows // 32
+        num_col_blocks = cols // 32
+
+        # rowwise
+        if rowwise:
+            output_rowwise = x.new_empty(rows, cols, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(
+                rows, num_col_blocks, 1, dtype=torch.float8_e8m0fnu
+            )
+        else:
+            output_rowwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        # colwise
+        if colwise:
+            # column major
+            output_colwise = torch.empty_strided(
+                (rows, cols), (1, rows), dtype=torch.float8_e4m3fn, device=x.device
+            )
+
+            # colwise scales are written in column-major format to avoid uncoalesced global memory accesses
+            scales_colwise = torch.empty_strided(
+                (cols, num_row_blocks),
+                (1, cols),
+                dtype=torch.float8_e8m0fnu,
+                device=x.device,
+            )
+        else:
+            output_colwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_colwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    def custom_mxfp8_quantize_cuda_dim1_sharding(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ):
+        # This function signature can be used to understand the shardings:
+        # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
+
+        # When inputs and scale are replicated, we return a quantized output tensor (replicated).
+        inputs_replicated = [None, Replicate(), None, Replicate()]
+        outputs_replicated = [None, Replicate(), None, None]
+        rule_for_input_replicated = (
+            inputs_replicated,
+            outputs_replicated,
+        )
+
+        # When inputs and scale are sharded along dim 0,
+        # we return a quantized output tensor (sharded along dim1 due to transpose).
+        inputs_sharded_dim0 = [None, Shard(0), None, Shard(0)]
+        outputs_sharded_dim1 = [None, Shard(1), None, None]
+        rule_for_input_sharded_dim0 = (inputs_sharded_dim0, outputs_sharded_dim1)
+
+        # When inputs and scale are sharded along dim 1,
+        # we return a quantized output tensor (sharded along dim0 due to transpose).
+        inputs_sharded_dim1 = [None, Shard(1), None, Shard(1)]
+        outputs_sharded_dim0 = [None, Shard(0), None, None]
+        rule_for_input_sharded_dim1 = (inputs_sharded_dim1, outputs_sharded_dim0)
+
+        acceptable_shardings = [
+            rule_for_input_replicated,
+            rule_for_input_sharded_dim0,
+            rule_for_input_sharded_dim1,
+        ]
+        return acceptable_shardings
+else:
+
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise NotImplementedError("needs torch version 2.8+ and sm100")

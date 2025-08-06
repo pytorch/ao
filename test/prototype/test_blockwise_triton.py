@@ -11,7 +11,7 @@ from packaging import version
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
-from torchao.prototype.blockwise_fp8.blockwise_quantization import (
+from torchao.prototype.blockwise_fp8_inference.blockwise_quantization import (
     blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_dequant,

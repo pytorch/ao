@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
+
 from .quantizer import QuantizationAnnotation, Quantizer
 
 if TYPE_CHECKING:
@@ -48,18 +50,17 @@ class ComposableQuantizer(Quantizer):
         self, gm: torch.fx.GraphModule, quantizer: Quantizer
     ) -> None:
         for n in gm.graph.nodes:
-            if "quantization_annotation" in n.meta:
+            if Q_ANNOTATION_KEY in n.meta:
                 # check if the annotation has been changed by
                 # comparing QuantizationAnnotation object id
                 if n in self._graph_annotations and (
-                    id(self._graph_annotations[n])
-                    != id(n.meta["quantization_annotation"])
+                    id(self._graph_annotations[n]) != id(n.meta[Q_ANNOTATION_KEY])
                 ):
                     raise RuntimeError(
                         f"Quantizer {quantizer.__class__.__name__} has changed annotations on node {n}"
                     )
                 else:
-                    self._graph_annotations[n] = n.meta["quantization_annotation"]
+                    self._graph_annotations[n] = n.meta[Q_ANNOTATION_KEY]
             else:
                 if n in self._graph_annotations:
                     raise RuntimeError(

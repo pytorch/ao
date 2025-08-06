@@ -640,11 +640,10 @@ private:
     const int total_weights = n * k;
     // Frequencies are controlled by their group sizes.
     assert(total_weights % scale_group_size == 0);
-    assert(total_weights % lut_group_size == 0);
 
     // The number of unique scales/LUTs is derived directly from their group size.
     const int num_scales = total_weights / scale_group_size;
-    const int num_luts = total_weights / lut_group_size;
+    const int num_luts = (total_weights + lut_group_size - 1) / lut_group_size;
     const int lut_size = 1 << weight_nbit;
     std::mt19937 gen(std::random_device{}());
 
@@ -726,9 +725,6 @@ public:
     int weight_nbit, bool has_scales,
     bool has_bias, bool has_clamp) {
 
-    std::cout << "[Generator Info] Using 'Per-Group' model.\n"
-              << "  - Both scales and LUTs will switch every " << group_size << " weights." << std::endl;
-
     // Just call the decoupled generator with the same group size for both.
     return _generate_master(
       m, k, n,
@@ -747,10 +743,6 @@ public:
     int m, int k, int n,
     int scale_group_size, int lut_group_size, int weight_nbit, bool has_scales,
     bool has_bias, bool has_clamp) {
-
-    std::cout << "[Generator Info] Using 'Decoupled Grouping' model.\n"
-              << "  - Scales will switch every " << scale_group_size << " weights.\n"
-              << "  - LUTs will switch every " << lut_group_size << " weights." << std::endl;
 
     return _generate_master(
         m, k, n,

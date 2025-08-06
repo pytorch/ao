@@ -63,3 +63,4 @@ fi
 
 # Run
 ${CMAKE_OUT}/test_linear_8bit_act_xbit_weight
+${CMAKE_OUT}/test_groupwise_lowbit_weight_lut
