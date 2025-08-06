@@ -65,8 +65,9 @@ gpu_name_to_specs = {
 }
 
 
-def get_specs():
-    gpu_name = torch.cuda.get_device_name(0)
+def get_specs(gpu_name: Optional[str] = None):
+    if gpu_name is None:
+        gpu_name = torch.cuda.get_device_name(0)
     return gpu_name_to_specs[gpu_name]
 
 
@@ -188,6 +189,7 @@ def get_tensor_memory_traffic_ovhd_s(
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
+            "mxfp8_cublas_rceil",
         ), "unsupported"
         # For now, assume that we can't profitably fuse kernel 1 and kernel 2
         # x_bf16 = ...
@@ -213,10 +215,15 @@ def get_tensor_memory_traffic_ovhd_s(
 
 
 def get_individual_gemm_time_sympy(
-    M: sympy.Symbol, K: sympy.Symbol, N: sympy.Symbol, dtype, mx_recipe_name
+    M: sympy.Symbol,
+    K: sympy.Symbol,
+    N: sympy.Symbol,
+    dtype,
+    mx_recipe_name,
+    gpu_name: Optional[str] = None,
 ) -> sympy.Symbol:
     # compute bound
-    specs = get_specs()
+    specs = get_specs(gpu_name)
     gemm_ops = 2 * M * K * N
     if dtype is torch.bfloat16:
         peak_tops = specs["bf16_peak_tops"]
@@ -234,6 +241,7 @@ def get_individual_gemm_time_sympy(
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
+            "mxfp8_cublas_rceil",
         ), "unsupported"
         assert dtype in (torch.float8_e4m3fn, torch.float8_e5m2), "unsupported"
         # adjust reads for MX scaling
@@ -263,6 +271,7 @@ def get_gemm_time_sympy(
     dtype,
     float8_recipe_name: Optional[str],
     mx_recipe_name: Optional[str],
+    gpu_name: Optional[str],
 ):
     # next: add rowwise_with_gw_hp here
     # note: this function is currently not super accurate for small shapes:
@@ -277,13 +286,13 @@ def get_gemm_time_sympy(
         gemm_dtype_grad_weight = torch.bfloat16
 
     gemm_output_time_s = get_individual_gemm_time_sympy(
-        M, K, N, gemm_dtype_input, mx_recipe_name
+        M, K, N, gemm_dtype_input, mx_recipe_name, gpu_name
     )
     gemm_grad_input_time_s = get_individual_gemm_time_sympy(
-        M, N, K, gemm_dtype_grad_input, mx_recipe_name
+        M, N, K, gemm_dtype_grad_input, mx_recipe_name, gpu_name
     )
     gemm_grad_weight_time_s = get_individual_gemm_time_sympy(
-        K, M, N, gemm_dtype_grad_weight, mx_recipe_name
+        K, M, N, gemm_dtype_grad_weight, mx_recipe_name, gpu_name
     )
     total = gemm_output_time_s + gemm_grad_input_time_s + gemm_grad_weight_time_s
     return total
@@ -296,8 +305,9 @@ def get_float8_mem_sympy(
     float8_recipe_name: Optional[str],
     mx_recipe_name: Optional[str],
     enable_fusion_modeling: bool,
+    gpu_name: Optional[str] = None,
 ):
-    specs = get_specs()
+    specs = get_specs(gpu_name)
 
     # there are three gemms in the fwd/bwd of a linear:
     #

@@ -20,8 +20,10 @@ from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
 from torchao.float8.inference import (
     Float8MMConfig,
     _is_rowwise_scaled,
+    _slice_scale_for_dimension,
     addmm_float8_unwrapped_inference,
     preprocess_data,
+    preprocess_scale,
 )
 from torchao.utils import _is_float8_type, fill_defaults
 
@@ -299,56 +301,6 @@ def _(func, types, args, kwargs):
     )
 
 
-def _slice_scale_for_dimension(
-    scale: torch.Tensor,
-    data_shape: List[int],
-    dim: int,
-    start: int,
-    end: int,
-    step: int,
-) -> torch.Tensor:
-    """
-    Slice the scale tensor appropriately based on the data tensor slicing.
-
-    This function calculates how the scale should be sliced when the data tensor
-    is sliced along a given dimension, taking into account the block structure.
-    """
-    # Unsupported case for now, this would be 1 scale per data element
-    if scale.shape == data_shape:
-        return aten.slice.Tensor(scale, dim, start, end, step)
-
-    # Reconstruct block sizes based on data shape and scale shape
-    block_sizes = tuple(data_shape[i] // scale.shape[i] for i in range(len(data_shape)))
-
-    if dim >= len(block_sizes):
-        # Slicing beyond the dimensions we care about
-        return scale
-
-    block_size_for_dim = block_sizes[dim]
-
-    if block_size_for_dim == 1:
-        # Scale is per-element along this dimension
-        # Slice away as normal
-        return aten.slice.Tensor(scale, dim, start, end, step)
-    else:
-        # There is blocking in this dimension
-        # Calculate which scale elements correspond to the sliced data
-        scale_start = start // block_size_for_dim if start is not None else None
-        scale_end = (
-            (end + block_size_for_dim - 1) // block_size_for_dim
-            if end is not None
-            else None
-        )
-
-        # Error on Step > 1
-        if step > 1:
-            raise NotImplementedError(
-                "Slicing with step > 1 is not implemented for scale tensors."
-            )
-
-        return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
-
-
 ##########################
 # Float8 Dispatch Kernels
 ##########################
@@ -368,24 +320,6 @@ def _linear_fp8_act_fp8_weight_check(
         )
 
     return check_aqt(input_tensor) and check_aqt(weight_tensor)
-
-
-def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int, ...]):
-    """Ensures input tensor is correctly formatted for _scaled_mm"""
-
-    # For PerTensor quantization, scale should be a scalar or have shape [1]
-    if input_scale.numel() == 1:
-        # Already a scalar, ensure it has the right shape for _scaled_mm
-        return input_scale.reshape(1, 1)
-
-    # For per-row/block quantization, we need to handle the reshaping
-    input_scale = input_scale.unsqueeze(-1)
-
-    # Match: #input_data.reshape(-1, input_data.shape[-1])
-    if input_scale.dim() > 2:
-        input_scale = input_scale.reshape(-1, input_scale.shape[-1])
-
-    return input_scale
 
 
 def _linear_fp8_act_fp8_weight_impl(

@@ -21,21 +21,23 @@ jobs:
       matrix:
         include:
           - name: ROCM Nightly
-            runs-on: linux.rocm.gpu.mi300.2
+            runs-on: linux.rocm.gpu.gfx942.2
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
             gpu-arch-type: "rocm"
             gpu-arch-version: "6.3"
+            docker-image: pytorch/manylinux2_28-builder:rocm6.3
 
     permissions:
       id-token: write
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
-      timeout: 150
+      timeout: 210
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
         conda create -n venv python=3.9 -y

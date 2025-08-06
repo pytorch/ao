@@ -13,6 +13,8 @@ from typing import Callable, NamedTuple, Optional
 import torch
 from torch.fx import Node
 
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
+
 from .quantizer import QuantizationAnnotation, QuantizationSpec
 
 
@@ -103,21 +105,17 @@ def get_bias_qspec(quantization_config: Optional[QuantizationConfig]):
 
 
 def annotate_input_qspec_map(node: Node, input_node: Node, qspec):
-    quantization_annotation = node.meta.get(
-        "quantization_annotation", QuantizationAnnotation()
-    )
+    quantization_annotation = node.meta.get(Q_ANNOTATION_KEY, QuantizationAnnotation())
     if quantization_annotation.input_qspec_map is None:
         quantization_annotation.input_qspec_map = {}
     quantization_annotation.input_qspec_map[input_node] = qspec
-    node.meta["quantization_annotation"] = quantization_annotation
+    node.meta[Q_ANNOTATION_KEY] = quantization_annotation
 
 
 def annotate_output_qspec(node: Node, qspec):
-    quantization_annotation = node.meta.get(
-        "quantization_annotation", QuantizationAnnotation()
-    )
+    quantization_annotation = node.meta.get(Q_ANNOTATION_KEY, QuantizationAnnotation())
     quantization_annotation.output_qspec = qspec
-    node.meta["quantization_annotation"] = quantization_annotation
+    node.meta[Q_ANNOTATION_KEY] = quantization_annotation
 
 
 def get_module_name_filter(module_name: str):
