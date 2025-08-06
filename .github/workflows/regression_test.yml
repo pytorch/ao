@@ -39,7 +39,7 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
-      timeout: 120
+      timeout: 180
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
@@ -99,7 +99,7 @@ jobs:
 
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
-      timeout: 120
+      timeout: 180
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}

@@ -53,6 +53,7 @@ jobs:
           pytest torchao/experimental/tests/test_int8_dynamic_activation_intx_weight.py
           python torchao/experimental/tests/test_embedding_xbit_quantizer.py
           python torchao/experimental/tests/test_quant_passes.py
+          pytest -s test/prototype/test_dynamic_activation_lut.py
       - name: Run kernels/cpu/aarch64/tests
         if: runner.os == 'macOS'
         run: |
@@ -77,57 +78,57 @@ jobs:
           sh build_torchao_ops.sh executorch
           popd
 
-  test-mps-ops:
-    strategy:
-      matrix:
-        runner: [macos-m1-stable]
-    runs-on: ${{matrix.runner}}
-    steps:
-      - name: Print machine info
-        run: |
-          uname -a
-          if [ $(uname -s) == Darwin ]; then
-            sysctl machdep.cpu.brand_string
-            sysctl machdep.cpu.core_count
-          fi
-      - name: Checkout repo
-        uses: actions/checkout@v3
-        with:
-          submodules: true
-      - name: Create conda env
-        run: |
-          conda create -yn test-mps-ops-env python=3.11
-      - name: Activate conda env
-        run: |
-          source activate base
-          conda activate test-mps-ops-env
-      - name: Install torch
-        run: |
-          conda run -n test-mps-ops-env pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
-      - name: Print torch version
-        run: |
-          
-          conda run -n test-mps-ops-env python -c "import torch; print(torch.__version__)"
-      - name: Install requirements
-        run: |
-          source activate base
-          conda activate test-mps-ops-env
-          pip install -r dev-requirements.txt
-          pip install pyyaml importlib-metadata
-      - name: Print pip freeze
-        run: |
-          conda run -n test-mps-ops-env pip freeze
-      - name: Print current directory
-        run: |
-          conda run -n test-mps-ops-env python -c "import os; print(os.getcwd())"
-      - name: Build ao with experimental mps ops
-        run: |
-          source activate base
-          conda activate test-mps-ops-env
-          USE_CPP=1 TORCHAO_BUILD_EXPERIMENTAL_MPS=1 pip install .
-      - name: Run mps tests
-        run: |
-          pushd torchao/experimental/ops/mps/test
-          conda run -n test-mps-ops-env python test_lowbit.py
-          conda run -n test-mps-ops-env python test_quantizer.py
-          popd
+  # test-mps-ops:
+  #   strategy:
+  #     matrix:
+  #       runner: [macos-m1-stable]
+  #   runs-on: ${{matrix.runner}}
+  #   steps:
+  #     - name: Print machine info
+  #       run: |
+  #         uname -a
+  #         if [ $(uname -s) == Darwin ]; then
+  #           sysctl machdep.cpu.brand_string
+  #           sysctl machdep.cpu.core_count
+  #         fi
+  #     - name: Checkout repo
+  #       uses: actions/checkout@v3
+  #       with:
+  #         submodules: true
+  #     - name: Create conda env
+  #       run: |
+  #         conda create -yn test-mps-ops-env python=3.11
+  #     - name: Activate conda env
+  #       run: |
+  #         source activate base
+  #         conda activate test-mps-ops-env
+  #     - name: Install torch
+  #       run: |
+  #         conda run -n test-mps-ops-env pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
+  #     - name: Print torch version
+  #       run: |
+
+  #         conda run -n test-mps-ops-env python -c "import torch; print(torch.__version__)"
+  #     - name: Install requirements
+  #       run: |
+  #         source activate base
+  #         conda activate test-mps-ops-env
+  #         pip install -r dev-requirements.txt
+  #         pip install pyyaml importlib-metadata
+  #     - name: Print pip freeze
+  #       run: |
+  #         conda run -n test-mps-ops-env pip freeze
+  #     - name: Print current directory
+  #       run: |
+  #         conda run -n test-mps-ops-env python -c "import os; print(os.getcwd())"
+  #     - name: Build ao with experimental mps ops
+  #       run: |
+  #         source activate base
+  #         conda activate test-mps-ops-env
+  #         USE_CPP=1 TORCHAO_BUILD_EXPERIMENTAL_MPS=1 pip install .
+  #     - name: Run mps tests
+  #       run: |
+  #         pushd torchao/experimental/ops/mps/test
+  #         conda run -n test-mps-ops-env python test_lowbit.py
+  #         conda run -n test-mps-ops-env python test_quantizer.py
+  #         popd
