@@ -10,33 +10,21 @@ import torch
 import triton
 import triton.language as tl
 
-fp8_gemm_configs_max_autotune = [
-    # Small
-    triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 64}, num_warps=2),
-    # Medium
-    triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 128}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 256}, num_warps=8),
-    # Large
-    triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64}, num_warps=8),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128}, num_warps=8),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 256}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128}, num_warps=8),
-]
-
-# For fast compile times during development.
-dev_fp8_gemm_configs = [
+gemm_configs = [
     triton.Config(
-        {"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128}, num_warps=4, num_stages=3
-    ),
+        {"BLOCK_SIZE_M": block_size, "BLOCK_SIZE_N": block_size},
+        num_warps=warps,
+        num_stages=stages,
+    )
+    for block_size in [32, 64, 128]
+    for warps in [2, 4, 8]
+    for stages in [2]
 ]
 
 EPS = 1e-12
 
 
-@triton.autotune(configs=fp8_gemm_configs_max_autotune, key=["N", "K", "BLOCK_SIZE_K"])
+@triton.autotune(configs=gemm_configs, key=["K", "N"])
 @triton.jit
 def blockwise_fp8_gemm_1x128_128x128_kernel(
     a_ptr,  # (M, K)
@@ -81,7 +69,7 @@ def blockwise_fp8_gemm_1x128_128x128_kernel(
     a_s_base_ptr = a_s_ptr + offs_m * a_s_stride_dim_0
     b_s_base_ptr = b_s_ptr + (offs_n // BLOCK_SIZE_K) * b_s_stride_dim_1
     accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-    for k in range(0, k_num_blocks):
+    for k in tl.range(0, k_num_blocks):
         a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
         a = tl.load(a_ptrs, mask=a_mask, other=0.0)
 
@@ -110,9 +98,12 @@ def blockwise_fp8_gemm_1x128_128x128(
     b_s: torch.Tensor,  # (K // block_size, N // block_size)
     block_size: int = 128,
 ):
-    # 'a' must be in row-major layout, 'b' must be in column-major layout
-    assert a.is_contiguous() and not b.is_contiguous()
-    assert a_s.is_contiguous() and b_s.is_contiguous()
+    # 'a' must be in row-major layout, with col-major scales
+    assert a.is_contiguous() and not a_s.is_contiguous()
+
+    # 'b' must be in column-major layout, with col-major scales
+    assert not b.is_contiguous() and not b_s.is_contiguous()
+
     M = a.size(0)
     K = a.size(1)
     N = b.size(1)
@@ -145,9 +136,7 @@ def blockwise_fp8_gemm_1x128_128x128(
     return c
 
 
-@triton.autotune(
-    configs=fp8_gemm_configs_max_autotune, key=["M", "N", "K", "BLOCK_SIZE_K"]
-)
+@triton.autotune(configs=gemm_configs, key=["K", "N"])
 @triton.jit
 def blockwise_fp8_gemm_1x128_128x1_kernel(
     a_ptr,  # (M, K)
@@ -189,7 +178,7 @@ def blockwise_fp8_gemm_1x128_128x1_kernel(
     b_s_base_ptr = b_s_ptr + offs_n * b_s_stride_dim_1
 
     accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-    for k in range(0, k_num_blocks):
+    for k in tl.range(0, k_num_blocks):
         a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
         a = tl.load(a_ptrs, mask=a_mask, other=0.0)
 
@@ -251,6 +240,14 @@ def blockwise_fp8_gemm_1x128_128x1(
     return c
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({}, num_warps=warps, num_stages=stages)
+        for warps in [4, 8]
+        for stages in [2, 3]
+    ],
+    key=["K"],
+)
 @triton.jit
 def fp8_blockwise_act_quant_lhs_kernel(
     x_ptr,
@@ -310,8 +307,12 @@ def fp8_blockwise_act_quant_lhs(
         torch.float8_e4m3fn,
     ], "dtype must be torch.float8_e4m3fn"
     M, K = x.size()
+
+    # Row major output, column major scales
     y = torch.empty_like(x, dtype=dtype)
-    s = x.new_empty(M, K // block_size, dtype=torch.float32)
+    s = x.new_empty(M, K // block_size, dtype=torch.float32).as_strided(
+        (M, K // block_size), (1, M)
+    )
     grid = lambda meta: (M, triton.cdiv(K, meta["BLOCK_SIZE"]))
     fp8_blockwise_act_quant_lhs_kernel[grid](
         x,
@@ -331,6 +332,14 @@ def fp8_blockwise_act_quant_lhs(
     return y, s
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({}, num_warps=warps, num_stages=stages)
+        for warps in [4, 8]
+        for stages in [2, 3]
+    ],
+    key=["K"],
+)
 @triton.jit
 def fp8_blockwise_act_quant_rhs_kernel(
     x_ptr,
@@ -415,6 +424,15 @@ def fp8_blockwise_act_quant_rhs(
     return y, s
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({"BLOCK_SIZE_K": block_size}, num_warps=warps, num_stages=stages)
+        for block_size in [32, 128]
+        for warps in [4, 8]
+        for stages in [2, 3]
+    ],
+    key=["K"],
+)
 @triton.jit
 def fp8_blockwise_act_quant_transposed_lhs_kernel(
     x_ptr,
@@ -507,12 +525,19 @@ def fp8_blockwise_act_quant_transposed_lhs(
         M,
         K=K,
         SCALE_BLOCK_SIZE=block_size,  # Scaling group size
-        BLOCK_SIZE_K=block_size,  # Just for parallelize the work along K as well
         EPS=EPS,
     )
     return y, s
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({}, num_warps=warps, num_stages=stages)
+        for warps in [4, 8]
+        for stages in [2, 3]
+    ],
+    key=["M", "N"],
+)
 @triton.jit
 def fp8_blockwise_weight_quant_rhs_kernel(
     x_ptr,
@@ -598,6 +623,14 @@ def fp8_blockwise_weight_quant_rhs(
     return y, s
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({}, num_warps=warps, num_stages=stages)
+        for warps in [4, 8]
+        for stages in [2, 3]
+    ],
+    key=["M", "N"],
+)
 @triton.jit
 def fp8_blockwise_weight_quant_transposed_rhs_kernel(
     x_ptr,
@@ -673,9 +706,14 @@ def fp8_blockwise_weight_quant_transposed_rhs(
     ], "dtype must be torch.float8_e4m3fn"
     M, N = x.size()
     y = torch.empty(N, M, dtype=dtype, device=x.device)
-    y = y.as_strided(y.size(), (1, y.size(0)))  # Column major
+
+    # Column major output, column major scales
+    y = y.as_strided(y.size(), (1, y.size(0)))
     s = x.new_empty(
         triton.cdiv(N, block_size), triton.cdiv(M, block_size), dtype=torch.float32
+    ).as_strided(
+        (triton.cdiv(N, block_size), triton.cdiv(M, block_size)),
+        (1, triton.cdiv(N, block_size)),
     )
     grid = lambda meta: (
         triton.cdiv(M, meta["BLOCK_SIZE"]),

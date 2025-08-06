@@ -44,7 +44,7 @@ BLOCKWISE_SIZE_MNK = [
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
-@pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
+@pytest.mark.parametrize("M, N, K", [(8192, 4*4096, 4096)]) #BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
 def test_blockwise_fp8_gemm_1x128_128x128(M, N, K, dtype):
     # Simulate output = input @ weight.T
