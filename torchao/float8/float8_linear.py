@@ -22,15 +22,15 @@ from torchao.float8.float8_training_tensor import (
     LinearMMConfig,
     ScaledMMConfig,
 )
-from torchao.float8.float8_utils import compute_error
+from torchao.float8.float8_utils import mean_absolute_percentage_error
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 
 
 @torch._dynamo.disable
-def log_sqnr(fqn, gemm_name, sqnr):
+def log_mape(fqn, gemm_name, mape):
     # TODO(future): use logging instead of print, will be more annoying to test
     # with pytest
-    print(f"fqn: {fqn}, gemm_name: {gemm_name}, sqnr: {sqnr}")
+    print(f"fqn: {fqn}, gemm_name: {gemm_name}, mape: {mape}")
 
 
 # note: need to remove torch._dynamo.allow_in_graph for logging to work with torch.compile
@@ -102,8 +102,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         if config._enable_debug_logging:
             input_hp_reshaped = input_hp.reshape(-1, orig_shape[-1])
             ref_result = torch.mm(input_hp_reshaped, weight_hp_t)
-            output_sqnr = compute_error(ref_result, res_bits)
-            log_sqnr(debug_fqn, "output", output_sqnr)
+            output_mape = mean_absolute_percentage_error(ref_result, res_bits)
+            log_mape(debug_fqn, "output", output_mape)
 
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
         return res_bits
@@ -165,8 +165,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         )
         if c._enable_debug_logging:
             ref_grad_input = torch.mm(grad_output_reshaped, weight_hp_t.t())
-            grad_input_sqnr = compute_error(ref_grad_input, grad_input)
-            log_sqnr(debug_fqn, "grad_input", grad_input_sqnr)
+            grad_input_mape = mean_absolute_percentage_error(ref_grad_input, grad_input)
+            log_mape(debug_fqn, "grad_input", grad_input_mape)
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
         )
@@ -228,8 +228,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             )
             if not this_gemm_is_hp:
                 ref_grad_weight = torch.mm(grad_output_reshaped.t(), input_hp_reshaped)
-                grad_weight_sqnr = compute_error(ref_grad_weight, grad_weight)
-                log_sqnr(debug_fqn, "grad_weight", grad_weight_sqnr)
+                grad_weight_mape = mean_absolute_percentage_error(
+                    ref_grad_weight, grad_weight
+                )
+                log_mape(debug_fqn, "grad_weight", grad_weight_mape)
 
         empty_grads = None, None, None
 
