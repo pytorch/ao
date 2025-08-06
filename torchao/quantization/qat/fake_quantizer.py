@@ -66,6 +66,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
 
     def __init__(self, config: IntxFakeQuantizeConfig):
         super().__init__()
+        torch._C._log_api_usage_once("torchao.quantization.qat.FakeQuantizer")
         self.config = config
         self.enabled = True
         self.scale: Optional[torch.Tensor] = None

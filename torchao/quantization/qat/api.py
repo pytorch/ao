@@ -144,6 +144,7 @@ class QATConfig(AOBaseConfig):
         self.__post_init__()
 
     def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.qat.QATConfig")
         self.step = self.step.lower()
         all_step_values = [s.value for s in QATStep]
         if self.step not in all_step_values:
@@ -359,6 +360,7 @@ class ComposableQATQuantizer(TwoStepQuantizer):
     """
 
     def __init__(self, quantizers: List[TwoStepQuantizer]):
+        torch._C._log_api_usage_once("torchao.quantization.qat.ComposableQATQuantizer")
         self.quantizers = quantizers
 
     def prepare(
@@ -385,6 +387,8 @@ def initialize_fake_quantizers(
     :class:`~torchao.quantization.qat.fake_quantizer.IntxFakeQuantizerBase`
     in the model based on the provided example inputs.
     """
+    torch._C._log_api_usage_once("torchao.quantization.qat.initialize_fake_quantizers")
+
     # avoid circular dependencies
     from torchao.quantization.qat.fake_quantizer import IntxFakeQuantizer
 
