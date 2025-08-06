@@ -192,7 +192,7 @@ class KVCache(nn.Module):
         return k_out, v_out
 
 
-from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.quantization.utils import _quantize_activation_per_token_absmax
 
 
 class AffineQuantizedKVCache(nn.Module):
@@ -218,13 +218,13 @@ class AffineQuantizedKVCache(nn.Module):
 
     def update(self, input_pos, k_val, v_val):
         # quantize current k_val and store it in the cache
-        q_k_val, k_scale = quantize_activation_per_token_absmax(k_val)
+        q_k_val, k_scale = _quantize_activation_per_token_absmax(k_val)
         self.k_cache[:, :, input_pos] = q_k_val
         self.k_cache_scale[:, :, input_pos] = k_scale.unsqueeze(-1)
         k_out = self.k_cache * self.k_cache_scale
         k_out[:, :, input_pos] = k_val
 
-        q_v_val, v_scale = quantize_activation_per_token_absmax(v_val)
+        q_v_val, v_scale = _quantize_activation_per_token_absmax(v_val)
         self.v_cache[:, :, input_pos] = q_v_val
         self.v_cache_scale[:, :, input_pos] = v_scale.unsqueeze(-1)
         v_out = self.v_cache * self.v_cache_scale

@@ -25,6 +25,7 @@ from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from tqdm import tqdm
 
 from torchao.prototype.mx_formats import MXLinearConfig
+from torchao.prototype.mx_formats.config import MXFP8Dim1CastKernelChoice
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
@@ -82,7 +83,7 @@ def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
 def _test_mxfp8_mlp_tensor_parallelism_dim1_triton(mesh: DeviceMesh, size=128):
     config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
     config.block_size = 32
-    config.use_fp8_dim1_cast_triton_kernel = True
+    config.mxfp8_cast_kernel_choice = MXFP8Dim1CastKernelChoice.TRITON
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
     )
@@ -93,12 +94,22 @@ def _test_mxfp8_mlp_tensor_parallelism_dim1_triton(mesh: DeviceMesh, size=128):
     # )
 
 
+def _test_mxfp8_mlp_tensor_parallelism_dim1_cuda(mesh: DeviceMesh, size=128):
+    config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
+    config.block_size = 32
+    config.mxfp8_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
+    _test_lowp_mlp_tensor_parallelism_base(
+        mesh, config, size, compile=False, allgather_in_lowp=False
+    )
+
+
 if __name__ == "__main__":
     device_mesh = setup_distributed()
     tests = [
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism,
         _test_mxfp8_mlp_tensor_parallelism_dim1_triton,
+        _test_mxfp8_mlp_tensor_parallelism_dim1_cuda,
     ]
 
     for test in tqdm(tests, desc="Running tests"):

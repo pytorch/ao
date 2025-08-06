@@ -490,6 +490,13 @@ def get_extensions():
     if use_cuda:
         sources += cuda_sources
 
+    # Add MXFP8 cuda extension dir
+    mxfp8_extension_dir = os.path.join(extensions_dir, "cuda", "mx_kernels")
+    mxfp8_sources_to_exclude = list(
+        glob.glob(os.path.join(mxfp8_extension_dir, "**/*"), recursive=True)
+    )
+    sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
+
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
     if use_rocm:
         # Add ROCm GPU architecture check
@@ -609,6 +616,36 @@ def get_extensions():
                 extra_link_args=extra_link_args,
             )
         )
+
+    # Add the mxfp8 casting CUDA extension
+    if use_cuda:
+        mxfp8_sources = [
+            os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
+            os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
+        ]
+
+        # Only add the extension if the source files exist AND we are building for sm100
+        mxfp8_src_files_exist = all(os.path.exists(f) for f in mxfp8_sources)
+        if mxfp8_src_files_exist and build_for_sm100a:
+            print("Building mxfp8_cuda extension")
+            ext_modules.append(
+                CUDAExtension(
+                    name="torchao.prototype.mxfp8_cuda",
+                    sources=mxfp8_sources,
+                    include_dirs=[
+                        mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
+                        "/usr/local/cuda-12.8/include",  # CUDA 12.8 headers
+                    ],
+                    library_dirs=[
+                        "/usr/local/cuda-12.8/lib64",  # CUDA 12.8 libraries
+                    ],
+                    extra_compile_args={
+                        "cxx": ["-std=c++17", "-O3"],
+                        "nvcc": nvcc_args,
+                    },
+                    extra_link_args=["-lcuda", "-lcudart"],
+                ),
+            )
 
     # Only build the cutlass_90a extension if sm90a is in the architecture flags
     if (

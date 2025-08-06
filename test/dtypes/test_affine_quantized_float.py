@@ -23,6 +23,7 @@ from typing import Tuple
 import pytest
 import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
+from torch.profiler import ProfilerActivity, profile
 from torch.testing._internal import common_utils
 
 from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl, preprocess_scale
@@ -42,7 +43,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
-    _choose_qparams_affine_float8,
+    _choose_scale_float8,
     _dequantize_affine_float8,
     _quantize_affine_float8,
     choose_qparams_affine,
@@ -356,6 +357,49 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
+    def test_choose_scale_float8_bounds(self, float8_dtype, output_dtype):
+        block_size = ()
+        device = "cuda"
+        input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
+
+        # testing upper bounds
+        input_tensor[0][0] = 2000
+        scale_ref = _choose_scale_float8(
+            input_tensor, float8_dtype=float8_dtype, block_size=block_size
+        )
+
+        hp_value_ub = 1200
+        scale_with_ub = _choose_scale_float8(
+            input_tensor,
+            float8_dtype=float8_dtype,
+            block_size=block_size,
+            hp_value_ub=hp_value_ub,
+        )
+        # since scale = abs_max / quant_max, larger abs_max means scale is larger
+        self.assertTrue(scale_ref > scale_with_ub)
+
+        # tesing lower bounds settings
+        # making sure that abs is on the scale of 1e-20, so hp_value_lb can take effect
+        input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32) * 1e-20
+        scale_ref = _choose_scale_float8(
+            input_tensor, float8_dtype=float8_dtype, block_size=block_size
+        )
+        hp_value_lb = 1e-12
+        scale_with_lb = _choose_scale_float8(
+            input_tensor,
+            float8_dtype=float8_dtype,
+            block_size=block_size,
+            hp_value_lb=hp_value_lb,
+        )
+        # since scale = abs_max / quant_max, larger abs_max means scale is larger
+        self.assertTrue(scale_ref < scale_with_lb)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
@@ -364,7 +408,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
 
         # Choose quantization parameters
-        scale = _choose_qparams_affine_float8(
+        scale = _choose_scale_float8(
             input_tensor, float8_dtype=float8_dtype, block_size=block_size
         )
 
@@ -395,7 +439,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         block_size = (2, 16)  # 2x2 blocks in first dim, 2x16 blocks in second dim
 
         # Choose quantization parameters
-        scale = _choose_qparams_affine_float8(
+        scale = _choose_scale_float8(
             input_tensor, float8_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
@@ -675,45 +719,75 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         expected_shape = (8, 1)  # Flattened (2*2*2, 1)
         self.assertEqual(result.shape, expected_shape)
 
-    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
-    @common_utils.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
-    def test_quantize_dequantize_fp8_inductor(self, float8_dtype, hp_dtype):
-        quantize_affine_float8 = torch.ops.torchao.quantize_affine_float8
-        dequantize_affine_float8 = torch.ops.torchao.dequantize_affine_float8
-        input = torch.randn(10, 10)
-        with torch.no_grad():
-            torch._dynamo.reset()
-            expected_scale = torch.tensor(2.0)
-            expected_quantized = quantize_affine_float8(
-                input,
-                expected_scale,
-                float8_dtype=float8_dtype,
-            )
-            expected_dequantized = dequantize_affine_float8(
-                expected_quantized,
-                expected_scale,
-                output_dtype=hp_dtype,
-            )
-            test_q, (code_q,) = torch._inductor.utils.run_and_get_code(
-                torch.compile(quantize_affine_float8),
-                input,
-                expected_scale,
-                float8_dtype=float8_dtype,
-            )
-            torch.testing.FileCheck().check(
-                "torch.ops.torchao.quantize_affine_float8.default"
-            ).run(code_q)
-            test_dq, (code_dq,) = torch._inductor.utils.run_and_get_code(
-                torch.compile(dequantize_affine_float8),
-                test_q,
-                expected_scale,
-                hp_dtype,
-            )
-            torch.testing.FileCheck().check(
-                "torch.ops.torchao.dequantize_affine_float8.default"
-            ).run(code_dq)
-            torch.testing.assert_close(expected_quantized, test_q)
-            torch.testing.assert_close(expected_dequantized, test_dq)
+    @torch.no_grad()
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "torch_compile_mode",
+        [
+            "default",
+            "reduce-overhead",
+        ],
+    )
+    def test_expected_kernels_on_gpu(self, granularity, torch_compile_mode):
+        """
+        Verify that float8 quantization + torch.compile results in the
+        expected number of kernels in the GPU trace.
+        """
+        torch.compiler.reset()
+
+        M, K, N = 128, 256, 512
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+        )
+        quantize_(m, Float8DynamicActivationFloat8WeightConfig(granularity=granularity))
+        m = torch.compile(m, mode=torch_compile_mode)
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+
+        # warm up
+        _ = m(x)
+        # capture trace
+        with profile(activities=[ProfilerActivity.CUDA]) as prof:
+            _ = m(x)
+
+        cuda_kernel_events = [x for x in prof.key_averages() if x.cuda_time > 0]
+
+        if granularity == PerTensor():
+            # kernel 1: x_max_tmp = max(x, ...)
+            # kernel 2: x_max = max(x_max_tmp)
+            # kernel 3: x_float8 = to_float8(x, x_max)
+            # kernel 4: gemm
+            if torch_compile_mode == "default":
+                assert len(cuda_kernel_events) == 4, (
+                    f"too many cuda kernels: {cuda_kernel_events}"
+                )
+            elif torch_compile_mode == "reduce-overhead":
+                # two extra kernels with reduce-overhead:
+                # void at::native::(anonymous namespace)::multi_tensor...
+                # void at::native::vectorized_elementwise_kernel<2, at...
+                # TODO(future): debug and remove these
+                assert len(cuda_kernel_events) == 6, (
+                    f"too many cuda kernels: {cuda_kernel_events}"
+                )
+        else:
+            assert granularity == PerRow()
+            # kernel 1: x_float8 = to_float8(x)
+            # kernel 2: gemm
+            if torch_compile_mode == "default":
+                assert len(cuda_kernel_events) == 2, (
+                    f"too many cuda kernels: {cuda_kernel_events}"
+                )
+            elif torch_compile_mode == "reduce-overhead":
+                # two extra kernels with reduce-overhead:
+                # void at::native::(anonymous namespace)::multi_tensor...
+                # void at::native::vectorized_elementwise_kernel<2, at...
+                # TODO(future): debug and remove these
+                assert len(cuda_kernel_events) == 4, (
+                    f"too many cuda kernels: {cuda_kernel_events}"
+                )
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)

@@ -26,8 +26,9 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
 )
 
-from .api import (
-    FakeQuantizeConfig,
+from .fake_quantize_config import (
+    FakeQuantizeConfigBase,
+    IntxFakeQuantizeConfig,
 )
 from .utils import (
     _fake_quantize_per_channel_group,
@@ -41,7 +42,7 @@ class FakeQuantizer(torch.nn.Module):
     Generic module for applying fake quantization to a tensor, as specified in the config.
     """
 
-    def __init__(self, config: FakeQuantizeConfig):
+    def __init__(self, config: FakeQuantizeConfigBase):
         super().__init__()
         self.config = config
         self.enabled = True
@@ -60,6 +61,9 @@ class FakeQuantizer(torch.nn.Module):
         """
         if not self.enabled:
             return x
+
+        if not isinstance(self.config, IntxFakeQuantizeConfig):
+            raise ValueError("Only IntxFakeQuantizeConfig is supported currently")
 
         if (
             self.config.range_learning
