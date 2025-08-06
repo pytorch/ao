@@ -232,19 +232,14 @@ class _Float8GroupedMM(torch.autograd.Function):
             use_fast_accum=True,
         )
 
-        # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
-        # needed for grad_B: grad_output_t @ A
-        grad_output_t_row_major = grad_output.transpose(-2, -1).contiguous()
-
-        # Convert A to float8, column-major for right operand of grouped GEMM:
-        # needed for grad_B: grad_output @ A
-        A_col_major = A.transpose(-2, -1).contiguous().transpose(-2, -1)
-
         # grad_B is a special case. both operands of the grouped gemm will be 2D with offsets determing the "groups."
         # Compute scales for grad_output_t and A, which are both 2D tensors with offsets which define the "jagged" groups.
+
+        # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
+        # needed for grad_B: grad_output_t @ A
         grad_output_t_fp8_row_major, grad_output_t_scales = (
             triton_fp8_row_major_jagged_rowwise_scales(
-                grad_output_t_row_major,
+                grad_output.transpose(-2, -1),
                 offs,
                 torch.float8_e4m3fn,
                 round_scales_to_power_of_2=True,
@@ -252,7 +247,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         A_fp8_col_major, A_scales = triton_fp8_col_major_jagged_colwise_scales(
-            A_col_major,
+            A,
             offs,
             torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
@@ -260,7 +255,6 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Compute grad_B = grad_output_t @ A.
         # grad_B = grad_output_t @ A
-        # grad_B = (N,M) @ (M,K) = (N,K)
         assert not _is_column_major(grad_output_t_fp8_row_major), (
             "grad_output_t must be row-major for grad_B = grad_output_t @ A"
         )
