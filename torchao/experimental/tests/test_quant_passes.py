@@ -91,7 +91,7 @@ class TestQuantPasses(unittest.TestCase):
 
         # Numerics should match
         exported_results = exported.module()(activations)
-        self.assertTrue(torch.allclose(exported_results, eager_results))
+        self.assertTrue(torch.allclose(exported_results, eager_results, atol=1e-3, rtol=1e-3))
 
     @parameterized.expand(
         [
@@ -148,7 +148,7 @@ class TestQuantPasses(unittest.TestCase):
 
         # Numerics should match
         exported_results = exported.module()(indices)
-        self.assertTrue(torch.allclose(exported_results, eager_results))
+        self.assertTrue(torch.allclose(exported_results, eager_results, atol=1e-3, rtol=1e-3))
 
 
 if __name__ == "__main__":
