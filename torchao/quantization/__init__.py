@@ -88,6 +88,7 @@ from .quant_primitives import (
     quantize_affine,
 )
 from .quantize_.workflows import (
+    Float8Tensor,
     Int4PreshuffledTensor,
 )
 from .smoothquant import (
@@ -154,6 +155,7 @@ __all__ = [
     "FbgemmConfig",
     # tensor subclasses
     "Int4PreshuffledTensor",
+    "Float8Tensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
