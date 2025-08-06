@@ -517,6 +517,13 @@ has the correct <a class="reference external" href="https://docs.pytorch.org/doc
 Otherwise, the returned tensor is a copy of <code class="docutils literal notranslate"><span class="pre">self</span></code> with the desired
 <a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">torch.dtype</span></code></a> and <a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.device" title="(in PyTorch v2.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">torch.device</span></code></a>.</p>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">self</span></code> requires gradients (<code class="docutils literal notranslate"><span class="pre">requires_grad=True</span></code>) but the target
+<code class="docutils literal notranslate"><span class="pre">dtype</span></code> specified is an integer type, the returned tensor will implicitly
+set <code class="docutils literal notranslate"><span class="pre">requires_grad=False</span></code>. This is because only tensors with
+floating-point or complex dtypes can require gradients.</p>
+</div>
 <p>Here are the ways to call <code class="docutils literal notranslate"><span class="pre">to</span></code>:</p>
 <dl class="py method">
 <dt class="sig sig-object py">
@@ -531,6 +538,13 @@ returned Tensor. Default: <code class="docutils literal notranslate"><span class
 </div></blockquote>
 </dd></dl>
 
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>According to <a class="reference external" href="https://en.cppreference.com/w/cpp/language/implicit_conversion.html">C++ type conversion rules</a>,
+converting floating point value to integer type will truncate the fractional part.
+If the truncated value cannot fit into the target type (e.g., casting <code class="docutils literal notranslate"><span class="pre">torch.inf</span></code> to <code class="docutils literal notranslate"><span class="pre">torch.long</span></code>),
+the behavior is undefined and the result may vary across platforms.</p>
+</div>
 <dl class="py method">
 <dt class="sig sig-object py">
 <span class="sig-name descname"><span class="pre">to</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">non_blocking</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">torch.preserve_format</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="reference internal" href="../_modules/torchao/dtypes/affine_quantized_tensor.html#AffineQuantizedTensor.to"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>

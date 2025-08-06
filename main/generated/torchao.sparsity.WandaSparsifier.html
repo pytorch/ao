@@ -485,16 +485,17 @@ to save in the <cite>sparse_params</cite></p></li>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># xdoctest: +SKIP(&quot;locals are undefined&quot;)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Don&#39;t save any sparse params</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">sparsifier</span><span class="o">.</span><span class="n">squash_mask</span><span class="p">()</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule1</span><span class="p">,</span> <span class="s1">&#39;sparse_params&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule1</span><span class="p">,</span> <span class="s2">&quot;sparse_params&quot;</span><span class="p">)</span>
 <span class="go">False</span>
 </pre></div>
 </div>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Keep sparse params per layer</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">sparsifier</span><span class="o">.</span><span class="n">squash_mask</span><span class="p">(</span>
 <span class="gp">... </span>    <span class="n">params_to_keep_per_layer</span><span class="o">=</span><span class="p">{</span>
-<span class="gp">... </span>        <span class="s1">&#39;submodule1.linear1&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s1">&#39;foo&#39;</span><span class="p">,</span> <span class="s1">&#39;bar&#39;</span><span class="p">),</span>
-<span class="gp">... </span>        <span class="s1">&#39;submodule2.linear42&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s1">&#39;baz&#39;</span><span class="p">,)</span>
-<span class="gp">... </span>    <span class="p">})</span>
+<span class="gp">... </span>        <span class="s2">&quot;submodule1.linear1&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span> <span class="s2">&quot;bar&quot;</span><span class="p">),</span>
+<span class="gp">... </span>        <span class="s2">&quot;submodule2.linear42&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;baz&quot;</span><span class="p">,),</span>
+<span class="gp">... </span>    <span class="p">}</span>
+<span class="gp">... </span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule1</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">sparse_params</span><span class="p">)</span>
 <span class="go">{&#39;foo&#39;: 42, &#39;bar&#39;: 24}</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule2</span><span class="o">.</span><span class="n">linear42</span><span class="o">.</span><span class="n">sparse_params</span><span class="p">)</span>
@@ -502,7 +503,7 @@ to save in the <cite>sparse_params</cite></p></li>
 </pre></div>
 </div>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Keep sparse params for all layers</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">sparsifier</span><span class="o">.</span><span class="n">squash_mask</span><span class="p">(</span><span class="n">params_to_keep</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;foo&#39;</span><span class="p">,</span> <span class="s1">&#39;bar&#39;</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">sparsifier</span><span class="o">.</span><span class="n">squash_mask</span><span class="p">(</span><span class="n">params_to_keep</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span> <span class="s2">&quot;bar&quot;</span><span class="p">))</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule1</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">sparse_params</span><span class="p">)</span>
 <span class="go">{&#39;foo&#39;: 42, &#39;bar&#39;: 24}</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule2</span><span class="o">.</span><span class="n">linear42</span><span class="o">.</span><span class="n">sparse_params</span><span class="p">)</span>
@@ -512,10 +513,9 @@ to save in the <cite>sparse_params</cite></p></li>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Keep some sparse params for all layers, and specific ones for</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># some other layers</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">sparsifier</span><span class="o">.</span><span class="n">squash_mask</span><span class="p">(</span>
-<span class="gp">... </span>    <span class="n">params_to_keep</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;foo&#39;</span><span class="p">,</span> <span class="s1">&#39;bar&#39;</span><span class="p">),</span>
-<span class="gp">... </span>    <span class="n">params_to_keep_per_layer</span><span class="o">=</span><span class="p">{</span>
-<span class="gp">... </span>        <span class="s1">&#39;submodule2.linear42&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s1">&#39;baz&#39;</span><span class="p">,)</span>
-<span class="gp">... </span>    <span class="p">})</span>
+<span class="gp">... </span>    <span class="n">params_to_keep</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span> <span class="s2">&quot;bar&quot;</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">params_to_keep_per_layer</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;submodule2.linear42&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;baz&quot;</span><span class="p">,)},</span>
+<span class="gp">... </span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule1</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">sparse_params</span><span class="p">)</span>
 <span class="go">{&#39;foo&#39;: 42, &#39;bar&#39;: 24}</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">submodule2</span><span class="o">.</span><span class="n">linear42</span><span class="o">.</span><span class="n">sparse_params</span><span class="p">)</span>
