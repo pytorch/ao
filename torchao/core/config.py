@@ -203,6 +203,7 @@ ALLOWED_AO_MODULES = {
     "torchao.prototype.mx_formats",
     "torchao.dtypes",
     "torchao.prototype.awq",
+    "torchao.quantization.quantize_.common",
 }
 
 
