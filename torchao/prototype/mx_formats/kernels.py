@@ -1448,6 +1448,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             scales_flat,
         )
 
+    @torch.library.custom_op("torchao::triton_mx_block_rearrange", mutates_args=())
     def triton_mx_block_rearrange(scale_tensor: torch.Tensor) -> torch.Tensor:
         """
         Rearranges an E8M0 tensor scale from row-major format to block-scaled swizzle format.
@@ -1716,6 +1717,15 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         xq = torch.empty(M, N // 2, device=x.device, dtype=torch.uint8)
         return scales, xq
 
+    @triton_mx_block_rearrange.register_fake
+    def _(scale_tensor):
+        rows, cols = scale_tensor.shape
+        n_row_blocks = triton.cdiv(rows, 128)
+        n_col_blocks = triton.cdiv(cols, 4)
+        padded_rows = n_row_blocks * 128
+        padded_cols = n_col_blocks * 4
+
+        return scale_tensor.new_empty((padded_rows, padded_cols))
 else:
 
     def triton_to_mxfp8_dim1(
