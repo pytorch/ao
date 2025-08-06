@@ -44,7 +44,17 @@ chunked and interleaved during the packing process.
  * @param input Pointer to the source activation matrix (float32, row-major).
  */
 template <int mr_, int kr_, int sr_>
-inline void pack_activations(float* output, int m, int k, const float* input) {
+inline void pack_activations(
+    float* output,
+    int m,
+    int k,
+    const float* input,
+    int mr,
+    int kr,
+    int sr) {
+  (void)mr; // unused
+  (void)kr; // unused
+  (void)sr; // unused {
   activation_packing::pack_activations<mr_, kr_, sr_>(output, m, k, input);
 }
 
@@ -100,7 +110,7 @@ row-major).
  * @param bias Pointer to the bias vector (float32, row-major).
  */
 template <int weight_nbit_, int nr_, int kr_, int sr_>
-void pack_weights_for_groupwise_lut_kernel(
+void pack_weights(
     /*output*/
     void* packed_weights_ptr,
     /*inputs*/
@@ -113,7 +123,13 @@ void pack_weights_for_groupwise_lut_kernel(
     int lut_group_size,
     bool has_scales,
     bool has_bias,
-    const float* bias) {
+    const float* bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)nr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
   weight_packing::pack_weights<weight_nbit_, nr_, kr_, sr_>(
       packed_weights_ptr,
       weight_qvals_indices,
@@ -180,6 +196,66 @@ inline void groupwise_lowbit_weight_lut_kernel_1x4x32(
       clamp_max,
       has_bias,
       has_clamp);
+}
+
+/**
+ * @brief Calculates the byte offset for a specific row in the packed activation
+ * buffer.
+ *
+ * @param m_idx The row index for which to calculate the offset.
+ * @param k The K dimension (width) of the activation matrix.
+ * @return The byte offset from the start of the buffer.
+ */
+inline size_t
+packed_activations_offset(int m_idx, int k, int mr, int kr, int sr) {
+  (void)mr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
+  // For a simple padded row-major format, the offset is just m_idx * k.
+  return sizeof(float) * m_idx * k;
+}
+
+/**
+ * @brief Calculates the byte offset for a given column index in the packed
+ * weights buffer. The buffer is assumed to be laid out as a series of
+ * contiguous blocks, where each block contains `nr` packed columns.
+ *
+ * @param n_idx The starting column index of the tile. Must be a multiple of
+ * `nr`.
+ * @param k The inner dimension of the matrix.
+ * @param weight_nbit The number of bits for the quantized weights.
+ * @param has_scales Whether weight scales are present.
+ * @param has_bias Whether a bias vector is packed.
+ * @param nr The micro-kernel tiling parameter for the N dimension.
+ * @param kr The micro-kernel tiling parameter for the K dimension.
+ * @return The byte offset into the packed weights buffer.
+ */
+inline size_t packed_weights_offset(
+    int n_idx,
+    int k,
+    int weight_nbit,
+    int scale_group_size,
+    bool has_scales,
+    bool has_bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)sr; // unused
+  assert(n_idx % nr == 0);
+
+  const size_t packed_tile_size_for_nr_cols = packed_weights_size(
+      /*n=*/nr, // The size we are calculating is for a single tile of width
+                // `nr`.
+      k,
+      weight_nbit,
+      scale_group_size,
+      has_scales,
+      has_bias,
+      nr,
+      kr,
+      sr);
+
+  return (n_idx / nr) * packed_tile_size_for_nr_cols;
 }
 } // namespace
   // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut

@@ -7,7 +7,7 @@
 Defines an nn module designed to be used during inference
 """
 
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import List, NamedTuple, Optional, Tuple, Union
 
 import torch
 
@@ -67,6 +67,24 @@ def preprocess_data(
     return a_data, b_data
 
 
+def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int, ...]):
+    """Ensures input tensor is correctly formatted for _scaled_mm"""
+
+    # For PerTensor quantization, scale should be a scalar or have shape [1]
+    if input_scale.numel() == 1:
+        # Already a scalar, ensure it has the right shape for _scaled_mm
+        return input_scale.reshape(1, 1)
+
+    # For per-row/block quantization, we need to handle the reshaping
+    input_scale = input_scale.unsqueeze(-1)
+
+    # Match: #input_data.reshape(-1, input_data.shape[-1])
+    if input_scale.dim() > 2:
+        input_scale = input_scale.reshape(-1, input_scale.shape[-1])
+
+    return input_scale
+
+
 def addmm_float8_unwrapped_inference(
     a_data: Tensor,
     a_scale: Tensor,
@@ -78,7 +96,7 @@ def addmm_float8_unwrapped_inference(
     use_fast_accum: bool = False,
 ) -> Tensor:
     """
-    This is the unwrapped version of addmm_float8, which does not take in Float8Tensors
+    This is the unwrapped version of addmm_float8, which does not take in Float8TrainingTensors
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
@@ -107,12 +125,75 @@ def addmm_float8_unwrapped_inference(
     )
 
 
-def _is_rowwise_scaled(x) -> bool:
-    """Checks if an AQT tensor is rowwise scaled
-    Args:
-        x: AffineQuantizedTensor tensor
+def _slice_scale_for_dimension(
+    scale: torch.Tensor,
+    data_shape: List[int],
+    dim: int,
+    start: int,
+    end: int,
+    step: int,
+) -> torch.Tensor:
     """
-    return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)
+    Slice the scale tensor appropriately based on the data tensor slicing.
+    This function calculates how the scale should be sliced when the data tensor
+    is sliced along a given dimension, taking into account the block structure.
+    """
+    aten = torch.ops.aten
+
+    # Unsupported case for now, this would be 1 scale per data element
+    if scale.shape == data_shape:
+        return aten.slice.Tensor(scale, dim, start, end, step)
+
+    # Reconstruct block sizes based on data shape and scale shape
+    block_sizes = tuple(data_shape[i] // scale.shape[i] for i in range(len(data_shape)))
+
+    if dim >= len(block_sizes):
+        # Slicing beyond the dimensions we care about
+        return scale
+
+    block_size_for_dim = block_sizes[dim]
+
+    if block_size_for_dim == 1:
+        # Scale is per-element along this dimension
+        # Slice away as normal
+        return aten.slice.Tensor(scale, dim, start, end, step)
+    else:
+        # There is blocking in this dimension
+        # Calculate which scale elements correspond to the sliced data
+        scale_start = start // block_size_for_dim if start is not None else None
+        scale_end = (
+            (end + block_size_for_dim - 1) // block_size_for_dim
+            if end is not None
+            else None
+        )
+
+        # Error on Step > 1
+        if step > 1:
+            raise NotImplementedError(
+                "Slicing with step > 1 is not implemented for scale tensors."
+            )
+
+        return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
+
+
+def _is_rowwise_scaled(x: torch.Tensor) -> bool:
+    """Checks if a quantized tensor is rowwise scaled
+    Args:
+        x: quantized tensor (should have `block_size` attribute)
+    """
+    assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
+    return tuple(x.block_size) == (1,) * (x.dim() - 1) + (x.shape[-1],)
+
+
+def _is_tensorwise_scaled(x: torch.Tensor) -> bool:
+    """Checks if a quantized tensor is rowwise scaled
+    Args:
+        x: quantized tensor (should have `block_size` attribute)
+    """
+    assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
+    return all(
+        x.block_size[i] == -1 or x.block_size[i] == x.shape[i] for i in range(x.ndim)
+    )
 
 
 def _normalize_granularity(

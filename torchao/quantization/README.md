@@ -101,21 +101,21 @@ When used as in the example above, when the `autoquant` api is called alongside 
 
 When `model(input)` is called, (under the hood) the tool does a preliminary run with the input where each linear layer keeps track of the different shapes and types of activations that it sees. Once the preliminary run is complete, the next step is to check each linear layer and benchmark the tracked shapes for different types of quantization techniques in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, the next step is to apply the necessary quantization technique to each layer, before finally allowing the normal `torch.compile` process to occur on the now quantized model. By default the api only uses int8 techniques, i.e. it chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer, though there is also an option add int4 quantization which can be used for maximum performance or to avoid perf regressions from `Int4WeightOnlyConfig()` since for certain (compute bound) regimes, int4 weight only quantization can be very slow.
 
-Sometimes it is desirable to reuse a quantization plan that `autoquant` came up with. `torchao.quantization.AUTOQUANT_CACHE` is a dictionary holding autoquant's benchmark results. We can save it and restore it later, which will cause `autoquant` to choose the same quantization methods.
+Sometimes it is desirable to reuse a quantization plan that `autoquant` came up with. `torchao.quantization._AUTOQUANT_CACHE` is a dictionary holding autoquant's benchmark results. We can save it and restore it later, which will cause `autoquant` to choose the same quantization methods.
 
 ```python
 import pickle
 import torchao.quantization
 
 # After the first forward pass (when quantization was done)
-from torchao.quantization.autoquant import AUTOQUANT_CACHE
+from torchao.quantization.autoquant import _AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "wb") as f:
-    pickle.dump(AUTOQUANT_CACHE, f)
+    pickle.dump(_AUTOQUANT_CACHE, f)
 
 # On load
-from torchao.quantization.autoquant import AUTOQUANT_CACHE
+from torchao.quantization.autoquant import _AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "rb") as f:
-    AUTOQUANT_CACHE.update(pickle.load(f))
+    _AUTOQUANT_CACHE.update(pickle.load(f))
 ```
 
 ## Quantization Techniques
@@ -204,6 +204,40 @@ quantize_(model, FPXWeightOnlyConfig(3, 2))
 ```
 
 You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
+
+```
+
+KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
+
+```python
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
+    quantize_,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
+    Target,
+)
+from torchao.quantization.granularity import PerGroup, PerAxis
+from torchao.quantization.quant_primitives import MappingType
+from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
+
+my_model = Model()
+
+# Set quantization layout
+layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.ATEN)
+
+quantize_(
+    my_model,
+    Int8DynamicActivationIntxWeightConfig(
+        weight_scale_dtype=torch.float32,
+        weight_granularity=PerGroup(32),  #PerAxis is also supported
+        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
+        layout=layout,
+        weight_dtype=torch.int4,
+    ),
+)
+```
 
 ## Affine Quantization Details
 Affine quantization refers to the type of quantization that maps from high precision floating point numbers to quantized numbers (low precision integer or floating point dtypes) with an affine transformation, i.e.: `quantized_val = high_precision_float_val / scale + zero_point` where `scale` and `zero_point` are quantization parameters for some granularity and based on some data (also some dtypes may not require a `zero_point`). Each of the techniques in the above section qualify as Affine Quantization.

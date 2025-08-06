@@ -31,6 +31,7 @@ for an overall introduction to the library and recent highlight and updates.
 
    api_ref_dtypes
    api_ref_quantization
+   api_ref_qat
    api_ref_sparsity
    api_ref_float8
 
