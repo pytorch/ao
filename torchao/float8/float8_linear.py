@@ -22,10 +22,19 @@ from torchao.float8.float8_training_tensor import (
     LinearMMConfig,
     ScaledMMConfig,
 )
+from torchao.float8.float8_utils import compute_error
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 
 
-@torch._dynamo.allow_in_graph
+@torch._dynamo.disable
+def log_sqnr(fqn, gemm_name, sqnr):
+    # TODO(future): use logging instead of print, will be more annoying to test
+    # with pytest
+    print(f"fqn: {fqn}, gemm_name: {gemm_name}, sqnr: {sqnr}")
+
+
+# note: need to remove torch._dynamo.allow_in_graph for logging to work with torch.compile
+# @torch._dynamo.allow_in_graph
 class matmul_with_hp_or_float8_args(torch.autograd.Function):
     """
     Like torch.matmul, but with the arguments in either high precision or float8.
@@ -41,10 +50,12 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         weight_hp_t: torch.Tensor,
         linear_mm_config: LinearMMConfig,
         config: Float8LinearConfig,
+        debug_fqn: Optional[str],
     ):
         ctx.save_for_backward(input_hp, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
+        ctx.debug_fqn = debug_fqn
 
         c = config
 
@@ -87,6 +98,13 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         orig_shape = input_maybe_fp8.shape
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
+
+        if config._enable_debug_logging:
+            input_hp_reshaped = input_hp.reshape(-1, orig_shape[-1])
+            ref_result = torch.mm(input_hp_reshaped, weight_hp_t)
+            output_sqnr = compute_error(ref_result, res_bits)
+            log_sqnr(debug_fqn, "output", output_sqnr)
+
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
         return res_bits
 
@@ -94,6 +112,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
     def backward(ctx, grad_output):
         input_hp, weight_hp_t = ctx.saved_tensors
         c = ctx.config
+        debug_fqn = ctx.debug_fqn
 
         # the reshapes are needed in order to make the shapes compatible with
         # torch.mm
@@ -144,6 +163,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             grad_output_reshaped_maybe_fp8_dim0,
             weight_t_maybe_fp8_dim0.t(),
         )
+        if c._enable_debug_logging:
+            ref_grad_input = torch.mm(grad_output_reshaped, weight_hp_t.t())
+            grad_input_sqnr = compute_error(ref_grad_input, grad_input)
+            log_sqnr(debug_fqn, "grad_input", grad_input_sqnr)
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
         )
@@ -198,8 +221,17 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             grad_output_reshaped_maybe_fp8_dim1.t(),
             input_reshaped_maybe_fp8_dim1,
         )
+        if c._enable_debug_logging:
+            # don't log if this gemm is in high precision
+            this_gemm_is_hp = (
+                c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED
+            )
+            if not this_gemm_is_hp:
+                ref_grad_weight = torch.mm(grad_output_reshaped.t(), input_hp_reshaped)
+                grad_weight_sqnr = compute_error(ref_grad_weight, grad_weight)
+                log_sqnr(debug_fqn, "grad_weight", grad_weight_sqnr)
 
-        empty_grads = None, None
+        empty_grads = None, None, None
 
         return grad_input, grad_weight.t(), *empty_grads
 
@@ -252,6 +284,10 @@ class Float8Linear(torch.nn.Linear):
             ),
         )
 
+        # debugging only, API may change at any time. This is expected to be
+        # set by the user in a separate API call.
+        self._debug_fqn: Optional[str] = None
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         # Duplicate the autocast logic for F.linear, so that the output
         # of our module has the right original precision
@@ -266,6 +302,7 @@ class Float8Linear(torch.nn.Linear):
             self.weight.t(),
             self.linear_mm_config,
             self.config,
+            self._debug_fqn,
         )
 
         if self.bias is not None:

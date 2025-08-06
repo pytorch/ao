@@ -204,6 +204,12 @@ class Float8LinearConfig:
     # same value in the forward pass as the backward passes.
     round_scales_to_power_of_2: bool = False
 
+    # If True, captures accuracy debugging logging comparing high precision gemm
+    # outputs to their low precision versions, and outputs it to stdout
+    # Note: this flag is in prototype, has not been extensively tested and the
+    # API may change.
+    _enable_debug_logging: bool = False
+
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
         # Note: this hacks around the frozen-ness of this dataclass
