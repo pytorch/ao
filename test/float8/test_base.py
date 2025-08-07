@@ -473,10 +473,10 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
-        from torchao.quantization.quant_api import float8_weight_only, quantize_
+        from torchao.quantization import Float8WeightOnlyConfig, quantize_
 
-        quantize_(m, float8_weight_only())
-        assert m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn, (
+        quantize_(m, Float8WeightOnlyConfig())
+        assert m[0].weight.qdata.dtype == torch.float8_e4m3fn, (
             "Post quantization dtype should be torch.float8_e4m3fn"
         )
         with torch.no_grad():
