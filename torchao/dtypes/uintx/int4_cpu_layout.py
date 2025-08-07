@@ -30,6 +30,17 @@ from torchao.utils import (
 aten = torch.ops.aten
 
 
+def _same_metadata(self: "Int4CPUAQTTensorImpl", src: "Int4CPUAQTTensorImpl") -> bool:
+    return (
+        isinstance(self, Int4CPUAQTTensorImpl)
+        and isinstance(src, Int4CPUAQTTensorImpl)
+        and self.packed_weight.shape == src.packed_weight.shape
+        and self.scale_and_zero.shape == src.scale_and_zero.shape
+        and self.transposed == src.transposed
+        and type(self._layout) == type(src._layout)
+    )
+
+
 @dataclass(frozen=True)
 class Int4CPULayout(Layout):
     """Layout class for int4 CPU layout for affine quantized tensor, used by tinygemm kernels `_weight_int4pack_mm_for_cpu`.
@@ -207,6 +218,18 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
                 raise NotImplementedError(
                     f"{cls.__name__} dispatch: attempting to run {func}, with dim={dim}, that is not supported"
                 )
+
+        if func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+            )
 
         raise NotImplementedError(
             f"{cls.__name__} dispatch: attempting to run {func}, this is not supported"
