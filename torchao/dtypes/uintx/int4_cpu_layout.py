@@ -16,7 +16,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.dtypes.utils import Int4AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _quantize_affine_tinygemm,
@@ -40,7 +40,7 @@ class Int4CPULayout(Layout):
 
 
 @register_layout(Int4CPULayout)
-class Int4CPUAQTTensorImpl(AQTTensorImpl):
+class Int4CPUAQTTensorImpl(Int4AQTTensorImpl):
     """TensorImpl for int4 CPU layout for affine quantized tensor, this is for int4 only,
     used by tinygemm kernels `_weight_int4pack_mm_for_cpu`
     It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 2-d tensor of
@@ -146,12 +146,11 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         return cls(packed_weight, scale_and_zero, False, _layout)
 
     def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        device = kwargs["device"]
-        if not is_device(torch.device(self.device).type, device):
-            raise ValueError(
-                f"{self.__class__.__name__} does not support conversion from {self.device} to {device}"
-            )
+        device = self._get_to_kwargs(*args, **kwargs)["device"]
+        if torch.device(device).type != "cpu":
+            # Convert CPU tensor implementation to other devices.
+            return super().to(*args, **kwargs)
+
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),
@@ -229,6 +228,10 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
+        if self.device.type != "cpu":
+            self.scale_and_zero = self.scale_and_zero.to("cpu")
+            self.packed_weight = self.packed_weight.to("cpu")
+
         scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
 
         cur_shape = self.shape
@@ -237,7 +240,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         eye_shape = original_shape[1]
         groupsize = int(original_shape[1] / scale.shape[-2])
         block_size = (1, groupsize)
-        device = self.device
+        device = torch.device("cpu")
         original_dtype = self.scale_and_zero.dtype
         target_dtype = torch.int32
         quant_min = 0
