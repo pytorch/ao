@@ -525,7 +525,11 @@ def get_new_attr_name_with_prefix(prefix: str) -> Callable:
 
 
 def create_getattr_from_value(
-    module: torch.nn.Module, graph: Graph, prefix: str, value: Any
+    module: torch.nn.Module,
+    graph: Graph,
+    prefix: str,
+    value: Any,
+    device: Optional[torch.device] = None,
 ) -> Node:
     """
     Given a value of any type, creates a getattr node corresponding to the value and
@@ -533,7 +537,8 @@ def create_getattr_from_value(
     """
     get_new_attr_name = get_new_attr_name_with_prefix(prefix)
     attr_name = get_new_attr_name(module)
-    device = _assert_and_get_unique_device(module)
+    if device is None:
+        device = _assert_and_get_unique_device(module)
     new_value = (
         value.detach().clone()
         if isinstance(value, torch.Tensor)
