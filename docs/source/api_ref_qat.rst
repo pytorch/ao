@@ -28,7 +28,8 @@ Custom QAT APIs
     IntxFakeQuantizeConfig
     FakeQuantizedLinear
     FakeQuantizedEmbedding
-    FakeQuantizer
+    FakeQuantizerBase
+    IntxFakeQuantizer
     linear.enable_linear_fake_quant
     linear.disable_linear_fake_quant
 

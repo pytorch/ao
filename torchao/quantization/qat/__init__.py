@@ -17,7 +17,11 @@ from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     IntxFakeQuantizeConfig,
 )
-from .fake_quantizer import FakeQuantizer
+from .fake_quantizer import (
+    FakeQuantizer,
+    FakeQuantizerBase,
+    IntxFakeQuantizer,
+)
 from .linear import (
     FakeQuantizedLinear,
     Float8ActInt4WeightQATQuantizer,
@@ -29,8 +33,9 @@ __all__ = [
     "QATConfig",
     "QATStep",
     "FakeQuantizeConfigBase",
+    "FakeQuantizerBase",
     "IntxFakeQuantizeConfig",
-    "FakeQuantizer",
+    "IntxFakeQuantizer",
     "FakeQuantizedLinear",
     "FakeQuantizedEmbedding",
     # Prototype
@@ -42,6 +47,7 @@ __all__ = [
     "Int4WeightOnlyQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
     # for BC
+    "FakeQuantizer",
     "FakeQuantizeConfig",
     "from_intx_quantization_aware_training",
     "FromIntXQuantizationAwareTrainingConfig",
