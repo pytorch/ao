@@ -269,6 +269,61 @@ class TestFloat8Tensor(TestCase):
         self.assertTrue(sqnr > 15, f"sqnr: {sqnr}")
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    # Inputs are (M,..), K, N
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    def test_kernel_preference_numerical_equivalence(self, granularity, sizes):
+        """Test different kernel preferences have the same numerics for float8 dynamic activation
+        and float8 weight config
+        """
+        M, N, K = sizes
+        dtype = torch.bfloat16
+        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
+        # Create a linear layer with bfloat16 dtype
+        model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+
+        # reference kernel preference and results
+        # we are using KerenelPreference.TORCH as the reference
+        kp_ref = KernelPreference.TORCH
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity, kernel_preference=kp_ref
+        )
+        quantized_model = copy.deepcopy(model)
+        quantize_(quantized_model, config)
+        res_ref = quantized_model(input_tensor)
+
+        other_kernel_preferences = [
+            KernelPreference.AUTO,
+        ]
+        if _is_fbgemm_genai_gpu_available() and is_sm_at_least_90():
+            other_kernel_preferences.append(KernelPreference.FBGEMM)
+
+        quantized_outputs = {}
+        for kp in other_kernel_preferences:
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, kernel_preference=kp
+            )
+            quantized_model = copy.deepcopy(model)
+            quantize_(quantized_model, config)
+            quantized_outputs[kp] = quantized_model(input_tensor)
+
+        from torchao.quantization.utils import compute_error
+
+        # comparing numerics between different kernel preferences, using TORCH as the standard
+        kp_and_res = list(quantized_outputs.items())
+        for i in range(len(kp_and_res)):
+            kp, res = kp_and_res[i]
+            self.assertTrue(
+                compute_error(res, res_ref) > 28,
+                f"mismatch between {kp=} and {kp_ref}, {sizes=}, {granularity=}",
+            )
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_slice_preserves_aliasing(self, granularity):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
