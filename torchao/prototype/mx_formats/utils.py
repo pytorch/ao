@@ -15,7 +15,7 @@ def ceil_div(a, b):
     return (a + b - 1) // b
 
 
-def to_blocked(input_matrix, use_triton_kernel: bool = True) -> Tensor:
+def to_blocked(input_matrix, use_triton_kernel: bool = False) -> Tensor:
     """
     Rearrange a large matrix by breaking it into blocks and applying the rearrangement pattern.
 
