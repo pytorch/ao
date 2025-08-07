@@ -26,16 +26,18 @@ FP8_DTYPE_MAP = {
     torch.float64: tl.float64,
 }
 
-block_sizes = [16]
-num_warps = [4]
-num_stages = [2]
+block_sizes_n = [32, 128, 512]  # large dim (output_features)
+block_sizes_k = [32, 128, 512]  # small dim (input_features)
+num_warps = [8]
+num_stages = [2, 3]
 kernel_configs_2D = [
     triton.Config(
-        {"BLOCK_SIZE_N": block_size, "BLOCK_SIZE_K": block_size * 2},
+        {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
         num_warps=warps,
         num_stages=stages,
     )
-    for block_size in block_sizes
+    for block_size_n in block_sizes_n
+    for block_size_k in block_sizes_k
     for warps in num_warps
     for stages in num_stages
 ]
@@ -62,8 +64,10 @@ def triton_fp8_rowwise_3d_transpose_rhs(
 
     # allocate on-device buffers for output and scales
     # output shape = input.transpose(-2, -1).shape = (E, N, K) in column major layout
-    output_buffer = torch.empty((e, k, n), dtype=output_dtype, device=hp_tensor.device)
-    output_buffer = output_buffer.transpose(-2, -1)
+    output_buffer = torch.empty(
+        (e, n, k), dtype=output_dtype, device=hp_tensor.device
+    ).as_strided((e, n, k), (n * k, 1, n))
+
     scales_buffer = torch.full(
         (e, k), float("inf"), dtype=torch.float32, device=hp_tensor.device
     )
