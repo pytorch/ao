@@ -1,6 +1,5 @@
 import unittest
 
-import pytest
 import torch
 from parameterized import parameterized
 
@@ -34,10 +33,7 @@ from torchao.utils import (
 )
 
 if torch.version.hip is not None:
-    pytest.skip(
-        "ROCm support for MoE quantization is under development",
-        allow_module_level=True,
-    )
+    raise unittest.SkipTest("ROCm support for MoE quantization is under development")
 
 
 class TestMoEQuantCompile(unittest.TestCase):

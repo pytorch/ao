@@ -6,7 +6,6 @@
 import logging
 import unittest
 
-import pytest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
@@ -17,7 +16,7 @@ logging.basicConfig(
 
 
 class TestSupermask(common_utils.TestCase):
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("sparsity_level", [0.25, 0.5])
     @common_utils.parametrize("blocksize", [2, 4, 8])
     def test_supermask(self, sparsity_level, blocksize):
@@ -44,7 +43,7 @@ class TestSupermask(common_utils.TestCase):
         expected = round((M // blocksize) * (N // blocksize) * (1 - sparsity_level))
         assert nnz == expected, f"Expected {expected} nonzeros, got {nnz}"
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_from_linear(self):
         from torchao.sparsity import SupermaskLinear
 
