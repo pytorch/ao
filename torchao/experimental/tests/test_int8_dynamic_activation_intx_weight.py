@@ -665,7 +665,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             layout=PackedLinearInt8DynamicActivationIntxWeightLayout()
         )
         moe_config = MoEQuantConfig(
-            base_config=base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+            base_config=base_config,
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
         )
 
         def _moe_filter(mod, fqn):
