@@ -204,8 +204,8 @@ class TestMoEQuantCompile(unittest.TestCase):
     def test_int8wo(self, name, num_tokens, fullgraph, use_fake_extra_dim_tensor):
         if not torch.cuda.is_available():
             self.skipTest("Need CUDA available")
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            self.skipTest("Test only enabled for 2.5+")
+        if not TORCH_VERSION_AT_LEAST_2_6:
+            self.skipTest("Test only enabled for 2.6+")
 
         config = MoEQuantConfig(
             base_config=Int8WeightOnlyConfig(),
