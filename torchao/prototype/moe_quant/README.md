@@ -16,32 +16,6 @@ This implementation has been significantly refactored to prioritize PyTorch's op
 
 Examples of the usage of these APIs can be found in both the `llama4_quant.py` and `torchao/_models/mixtral-moe/generate.py`
 
-## Quantization API
-
-## Execution Modes
-
-The `ExpertsAOQuantizable` module automatically selects the optimal execution strategy:
-
-### 1. Grouped Matrix Multiplication (Primary)
-```python
-# Uses torch._grouped_mm for optimal performance
-final_out = self._forward_grouped_mm(x, expert_indices, scores, up_proj, down_proj, act_fn)
-```
-- **Best performance**: Leverages optimized grouped MM kernels
-- **No padding required**: Uses PyTorch's improved implementation
-- **Automatic selection**: Used when `decompose_grouped_mm=False` (default)
-
-### 2. Linear Decomposition (Fallback)
-```python
-# Falls back to linear operations when needed
-if x.shape[0] > 1:  # Multi-token
-    final_out = self._forward_multi_token_linear_decomposition(...)
-else:  # Single token
-    final_out = self._forward_single_token_linear_decomposition(...)
-```
-- **Quantization compatibility**: Works with all quantized tensor subclasses
-- **Automatic fallback**: Used when `decompose_grouped_mm=True` or for quantized tensors
-
 ## API
 
 ### Supported Techniques
@@ -92,6 +66,29 @@ model = torch.compile(model, mode="reduce-overhead", fullgraph=False) # can use 
 
 Both examples demonstrate end-to-end workflows including model loading, conversion, quantization, and performance evaluation.
 
+## Execution Modes
+
+### 1. Grouped Matrix Multiplication (Primary)
+```python
+# Uses torch._grouped_mm for optimal performance
+final_out = self._forward_grouped_mm(x, expert_indices, scores, up_proj, down_proj, act_fn)
+```
+- **Best performance**: Leverages optimized grouped MM kernels
+- **No padding required**: Uses PyTorch's improved implementation
+- **Selection**: Used when `decompose_grouped_mm=False` (default)
+
+### 2. Linear Decomposition (Fallback)
+```python
+# Falls back to linear operations when needed
+if x.shape[0] > 1:  # Multi-token
+    final_out = self._forward_multi_token_linear_decomposition(...)
+else:  # Single token
+    final_out = self._forward_single_token_linear_decomposition(...)
+```
+- **Quantization compatibility**: Works with all quantized tensor subclasses
+- **Selection**: Used when `decompose_grouped_mm=True` or for quantized tensors
+
+
 ## Performance Notes
 
 ### Grouped MM vs Linear Decomposition
@@ -99,7 +96,7 @@ Both examples demonstrate end-to-end workflows including model loading, conversi
 - **Grouped MM**: Provides optimal performance for multi-token MoE operations using PyTorch's dedicated kernels
 - **Linear Decomposition**: Enables quantization compatibility for existing techniques and is generally faster for single-token inference
 
-## Alternative Quantization API: FakeExtraDimTensor
+## Alternative Quantization Technique: FakeExtraDimTensor
 
 For broader compatibility with existing quantization techniques, we provide an alternative approach using `FakeExtraDimTensor`. This method simulates 3D tensors by storing multiple 2D tensors and implementing slicing/indexing operations, enabling compatibility with all existing linear quantization techniques without modifications. This can be done using the same API as above but adding the option for use_fake_extra_dim_tensor
 
