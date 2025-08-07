@@ -654,9 +654,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         from torchao.quantization.utils import compute_error
 
         with torch.device("cpu"):
-            model = MoEFeedForwardAOQuantizable(8, 512, 256, 2, empty_init=False, decompose_grouped_mm=True).to(
-                torch.float32
-            )
+            model = MoEFeedForwardAOQuantizable(
+                8, 512, 256, 2, empty_init=False, decompose_grouped_mm=True
+            ).to(torch.float32)
             x = torch.randn(8, 512, dtype=torch.float32)
 
         out = model(x).clone()
@@ -665,7 +665,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             layout=PackedLinearInt8DynamicActivationIntxWeightLayout()
         )
         moe_config = MoEQuantConfig(
-            base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+            base_config=base_config,
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
         )
 
         def _moe_filter(mod, fqn):
@@ -674,7 +675,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantize_(model, moe_config, _moe_filter)
 
         out_q = model(x).clone()
-        assert isinstance(model.experts.w1, FakeExtraDimTensor)
+        assert isinstance(model.experts.up_proj, FakeExtraDimTensor)
 
         mod_c = torch.compile(model, mode="reduce-overhead")
 
