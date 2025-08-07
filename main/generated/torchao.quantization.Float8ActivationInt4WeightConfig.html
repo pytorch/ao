@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Template Tutorial &mdash; torchao main documentation</title>
+  <title>Float8ActivationInt4WeightConfig &mdash; torchao main documentation</title>
   
 
   
@@ -40,6 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Float8DynamicActivationFloat8WeightConfig" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html" />
+    <link rel="prev" title="Int4WeightOnlyConfig" href="torchao.quantization.Int4WeightOnlyConfig.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -325,9 +327,9 @@
 <li class="toctree-l1"><a class="reference internal" href="../benchmarking_user_guide.html">Benchmarking User Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul>
+<ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
@@ -391,13 +393,15 @@
       </li>
 
         
-      <li>Template Tutorial</li>
+          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
+        
+      <li>Float8ActivationInt4WeightConfig</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/tutorials/template_tutorial.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.Float8ActivationInt4WeightConfig.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -427,77 +431,23 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="sphx-glr-download-link-note admonition note">
-<p class="admonition-title">Note</p>
-<p><a class="reference internal" href="#sphx-glr-download-tutorials-template-tutorial-py"><span class="std std-ref">Go to the end</span></a>
-to download the full example code.</p>
-</div>
-<section class="sphx-glr-example-title" id="template-tutorial">
-<span id="sphx-glr-tutorials-template-tutorial-py"></span><h1>Template Tutorial<a class="headerlink" href="#template-tutorial" title="Permalink to this heading">¶</a></h1>
-<p><strong>Author:</strong> <a class="reference external" href="https://github.com/username">FirstName LastName</a></p>
-<p><strong>What you will learn</strong></p>
-<ul class="simple">
-<li><p>Item 1</p></li>
-<li><p>Item 2</p></li>
-<li><p>Item 3</p></li>
+  <section id="float8activationint4weightconfig">
+<h1>Float8ActivationInt4WeightConfig<a class="headerlink" href="#float8activationint4weightconfig" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.quantization.Float8ActivationInt4WeightConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Float8ActivationInt4WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">128</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">packing_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PackingFormat</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'preshuffled'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#Float8ActivationInt4WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Float8ActivationInt4WeightConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Configuration for apply float8 dynamic per row quantization and int4
+per group weight quantization to linear</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>group_size</strong> – group size for groupwise quantization for weight</p></li>
+<li><p><strong>packing_format</strong> – how the weight is packed, only preshuffled is supported</p></li>
 </ul>
-<p><strong>Prerequisites</strong></p>
-<ul class="simple">
-<li><p>PyTorch v2.0.0</p></li>
-<li><p>GPU ???</p></li>
-<li><p>Other items 3</p></li>
-</ul>
-<section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Permalink to this heading">¶</a></h2>
-<p>Describe Why is this topic important? Add Links to relevant research papers.</p>
-<p>This tutorial walks you through the process of….</p>
-</section>
-<section id="steps">
-<h2>Steps<a class="headerlink" href="#steps" title="Permalink to this heading">¶</a></h2>
-<p>Example code (the output below is generated automatically):</p>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+</dd>
+</dl>
+</dd></dl>
 
-<a href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="torch.Tensor" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">x</span></a> <span class="o">=</span> <a href="https://docs.pytorch.org/docs/stable/generated/torch.rand.html#torch.rand" title="torch.rand" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-function"><span class="n">torch</span><span class="o">.</span><span class="n">rand</span></a><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><a href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="torch.Tensor" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">x</span></a><span class="p">)</span>
-</pre></div>
-</div>
-<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.8531, 0.9563, 0.5690],
-        [0.9166, 0.7514, 0.0800],
-        [0.4893, 0.7752, 0.5982],
-        [0.2344, 0.5251, 0.7615],
-        [0.6731, 0.5153, 0.5240]])
-</pre></div>
-</div>
-</section>
-<section id="optional-additional-exercises">
-<h2>(Optional) Additional Exercises<a class="headerlink" href="#optional-additional-exercises" title="Permalink to this heading">¶</a></h2>
-<p>Add additional practice exercises for users to test their knowledge.
-Example: <a class="reference external" href="https://pytorch.org/tutorials/intermediate/char_rnn_generation_tutorial.html#exercises">NLP from Scratch</a>.</p>
-</section>
-<section id="conclusion">
-<h2>Conclusion<a class="headerlink" href="#conclusion" title="Permalink to this heading">¶</a></h2>
-<p>Summarize the steps and concepts covered. Highlight key takeaways.</p>
-</section>
-<section id="further-reading">
-<h2>Further Reading<a class="headerlink" href="#further-reading" title="Permalink to this heading">¶</a></h2>
-<ul class="simple">
-<li><p>Link1</p></li>
-<li><p>Link2</p></li>
-</ul>
-<p class="sphx-glr-timing"><strong>Total running time of the script:</strong> (0 minutes 0.003 seconds)</p>
-<div class="sphx-glr-footer sphx-glr-footer-example docutils container" id="sphx-glr-download-tutorials-template-tutorial-py">
-<div class="sphx-glr-download sphx-glr-download-jupyter docutils container">
-<p><a class="reference download internal" download="" href="../_downloads/04acaeb6e1517eff001a0f90af4923b2/template_tutorial.ipynb"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Jupyter</span> <span class="pre">notebook:</span> <span class="pre">template_tutorial.ipynb</span></code></a></p>
-</div>
-<div class="sphx-glr-download sphx-glr-download-python docutils container">
-<p><a class="reference download internal" download="" href="../_downloads/5e75fad65c3fb1034bc2a6332118737e/template_tutorial.py"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Python</span> <span class="pre">source</span> <span class="pre">code:</span> <span class="pre">template_tutorial.py</span></code></a></p>
-</div>
-<div class="sphx-glr-download sphx-glr-download-zip docutils container">
-<p><a class="reference download internal" download="" href="../_downloads/e148c8862a389bde3e2c2727c00d1f30/template_tutorial.zip"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">zipped:</span> <span class="pre">template_tutorial.zip</span></code></a></p>
-</div>
-</div>
-<p class="sphx-glr-signature"><a class="reference external" href="https://sphinx-gallery.github.io">Gallery generated by Sphinx-Gallery</a></p>
-</section>
 </section>
 
 
@@ -505,6 +455,15 @@ Example: <a class="reference external" href="https://pytorch.org/tutorials/inter
              
             </div>
             <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html" class="btn btn-neutral float-right" title="Float8DynamicActivationFloat8WeightConfig" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="torchao.quantization.Int4WeightOnlyConfig.html" class="btn btn-neutral" title="Int4WeightOnlyConfig" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
   
 
   
@@ -534,14 +493,7 @@ Example: <a class="reference external" href="https://pytorch.org/tutorials/inter
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Template Tutorial</a><ul>
-<li><a class="reference internal" href="#overview">Overview</a></li>
-<li><a class="reference internal" href="#steps">Steps</a></li>
-<li><a class="reference internal" href="#optional-additional-exercises">(Optional) Additional Exercises</a></li>
-<li><a class="reference internal" href="#conclusion">Conclusion</a></li>
-<li><a class="reference internal" href="#further-reading">Further Reading</a></li>
-</ul>
-</li>
+<li><a class="reference internal" href="#">Float8ActivationInt4WeightConfig</a></li>
 </ul>
 
             </div>

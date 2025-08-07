@@ -476,7 +476,6 @@
     <span class="n">to_affine_quantized_floatx_static</span><span class="p">,</span>
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
     <span class="n">to_fbgemm_fp8</span><span class="p">,</span>
-    <span class="n">to_fbgemm_int4</span><span class="p">,</span>
     <span class="n">to_marlinqqq_quantized_intx</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -498,10 +497,12 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span><span class="p">,</span> <span class="n">get_block_size</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.common</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">KernelPreference</span><span class="p">,</span>
+    <span class="n">PackingFormat</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.workflows</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Float8Tensor</span><span class="p">,</span>
     <span class="n">Int4PreshuffledTensor</span><span class="p">,</span>
+    <span class="n">Int4Tensor</span><span class="p">,</span>
     <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.transform_module</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -1546,6 +1547,7 @@
 <span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
 <span class="sd">        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.</span>
 <span class="sd">        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT</span>
+<span class="sd">        `packing_format`: the packing format for int4 tensor, available from VERSION 2 and above</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
@@ -1553,7 +1555,10 @@
     <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">preserve_zero</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
+    <span class="n">preserve_zero</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># only used in VERSION &gt;= 2</span>
+    <span class="n">packing_format</span><span class="p">:</span> <span class="n">PackingFormat</span> <span class="o">=</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span>
+    <span class="n">VERSION</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1571,6 +1576,7 @@
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
     <span class="n">use_hqq</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">use_hqq</span>
     <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">zero_point_domain</span>
+    <span class="n">packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_format</span>
 
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
@@ -1578,8 +1584,28 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
 
+    <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">group_size</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">VERSION</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">PRESHUFFLED</span><span class="p">:</span>
+            <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+                <span class="n">weight</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">new_weight</span>
+        <span class="k">elif</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span><span class="p">:</span>
+            <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4Tensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+                <span class="n">weight</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">new_weight</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported packing format: </span><span class="si">{</span><span class="n">packing_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">VERSION</span> <span class="o">==</span> <span class="mi">1</span>
+
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
-    <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">group_size</span><span class="p">])</span>
     <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
     <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
@@ -1646,6 +1672,46 @@
         <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_int4_weight_only_quantize_tensor</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">module</span>
+
+
+<div class="viewcode-block" id="Float8ActivationInt4WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8ActivationInt4WeightConfig.html#torchao.quantization.Float8ActivationInt4WeightConfig">[docs]</a><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Float8ActivationInt4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for apply float8 dynamic per row quantization and int4</span>
+<span class="sd">    per group weight quantization to linear</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        `group_size`: group size for groupwise quantization for weight</span>
+<span class="sd">        `packing_format`: how the weight is packed, only preshuffled is supported</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
+    <span class="n">packing_format</span><span class="p">:</span> <span class="n">PackingFormat</span> <span class="o">=</span> <span class="s2">&quot;preshuffled&quot;</span></div>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8ActivationInt4WeightConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_float8_activation_int4_weight_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8ActivationInt4WeightConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">),</span> <span class="p">(</span>
+        <span class="s2">&quot;applying int8 weight only quant requires module to have weight attribute&quot;</span>
+        <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
+    <span class="p">)</span>
+    <span class="n">group_size</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">group_size</span>
+    <span class="n">packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_format</span>
+
+    <span class="k">assert</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="s2">&quot;preshuffled&quot;</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;only preshuffled packing_format supported right now, got: </span><span class="si">{</span><span class="n">packing_format</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
+    <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">group_size</span><span class="p">])</span>
+    <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+        <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">,</span>
+        <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+    <span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
@@ -2104,6 +2170,7 @@
         <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
         <span class="c1"># not doing what the user asked</span>
         <span class="k">return</span> <span class="n">weight</span>
+
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
@@ -2572,7 +2639,7 @@
                 <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">weight</span> <span class="o">=</span> <span class="n">to_fbgemm_int4</span><span class="p">(</span>
+            <span class="n">weight</span> <span class="o">=</span> <span class="n">Int4Tensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
                 <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
                 <span class="n">config</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
             <span class="p">)</span>
