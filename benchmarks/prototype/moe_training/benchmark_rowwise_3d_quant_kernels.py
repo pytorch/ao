@@ -14,13 +14,11 @@ from tabulate import tabulate
 from tqdm import tqdm
 from triton.testing import do_bench
 
-from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+from torchao.prototype.moe_training.kernels.float8_rowwise import (
+    triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
-    _to_2d_jagged_float8_tensor_colwise,
-    _to_2d_jagged_float8_tensor_rowwise,
+    torch_to_3d_rowwise_float8_transpose_rhs,
 )
 
 device = torch.device("cuda")
@@ -33,7 +31,6 @@ torch._dynamo.config.cache_size_limit = 1000
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     input_shape: tuple[int]
-    n_groups: int
 
 
 @dataclass(frozen=True)
@@ -49,17 +46,16 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    input_shapes = [(2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    n_groups_list = [4, 8, 16]
+    # Llama4 and DeepSeekV3 shapes
+    input_shapes = [(8, 4096, 1024), (16, 5120 * 4, 5120)]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
-    for input_shape, n_groups, high_precision_dtype in itertools.product(
-        input_shapes, n_groups_list, high_precision_dtypes
+    for input_shape, high_precision_dtype in itertools.product(
+        input_shapes, high_precision_dtypes
     ):
         configs.append(
             ExperimentConfig(
                 input_shape=input_shape,
-                n_groups=n_groups,
                 high_precision_dtype=high_precision_dtype,
             )
         )
@@ -67,76 +63,47 @@ def get_configs() -> List[ExperimentConfig]:
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
-    # define test inputs
+    # Expert weights will be passed in transposed and column major in practice
     input_tensor = torch.randn(
         *config.input_shape,
         dtype=config.high_precision_dtype,
         device=device,
-    )
-    input_row_major = input_tensor.clone().detach()
-    input_col_major = input_tensor.clone().detach().t()
-
-    # - configure input to be row-major with groups divided along the column dimension,
-    #   representing the left operand of grad_weight = grad_output_t @ input
-    #   that occurs in the backward pass of the differentiable scaled grouped mm.
-    # - the transposed tensor in col-major format with groups along the row dimension,
-    #    which represents the right operand.
-    group_size = input_row_major.shape[1] // config.n_groups
-    n_groups = config.n_groups
-    offs = torch.arange(
-        group_size,
-        group_size * n_groups + 1,
-        group_size,
-        device=device,
-        dtype=torch.int32,
-    )
+    ).transpose(-2, -1)
 
     def warmup(func, *args, **kwargs):
         for _ in range(10):
             func(*args, **kwargs)
 
-    def run_torch(
-        input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
-    ):
-        _ = _to_2d_jagged_float8_tensor_rowwise(
-            input_row_major,
-            offs,
+    def run_torch(input_tensor: torch.Tensor):
+        out = torch_to_3d_rowwise_float8_transpose_rhs(
+            input_tensor,
             target_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = _to_2d_jagged_float8_tensor_colwise(
-            input_col_major,
-            offs,
-            target_dtype=torch.float8_e4m3fn,
-            round_scales_to_power_of_2=True,
-        )
+        torch.cuda.synchronize()
+        return out
 
-    def run_triton(
-        input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
-    ):
-        _ = triton_fp8_row_major_jagged_rowwise_scales(
-            input_row_major,
-            offs,
+    def run_triton(input_tensor: torch.Tensor):
+        _ = triton_fp8_rowwise_3d_transpose_rhs(
+            input_tensor,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = triton_fp8_col_major_jagged_colwise_scales(
-            input_col_major,
-            offs,
-            output_dtype=torch.float8_e4m3fn,
-            round_scales_to_power_of_2=True,
-        )
+        torch.cuda.synchronize()
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)
+    warmup(run_torch, input_tensor)
     torch_time_us = benchmark_cuda_function_in_microseconds(
-        compiled_run_torch, input_row_major, input_col_major, offs
+        compiled_run_torch,
+        input_tensor,
     )
 
     # bench triton
-    warmup(run_triton, input_row_major, input_col_major, offs)
+    warmup(run_triton, input_tensor)
     triton_time_us = benchmark_cuda_function_in_microseconds(
-        run_triton, input_row_major, input_col_major, offs
+        run_triton,
+        input_tensor,
     )
 
     return ExperimentResult(
@@ -148,21 +115,15 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
-        "n_groups",
-        "high_precision_dtype",
         "torch_time_us",
         "triton_time_us",
     ]
     rows = []
     for experiment in experiments:
-        input_shape = (
-            f"({experiment.config.input_shape[0]}, {experiment.config.input_shape[1]})"
-        )
+        input_shape = f"({experiment.config.input_shape[0]}, {experiment.config.input_shape[1], experiment.config.input_shape[2]})"
         rows.append(
             [
                 input_shape,
-                experiment.config.n_groups,
-                experiment.config.high_precision_dtype,
                 experiment.result.torch_time_us,
                 experiment.result.triton_time_us,
             ]
