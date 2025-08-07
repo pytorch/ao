@@ -102,7 +102,7 @@ jobs:
   #       run: |
   #         source activate base
   #         conda activate test-mps-ops-env
-  #     - name: Install torch
+  #     - name: Install torchh
   #       run: |
   #         conda run -n test-mps-ops-env pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
   #     - name: Print torch version
