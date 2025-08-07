@@ -126,9 +126,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         A_fp8_row_major = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
-        # B shape: (E, K, N)
-        # B scales must be computed rowwise keeping the outer/final dim, so:
-        # B_scales shape: (E, 1, N)
+        # B_t shape: (E, K, N)
+        # B_t scales must be computed rowwise keeping the outer/final dim, so:
+        # B_t_scales shape: (E, 1, N)
         B_t_scales = tensor_to_scale(
             B_t,
             torch.float8_e4m3fn,
@@ -144,9 +144,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         # In the backward this is needed for grad_A: grad_output @ B.
         B = B_t.contiguous().transpose(-2, -1)
 
-        # - B shape: (E, K, N)
+        # - B shape: (E, N, K)
         # - B scales must be computed rowwise keeping the outer/final dim, so:
-        # - B_scale shape: (E, 1, N)
+        # - B_scale shape: (E, 1, K)
         B_scales = tensor_to_scale(
             B,
             torch.float8_e4m3fn,
