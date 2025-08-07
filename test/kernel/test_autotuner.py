@@ -9,14 +9,23 @@
 import logging
 import os
 import unittest
+import itertools
 
 import torch
 from parameterized import parameterized
 
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import (
+    is_sm_at_least_90,
+    get_available_devices
+)
 
 logging.basicConfig(level=logging.INFO)
 
+COMMON_DEVICES = get_available_devices()
+
+COMMON_DTYPES = [torch.float16, torch.bfloat16]
+
+COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
 
 class TestQuantFlow(unittest.TestCase):
     def setUp(self):
@@ -25,15 +34,7 @@ class TestQuantFlow(unittest.TestCase):
     def tearDown(self):
         del os.environ["TORCHAO_AUTOTUNER_ENABLE"]
 
-    @parameterized.expand(
-        [
-            ("cuda", torch.bfloat16),
-            # TODO: ("cpu", torch.bfloat16),
-            ("cuda", torch.float16),
-            # TODO: ("cpu", torch.float16),
-        ]
-    )
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int_mm(self, device, dtype):
         from torchao.kernel import intmm
 
@@ -49,13 +50,8 @@ class TestQuantFlow(unittest.TestCase):
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
 
-    @parameterized.expand(
-        [
-            ("cuda", torch.bfloat16),
-            ("cuda", torch.float16),
-        ]
-    )
-    @unittest.skipIf(not is_sm_at_least_90(), "Needs H100")
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Needs H100")
     def test_int_mm_float8(self, device, dtype):
         from torchao.kernel import intmm
 
@@ -68,14 +64,7 @@ class TestQuantFlow(unittest.TestCase):
         out32_1 = intmm.safe_int_mm(x_float8, w_float8)
         assert out32_1.dtype == torch.int32
 
-    @parameterized.expand(
-        [
-            ("cuda", torch.bfloat16),
-            ("cpu", torch.bfloat16),
-            ("cuda", torch.float16),
-            ("cpu", torch.float16),
-        ]
-    )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int_scaled_mm(self, device, dtype):
         if device == "cuda" and not torch.cuda.is_available():
             self.skipTest(f"{device} not available")

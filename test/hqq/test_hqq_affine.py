@@ -17,12 +17,14 @@ from torchao.quantization import (
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
+    auto_detect_device,
 )
 
 cuda_available = torch.cuda.is_available()
 
 # Parameters
-device = "cuda:0"
+device = auto_detect_device()
+print("Testing on ", device)
 compute_dtype = torch.bfloat16
 group_size = 64
 mapping_type = MappingType.ASYMMETRIC
@@ -77,7 +79,6 @@ def _eval_hqq(dtype):
     return dequantize_error, dot_product_error
 
 
-@unittest.skipIf(not cuda_available, "Need CUDA available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "Need torch 2.3+")
 class TestHQQ(unittest.TestCase):
     def _test_hqq(

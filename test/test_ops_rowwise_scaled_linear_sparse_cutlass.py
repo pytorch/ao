@@ -19,6 +19,9 @@ from torchao.quantization.quant_api import (
 )
 from torchao.sparsity.utils import create_semi_structured_tensor
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
 
 DTYPES = [torch.float16, torch.bfloat16]
 XQ_WQ_DTYPES = [
@@ -57,7 +60,7 @@ def run_test_for_op(
     size_mnk,
     use_bias,
 ):
-    device = "cuda"
+    device = _DEVICE
 
     size_m, size_n, size_k = size_mnk
 
@@ -106,8 +109,6 @@ def run_test_for_op(
 
 
 @skip_if_rocm("does not yet work on ROCm")
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not SM90OrLater, reason="FP8 is only supported on H100+ devices")
 @pytest.mark.parametrize(
     "dtype, Xq_Wq_dtypes, batch_size, size_mnk, use_bias",
     TEST_PARAMS,

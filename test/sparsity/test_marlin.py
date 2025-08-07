@@ -20,15 +20,19 @@ from torchao.quantization.quant_primitives import (
 from torchao.sparsity.marlin import inject_24, pack_to_marlin_24, unpack_from_marlin_24
 from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    auto_detect_device,
+)
 
+_DEVICE = auto_detect_device()
 
 class SparseMarlin24(TestCase):
     def setUp(self):
         super().setUp()
         torch.manual_seed(0)
 
-        self.input = torch.randn((32, 16, 4096), dtype=torch.float16, device="cuda")
+        self.input = torch.randn((32, 16, 4096), dtype=torch.float16, device=_DEVICE)
         self.model = (
             nn.Sequential(
                 nn.Linear(4096, 21504),
@@ -41,7 +45,6 @@ class SparseMarlin24(TestCase):
             .cuda()
         )
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_eager(self):
         apply_fake_sparsity(self.model)
@@ -59,7 +62,6 @@ class SparseMarlin24(TestCase):
         )
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_compile(self):
         apply_fake_sparsity(self.model)
@@ -79,7 +81,6 @@ class SparseMarlin24(TestCase):
             "Results are not close"
         )
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_pack_unpack_equivalence(self):
         num_bits = 4
         group_size = 128
@@ -93,7 +94,7 @@ class SparseMarlin24(TestCase):
         mapping_type = MappingType.SYMMETRIC
         scale_dtype = None
 
-        w = torch.rand(shape, dtype=torch.float16, device="cuda")
+        w = torch.rand(shape, dtype=torch.float16, device=_DEVICE)
 
         # Inject 2:4 sparsity mask
         w_24, _ = inject_24(w, *w.shape)

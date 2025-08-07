@@ -38,15 +38,14 @@ from torchao.prototype.sparsity.pruner import (
     SaliencyPruner,
 )
 
+from torchao.utils import get_available_devices
+
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-DEVICES = {
-    torch.device("cpu"),
-    torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"),
-}
-
+DEVICES = get_available_devices()
 
 class SimplePruner(BaseStructuredSparsifier):
     def update_mask(self, module, tensor_name, **kwargs):

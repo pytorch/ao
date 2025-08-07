@@ -24,7 +24,13 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     torch_blockwise_scale_weight_quant,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import (
+    is_sm_at_least_90,
+    auto_detect_device,
+)
+
+_DEVICE = [auto_detect_device()]
+print(11111111111111111111111111111, _DEVICE)
 
 BLOCKWISE_SIZE_MNK = [
     (128, 128, 128),
@@ -37,19 +43,18 @@ BLOCKWISE_SIZE_MNK = [
     (67, 6656, 1408),
 ]
 
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.parametrize("device", _DEVICE)
+@pytest.mark.skipif(torch.cuda.is_available() and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
-def test_blockwise_fp8_gemm_1x128_128x128(M, N, K, dtype):
+def test_blockwise_fp8_gemm_1x128_128x128(device, M, N, K, dtype):
     # Simulate output = input @ weight.T
-    A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
+    A = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    B = torch.randn(N, K, dtype=torch.bfloat16, device=device)
     C = A @ B.T
     A_q, A_s = fp8_blockwise_act_quant_lhs(A, dtype=dtype)
     B_t_q, B_t_s = fp8_blockwise_weight_quant_transposed_rhs(B, dtype=dtype)
@@ -60,19 +65,18 @@ def test_blockwise_fp8_gemm_1x128_128x128(M, N, K, dtype):
     min_sqnr = 28.0
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
 
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.parametrize("device", _DEVICE)
+@pytest.mark.skipif(torch.cuda.is_available() and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
-def test_blockwise_fp8_gemm_1x128_128x1(M, N, K, dtype):
+def test_blockwise_fp8_gemm_1x128_128x1(device, M, N, K, dtype):
     # Simulate grad_weight = grad_output_t @ input
-    A = torch.randn(K, M, dtype=torch.bfloat16, device="cuda")
-    B = torch.randn(K, N, dtype=torch.bfloat16, device="cuda")
+    A = torch.randn(K, M, dtype=torch.bfloat16, device=device)
+    B = torch.randn(K, N, dtype=torch.bfloat16, device=device)
     C = A.T @ B
     A_t_q, A_t_s = fp8_blockwise_act_quant_transposed_lhs(A, dtype=dtype)
     B_q, B_s = fp8_blockwise_act_quant_rhs(B, dtype=dtype)
@@ -86,12 +90,11 @@ def test_blockwise_fp8_gemm_1x128_128x1(M, N, K, dtype):
     min_sqnr = 28.0
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
 
-
+@pytest.mark.parametrize("device", _DEVICE)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(torch.cuda.is_available and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
-def test_triton_quantize_fp8_act_quant_lhs(block_size):
-    device = "cuda"
+def test_triton_quantize_fp8_act_quant_lhs(device, block_size):
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
 
@@ -133,12 +136,11 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
         msg=f"Scales differ: max diff = {(triton_scale - ref_scale).abs().max().item()}",
     )
 
-
+@pytest.mark.parametrize("device", _DEVICE)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(torch.cuda.is_available() and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
-def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
-    device = "cuda"
+def test_triton_quantize_fp8_act_quant_rhs(device, block_size: int):
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
 
@@ -180,13 +182,12 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
         msg=f"Scales differ: max diff = {(triton_scale - ref_scale).abs().max().item()}",
     )
 
-
+@pytest.mark.parametrize("device", _DEVICE)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(torch.cuda.is_available() and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
-    device = "cuda"
+def test_triton_quantize_fp8_act_quant_transposed_lhs(device, M, K, block_size: int):
     x = torch.randn(M, K, device=device)
 
     # Set one scaling block to 0s, so if nan guards/EPS are not applied, the
@@ -229,13 +230,12 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
         msg=f"Scales differ: max diff = {(triton_scale - ref_scale).abs().max().item()}",
     )
 
-
+@pytest.mark.parametrize("device", _DEVICE)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(torch.cuda.is_available() and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
-    device = "cuda"
+def test_triton_quantize_fp8_weight_quant_rhs(device, M, K, block_size: int):
     x = torch.randn(M, K, device=device)
 
     # Set one scaling block to 0s, so if nan guards/EPS are not applied, the
@@ -275,12 +275,11 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
         msg=f"Scales differ: max diff = {(triton_scale - ref_scale).abs().max().item()}",
     )
 
-
+@pytest.mark.parametrize("device", _DEVICE)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(torch.cuda.is_available() and not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
-def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
-    device = "cuda"
+def test_triton_quantize_fp8_weight_quant_transposed_rhs(device, block_size: int):
     M = 512
     K = 2048
     x = torch.randn(M, K, device=device)

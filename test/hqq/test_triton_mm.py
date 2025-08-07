@@ -21,6 +21,10 @@ import itertools
 import torch
 
 from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
+print("Testing on ", _DEVICE)
 
 # Test configs
 SHAPES = [
@@ -92,7 +96,7 @@ def test_mixed_mm(
     }
     M, N, K = shape
 
-    linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
+    linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=_DEVICE)
 
     quant_config = BaseQuantizeConfig(
         quant_zero=False, quant_scale=False, offload_meta=False, view_as_float=False
@@ -115,7 +119,7 @@ def test_mixed_mm(
     packed_w = pack_2xint4(W_q.T)
 
     if transposed:
-        x = torch.randn(M, N, dtype=dtype, device="cuda")
+        x = torch.randn(M, N, dtype=dtype, device=_DEVICE)
         hqq_out = x @ W_dq
 
         tt_out = triton_mixed_mm(
@@ -130,7 +134,7 @@ def test_mixed_mm(
         )
 
     else:
-        x = torch.randn(M, K, dtype=dtype, device="cuda")
+        x = torch.randn(M, K, dtype=dtype, device=_DEVICE)
         hqq_out = x @ W_dq.T
 
         tt_out = triton_mixed_mm(
@@ -174,9 +178,9 @@ def _test_mixed_mm(
         quant_zero=False, quant_scale=False, offload_meta=False, view_as_float=False
     )
     quant_config.update({"weight_quant_params": qcfg})
-    W_q = torch.randint(0, int(2**4), size=(N, K), dtype=quant_dtype, device="cuda")
+    W_q = torch.randint(0, int(2**4), size=(N, K), dtype=quant_dtype, device=_DEVICE)
 
-    scales = torch.arange((N * K) // group_size, dtype=dtype, device="cuda")[:, None]
+    scales = torch.arange((N * K) // group_size, dtype=dtype, device=_DEVICE)[:, None]
     zeros = torch.zeros_like(scales)
     W_dq = ((W_q.reshape(-1, group_size) - zeros) * scales).reshape(N, K)
     scales = scales.reshape(N, -1)
@@ -185,7 +189,7 @@ def _test_mixed_mm(
     packed_w = pack_2xint4(W_q.T)
 
     if transposed:
-        x = torch.randn(M, N, dtype=dtype, device="cuda")
+        x = torch.randn(M, N, dtype=dtype, device=_DEVICE)
         hqq_out = x @ W_dq
 
         tt_out = triton_mixed_mm(
@@ -203,7 +207,7 @@ def _test_mixed_mm(
         )
 
     else:
-        x = torch.randn(M, K, dtype=dtype, device="cuda")
+        x = torch.randn(M, K, dtype=dtype, device=_DEVICE)
         hqq_out = x @ W_dq.T
 
         tt_out = triton_mixed_mm(

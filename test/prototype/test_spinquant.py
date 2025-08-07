@@ -9,6 +9,7 @@ import torch
 from torchao._models.llama.model import Transformer
 from torchao.prototype.spinquant import apply_spinquant
 
+from torchao.utils import get_available_devices
 
 def _init_model(name="7B", device="cpu", precision=torch.bfloat16):
     model = Transformer.from_name(name)
@@ -16,7 +17,7 @@ def _init_model(name="7B", device="cpu", precision=torch.bfloat16):
     return model.eval()
 
 
-_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_AVAILABLE_DEVICES = get_available_devices()
 
 
 @pytest.mark.parametrize("device", _AVAILABLE_DEVICES)

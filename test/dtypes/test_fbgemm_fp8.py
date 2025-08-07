@@ -21,12 +21,14 @@ from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_90,
+    auto_detect_device,
 )
+
+_DEVICE = auto_detect_device()
 
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-@unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+@unittest.skipIf(_DEVICE == "cuda" and not is_sm_at_least_90(), "Nedd sm90+")
 class TestFbgemmFp8Tensor(TestCase):
     def setUp(self):
         self.config = FbgemmConfig(
@@ -40,11 +42,10 @@ class TestFbgemmFp8Tensor(TestCase):
             output_dtype=torch.bfloat16,
             transpose_input=True,
         )
-        self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
     def test_linear(self):
         dtype = torch.bfloat16
-        device = "cuda"
+        device = _DEVICE
         input = torch.randn(1, 128, dtype=dtype, device=device)
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
         original = linear(input)
@@ -54,7 +55,7 @@ class TestFbgemmFp8Tensor(TestCase):
 
     def test_slice(self):
         dtype = torch.bfloat16
-        device = "cuda"
+        device = _DEVICE
         dummy = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
         dummy1 = torch.nn.Linear(256, 64, bias=False, dtype=dtype, device=device)
         dummy1.weight = torch.nn.Parameter(
@@ -123,7 +124,7 @@ class TestFbgemmFp8Tensor(TestCase):
                 return torch.bmm(x, self.weight)
 
         dtype = torch.bfloat16
-        device = "cuda"
+        device = _DEVICE
         input = torch.randn(10, 32, 128, dtype=dtype, device=device)
         weight = torch.randn(10, 128, 256, dtype=dtype, device=device)
         m = M(weight).eval()
@@ -135,7 +136,7 @@ class TestFbgemmFp8Tensor(TestCase):
         self.assertTrue(compute_error(original, quantized) > 20)
 
     def test_to_device(self):
-        for device in self.GPU_DEVICES:
+        for device in _DEVICE:
             linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
             quantize_(linear, self.config)
             linear.to(device)

@@ -9,6 +9,10 @@ import torch
 
 from packaging import version
 
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
+
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.prototype.blockwise_fp8_inference.blockwise_quantization import (
@@ -29,7 +33,6 @@ BLOCKWISE_SIZE_MNK = [
 ]
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("_, N, K", BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize(
     "dtype",
@@ -38,7 +41,7 @@ BLOCKWISE_SIZE_MNK = [
     else [torch.float8_e5m2],
 )
 def test_blockwise_quant_dequant(_, N, K, dtype):
-    x = torch.randn(N, K).cuda()
+    x = torch.randn(N, K).to(_DEVICE)
     qx, s = fp8_blockwise_weight_quant(x, dtype=dtype)
     x_reconstructed = fp8_blockwise_weight_dequant(qx, s)
     error = torch.norm(x - x_reconstructed) / torch.norm(x)
@@ -47,7 +50,6 @@ def test_blockwise_quant_dequant(_, N, K, dtype):
     assert error < 0.1, "Quant-Dequant error is too high"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
@@ -60,8 +62,8 @@ def test_blockwise_quant_dequant(_, N, K, dtype):
     else [torch.float8_e5m2],
 )
 def test_blockwise_fp8_gemm(M, N, K, dtype):
-    A = torch.randn(M, K).cuda()
-    B = torch.randn(N, K).cuda()
+    A = torch.randn(M, K).to(_DEVICE)
+    B = torch.randn(N, K).to(_DEVICE)
     C = A @ B.T
     A_q, A_s = fp8_blockwise_act_quant(A, dtype=dtype)
     B_q, B_s = fp8_blockwise_weight_quant(B, dtype=dtype)

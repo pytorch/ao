@@ -25,9 +25,12 @@ from torchao.prototype.autoround.core import (
     prepare_model_for_applying_auto_round_,
 )
 from torchao.prototype.autoround.multi_tensor import MultiTensor
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    get_available_devices
+)
 
-_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_AVAILABLE_DEVICES = get_available_devices()
 
 
 # Copied from https://github.com/pytorch/ao/pull/721
