@@ -1916,7 +1916,7 @@
 <span class="sd">    Args:</span>
 <span class="sd">        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.</span>
 <span class="sd">        set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.</span>
-<span class="sd">        VERSION (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor</span>
+<span class="sd">        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor (default)</span>
 
 <span class="sd">    Note:</span>
 <span class="sd">        The actual matmul will be computed in original precision of the weight tensor.</span>
@@ -1924,7 +1924,7 @@
 
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">VERSION</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span></div>
+    <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span></div>
 
 
 <span class="c1"># for BC</span>
@@ -1932,7 +1932,10 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_weight_only_quant_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
-    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">VERSION</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+            <span class="s2">&quot;version 1 of Float8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details&quot;</span>
+        <span class="p">)</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
 
         <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]])</span>
@@ -1944,7 +1947,7 @@
             <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">VERSION</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">VERSION</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
         <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">to_float8</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span> <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">()</span>
@@ -2056,7 +2059,7 @@
 <span class="sd">        activation_value_ub (Optional[float]): the upper bound for activation value for calculating scale</span>
 <span class="sd">        kernel_preference (KernelPreference): kernel preference for ops like matmul, grouped matmul etc. by defalut (KernelPreference.AUTO) it will be chosen for user based on hardware or other information, this only needs to be set in weight</span>
 <span class="sd">        set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.</span>
-<span class="sd">        VERSION (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor</span>
+<span class="sd">        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor (default)</span>
 
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -2068,7 +2071,7 @@
     <span class="n">activation_value_ub</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">kernel_preference</span><span class="p">:</span> <span class="n">KernelPreference</span> <span class="o">=</span> <span class="n">KernelPreference</span><span class="o">.</span><span class="n">AUTO</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">VERSION</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -2106,7 +2109,11 @@
             <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
         <span class="p">)</span>
 
-    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">VERSION</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+            <span class="s2">&quot;version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details&quot;</span>
+        <span class="p">)</span>
+
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:],</span> <span class="n">weight_granularity</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
             <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">block_size</span><span class="p">))</span>
@@ -2128,7 +2135,7 @@
             <span class="n">quantized_weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">,</span> <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">VERSION</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">VERSION</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">act_quant_kwargs</span> <span class="o">=</span> <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">(</span>
             <span class="n">activation_dtype</span><span class="p">,</span>
             <span class="n">activation_granularity</span><span class="p">,</span>
