@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.granularity import PerGroup
+from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.linear_quant_modules import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
@@ -28,11 +28,11 @@ from torchao.quantization.utils import get_group_qparams_symmetric
 
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
+    Float8FakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from .fake_quantizer import (
     FakeQuantizerBase,
-    _Float8RowwiseActivationFakeQuantizer,
 )
 from .utils import (
     _get_qmin_qmax,
@@ -598,6 +598,10 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
             weight_granularity = "per_group"
         else:
             weight_granularity = "per_channel"
+        self._activation_config = Float8FakeQuantizeConfig(
+            dtype=torch.float8_e4m3fn,
+            granularity=PerRow(),
+        )
         self._weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
             granularity=weight_granularity,
@@ -616,13 +620,10 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         """
         for name, child in model.named_children():
             if isinstance(child, torch.nn.Linear):
-                # TODO: add a config for float8?
                 new_linear = FakeQuantizedLinear.from_linear(
                     child,
+                    activation_config=self._activation_config,
                     weight_config=self._weight_config,
-                )
-                new_linear.activation_fake_quantizer = (
-                    _Float8RowwiseActivationFakeQuantizer()
                 )
                 setattr(model, name, new_linear)
             else:
