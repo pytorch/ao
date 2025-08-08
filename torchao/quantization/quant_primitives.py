@@ -2189,7 +2189,7 @@ def _choose_scale_float8(
     hp_value_ub: Optional[float] = None,
 ) -> torch.Tensor:
     """
-    Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
+    Calculates float8 scaling factor for the given high precision tensor.
 
     Args:
         tensor (torch.Tensor): Input tensor to be quantized.
@@ -2200,13 +2200,14 @@ def _choose_scale_float8(
         hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
     """
     quant_max = torch.finfo(float8_dtype).max
-    # only tensorwise scaling is supported for now:
     if len(block_size) == 0:
+        # tensorwise
         max_abs = tensor.abs().max()
         if hp_value_lb is not None or hp_value_ub is not None:
             max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
         scale = max_abs / quant_max
     else:
+        # rowwise
         shape_for_reduction, reduction_dims = _get_reduction_params(
             block_size, tensor.shape
         )
@@ -2283,6 +2284,7 @@ def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
+    cast_to_float8_dtype: bool = True,
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
@@ -2295,8 +2297,9 @@ def _quantize_affine_float8(
     tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
-    fp8_tensor = tensor_clamped.to(float8_dtype)
-    return fp8_tensor
+    if cast_to_float8_dtype:
+        tensor_clamped = tensor_clamped.to(float8_dtype)
+    return tensor_clamped
 
 
 @_register_custom_op(quant_lib, False)
