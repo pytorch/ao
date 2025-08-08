@@ -11,7 +11,6 @@ import unittest
 from typing import Any
 
 import torch
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import QuantizationTestCase
 from torch.testing._internal.common_utils import IS_WINDOWS, run_tests
 
@@ -110,7 +109,7 @@ class TestDuplicateDQPass(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
 
         m = prepare_pt2e(m, quantizer)
         # Calibrate

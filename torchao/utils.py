@@ -203,7 +203,7 @@ def _register_custom_op(lib, inductor_decomposed=True):
 
         # after this, `_the_op_that_needs_to_be_preserved` will be preserved as
         # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after
-        # torch.export.export / torch._export.export_for_training
+        # torch.export.export
 
     """
     from torch._inductor.decomposition import register_decomposition

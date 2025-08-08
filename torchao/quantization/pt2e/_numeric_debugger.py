@@ -51,7 +51,7 @@ def generate_numeric_debug_handle(ep: ExportedProgram) -> None:
 
     Here's an example of using debug handle quantize flow::
 
-        ep = export_for_training(eager_model, example_inputs)
+        ep = torch.export.export(eager_model, example_inputs)
         generate_numeric_debug_handle(ep)
 
         m = ep.module()
