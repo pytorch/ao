@@ -111,6 +111,7 @@ We will start by performing the necessary imports, capturing the FX Graph from t
         exported_model = export(
             model,
             example_inputs,
+            strict=True
         ).module()
 
 
