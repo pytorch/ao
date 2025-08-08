@@ -8,7 +8,7 @@ from typing import Type
 import torch
 from torch.optim.optimizer import Optimizer, ParamsT
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, get_available_devices
+from torchao.utils import get_available_devices
 
 
 # NOTE: We make this inherit Optimizer so it works with PyTorch's built-in LR
@@ -36,11 +36,7 @@ class CPUOffloadOptimizer(Optimizer):
             kwargs: other keyword arguments to be passed to the base optimizer e.g. `lr`, `weight_decay`.
         """
         # default to fused CPU AdamW
-        if (
-            optimizer_class is torch.optim.AdamW
-            and TORCH_VERSION_AT_LEAST_2_4
-            and "fused" not in kwargs
-        ):
+        if optimizer_class is torch.optim.AdamW and "fused" not in kwargs:
             kwargs.update(fused=True)
 
         param_groups = list(params)

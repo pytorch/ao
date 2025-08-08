@@ -86,9 +86,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
     _is_fbgemm_genai_gpu_available,
     is_MI300,
     is_sm_at_least_89,
@@ -182,16 +179,16 @@ def _in_features_greater_than_16(mod, *args):
     return hasattr(mod, "in_features") and mod.in_features > 16
 
 
+# TODO: delete
 def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
     """
     Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`
     Tensor subclass, effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
     """
-    if TORCH_VERSION_AT_LEAST_2_4:
-        raise ImportError(
-            "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
-        )
+    raise ImportError(
+        "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
+    )
 
     if filter_fn is None:
         filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
@@ -207,6 +204,7 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
     )
 
 
+# TODO: delete
 def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     """
     Converts all linear weight tensors to the
@@ -214,10 +212,9 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     effectively applying the same form of quantization
     as apply_weight_only_int8_quant while not modifying the linear modules.
     """
-    if TORCH_VERSION_AT_LEAST_2_4:
-        raise ImportError(
-            "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
-        )
+    raise ImportError(
+        "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
+    )
 
     _replace_with_custom_fn_if_matches_filter(
         model,
@@ -228,6 +225,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     )
 
 
+# TODO: delete
 def change_linear_weights_to_int4_woqtensors(
     model,
     groupsize=128,
@@ -251,10 +249,9 @@ def change_linear_weights_to_int4_woqtensors(
             ZeroPointDomain.INT, ZeroPointDomain.NONE]
         `preserve_zero`: whether to preserve zero, default is False
     """
-    if TORCH_VERSION_AT_LEAST_2_4:
-        raise ImportError(
-            "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
-        )
+    raise ImportError(
+        "This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs"
+    )
 
     if filter_fn is None:
         filter_fn = _is_linear
@@ -655,20 +652,15 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     scale_dtype = torch.float32
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int8
-    if TORCH_VERSION_AT_LEAST_2_6:
-        return to_affine_quantized_intx(
-            x,
-            mapping_type,
-            _get_per_token_block_size(x),
-            target_dtype,
-            eps=eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=zero_point_dtype,
-        )
-    else:
-        return to_affine_quantized_intx(
-            x, mapping_type, _get_per_token_block_size(x), target_dtype
-        )
+    return to_affine_quantized_intx(
+        x,
+        mapping_type,
+        _get_per_token_block_size(x),
+        target_dtype,
+        eps=eps,
+        scale_dtype=scale_dtype,
+        zero_point_dtype=zero_point_dtype,
+    )
 
 
 def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
@@ -679,27 +671,17 @@ def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     zero_point_dtype = torch.int32
     quant_min = 0
     quant_max = 255
-    if TORCH_VERSION_AT_LEAST_2_6:
-        out = to_affine_quantized_intx(
-            x,
-            mapping_type,
-            _get_per_token_block_size(x),
-            target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=zero_point_dtype,
-        )
-    else:
-        out = to_affine_quantized_intx(
-            x,
-            mapping_type,
-            _get_per_token_block_size(x),
-            target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-        )
+    out = to_affine_quantized_intx(
+        x,
+        mapping_type,
+        _get_per_token_block_size(x),
+        target_dtype,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=eps,
+        scale_dtype=scale_dtype,
+        zero_point_dtype=zero_point_dtype,
+    )
     return out
 
 
@@ -832,7 +814,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
 
     args:
         weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-            torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
         weight_granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
         weight_mapping_type: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE
@@ -854,9 +835,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
 
     def __post_init__(self):
-        assert TORCH_VERSION_AT_LEAST_2_6, (
-            "Int8DynamicActivationIntxWeightConfig requires torch 2.6+"
-        )
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         )
@@ -2045,7 +2023,6 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     manner using the number of bits specified by weight_dtype.
     args:
         weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-            torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
         granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
         mapping_type: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
@@ -2062,7 +2039,6 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
 
     def __post_init__(self):
-        assert TORCH_VERSION_AT_LEAST_2_6, "IntxWeightOnlyConfig requires torch 2.6+"
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         )
@@ -2286,16 +2262,15 @@ def _module_fqn_to_config_handler(
     return module
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals(
-        [
-            _int8_asymm_per_token_quant,
-            _int8_symm_per_token_reduced_range_quant,
-            _input_activation_quant_func_fp8,
-            _int4_symm_cutlass_quant,
-            _int8_symm_cutlass_quant,
-            _float8_cutlass_quant,
-            _float8_cutlass_quant_sparse,
-            Target,
-        ]
-    )
+torch.serialization.add_safe_globals(
+    [
+        _int8_asymm_per_token_quant,
+        _int8_symm_per_token_reduced_range_quant,
+        _input_activation_quant_func_fp8,
+        _int4_symm_cutlass_quant,
+        _int8_symm_cutlass_quant,
+        _float8_cutlass_quant,
+        _float8_cutlass_quant_sparse,
+        Target,
+    ]
+)

@@ -10,16 +10,6 @@ import unittest
 from io import StringIO
 
 import pytest
-
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 import torch
 import torch.nn as nn
 from torch._dynamo.test_case import TestCase as DynamoTestCase
@@ -42,6 +32,10 @@ from torchao.float8.float8_training_tensor import (
     ScaledMMConfig,
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
+from torchao.utils import (
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 
 def _test_compile_base(

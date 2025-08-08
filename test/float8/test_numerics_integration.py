@@ -10,16 +10,6 @@ import copy
 from typing import Optional
 
 import pytest
-
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -34,6 +24,10 @@ from torchao.float8.float8_linear_utils import (
 )
 from torchao.float8.float8_utils import IS_ROCM, compute_error
 from torchao.testing.training.test_utils import get_test_float8_linear_config
+from torchao.utils import (
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 torch.manual_seed(0)
 

@@ -34,7 +34,6 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 def _apply_weight_only_uint4_quant(model):
@@ -243,16 +242,10 @@ class TestUInt4(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        if TORCH_VERSION_AT_LEAST_2_5:
-            m = torch.export.texport_for_training(
-                m,
-                example_inputs,
-            ).module()
-        else:
-            m = torch._export.capture_pre_autograd_graph(
-                m,
-                example_inputs,
-            ).module()
+        m = torch.export.texport_for_training(
+            m,
+            example_inputs,
+        ).module()
 
         m = prepare_pt2e(m, quantizer)
         # Calibrate

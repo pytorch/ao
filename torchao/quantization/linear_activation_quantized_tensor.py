@@ -8,10 +8,7 @@ from typing import Any, Callable, Dict, Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "LinearActivationQuantizedTensor",
@@ -290,6 +287,5 @@ def _(func, types, args, kwargs):
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float  # Converts a float tensor to LinearActivationQuantizedTensor for dynamic activation quantization
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([LinearActivationQuantizedTensor])
+# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([LinearActivationQuantizedTensor])

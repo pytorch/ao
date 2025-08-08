@@ -13,14 +13,7 @@ TODO(future): make this run in CI
 import copy
 import os
 
-import pytest
 import torch
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 from torch.distributed._composable.fsdp import fully_shard
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.tensor.parallel import parallelize_module

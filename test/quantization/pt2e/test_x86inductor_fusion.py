@@ -26,6 +26,7 @@ from torch.testing._internal.common_utils import (
     IS_FBCODE,
     IS_LINUX,
     IS_X86,
+    TEST_ACL,
     instantiate_parametrized_tests,
     parametrize,
 )
@@ -45,15 +46,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_8,
-)
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    from torch.testing._internal.common_utils import TEST_ACL
-else:
-    TEST_ACL = False
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {

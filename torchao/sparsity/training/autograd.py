@@ -6,18 +6,14 @@
 from enum import Enum
 
 import torch
-from torch.sparse import SparseSemiStructuredTensor
+from torch.sparse import (
+    SparseSemiStructuredTensor,
+    SparseSemiStructuredTensorCUSPARSELT,
+    SparseSemiStructuredTensorCUTLASS,
+)
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
-
-if TORCH_VERSION_AT_LEAST_2_3:
-    from torch.sparse import (
-        SparseSemiStructuredTensorCUSPARSELT,
-        SparseSemiStructuredTensorCUTLASS,
-    )
-
-    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
-    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
+torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
+torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
 
 GRADIENT_TYPE = Enum("GRADIENT_TYPE", ["DENSE", "SPARSE", "STE"])

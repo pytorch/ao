@@ -11,7 +11,6 @@
 
 import torch
 
-from torchao.ops import lib
 from torchao.prototype.spinquant._hadamard_matrices import (
     get_had12,
     get_had20,
@@ -26,7 +25,6 @@ from torchao.prototype.spinquant._hadamard_matrices import (
     get_had156,
     get_had172,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 try:
     from fast_hadamard_transform import hadamard_transform as _fast_hadamard_transform
@@ -50,21 +48,14 @@ except ImportError:
 
 def register_custom_op_impl(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.custom_op(f"{name}", mutates_args=())(func)
-        else:
-            lib.define("hadamard_transform(Tensor x, float scale = 0.0) -> Tensor")
-            return torch.library.impl(f"{name}", "cuda")(func)
+        return torch.library.custom_op(f"{name}", mutates_args=())(func)
 
     return decorator
 
 
 def register_custom_op_abstract(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.register_fake(f"{name}")(func)
-        else:
-            return torch.library.impl_abstract(f"{name}")(func)
+        return torch.library.register_fake(f"{name}")(func)
 
     return decorator
 

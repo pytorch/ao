@@ -22,9 +22,6 @@ from torchao.quantization.utils import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-)
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -56,9 +53,8 @@ class TestSmoothQuant(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up class-level configuration for tests."""
-        if TORCH_VERSION_AT_LEAST_2_5:
-            # This test case will trigger recompilation many times, so set a large cache_size_limit here
-            torch._dynamo.config.cache_size_limit = 128
+        # This test case will trigger recompilation many times, so set a large cache_size_limit here
+        torch._dynamo.config.cache_size_limit = 128
 
     @unittest.skip("This test is broken on recent PyTorch, TODO(#1639): fix it")
     @common_utils.parametrize("bias", [True, False])
@@ -96,8 +92,7 @@ class TestSmoothQuant(unittest.TestCase):
         quantize_(m, SmoothQuantConfig(), is_observed_linear)
 
         # Apply compilation if supported
-        if TORCH_VERSION_AT_LEAST_2_5:
-            m = torch.compile(m, fullgraph=True)
+        m = torch.compile(m, fullgraph=True)
 
         # Step 2: Inference quantized model
         with torch.inference_mode():
@@ -213,8 +208,7 @@ class TestSmoothQuant(unittest.TestCase):
         quantize_(m, SmoothQuantConfig(), is_observed_linear)
 
         # Apply compilation if supported
-        if TORCH_VERSION_AT_LEAST_2_5:
-            m = torch.compile(m, fullgraph=True)
+        m = torch.compile(m, fullgraph=True)
 
         # Step 2: Setup save/load model with recipe functionality
         insert_smooth_quant_observer_(m_save_load, alpha, quant_mode)
@@ -231,8 +225,7 @@ class TestSmoothQuant(unittest.TestCase):
             is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
             quantize_(m_save_load, SmoothQuantConfig(), is_observed_linear)
 
-            if TORCH_VERSION_AT_LEAST_2_5:
-                m_save_load = torch.compile(m_save_load, fullgraph=True)
+            m_save_load = torch.compile(m_save_load, fullgraph=True)
 
             # Step 5: Validate outputs on full dataset
             with torch.inference_mode():

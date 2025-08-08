@@ -39,7 +39,6 @@ from torchao.quantization.quant_api import (
     UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 # Define test configurations as fixtures
 configs = [
@@ -85,10 +84,8 @@ configs = [
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step=AWQStep.PREPARE_FOR_LOADING),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
+    FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256]),
 ]
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    configs += [FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256])]
 
 
 # Create ids for better test naming

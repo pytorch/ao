@@ -27,10 +27,6 @@ import time
 import torch
 import torch.nn as nn
 from torchao.float8 import convert_to_float8_training, Float8LinearConfig
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
 M, K, N = 4096, 8192, 4096
@@ -232,10 +228,6 @@ import torch.nn.functional as F
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8 import convert_to_float8_training
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
 m = nn.Sequential(

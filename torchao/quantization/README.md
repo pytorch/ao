@@ -304,12 +304,6 @@ quantize_(m, Int4WeightOnlyConfig(group_size=group_size))
 ## If different zero_point_domain needed
 # quantize_(m, Int4WeightOnlyConfig(group_size=group_size, zero_point_domain=ZeroPointDomain.FLOAT))
 
-# temporary workaround for tensor subclass + torch.compile
-# NOTE: this is only need for torch version < 2.5+
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torchao.utils import unwrap_tensor_subclass
-if not TORCH_VERSION_AT_LEAST_2_5:
-    unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
 

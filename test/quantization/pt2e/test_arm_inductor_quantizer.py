@@ -6,12 +6,23 @@
 
 # Owner(s): ["oncall: quantization"]
 import copy
+import functools
 import itertools
+import platform
 import unittest
 from enum import Enum
 
 import torch
 import torch.nn as nn
+from torch.export import export_for_training
+from torch.testing._internal.common_quantization import (
+    NodeSpec as ns,
+)
+from torch.testing._internal.common_quantization import (
+    QuantizationTestCase,
+    skipIfNoInductorSupport,
+)
+from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
 
 import torchao.quantization.pt2e.quantizer.arm_inductor_quantizer as armiq
 from torchao.quantization.pt2e import ObserverBase
@@ -26,22 +37,7 @@ from torchao.quantization.pt2e.quantizer.arm_inductor_quantizer import (
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     QUANT_ANNOTATION_KEY,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
-
-import functools
-import platform
-
-from torch.testing._internal.common_quantization import (
-    NodeSpec as ns,
-)
-from torch.testing._internal.common_quantization import (
-    QuantizationTestCase,
-    skipIfNoInductorSupport,
-)
-from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 def skipIfNoArm(fn):

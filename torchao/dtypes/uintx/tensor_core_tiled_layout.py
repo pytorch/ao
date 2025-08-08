@@ -24,7 +24,6 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_tinygemm,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     fill_defaults,
     find_multiple,
 )
@@ -274,14 +273,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         )
 
         def quant_2d(int_data_2d):
-            if TORCH_VERSION_AT_LEAST_2_5:
-                int_data_2d = (int_data_2d[::, ::2] << 4 | int_data_2d[::, 1::2]).to(
-                    torch.uint8
-                )
-            else:
-                assert int_data_2d.dtype == torch.int32, (
-                    "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
-                )
+            int_data_2d = (int_data_2d[::, ::2] << 4 | int_data_2d[::, 1::2]).to(
+                torch.uint8
+            )
             return torch.ops.aten._convert_weight_to_int4pack(
                 int_data_2d.contiguous(), _layout.inner_k_tiles
             )

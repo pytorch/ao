@@ -9,15 +9,7 @@ import os
 from typing import Optional
 
 import torch
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-
-if TORCH_VERSION_AT_LEAST_2_4:
-    from torch._dynamo.utils import warn_once
-else:
-    import warnings
-
-    warn_once = warnings.warn
+from torch._dynamo.utils import warn_once
 from torch.sparse._triton_ops import (
     broadcast_batch_dims,
     launch_kernel,

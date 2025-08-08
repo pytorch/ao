@@ -14,24 +14,16 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_5,
-)
 
-# torch.uintx dtypes are introduced in 2.3
-if TORCH_VERSION_AT_LEAST_2_3:
-    dtypes = (
-        torch.uint1,
-        torch.uint2,
-        torch.uint3,
-        torch.uint4,
-        torch.uint5,
-        torch.uint6,
-        torch.uint7,
-    )
-else:
-    dtypes = ()
+dtypes = (
+    torch.uint1,
+    torch.uint2,
+    torch.uint3,
+    torch.uint4,
+    torch.uint5,
+    torch.uint6,
+    torch.uint7,
+)
 
 group_sizes = [32, 64, 128]
 devices = ["cpu", "cuda"]
@@ -65,9 +57,6 @@ class Linear16(torch.nn.Module):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
-)
 def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     scale = 512
     fp16_mod_on_cpu = Linear16(scale, "cpu")
@@ -86,9 +75,6 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
-)
 def test_uintx_weight_only_model_quant(dtype, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
@@ -103,9 +89,6 @@ def test_uintx_weight_only_model_quant(dtype, group_size, device):
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
-)
 def test_uintx_weight_only_quant(dtype, group_size, device):
     input_float = torch.randn((1, 256), dtype=torch.float16, device=device)
     mapping_type = MappingType.SYMMETRIC
@@ -140,9 +123,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_3, reason="sub byte dtype requires torch 2.3+"
-)
 def test_uintx_target_dtype(dtype):
     from torchao.quantization.quant_api import uintx_weight_only
 
@@ -154,10 +134,6 @@ def test_uintx_target_dtype(dtype):
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_5,
-    reason="torch.compile without unwrap_tensor_subclass requires torch 2.5+",
-)
 def test_uintx_target_dtype_compile(dtype):
     from torchao.quantization.quant_api import uintx_weight_only
 
@@ -170,9 +146,6 @@ def test_uintx_target_dtype_compile(dtype):
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-@pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_3, reason="sub byte dtype requires torch 2.3+"
-)
 def test_uintx_model_size(dtype):
     from torchao.quantization.quant_api import uintx_weight_only
     from torchao.utils import get_model_size_in_bytes
