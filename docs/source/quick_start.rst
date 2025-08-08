@@ -95,15 +95,9 @@ it is also much faster!
 .. code:: py
 
   from torchao.utils import (
-      TORCH_VERSION_AT_LEAST_2_5,
       benchmark_model,
       unwrap_tensor_subclass,
   )
-
-  # Temporary workaround for tensor subclass + torch.compile
-  # Only needed for torch version < 2.5
-  if not TORCH_VERSION_AT_LEAST_2_5:
-      unwrap_tensor_subclass(model)
 
   num_runs = 100
   torch._dynamo.reset()

@@ -8,8 +8,6 @@ from enum import Enum
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 
 # can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
 # after python 3.10 is end of life (https://devguide.python.org/versions/)
@@ -33,5 +31,4 @@ class KernelPreference(str, Enum):
     FBGEMM = "fbgemm"
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals([KernelPreference])
+torch.serialization.add_safe_globals([KernelPreference])
