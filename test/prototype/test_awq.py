@@ -15,10 +15,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig, quantize_
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-    _is_fbgemm_genai_gpu_available,
-)
+from torchao.utils import _is_fbgemm_genai_gpu_available
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -49,10 +46,6 @@ class ToyLinearModel(torch.nn.Module):
 @unittest.skipIf(
     not _is_fbgemm_genai_gpu_available(),
     reason="need to install fbgemm_gpu_genai package",
-)
-@unittest.skipIf(
-    not TORCH_VERSION_AT_LEAST_2_6,
-    reason="torch.int4 needs torch 2.6+, can remove after we are not using FbgemmConfig",
 )
 class TestAWQ(TestCase):
     def test_awq_config(self):

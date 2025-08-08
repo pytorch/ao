@@ -3,15 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import pytest
-
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 import copy
 import io
 import random
