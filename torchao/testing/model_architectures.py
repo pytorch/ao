@@ -157,6 +157,7 @@ def create_model_and_input_data(
         high_precision_dtype (torch.dtype): data type of the model
         m, k, n (int): dimensions of the model and input data
     """
+    torch.manual_seed(42)
     if model_type == "linear":
         model = ToyLinearModel(k, n, high_precision_dtype).to(device)
         input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
