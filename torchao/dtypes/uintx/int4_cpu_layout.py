@@ -21,11 +21,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _quantize_affine_tinygemm,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-    fill_defaults,
-)
+from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
 
@@ -114,29 +110,13 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(_layout, Int4CPULayout)
 
-        if TORCH_VERSION_AT_LEAST_2_6:
-            assert int_data.dtype == torch.int32, (
-                "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
-            )
-            packed_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
-                int_data,
-                1,  # TODO:remove
-            )
-        elif TORCH_VERSION_AT_LEAST_2_5:
-            int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-            assert int_data.dtype == torch.uint8, (
-                "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
-            )
-            packed_weight = torch.ops.aten._convert_weight_to_int4pack(
-                int_data, _layout.inner_k_tiles
-            )
-        else:
-            assert int_data.dtype == torch.int32, (
-                "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
-            )
-            packed_weight = torch.ops.aten._convert_weight_to_int4pack(
-                int_data, _layout.inner_k_tiles
-            )
+        assert int_data.dtype == torch.int32, (
+            "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
+        )
+        packed_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
+            int_data,
+            1,  # TODO:remove
+        )
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
@@ -284,8 +264,7 @@ def _is_float(dtype):
 
 def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
     return (
-        TORCH_VERSION_AT_LEAST_2_6
-        and is_device(input_tensor.device.type, "cpu")
+        is_device(input_tensor.device.type, "cpu")
         and is_device(weight_tensor.device.type, "cpu")
         and (bias is None or is_device(bias.device.type, "cpu"))
         and not is_traceable_wrapper_subclass(input_tensor)
@@ -300,9 +279,6 @@ def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
-    assert TORCH_VERSION_AT_LEAST_2_6, (
-        f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
-    )
     assert is_device(input_tensor.device.type, "cpu"), (
         f"For CPU device only but got: {input_tensor.device}"
     )

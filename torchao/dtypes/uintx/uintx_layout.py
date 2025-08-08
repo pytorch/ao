@@ -14,7 +14,7 @@ from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
 from torchao.dtypes.utils import (
     Layout,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TorchAOBaseTensor
+from torchao.utils import TorchAOBaseTensor
 
 from .bitpacking import pack, unpack
 
@@ -24,20 +24,17 @@ aten = torch.ops.aten
 _DTYPE_TO_BIT_WIDTH = {}
 _BIT_WIDTH_TO_DTYPE = {}
 
-if TORCH_VERSION_AT_LEAST_2_3:
-    _DTYPE_TO_BIT_WIDTH = {
-        torch.uint1: 1,
-        torch.uint2: 2,
-        torch.uint3: 3,
-        torch.uint4: 4,
-        torch.uint5: 5,
-        torch.uint6: 6,
-        torch.uint7: 7,
-    }
+_DTYPE_TO_BIT_WIDTH = {
+    torch.uint1: 1,
+    torch.uint2: 2,
+    torch.uint3: 3,
+    torch.uint4: 4,
+    torch.uint5: 5,
+    torch.uint6: 6,
+    torch.uint7: 7,
+}
 
-    _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
-else:
-    print("uintx feature requires torch 2.3+, please upgrade pytorch")
+_BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
 
 
 class UintxTensor(TorchAOBaseTensor):

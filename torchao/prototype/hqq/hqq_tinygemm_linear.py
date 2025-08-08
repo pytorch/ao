@@ -17,7 +17,7 @@ from hqq.core.utils import *  # noqa: F401, F403
 from torch import Tensor, nn
 
 from torchao.dtypes.utils import is_device
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, check_cpu_version
+from torchao.utils import check_cpu_version
 
 
 class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
@@ -209,9 +209,8 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
             .reshape(shape)
             .contiguous()
         )
-        if TORCH_VERSION_AT_LEAST_2_5:
-            if not is_device(W_q.device.type, "cpu"):
-                W_q = (W_q[::, ::2] << 4 | W_q[::, 1::2]).to(torch.uint8)
+        if not is_device(W_q.device.type, "cpu"):
+            W_q = (W_q[::, ::2] << 4 | W_q[::, 1::2]).to(torch.uint8)
 
         # group_dequantize_tensor_from_qparams
         # W_r = W_q*scales + min_val

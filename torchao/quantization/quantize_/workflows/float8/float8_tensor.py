@@ -35,7 +35,6 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     _is_fbgemm_genai_gpu_available,
     fill_defaults,
@@ -608,6 +607,5 @@ def _(func, types, args, kwargs):
 
 Float8Tensor.__module__ = "torchao.quantization"
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])
+# Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])

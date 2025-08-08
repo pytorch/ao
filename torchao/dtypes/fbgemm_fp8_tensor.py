@@ -11,7 +11,6 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     fill_defaults,
 )
@@ -265,6 +264,5 @@ def _(func, types, args, kwargs):
 to_fbgemm_fp8 = FbgemmFp8Tensor.from_float
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with FbgemmFp8Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([FbgemmFp8Tensor])
+# Allow a model with FbgemmFp8Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([FbgemmFp8Tensor])

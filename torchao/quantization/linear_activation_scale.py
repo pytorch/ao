@@ -6,10 +6,7 @@
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "WeightTensorWithLinearActivationScaleMetadata",
@@ -119,8 +116,5 @@ to_weight_tensor_with_linear_activation_scale_metadata = (
     WeightTensorWithLinearActivationScaleMetadata.from_float
 )
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals(
-        [WeightTensorWithLinearActivationScaleMetadata]
-    )
+# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([WeightTensorWithLinearActivationScaleMetadata])

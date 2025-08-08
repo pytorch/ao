@@ -24,7 +24,6 @@ from torchao.quantization.transform_module import (
 )
 from torchao.testing.model_architectures import LlamaModelsLlama4Experts
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
     DummyModule,
     get_compute_capability,
 )
@@ -419,10 +418,6 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         input_dtensor = DTensor.from_local(example_input, mesh, [Replicate()])
 
         dn_dist(up_dist(input_dtensor))
-
-        if not TORCH_VERSION_AT_LEAST_2_6:
-            # Need torch 2.6 to support compiled tensor parallelism
-            return
 
         up_compiled = torch.compile(up_dist)
         y_up = up_compiled(input_dtensor)

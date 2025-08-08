@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 import torch
 from torch._higher_order_ops.out_dtype import out_dtype  # noqa: F401
+from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
@@ -27,10 +28,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 @skipIfNoQNNPACK

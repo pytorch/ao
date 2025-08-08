@@ -42,11 +42,7 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_6,
-    check_cpu_version,
-)
+from torchao.utils import check_cpu_version
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -198,7 +194,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE, dtype=torch.bfloat16)
@@ -215,7 +210,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             model, m_ref, Int4UnifTorchaoQuantizer(), b, group_size
         )
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("b", [2, 3, 4, 8])
     @common_utils.parametrize("group_size", [32, 512])
     def test_intx_weight_only(self, b: int = 2, group_size: int = 32):
@@ -233,7 +227,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer = UnifTorchaoQuantizer()
         compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     def test_int4_weight_only_e2e(self, group_size: int = 32):
         model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
@@ -255,7 +248,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         )
         compare_parq_convert(model, m_ref, optimizer, config)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("b", [2, 3, 4, 8])
     def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
@@ -305,7 +297,6 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
             torch.testing.assert_close(q, q_ref, atol=0, rtol=0)
             torch.testing.assert_close(Q, Q_ref, atol=0, rtol=0)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("b", [2, 3])
     @common_utils.parametrize("group_size", [32, 512])
     def test_intx_weight_only(self, b: int = 2, group_size: int = 32):
@@ -327,7 +318,6 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
 
         compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("b", [2, 3])
     def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
@@ -359,7 +349,6 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("b", [2, 3, 4, 8])
     @common_utils.parametrize("model_dtype", [torch.float16, torch.float32])
     @common_utils.parametrize("group_size", [32, 128])

@@ -10,13 +10,6 @@ import unittest
 from typing import Any, List, Optional
 
 import pytest
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_89
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
-
 import torch
 import torch._dynamo.testing
 import torch.distributed as dist
@@ -47,6 +40,7 @@ from torchao.testing.training.fsdp2_utils import (
     check_parity_bf16_mp,
     check_parity_no_mp,
 )
+from torchao.utils import is_sm_at_least_89
 
 if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)

@@ -4,17 +4,15 @@
 # LICENSE file in the root directory of this source tree.
 import torch
 
+# load pointwise op support, which exists only for CUTLASS
+from torch.sparse import SparseSemiStructuredTensorCUTLASS
+
 from torchao.sparsity.training.autograd import semi_structured_sparsify
 from torchao.sparsity.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
-# load pointwise op support, which exists only for CUTLASS
-if TORCH_VERSION_AT_LEAST_2_3:
-    from torch.sparse import SparseSemiStructuredTensorCUTLASS
-
-    SparseSemiStructuredTensorCUTLASS._load_dispatch_table(
-        CUTLASS_POINTWISE_OP_DISPATCH_TABLE
-    )
+SparseSemiStructuredTensorCUTLASS._load_dispatch_table(
+    CUTLASS_POINTWISE_OP_DISPATCH_TABLE
+)
 
 __all__ = [
     "SemiSparseLinear",

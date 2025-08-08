@@ -9,10 +9,7 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import _DTYPE_TO_QVALUE_BOUNDS
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
@@ -231,6 +228,5 @@ def _(func, types, args, kwargs):
     )
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with Int8DynamicActivationLutTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([Int8DynamicActivationLutTensor])
+# Allow a model with Int8DynamicActivationLutTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int8DynamicActivationLutTensor])

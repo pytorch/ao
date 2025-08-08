@@ -11,7 +11,6 @@ from typing import Any, Optional, Tuple
 import torch
 
 from torchao.quantization.quant_primitives import _fake_quantize_affine
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 from .granularity import (
     Granularity,
@@ -373,6 +372,5 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         )
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([PerRow, PerTensor])
+# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([PerRow, PerTensor])
