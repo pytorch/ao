@@ -144,8 +144,8 @@ def compute_error(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         x: The original tensor.
         y: The tensor to compare to the original tensor.
     """
-    Ps = torch.norm(x)
-    Pn = torch.norm(x - y)
+    Ps = torch.linalg.vector_norm(x)
+    Pn = torch.linalg.vector_norm(x - y)
     return 20 * torch.log10(Ps / Pn)
 
 
