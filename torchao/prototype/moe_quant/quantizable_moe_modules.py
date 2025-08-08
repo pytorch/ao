@@ -216,7 +216,8 @@ class ExpertsAOQuantizable(nn.Module):
                 ordered_token_indices[
                     cum_tokens_per_expert[expert] : cum_tokens_per_expert[expert + 1]
                 ]
-                for expert in range(num_experts) if cum_tokens_per_expert[expert] < cum_tokens_per_expert[expert + 1]
+                for expert in range(num_experts)
+                if cum_tokens_per_expert[expert] < cum_tokens_per_expert[expert + 1]
             ]  # [T'(e1)], [T'(e2)] ...
             return token_indices_per_expert
 
@@ -256,7 +257,6 @@ class ExpertsAOQuantizable(nn.Module):
             y1 = act_fn(gate) * up
             cur_out = F.linear(y1, cur_down_proj)
             outs.append(cur_out)
-
 
         # weigh outputs
         ordered_outs = torch.cat(outs, dim=0)  # [T*A, D]
