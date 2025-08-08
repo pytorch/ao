@@ -18,9 +18,6 @@ from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
-from torchao.float8.config import ScalingGranularity
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
-from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
@@ -46,8 +43,8 @@ from torchao.quantization.qat.fake_quantize_config import (
     IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
+    Float8FakeQuantizer,
     IntxFakeQuantizer,
-    _Float8RowwiseActivationFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
@@ -58,10 +55,10 @@ from torchao.quantization.qat.linear import (
 from torchao.quantization.qat.utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _Float8RowwiseFakeQuantize,
     _get_qmin_qmax,
 )
 from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
     Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.quant_primitives import (
@@ -1736,24 +1733,6 @@ class TestQAT(unittest.TestCase):
             self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
             self.assertFalse(torch.equal(new_weight, prev_weight))
 
-    def test_float8_rowwise_fake_quantize(self):
-        """
-        Test that `_Float8RowwiseFakeQuantize` is numerically close to `Float8TrainingTensor`.
-        """
-        torch.manual_seed(self.SEED)
-        dtype = torch.float8_e4m3fn
-        x = torch.randn(32, 64)
-        axiswise_dim = 0
-        out = _Float8RowwiseFakeQuantize.apply(x, dtype, axiswise_dim)
-        out_expected = hp_tensor_to_float8_dynamic(
-            x,
-            dtype,
-            LinearMMConfig(),
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=axiswise_dim,
-        ).to_original_precision()
-        torch.testing.assert_close(out, out_expected, atol=0, rtol=0)
-
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
     )
@@ -1768,7 +1747,8 @@ class TestQAT(unittest.TestCase):
         for linear in [m.linear1, m.sub.linear, m.linear2]:
             self.assertIsInstance(linear, FakeQuantizedLinear)
             self.assertIsInstance(
-                linear.activation_fake_quantizer, _Float8RowwiseActivationFakeQuantizer
+                linear.activation_fake_quantizer,
+                Float8FakeQuantizer,
             )
             self.assertIsInstance(linear.weight_fake_quantizer, IntxFakeQuantizer)
         prev_weight = copy.deepcopy(m.linear1.weight)
@@ -1796,7 +1776,7 @@ class TestQAT(unittest.TestCase):
     )
     def test_legacy_quantize_api_e2e(self):
         """
-        Test that the following two APIs are numerically equivalent:
+        qTest that the following two APIs are numerically equivalent:
 
         New API:
             quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
@@ -1885,6 +1865,22 @@ class TestQAT(unittest.TestCase):
                     "is deprecated and will be removed in a future release",
                     str(w.message),
                 )
+
+    # TODO: parameterize to PerRow and PerTensor
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_quantize_api_fp8_fp8(self):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Float8DynamicActivationFloat8Weight(), step="prepare"))
+            quantize_(model, QATConfig(Float8DynamicActivationFloat8Weight(), step="convert"))
+        """
+        torch.manual_seed(self.SEED)
+        m = M().cuda()
+        example_inputs = (m.example_inputs()[0].cuda(),)
+        base_config = Float8DynamicActivationFloat8WeightConfig()
+        quantize_(m, QATConfig(base_config, step="prepare"))
+        quantize_(m, QATConfig(base_config, step="convert"))
+        m(*example_inputs)
 
 
 if __name__ == "__main__":

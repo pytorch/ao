@@ -11,10 +11,13 @@ from typing import Any, Optional, Tuple, Union
 import torch
 
 from torchao.core.config import AOBaseConfig
+from torchao.float8.config import e4m3_dtype
+from torchao.float8.inference import FP8Granularity
 from torchao.quantization.granularity import (
     Granularity,
     PerAxis,
     PerGroup,
+    PerRow,
     PerToken,
 )
 from torchao.quantization.quant_primitives import (
@@ -34,6 +37,28 @@ class FakeQuantizeConfigBase(abc.ABC):
     """
 
     pass
+
+
+@dataclass
+class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for float8 fake quantization, targeting :class:`~torchao.quantization.Float8Tensor`.
+
+    Args:
+       dtype (torch.dtype): the dtype for float8 Tensor
+       granularity (FP8Granularity): the granularity for the Tensor, currently either PerRow() or PerTensor()
+       hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
+       hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
+    """
+
+    dtype: torch.dtype = e4m3_dtype
+    granularity: FP8Granularity = PerRow()
+    hp_value_lb: Optional[float] = None
+    hp_value_ub: Optional[float] = None
+
+    # TODO: assert granularity and dtype are the ones we expect
+    def __post_init__(self):
+        pass
 
 
 @dataclass
@@ -291,6 +316,7 @@ def _infer_fake_quantize_configs(
     """
     # avoid circular imports
     from torchao.quantization import (
+        Float8DynamicActivationFloat8WeightConfig,
         Int4WeightOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
     )
@@ -306,14 +332,26 @@ def _infer_fake_quantize_configs(
             group_size=base_config.group_size,
             is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
         )
-        return (act_config, weight_config)
     elif isinstance(base_config, Int4WeightOnlyConfig):
+        # TODO: make this work for both fbgemm as well as tinygemm
+        act_config = None
         weight_config = IntxFakeQuantizeConfig(
             dtype=torch.uint4,
             group_size=base_config.group_size,
             is_symmetric=False,
             zero_point_domain=base_config.zero_point_domain,
         )
-        return (None, weight_config)
+    elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig):
+        act_config = Float8FakeQuantizeConfig(
+            dtype=base_config.activation_dtype,
+            granularity=base_config.granularity,
+            hp_value_lb=base_config.activation_value_lb,
+            hp_value_ub=base_config.activation_value_ub,
+        )
+        weight_config = Float8FakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=base_config.granularity,
+        )
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
+    return (act_config, weight_config)
