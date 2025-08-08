@@ -397,6 +397,9 @@ class _BoolDeprecationWrapper:
         warnings.warn(self.msg)
         return self.bool_value
 
+    def __eq__(self, other):
+        return bool(self) == bool(other)
+
 
 TORCH_VERSION_AT_LEAST_2_8 = torch_version_at_least("2.8.0")
 TORCH_VERSION_AT_LEAST_2_7 = torch_version_at_least("2.7.0")
