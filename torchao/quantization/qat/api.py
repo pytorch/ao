@@ -382,14 +382,14 @@ def initialize_fake_quantizers(
 ) -> None:
     """
     (Prototype) Initialize the scales and zero points on all
-    :class:`~torchao.quantization.qat.fake_quantizer.FakeQuantizer`
+    :class:`~torchao.quantization.qat.fake_quantizer.IntxFakeQuantizerBase`
     in the model based on the provided example inputs.
     """
     # avoid circular dependencies
-    from torchao.quantization.qat.fake_quantizer import FakeQuantizer
+    from torchao.quantization.qat.fake_quantizer import IntxFakeQuantizer
 
     def _set_initialized(m: torch.nn.Module):
-        if isinstance(m, FakeQuantizer):
+        if isinstance(m, IntxFakeQuantizer):
             m._initialized = True
 
     model.apply(_set_initialized)
