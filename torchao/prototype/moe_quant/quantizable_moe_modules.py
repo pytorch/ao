@@ -216,7 +216,7 @@ class ExpertsAOQuantizable(nn.Module):
                 ordered_token_indices[
                     cum_tokens_per_expert[expert] : cum_tokens_per_expert[expert + 1]
                 ]
-                for expert in range(num_experts)
+                for expert in range(num_experts) if cum_tokens_per_expert[expert] < cum_tokens_per_expert[expert + 1]
             ]  # [T'(e1)], [T'(e2)] ...
             return token_indices_per_expert
 
@@ -255,8 +255,7 @@ class ExpertsAOQuantizable(nn.Module):
             gate, up = F.linear(cur_x, cur_up_proj).chunk(2, dim=1)
             y1 = act_fn(gate) * up
             cur_out = F.linear(y1, cur_down_proj)
-            if cur_out.shape[0]>0:
-                outs.append(cur_out)
+            outs.append(cur_out)
 
 
         # weigh outputs
