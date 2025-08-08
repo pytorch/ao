@@ -362,7 +362,7 @@ Here is how you can use ``torch.export`` to export the model:
       {0: torch.export.Dim("dim")} if i == 0 else None
       for i in range(len(example_inputs))
     )
-    exported_model = torch.export.export_for_training(model_to_quantize, example_inputs, dynamic_shapes=dynamic_shapes).module()
+    exported_model = torch.export.export(model_to_quantize, example_inputs, dynamic_shapes=dynamic_shapes).module()
 
     # for pytorch 2.5 and before
     # dynamic_shape API may vary as well
@@ -501,7 +501,7 @@ Now we can compare the size and model accuracy with baseline model.
     # Quantized model size and accuracy
     print("Size of model after quantization")
     # export again to remove unused weights
-    quantized_model = torch.export.export_for_training(quantized_model, example_inputs).module()
+    quantized_model = torch.export.export(quantized_model, example_inputs).module()
     print_size_of_model(quantized_model)
 
     top1, top5 = evaluate(quantized_model, criterion, data_loader_test)
