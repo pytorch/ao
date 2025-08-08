@@ -17,7 +17,7 @@ from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     IntxFakeQuantizeConfig,
 )
-from .fake_quantizer import FakeQuantizer
+from .fake_quantizer import FakeQuantizerBase
 from .utils import (
     _get_qmin_qmax,
 )
@@ -66,7 +66,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             **kwargs,
         )
         if weight_config is not None:
-            self.weight_fake_quantizer = FakeQuantizer(weight_config)
+            self.weight_fake_quantizer = FakeQuantizerBase.from_config(weight_config)
         else:
             self.weight_fake_quantizer = None
 

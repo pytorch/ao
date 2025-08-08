@@ -44,6 +44,7 @@ from .observer import (
 from .quant_api import (
     CutlassInt4PackedLayout,
     FbgemmConfig,
+    Float8ActivationInt4WeightConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
@@ -90,6 +91,7 @@ from .quant_primitives import (
 from .quantize_.workflows import (
     Float8Tensor,
     Int4PreshuffledTensor,
+    Int4Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -141,6 +143,7 @@ __all__ = [
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
     "Int4WeightOnlyConfig",
+    "Float8ActivationInt4WeightConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
@@ -154,6 +157,7 @@ __all__ = [
     "ModuleFqnToConfig",
     "FbgemmConfig",
     # tensor subclasses
+    "Int4Tensor",
     "Int4PreshuffledTensor",
     "Float8Tensor",
     # smooth quant - subject to change
