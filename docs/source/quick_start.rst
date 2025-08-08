@@ -210,7 +210,7 @@ In this quick start guide, we learned how to quantize a simple model with
 torchao. To learn more about the different workflows supported in torchao,
 see our main `README <https://github.com/pytorch/ao/blob/main/README.md>`__.
 For a more detailed overview of quantization in torchao, visit
-`this page <quantization.html>`__.
+`this page <quantization_overview.html>`__.
 
 Finally, if you would like to contribute to torchao, don't forget to check
 out our `contributor guide <contributor_guide.html>`__ and our list of
