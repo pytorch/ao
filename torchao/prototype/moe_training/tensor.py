@@ -97,9 +97,12 @@ class ScaledGroupedMMTensor(torch.Tensor):
             A_is_2d = A.dim() == 2
             B_is_3d = B.dim() == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
+            other_args = args[2:]
             if A_is_2d and B_is_3d and has_offs:
                 return _scaled_grouped_mm(
-                    *args,
+                    A,
+                    B,
+                    *other_args,
                     scaling_type=scaling_type,
                     **kwargs,
                 )
