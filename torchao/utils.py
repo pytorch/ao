@@ -8,6 +8,7 @@ import importlib
 import itertools
 import re
 import time
+import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
@@ -377,13 +378,62 @@ def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
 
+# Deprecated, will be deleted in the future
+def _torch_version_after(min_version):
+    return is_fbcode() or version("torch") >= min_version
+
+
+def _get_old_torch_version_deprecation_msg(version_str: str) -> str:
+    return f"TORCH_VERSION_AT_LEAST_{version_str} is deprecated and will be removed in torchao 0.14.0"
+
+
+def _get_torch_version_after_deprecation_msg(version_str: str) -> str:
+    return f"TORCH_VERSION_AFTER_{version_str} is deprecated and will be removed in torchao 0.14.0"
+
+
+class _BoolDeprecationWrapper:
+    """
+    A deprecation wrapper that logs a warning when the given bool value is accessed.
+    """
+
+    def __init__(self, bool_value: bool, msg: str):
+        self.bool_value = bool_value
+        self.msg = msg
+
+    def __bool__(self):
+        warnings.warn(self.msg)
+        return self.bool_value
+
+
 TORCH_VERSION_AT_LEAST_2_8 = torch_version_at_least("2.8.0")
 TORCH_VERSION_AT_LEAST_2_7 = torch_version_at_least("2.7.0")
 TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
-TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
-TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
-TORCH_VERSION_AT_LEAST_2_3 = torch_version_at_least("2.3.0")
-TORCH_VERSION_AT_LEAST_2_2 = torch_version_at_least("2.2.0")
+
+# Deprecated
+TORCH_VERSION_AT_LEAST_2_5 = _BoolDeprecationWrapper(
+    torch_version_at_least("2.5.0"), _get_old_torch_version_deprecation_msg("2_5")
+)
+TORCH_VERSION_AT_LEAST_2_4 = _BoolDeprecationWrapper(
+    torch_version_at_least("2.4.0"), _get_old_torch_version_deprecation_msg("2_4")
+)
+TORCH_VERSION_AT_LEAST_2_3 = _BoolDeprecationWrapper(
+    torch_version_at_least("2.3.0"), _get_old_torch_version_deprecation_msg("2_3")
+)
+TORCH_VERSION_AT_LEAST_2_2 = _BoolDeprecationWrapper(
+    torch_version_at_least("2.2.0"), _get_old_torch_version_deprecation_msg("2_2")
+)
+TORCH_VERSION_AFTER_2_5 = _BoolDeprecationWrapper(
+    _torch_version_after("2.5.0.dev"), _get_torch_version_after_deprecation_msg("2_5")
+)
+TORCH_VERSION_AFTER_2_4 = _BoolDeprecationWrapper(
+    _torch_version_after("2.4.0.dev"), _get_torch_version_after_deprecation_msg("2_4")
+)
+TORCH_VERSION_AFTER_2_3 = _BoolDeprecationWrapper(
+    _torch_version_after("2.3.0.dev"), _get_torch_version_after_deprecation_msg("2_3")
+)
+TORCH_VERSION_AFTER_2_2 = _BoolDeprecationWrapper(
+    _torch_version_after("2.2.0.dev"), _get_torch_version_after_deprecation_msg("2_2")
+)
 
 
 """
@@ -766,11 +816,6 @@ def fill_defaults(args, n, defaults_tail):
     return r
 
 
-## Deprecated, will be deleted in the future
-def _torch_version_at_least(min_version):
-    return is_fbcode() or version("torch") >= min_version
-
-
 # Supported AMD GPU Models and their LLVM gfx Codes:
 #
 # | AMD GPU Model | LLVM gfx Code          |
@@ -855,12 +900,6 @@ def check_xpu_version(device, version="2.8.0"):
 
 def ceil_div(a, b):
     return (a + b - 1) // b
-
-
-TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = _torch_version_at_least("2.2.0.dev")
 
 
 def is_package_at_least(package_name: str, min_version: str):
