@@ -75,10 +75,12 @@ def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs
     """
     from torchao.quantization.quant_api import (
         _get_subclass_inserter,
-        _in_features_greater_than_16,
         _is_linear,
     )
     from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight
+
+    def _in_features_greater_than_16(mod, *args):
+        return hasattr(mod, "in_features") and mod.in_features > 16
 
     if filter_fn is None:
         filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
