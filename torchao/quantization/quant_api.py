@@ -120,9 +120,6 @@ from .quant_primitives import (
     ZeroPointDomain,
 )
 from .subclass import (
-    Int4WeightOnlyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
 from .unified import Quantizer, TwoStepQuantizer
