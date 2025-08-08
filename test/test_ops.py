@@ -783,12 +783,14 @@ def test_swizzle_mm():
 EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
 EMBEDINGBAG_BAG_SIZES = [1, 128]
 EMBEDINGBAG_VECTOR_SIZES = [1, 128, 512]
+EMBEDINGBAG_INDEX_DTYPES = [torch.int64, torch.int32]
 
 EMBEDINGBAG_TEST_PARAMS = list(
     itertools.product(
         EMBEDINGBAG_MULTIHOT_SIZES,
         EMBEDINGBAG_BAG_SIZES,
         EMBEDINGBAG_VECTOR_SIZES,
+        EMBEDINGBAG_INDEX_DTYPES,
     )
 )
 
@@ -798,13 +800,12 @@ EMBEDINGBAG_TEST_PARAMS = list(
     reason="cpp kernels not built",
 )
 @pytest.mark.parametrize(
-    "multi_hot, batch_size, vector_size",
+    "multi_hot, batch_size, vector_size, index_type",
     EMBEDINGBAG_TEST_PARAMS,
     ids=str,
 )
-def test_embeddingbag_cpu(multi_hot, batch_size, vector_size):
+def test_embeddingbag_cpu(multi_hot, batch_size, vector_size, index_type):
     qtype = torch.float8_e4m3fn
-    index_type = torch.int64
     dtype = torch.float32
     weight_scale = torch.tensor([2.0])
     include_last_offset = True
