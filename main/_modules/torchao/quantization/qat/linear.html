@@ -459,7 +459,7 @@
     <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">FakeQuantizer</span><span class="p">,</span>
+    <span class="n">FakeQuantizerBase</span><span class="p">,</span>
     <span class="n">_Float8RowwiseActivationFakeQuantizer</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -511,7 +511,9 @@
         <span class="p">)</span>
         <span class="c1"># initialize activation fake quantizer</span>
         <span class="k">if</span> <span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">activation_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizer</span><span class="p">(</span><span class="n">activation_config</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">activation_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizerBase</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span>
+                <span class="n">activation_config</span>
+            <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">activation_fake_quantizer</span> <span class="o">=</span> <span class="kc">None</span>
 
@@ -524,7 +526,7 @@
                         <span class="s2">&quot;in_features (</span><span class="si">%s</span><span class="s2">) </span><span class="si">%%</span><span class="s2"> group_size (</span><span class="si">%s</span><span class="s2">) must be == 0&quot;</span>
                         <span class="o">%</span> <span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
                     <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizer</span><span class="p">(</span><span class="n">weight_config</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizerBase</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="n">weight_config</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="kc">None</span>
 

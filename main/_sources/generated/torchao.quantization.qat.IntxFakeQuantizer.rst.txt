@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization.qat
 
 
-FakeQuantizer
-=============
+IntxFakeQuantizer
+=================
 
-.. autoclass:: FakeQuantizer
+.. autoclass:: IntxFakeQuantizer
     :members:

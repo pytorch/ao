@@ -809,14 +809,14 @@
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    (Prototype) Initialize the scales and zero points on all</span>
-<span class="sd">    :class:`~torchao.quantization.qat.fake_quantizer.FakeQuantizer`</span>
+<span class="sd">    :class:`~torchao.quantization.qat.fake_quantizer.IntxFakeQuantizerBase`</span>
 <span class="sd">    in the model based on the provided example inputs.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># avoid circular dependencies</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">FakeQuantizer</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntxFakeQuantizer</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_set_initialized</span><span class="p">(</span><span class="n">m</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">FakeQuantizer</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">IntxFakeQuantizer</span><span class="p">):</span>
             <span class="n">m</span><span class="o">.</span><span class="n">_initialized</span> <span class="o">=</span> <span class="kc">True</span>
 
     <span class="n">model</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">_set_initialized</span><span class="p">)</span>
