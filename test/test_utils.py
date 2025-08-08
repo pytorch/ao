@@ -58,22 +58,22 @@ class TestTorchVersion(unittest.TestCase):
                 TORCH_VERSION_AT_LEAST_2_6,
             )
 
-            deprecated_api_to_name = {
-                TORCH_VERSION_AT_LEAST_2_6: "TORCH_VERSION_AT_LEAST_2_6",
-                TORCH_VERSION_AT_LEAST_2_5: "TORCH_VERSION_AT_LEAST_2_5",
-                TORCH_VERSION_AT_LEAST_2_4: "TORCH_VERSION_AT_LEAST_2_4",
-                TORCH_VERSION_AT_LEAST_2_3: "TORCH_VERSION_AT_LEAST_2_3",
-                TORCH_VERSION_AT_LEAST_2_2: "TORCH_VERSION_AT_LEAST_2_2",
-                TORCH_VERSION_AFTER_2_5: "TORCH_VERSION_AFTER_2_5",
-                TORCH_VERSION_AFTER_2_4: "TORCH_VERSION_AFTER_2_4",
-                TORCH_VERSION_AFTER_2_3: "TORCH_VERSION_AFTER_2_3",
-                TORCH_VERSION_AFTER_2_2: "TORCH_VERSION_AFTER_2_2",
-            }
+            deprecated_api_to_name = [
+                (TORCH_VERSION_AT_LEAST_2_6, "TORCH_VERSION_AT_LEAST_2_6"),
+                (TORCH_VERSION_AT_LEAST_2_5, "TORCH_VERSION_AT_LEAST_2_5"),
+                (TORCH_VERSION_AT_LEAST_2_4, "TORCH_VERSION_AT_LEAST_2_4"),
+                (TORCH_VERSION_AT_LEAST_2_3, "TORCH_VERSION_AT_LEAST_2_3"),
+                (TORCH_VERSION_AT_LEAST_2_2, "TORCH_VERSION_AT_LEAST_2_2"),
+                (TORCH_VERSION_AFTER_2_5, "TORCH_VERSION_AFTER_2_5"),
+                (TORCH_VERSION_AFTER_2_4, "TORCH_VERSION_AFTER_2_4"),
+                (TORCH_VERSION_AFTER_2_3, "TORCH_VERSION_AFTER_2_3"),
+                (TORCH_VERSION_AFTER_2_2, "TORCH_VERSION_AFTER_2_2"),
+            ]
             self.assertEqual(len(_warnings), 0)
 
         # Accessing the boolean value should trigger deprecation warning
         with warnings.catch_warnings(record=True) as _warnings:
-            for api, name in deprecated_api_to_name.items():
+            for api, name in deprecated_api_to_name:
                 num_warnings_before = len(_warnings)
                 if api:
                     pass

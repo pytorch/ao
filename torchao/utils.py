@@ -378,17 +378,20 @@ def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
 
-# Deprecated, will be deleted in the future
-def _torch_version_after(min_version):
-    return is_fbcode() or version("torch") >= min_version
+def _deprecated_torch_version_at_least(version_str: str) -> str:
+    version_str_var_name = "_".join(version_str.split(".")[:2])
+    deprecation_msg = f"TORCH_VERSION_AT_LEAST_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
+    return _BoolDeprecationWrapper(
+        torch_version_at_least(version_str),
+        deprecation_msg,
+    )
 
 
-def _get_old_torch_version_deprecation_msg(version_str: str) -> str:
-    return f"TORCH_VERSION_AT_LEAST_{version_str} is deprecated and will be removed in torchao 0.14.0"
-
-
-def _get_torch_version_after_deprecation_msg(version_str: str) -> str:
-    return f"TORCH_VERSION_AFTER_{version_str} is deprecated and will be removed in torchao 0.14.0"
+def _deprecated_torch_version_after(version_str: str) -> str:
+    bool_value = is_fbcode() or version("torch") >= version_str
+    version_str_var_name = "_".join(version_str.split(".")[:2])
+    deprecation_msg = f"TORCH_VERSION_AFTER_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
+    return _BoolDeprecationWrapper(bool_value, deprecation_msg)
 
 
 class _BoolDeprecationWrapper:
@@ -412,33 +415,15 @@ TORCH_VERSION_AT_LEAST_2_8 = torch_version_at_least("2.8.0")
 TORCH_VERSION_AT_LEAST_2_7 = torch_version_at_least("2.7.0")
 
 # Deprecated
-TORCH_VERSION_AT_LEAST_2_6 = _BoolDeprecationWrapper(
-    torch_version_at_least("2.6.0"), _get_old_torch_version_deprecation_msg("2_6")
-)
-TORCH_VERSION_AT_LEAST_2_5 = _BoolDeprecationWrapper(
-    torch_version_at_least("2.5.0"), _get_old_torch_version_deprecation_msg("2_5")
-)
-TORCH_VERSION_AT_LEAST_2_4 = _BoolDeprecationWrapper(
-    torch_version_at_least("2.4.0"), _get_old_torch_version_deprecation_msg("2_4")
-)
-TORCH_VERSION_AT_LEAST_2_3 = _BoolDeprecationWrapper(
-    torch_version_at_least("2.3.0"), _get_old_torch_version_deprecation_msg("2_3")
-)
-TORCH_VERSION_AT_LEAST_2_2 = _BoolDeprecationWrapper(
-    torch_version_at_least("2.2.0"), _get_old_torch_version_deprecation_msg("2_2")
-)
-TORCH_VERSION_AFTER_2_5 = _BoolDeprecationWrapper(
-    _torch_version_after("2.5.0.dev"), _get_torch_version_after_deprecation_msg("2_5")
-)
-TORCH_VERSION_AFTER_2_4 = _BoolDeprecationWrapper(
-    _torch_version_after("2.4.0.dev"), _get_torch_version_after_deprecation_msg("2_4")
-)
-TORCH_VERSION_AFTER_2_3 = _BoolDeprecationWrapper(
-    _torch_version_after("2.3.0.dev"), _get_torch_version_after_deprecation_msg("2_3")
-)
-TORCH_VERSION_AFTER_2_2 = _BoolDeprecationWrapper(
-    _torch_version_after("2.2.0.dev"), _get_torch_version_after_deprecation_msg("2_2")
-)
+TORCH_VERSION_AT_LEAST_2_6 = _deprecated_torch_version_at_least("2.6.0")
+TORCH_VERSION_AT_LEAST_2_5 = _deprecated_torch_version_at_least("2.5.0")
+TORCH_VERSION_AT_LEAST_2_4 = _deprecated_torch_version_at_least("2.4.0")
+TORCH_VERSION_AT_LEAST_2_3 = _deprecated_torch_version_at_least("2.3.0")
+TORCH_VERSION_AT_LEAST_2_2 = _deprecated_torch_version_at_least("2.2.0")
+TORCH_VERSION_AFTER_2_5 = _deprecated_torch_version_after("2.5.0.dev")
+TORCH_VERSION_AFTER_2_4 = _deprecated_torch_version_after("2.4.0.dev")
+TORCH_VERSION_AFTER_2_3 = _deprecated_torch_version_after("2.3.0.dev")
+TORCH_VERSION_AFTER_2_2 = _deprecated_torch_version_after("2.2.0.dev")
 
 
 """
