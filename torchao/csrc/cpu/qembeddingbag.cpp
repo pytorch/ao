@@ -131,8 +131,10 @@ at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
   // Only support include_last_offset == True and mode ==
   // at::native::EmbeddingBagMode::SUM
   // TODO: Support more case
-  TORCH_CHECK(include_last_offset);
-  TORCH_CHECK(mode == at::native::EmbeddingBagMode::SUM);
+  TORCH_CHECK(include_last_offset,
+              "qembeddingbag: only suppport include_last_offset");
+  TORCH_CHECK(mode == at::native::EmbeddingBagMode::SUM,
+              "qembeddingbag: only suppport sum mode");
   int64_t batch_size =
       include_last_offset ? offsets.size(0) - 1 : offsets.size(0);
   int64_t emb_dim = qweight.size(1);
@@ -149,6 +151,8 @@ at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
               "qembeddingbag: only accept contiguous weight");
   TORCH_CHECK(qweight.dim() == 2,
               "qembeddingbag: only accept weight with dim == 2");
+  TORCH_CHECK(qweight.scalar_type() == c10::ScalarType::Float8_e4m3fn,
+              "qembeddingbag: only support e4m3fn weight")
   // handle last offsets
   int64_t last_offset = indices.numel();
 
