@@ -32,7 +32,7 @@ from .fake_quantize_config import (
     IntxFakeQuantizeConfig,
 )
 from .fake_quantizer import (
-    FakeQuantizer,
+    FakeQuantizerBase,
     _Float8RowwiseActivationFakeQuantizer,
 )
 from .utils import (
@@ -84,7 +84,9 @@ class FakeQuantizedLinear(torch.nn.Linear):
         )
         # initialize activation fake quantizer
         if activation_config is not None:
-            self.activation_fake_quantizer = FakeQuantizer(activation_config)
+            self.activation_fake_quantizer = FakeQuantizerBase.from_config(
+                activation_config
+            )
         else:
             self.activation_fake_quantizer = None
 
@@ -97,7 +99,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
                         "in_features (%s) %% group_size (%s) must be == 0"
                         % (in_features, group_size)
                     )
-            self.weight_fake_quantizer = FakeQuantizer(weight_config)
+            self.weight_fake_quantizer = FakeQuantizerBase.from_config(weight_config)
         else:
             self.weight_fake_quantizer = None
 
