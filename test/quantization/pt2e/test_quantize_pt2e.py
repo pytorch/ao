@@ -1578,6 +1578,38 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         }
         self.checkGraphModuleNodes(m, expected_node_occurrence=node_occurrence)
 
+    def test_custom_meta_transform_for_annotation(self):
+        class TestQuantizer(Quantizer):
+            def transform_for_annotation(
+                self, m: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                # Make a copy of the graph to ensure that we are using the
+                # return value of this function.
+                graph = torch.fx.Graph()
+                graph.graph_copy(m.graph, {})
+                model = torch.fx.GraphModule(m, graph)
+                model.meta["custom"] = {"_test_data": True}
+                return model
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def forward(self, x):
+                return x + 3
+
+        m = M().eval()
+        quantizer = TestQuantizer()
+        example_inputs = (torch.randn(1, 2, 3, 3),)
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        prepared = prepare_pt2e(m, quantizer)
+
+        custom_meta = prepared.meta.get("custom", {}).get("_test_data", False)
+        self.assertTrue(custom_meta)
+
     def test_composable_quantizer_transform_for_annotation(self):
         class TestQuantizer1(Quantizer):
             def transform_for_annotation(
