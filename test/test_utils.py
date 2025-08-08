@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+import warnings
 from unittest.mock import patch
 
 import torch
@@ -12,7 +13,7 @@ from torchao.testing.utils import skip_if_no_cuda
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
 
 
-class TestTorchVersionAtLeast(unittest.TestCase):
+class TestTorchVersion(unittest.TestCase):
     def test_torch_version_at_least(self):
         test_cases = [
             ("2.5.0a0+git9f17037", "2.5.0", True),
@@ -34,6 +35,49 @@ class TestTorchVersionAtLeast(unittest.TestCase):
                     expected_result,
                     f"Failed for torch.__version__={torch_version}, comparing with {compare_version}",
                 )
+
+    def test_torch_version_deprecation(self):
+        """
+        Test that TORCH_VERSION_AT_LEAST_2_5 and before and TORCH_VERSION_AFTER*
+        trigger a deprecation warning.
+        """
+        # Reset deprecation warning state, otherwise we won't log warnings here
+        warnings.resetwarnings()
+
+        # Importing and referencing should not trigger deprecation warning
+        with warnings.catch_warnings(record=True) as _warnings:
+            from torchao.utils import (
+                TORCH_VERSION_AFTER_2_2,
+                TORCH_VERSION_AFTER_2_3,
+                TORCH_VERSION_AFTER_2_4,
+                TORCH_VERSION_AFTER_2_5,
+                TORCH_VERSION_AT_LEAST_2_2,
+                TORCH_VERSION_AT_LEAST_2_3,
+                TORCH_VERSION_AT_LEAST_2_4,
+                TORCH_VERSION_AT_LEAST_2_5,
+            )
+
+            deprecated_api_to_name = {
+                TORCH_VERSION_AT_LEAST_2_5: "TORCH_VERSION_AT_LEAST_2_5",
+                TORCH_VERSION_AT_LEAST_2_4: "TORCH_VERSION_AT_LEAST_2_4",
+                TORCH_VERSION_AT_LEAST_2_3: "TORCH_VERSION_AT_LEAST_2_3",
+                TORCH_VERSION_AT_LEAST_2_2: "TORCH_VERSION_AT_LEAST_2_2",
+                TORCH_VERSION_AFTER_2_5: "TORCH_VERSION_AFTER_2_5",
+                TORCH_VERSION_AFTER_2_4: "TORCH_VERSION_AFTER_2_4",
+                TORCH_VERSION_AFTER_2_3: "TORCH_VERSION_AFTER_2_3",
+                TORCH_VERSION_AFTER_2_2: "TORCH_VERSION_AFTER_2_2",
+            }
+            self.assertEqual(len(_warnings), 0)
+
+        # Accessing the boolean value should trigger deprecation warning
+        with warnings.catch_warnings(record=True) as _warnings:
+            for api, name in deprecated_api_to_name.items():
+                num_warnings_before = len(_warnings)
+                if api:
+                    pass
+                regex = f"{name} is deprecated and will be removed"
+                self.assertEqual(len(_warnings), num_warnings_before + 1)
+                self.assertIn(regex, str(_warnings[-1].message))
 
 
 class TestTorchAOBaseTensor(unittest.TestCase):
