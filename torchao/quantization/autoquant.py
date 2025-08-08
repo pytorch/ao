@@ -343,9 +343,9 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-            res = benchmarker.benchmark_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
+        res = benchmarker.benchmark_gpu(
+            lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+        )
     return res
 
 
