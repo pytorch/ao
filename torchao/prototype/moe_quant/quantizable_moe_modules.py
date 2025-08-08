@@ -255,7 +255,9 @@ class ExpertsAOQuantizable(nn.Module):
             gate, up = F.linear(cur_x, cur_up_proj).chunk(2, dim=1)
             y1 = act_fn(gate) * up
             cur_out = F.linear(y1, cur_down_proj)
-            outs.append(cur_out)
+            if cur_out.shape[0]>0:
+                outs.append(cur_out)
+
 
         # weigh outputs
         ordered_outs = torch.cat(outs, dim=0)  # [T*A, D]
