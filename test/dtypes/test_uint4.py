@@ -242,10 +242,7 @@ class TestUInt4(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = torch.export.texport_for_training(
-            m,
-            example_inputs,
-        ).module()
+        m = torch.export.export(m, example_inputs).module()
 
         m = prepare_pt2e(m, quantizer)
         # Calibrate

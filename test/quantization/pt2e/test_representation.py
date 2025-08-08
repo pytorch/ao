@@ -11,7 +11,6 @@ from typing import Any, Optional
 
 import torch
 from torch._higher_order_ops.out_dtype import out_dtype  # noqa: F401
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
@@ -46,7 +45,7 @@ class TestPT2ERepresentation(QuantizationTestCase):
     ) -> torch.nn.Module:
         # resetting dynamo cache
         torch._dynamo.reset()
-        model = export_for_training(model, example_inputs, strict=True).module()
+        model = torch.export.export(model, example_inputs, strict=True).module()
         model_copy = copy.deepcopy(model)
 
         model = prepare_pt2e(model, quantizer)

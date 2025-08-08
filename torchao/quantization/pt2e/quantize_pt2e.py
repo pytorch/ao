@@ -46,7 +46,7 @@ def prepare_pt2e(
     """Prepare a model for post training quantization
 
     Args:
-      * `model` (torch.fx.GraphModule): a model captured by `torch.export.export_for_training` API.
+      * `model` (torch.fx.GraphModule): a model captured by `torch.export.export` API.
       * `quantizer`: A backend specific quantizer that conveys how user want the
         model to be quantized. Tutorial for how to write a quantizer can be found here:
         https://pytorch.org/tutorials/prototype/pt2e_quantizer.html
@@ -84,7 +84,7 @@ def prepare_pt2e(
         # Step 1. program capture
         # NOTE: this API will be updated to torch.export API in the future, but the captured
         # result shoud mostly stay the same
-        m = torch.export.export_for_training(m, *example_inputs).module()
+        m = torch.export.export(m, *example_inputs).module()
         # we get a model with aten ops
 
         # Step 2. quantization
@@ -169,7 +169,7 @@ def prepare_qat_pt2e(
         # Step 1. program capture
         # NOTE: this API will be updated to torch.export API in the future, but the captured
         # result shoud mostly stay the same
-        m = torch.export.export_for_training(m, *example_inputs).module()
+        m = torch.export.export(m, *example_inputs).module()
         # we get a model with aten ops
 
         # Step 2. quantization
