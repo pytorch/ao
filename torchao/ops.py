@@ -70,6 +70,9 @@ lib.define(
 lib.define(
     "da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor"
 )
+lib.define(
+    "qembeddingbag(Tensor qweight, Tensor indices, Tensor offsets, Tensor weight_scale, float o_scale, int mode, bool include_last_offset) -> Tensor"
+)
 
 
 def register_custom_op(name):
@@ -1106,3 +1109,19 @@ def _(
     assert weight.dim() == 4
     N = weight.size(0) * weight.size(3) * 2
     return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)
+
+
+@register_custom_op("torchao::qembeddingbag")
+def _(
+    qweight: Tensor,
+    indices: Tensor,
+    offsets: Tensor,
+    w_scales: Tensor,
+    o_scale: float,
+    mode: int,
+    include_last_offset: bool,
+) -> Tensor:
+    assert include_last_offset == True
+    # if include_last_offset:
+    batch_size = offsets.shape[0] - 1
+    return qweight.new_empty(batch_size, qweight.shape[1], dtype=qweight.dtype)
