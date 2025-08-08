@@ -82,6 +82,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
             *args,
             **kwargs,
         )
+        torch._C._log_api_usage_once("torchao.quantization.qat.FakeQuantizedLinear")
         # initialize activation fake quantizer
         if activation_config is not None:
             self.activation_fake_quantizer = FakeQuantizerBase.from_config(
@@ -211,6 +212,9 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer"
+        )
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
@@ -414,6 +418,9 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
         scales_precision: torch.dtype = torch.bfloat16,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int4WeightOnlyQATQuantizer"
+        )
         assert inner_k_tiles in [2, 4, 8]
         assert groupsize in [32, 64, 128, 256]
         self.inner_k_tiles = inner_k_tiles
@@ -598,6 +605,9 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         group_size: Optional[int] = 64,
         scale_precision: torch.dtype = torch.bfloat16,
     ):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Float8ActInt4WeightQATQuantizer"
+        )
         if group_size is not None:
             weight_granularity = "per_group"
         else:

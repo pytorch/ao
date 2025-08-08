@@ -233,6 +233,7 @@ class Adam8bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        torch._C._log_api_usage_once("torchao.optim.Adam8bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -263,6 +264,7 @@ class Adam4bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        torch._C._log_api_usage_once("torchao.optim.Adam4bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -293,6 +295,7 @@ class AdamFp8(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamFp8")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -323,6 +326,7 @@ class AdamW8bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamW8bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -353,6 +357,7 @@ class AdamW4bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamW4bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -383,6 +388,7 @@ class AdamWFp8(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamWFp8")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
