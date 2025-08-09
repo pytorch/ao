@@ -76,7 +76,7 @@ class TestTorchAOBaseTensor(unittest.TestCase):
                 self.qdata = qdata
                 self.attr = attr
 
-        l = torch.nn.Linear(1, 1)
+        l = torch.nn.Linear(2, 3)
         l.weight = torch.nn.Parameter(MyTensor(l.weight, "attr"))
         lp_tensor = l.weight
         # test __tensor_flatten__ and __tensor_unflatten__
@@ -107,18 +107,24 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         # explicitly testing aten.alias
         lp_tensor = torch.ops.aten.alias(lp_tensor)
         lp_tensor = lp_tensor.clone()
+        # making qdata not contiguous
+        lp_tensor.qdata = lp_tensor.qdata.transpose(0, 1).contiguous()
+        lp_tensor.qdata = lp_tensor.qdata.transpose(0, 1)
+        self.assertFalse(lp_tensor.qdata.is_contiguous())
         lp_tensor = lp_tensor.contiguous()
+        # making sure contiguous call works
+        self.assertTrue(lp_tensor.qdata.is_contiguous())
 
         # copy_
-        another_tensor = torch.nn.Linear(1, 1).weight
+        another_tensor = torch.nn.Linear(2, 3).weight
         # attribute has to be the same
         another_lp_tensor = MyTensor(another_tensor, "attr")
         # initially tensor values are not the same
-        self.assertNotEqual(lp_tensor.qdata[0], another_lp_tensor.qdata[0])
+        self.assertNotEqual(lp_tensor.qdata[0][0], another_lp_tensor.qdata[0][0])
         lp_tensor.copy_(another_lp_tensor)
         self.assertEqual(lp_tensor.attr, "attr")
         # after copy_, the tensor values should match
-        self.assertEqual(lp_tensor.qdata[0], another_lp_tensor.qdata[0])
+        self.assertEqual(lp_tensor.qdata[0][0], another_lp_tensor.qdata[0][0])
 
 
 if __name__ == "__main__":
