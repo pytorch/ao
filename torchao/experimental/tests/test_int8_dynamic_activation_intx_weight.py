@@ -639,13 +639,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
     def test_moe_quant_intx(self):
         from torchao.prototype.moe_quant.quantizable_moe_modules import (
-            MOEFeedForwardAOQuantizable,
+            MoEFeedForwardAOQuantizable,
         )
         from torchao.prototype.moe_quant.utils import (
             FakeExtraDimTensor,
             MoEQuantConfig,
             UseFakeExtraDimTensor,
-            cond_ffn_filter,
         )
         from torchao.quantization.quant_api import (
             Int8DynamicActivationIntxWeightConfig,
@@ -655,10 +654,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         from torchao.quantization.utils import compute_error
 
         with torch.device("cpu"):
-            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
-                torch.float32
+            model = torch.nn.Sequential(
+                MoEFeedForwardAOQuantizable(
+                    2, 512, 256, 2, empty_init=False, decompose_grouped_mm=True
+                ).to(torch.float32)
             )
-            x = torch.randn(8, 512, dtype=torch.float32)
+            x = torch.randn(64, 512, dtype=torch.float32)
 
         out = model(x).clone()
 
@@ -666,13 +667,17 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             layout=PackedLinearInt8DynamicActivationIntxWeightLayout()
         )
         moe_config = MoEQuantConfig(
-            base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+            base_config=base_config,
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
         )
 
-        quantize_(model, moe_config, cond_ffn_filter)
+        def _moe_filter(mod, fqn):
+            return isinstance(mod, MoEFeedForwardAOQuantizable)
+
+        quantize_(model, moe_config, _moe_filter)
 
         out_q = model(x).clone()
-        assert isinstance(model.experts.w1, FakeExtraDimTensor)
+        assert isinstance(model.experts.up_proj, FakeExtraDimTensor)
 
         mod_c = torch.compile(model, mode="reduce-overhead")
 

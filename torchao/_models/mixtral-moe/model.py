@@ -11,8 +11,6 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
 
-from torchao.prototype.moe_quant.utils import FakeExtraDimTensor
-
 
 def find_multiple(n: int, k: int) -> int:
     if n % k == 0:
@@ -156,7 +154,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, config: ModelArgs) -> None:
         super().__init__()
         self.attention = Attention(config)
-        self.block_sparse_moe = MOEFeedForwardAOQuantizable(config)
+        self.block_sparse_moe = MoEFeedForward(config)
         self.ffn_norm = RMSNorm(config.dim, config.norm_eps)
         self.attention_norm = RMSNorm(config.dim, config.norm_eps)
 
@@ -226,40 +224,49 @@ class Attention(nn.Module):
         return y
 
 
-# class ConditionalFeedForward(nn.Module):
-#     def __init__(self, config):
-#         super().__init__()
-#         self.w1 = nn.Parameter(torch.empty(config.num_experts, config.intermediate_size, config.dim))
-#         self.w2 = nn.Parameter(torch.empty(config.num_experts, config.dim, config.intermediate_size))
-#         self.w3 = nn.Parameter(torch.empty(config.num_experts, config.intermediate_size, config.dim))
+class MoEFeedForward(nn.Module):
+    def __init__(self, config) -> None:
+        super().__init__()
+        self.gate = nn.Linear(config.dim, config.num_experts, bias=False)
+        self.cond_ffn = ConditionalFeedForward(config)
+        self.dim = config.dim
+        self.num_activated_experts = config.num_activated_experts
 
-#     def forward(self, x: Tensor, expert_indices: Tensor) -> Tensor:
-#         w1_weights = self.w1[expert_indices] # [T, A, D, D]
-#         w3_weights = self.w3[expert_indices] # [T, A, D, D]
-#         w2_weights = self.w2[expert_indices]  # [T, A, D, D]
-#         x1 = F.silu(torch.einsum('ti,taoi -> tao', x, w1_weights))
-#         x3 = torch.einsum('ti, taoi -> tao', x, w3_weights)
-#         expert_outs =  torch.einsum('tao, taio -> tai', (x1 * x3), w2_weights)
-#         return expert_outs
+    def forward(self, x: Tensor) -> Tensor:
+        x = x.view(-1, self.dim)
+        # T = num_tokens, E = num_experts, D = hidden dim, A = activated experts
+        # x: [T, D]
+        scores = self.gate(x)  # [T, E]
+        expert_weights = F.softmax(scores, dim=-1)
+        expert_weights, expert_indices = torch.topk(
+            expert_weights, self.num_activated_experts, dim=-1
+        )  # [T, A], [T, A]
+        expert_weights /= expert_weights.sum(dim=-1, keepdim=True)  # [T, A]
+        expert_outs = self.cond_ffn(x, expert_indices)
+        return torch.einsum("tai,ta -> ti", expert_outs, expert_weights)
 
 
-# class MOEFeedForward(nn.Module):
-#     def __init__(self, config) -> None:
-#         super().__init__()
-#         self.gate = nn.Linear(config.dim, config.num_experts, bias=False)
-#         self.cond_ffn = ConditionalFeedForward(config)
-#         self.dim = config.dim
-#         self.num_activated_experts = config.num_activated_experts
-#     def forward(self, x: Tensor) -> Tensor:
-#         x = x.view(-1, self.dim)
-#         # T = num_tokens, E = num_experts, D = hidden dim, A = activated experts
-#         # x: [T, D]
-#         scores = self.gate(x) # [T, E]
-#         expert_weights = F.softmax(scores, dim=-1)
-#         expert_weights, expert_indices = torch.topk(expert_weights, self.num_activated_experts, dim=-1) # [T, A], [T, A]
-#         expert_weights /= expert_weights.sum(dim=-1, keepdim=True) # [T, A]
-#         expert_outs = self.cond_ffn(x, expert_indices)
-#         return torch.einsum('tai,ta -> ti', expert_outs, expert_weights)
+class ConditionalFeedForward(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.w1 = nn.Parameter(
+            torch.empty(config.num_experts, config.intermediate_size, config.dim)
+        )
+        self.w2 = nn.Parameter(
+            torch.empty(config.num_experts, config.dim, config.intermediate_size)
+        )
+        self.w3 = nn.Parameter(
+            torch.empty(config.num_experts, config.intermediate_size, config.dim)
+        )
+
+    def forward(self, x: Tensor, expert_indices: Tensor) -> Tensor:
+        w1_weights = self.w1[expert_indices]  # [T, A, D, D]
+        w3_weights = self.w3[expert_indices]  # [T, A, D, D]
+        w2_weights = self.w2[expert_indices]  # [T, A, D, D]
+        x1 = F.silu(torch.einsum("ti,taoi -> tao", x, w1_weights))
+        x3 = torch.einsum("ti, taoi -> tao", x, w3_weights)
+        expert_outs = torch.einsum("tao, taio -> tai", (x1 * x3), w2_weights)
+        return expert_outs
 
 
 class RMSNorm(nn.Module):
@@ -300,165 +307,3 @@ def apply_rotary_emb(x: Tensor, freqs_cis: Tensor) -> Tensor:
 
     x_out2 = x_out2.flatten(3)
     return x_out2.type_as(x)
-
-
-# T tokens
-# E experts
-# D dim
-# I intermediate dim
-# A activated experts
-# T'(e) tokens for expert e
-
-
-class MOEFeedForwardAOQuantizable(nn.Module):
-    def __init__(self, config) -> None:
-        super().__init__()
-        self.gate = nn.Linear(config.dim, config.num_experts, bias=False)
-        self.cond_ffn = ConditionalFeedForwardAOQuantizable(config)
-        self.dim = config.dim
-        self.num_activated_experts = config.num_activated_experts
-
-    def forward(self, x: Tensor) -> Tensor:
-        batch_size = x.shape[0]
-        x = x.view(-1, self.dim)  # x: [T, D]
-        scores = self.gate(x)  # [T, E]
-        expert_weights = F.softmax(scores, dim=-1)
-        expert_weights, expert_indices = torch.topk(
-            expert_weights, self.num_activated_experts, dim=-1
-        )  # [T, A], [T, A]
-        expert_weights /= expert_weights.sum(dim=-1, keepdim=True).to(x.dtype)  # [T, A]
-        out = self.cond_ffn(
-            x, expert_indices, expert_weights, self.num_activated_experts
-        )
-        return out.reshape(batch_size, -1, self.dim)
-
-
-class ConditionalFeedForwardAOQuantizable(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self.w1 = nn.Parameter(
-            torch.empty(config.num_experts, config.intermediate_size, config.dim)
-        )  # E, I, D
-        self.w2 = nn.Parameter(
-            torch.empty(config.num_experts, config.dim, config.intermediate_size)
-        )  # E, D, I
-        self.w3 = nn.Parameter(
-            torch.empty(config.num_experts, config.intermediate_size, config.dim)
-        )  # E, I, D
-        self.num_experts = config.num_experts
-
-    def forward(
-        self,
-        x: Tensor,  # T, D
-        expert_indices: Tensor,  # T, A
-        expert_weights: Tensor,  # T, A
-        num_activated_experts: int,
-    ) -> Tensor:
-        num_tokens, dim = x.shape
-        num_token_activations = num_tokens * num_activated_experts
-        if x.shape[0] == 1 and not isinstance(
-            self.w1, FakeExtraDimTensor
-        ):  # only 1 token (can be done without graph breaks when compiled)
-            outs = []
-            expert_indices = expert_indices.view(num_activated_experts)
-            # collect used experts
-            w1 = self.w1[expert_indices]
-            w2 = self.w2[expert_indices]
-            w3 = self.w3[expert_indices]
-
-            # run token through each expert
-            for index in range(num_activated_experts):
-                y1 = F.silu(F.linear(x, w1[index]))
-                y3 = F.linear(x, w3[index])
-                y2 = w2[index]
-                cur_out = F.linear(y1 * y3, y2)
-                outs.append(cur_out)
-
-            # combine outputs
-            final_out = (
-                (torch.cat(outs, dim=0) * expert_weights.view(-1, 1))
-                .sum(dim=0)
-                .unsqueeze(-1)
-            )
-            return final_out
-        else:
-            expert_list = [x for x in range(self.num_experts)]
-
-            # shuffle tokens into groups for each expert
-            ordered_token_activations = expert_indices.view(-1).argsort(
-                stable=True
-            )  # [A]
-            ordered_token_indices = (
-                ordered_token_activations.div(num_activated_experts)
-                .floor()
-                .to(torch.int64)
-            )  #  [T]
-
-            if not expert_indices.is_cuda:  # histc doesn't work on cpu for integers
-                num_tokens_per_expert = torch.bincount(
-                    expert_indices.view(-1) + 1, minlength=self.num_experts + 1
-                )
-            else:
-                num_tokens_per_expert = torch.histc(
-                    expert_indices,
-                    bins=self.num_experts + 1,
-                    min=-1,
-                    max=self.num_experts,
-                )  #  [E+1] (added leading 0 so can be used for indexing)
-            cum_tokens_per_expert = num_tokens_per_expert.cumsum(0).to(
-                torch.int64
-            )  #  [E+1]
-
-            @torch._dynamo.disable()
-            def group_tokens_by_expert(
-                ordered_token_indices, cum_tokens_per_expert, expert_list
-            ):
-                token_indices_per_expert = [
-                    ordered_token_indices[
-                        cum_tokens_per_expert[expert] : cum_tokens_per_expert[
-                            expert + 1
-                        ]
-                    ]
-                    for expert in expert_list
-                ]  # [T'(e1)], [T'(e2)] ...
-                return token_indices_per_expert
-
-            token_indices_per_expert = group_tokens_by_expert(
-                ordered_token_indices, cum_tokens_per_expert, expert_list
-            )
-            tokens_grouped_by_expert = [
-                x[indices] for indices in token_indices_per_expert
-            ]
-
-            # calculate outputs for each expert
-            outs = []
-            for cur_x, expert in zip(tokens_grouped_by_expert, expert_list):
-                w1 = self.w1[expert]  # I, D
-                w2 = self.w2[expert]  # D, I
-                w3 = self.w3[expert]  # I, D
-
-                cur_out = F.linear(
-                    F.silu(F.linear(cur_x, w1)) * F.linear(cur_x, w3), w2
-                )  # [T'(e), D]
-                outs.append(cur_out)
-
-            # weigh outputs
-            ordered_outs = torch.cat(outs, dim=0)  # [T*A, D]
-            ordered_token_activation_weights = expert_weights.view(-1, 1)[
-                ordered_token_activations
-            ].view(-1, 1)  # [T*A, 1]
-            weighted_ordered_outs = (
-                ordered_outs * ordered_token_activation_weights
-            )  # [T*A, D]
-
-            # sum weighted token-activation outputs together for each token
-            final_out = torch.zeros_like(x)  #  [T, D]
-            final_out = final_out.scatter_add(
-                dim=0,
-                index=ordered_token_indices.unsqueeze(-1)
-                .expand(num_token_activations, dim)
-                .to(torch.int64),
-                src=weighted_ordered_outs,
-            )
-        return final_out

@@ -21,6 +21,12 @@ __all__ = [
 aten = torch.ops.aten
 
 
+grouped_mm = [
+    aten._grouped_mm.default if hasattr(aten, "_grouped_mm") else None,
+    torch._grouped_mm if hasattr(torch, "_grouped_mm") else None,
+]
+
+
 class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     """
     Applies activation quantization for linear operator, this is used to support
@@ -82,8 +88,15 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     def _quantized_linear_op(
         input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
     ):
-        if input_tensor.numel() == 0:
-            return input_tensor
+        if (
+            input_tensor.numel() == 0
+        ):  # need to actually return the correct shape for compile
+            return torch.empty(
+                input_tensor.shape[0],
+                weight_tensor.shape[0],
+                dtype=input_tensor.dtype,
+                device=input_tensor.device,
+            )
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
         quant_kwargs = weight_tensor.quant_kwargs
@@ -186,6 +199,19 @@ def _(func, types, args, kwargs):
         return func(qtensor, original_weight_tensor)
 
 
+@implements(grouped_mm)
+def _(func, types, args, kwargs):
+    kwargs = {} if kwargs is None else kwargs
+    input_tensor, weight_tensor, offs = args[0], args[1], args[2]
+    assert len(args) == 3 and kwargs == {}, (
+        "grouped_mm_only implemented for 3 args in ao"
+    )
+    input_quant_func = weight_tensor.input_quant_func
+    original_weight_tensor = weight_tensor.original_weight_tensor
+    qtensor = input_quant_func(input_tensor, **weight_tensor.quant_kwargs)
+    return func(qtensor, original_weight_tensor, offs)
+
+
 @implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
@@ -228,6 +254,16 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
+    )
+
+
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(lambda x: torch.transpose(x, *args[1:])),
     )
 
 
