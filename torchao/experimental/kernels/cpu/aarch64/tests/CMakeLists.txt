@@ -128,6 +128,14 @@ target_link_libraries(
     dep
 )
 
+add_executable(test_bitpack_fallback_compatibility test_bitpack_fallback_compatibility.cpp)
+target_link_libraries(
+  test_bitpack_fallback_compatibility
+    PRIVATE
+    GTest::gtest_main
+    dep
+)
+
 include(GoogleTest)
 gtest_discover_tests(test_quantization)
 gtest_discover_tests(test_reduction)
@@ -137,3 +145,4 @@ gtest_discover_tests(test_embedding)
 gtest_discover_tests(test_weight_packing)
 gtest_discover_tests(test_qmatmul)
 gtest_discover_tests(test_lut)
+gtest_discover_tests(test_bitpack_fallback_compatibility)
