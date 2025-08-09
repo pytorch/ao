@@ -48,7 +48,7 @@ def _scaled_grouped_mm(
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
     if scaling_type == MoEScalingType.FP8_ROWWISE:
-        logger.info("Using fp8 rowwise scaled_grouped_mm")
+        print("Using fp8 rowwise scaled_grouped_mm")
         return _Float8GroupedMM.apply(
             A,
             B_t,
@@ -56,7 +56,7 @@ def _scaled_grouped_mm(
             out_dtype,
         )
     elif scaling_type == MoEScalingType.MXFP8:
-        logger.info("Using mxfp8 scaled_grouped_mm")
+        print("Using mxfp8 scaled_grouped_mm")
         block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
         return _MXFP8GroupedMM.apply(
             A,
@@ -144,7 +144,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         # low precision B tensor instead of the high precision B tensor.
         # In the backward this is needed for grad_A: grad_output @ B.
         B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
-            B_t,
+            B_t._data,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )

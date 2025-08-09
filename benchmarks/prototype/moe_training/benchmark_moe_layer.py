@@ -30,16 +30,18 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
 from torchao.quantization.quant_api import quantize_
 
-# this test requires torchtitan
+# this benchmark requires torchtitan
 try:
-    from torchtitan.experiments.llama4.infra.expert_parallel import (
+    from torchtitan.distributed.expert_parallel import (
         set_token_group_alignment_size_m,
     )
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
@@ -54,16 +56,15 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
 
     # define model args
     target_fqns = ["experts"]
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=16,
-        dim=5120,
     )
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    dim, hidden_dim = 5120, 4 * 5120
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
 
@@ -82,7 +83,7 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
         return False
 
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(scaling_type=MoEScalingType.FP8_ROWWISE)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # FSDP2
@@ -90,11 +91,18 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
     fully_shard(ref_model)
 
     # inputs (llama4 shapes)
-    batch, seq, dim = 1, 8192, 5120
+    batch, seq = 1, 8192
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
     x = ref_x.detach().clone().requires_grad_(True)
+
+    def warmup(model, input):
+        for _ in range(3):
+            out = model(input)
+            loss = F.mse_loss(out, torch.ones_like(out))
+            loss.backward()
+            torch.cuda.synchronize()
 
     def bench_fn_microseconds(model, input):
         labels = torch.ones_like(input)
@@ -142,6 +150,7 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
     model = torch.compile(model, fullgraph=False)
 
     print("Benchmarking MoE with FSDP2 using bf16 training")
+    warmup(ref_model, ref_x)
     bf16_us = bench_fn_microseconds(ref_model, ref_x)
     print(f"bf16 time: {bf16_us} us")
     if enable_profile:
@@ -152,6 +161,7 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
     set_token_group_alignment_size_m(16)
 
     print("Benchmarking MoE with FSDP2 using fp8 rowwise training")
+    warmup(model, x)
     fp8_us = bench_fn_microseconds(model, x)
     print(f"fp8 time: {fp8_us} us")
     if enable_profile:
