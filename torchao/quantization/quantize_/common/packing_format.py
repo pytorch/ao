@@ -35,3 +35,8 @@ class PackingFormat(str, Enum):
     marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization
     """
     MARLIN_SPARSE = "marlin_sparse"
+    
+    """
+    Unpacked means the subbyte quantized data is stored as int8
+    """
+    UNPACKED = "unpacked"
