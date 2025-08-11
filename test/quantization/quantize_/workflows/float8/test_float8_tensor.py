@@ -24,6 +24,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -31,7 +32,6 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
-from torchao.testing.model_architectures import ToyLinearModel
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
