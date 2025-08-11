@@ -15,34 +15,11 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig, quantize_
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     _is_fbgemm_genai_gpu_available,
 )
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=512, n=256, k=128):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
-        self.linear3 = torch.nn.Linear(k, 64, bias=False)
-
-    def example_inputs(
-        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
-    ):
-        return [
-            torch.randn(
-                1, sequence_length, self.linear1.in_features, dtype=dtype, device=device
-            )
-            for j in range(batch_size)
-        ]
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        x = self.linear3(x)
-        return x
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")

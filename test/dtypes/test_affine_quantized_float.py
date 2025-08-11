@@ -45,6 +45,7 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_float8,
     choose_qparams_affine,
 )
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -53,18 +54,6 @@ from torchao.utils import (
 
 random.seed(0)
 torch.manual_seed(0)
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 class TestAffineQuantizedFloat8Compile(InductorTestCase):

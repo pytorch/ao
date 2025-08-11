@@ -31,21 +31,10 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
+from torchao.testing.model_architectures import ToyLinearModel
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations

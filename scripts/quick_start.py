@@ -8,6 +8,7 @@ import copy
 import torch
 
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     benchmark_model,
@@ -17,19 +18,6 @@ from torchao.utils import (
 # ================
 # | Set up model |
 # ================
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m: int, n: int, k: int):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
 
 model = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
 

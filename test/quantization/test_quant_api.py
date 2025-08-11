@@ -64,6 +64,7 @@ from torchao.quantization.subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
@@ -129,25 +130,6 @@ class TorchCompileDynamicQuantizer(Quantizer):
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
         quantize_(model, int8_dynamic_activation_int8_weight())
         return model
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64, bias=False):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
-
-    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
-        return (
-            torch.randn(
-                batch_size, self.linear1.in_features, dtype=dtype, device=device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):

@@ -20,6 +20,7 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
 )
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -60,32 +61,6 @@ def _int4wo_api(mod, **kwargs):
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod, **kwargs)
-
-
-class ToyLinearModel(torch.nn.Module):
-    """Single linear for m * k * n problem size"""
-
-    def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
-    ):
-        super().__init__()
-        self.m = m
-        self.dtype = dtype
-        self.device = device
-        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
-            dtype=self.dtype, device=self.device
-        )
-
-    def example_inputs(self):
-        return (
-            torch.randn(
-                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear(x)
-        return x
 
 
 def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
