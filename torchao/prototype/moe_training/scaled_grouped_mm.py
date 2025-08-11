@@ -13,8 +13,8 @@ from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
@@ -230,7 +230,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_B: grad_output_t @ A
         grad_output_t_fp8_row_major, grad_output_t_scales = (
-            triton_fp8_row_major_jagged_rowwise_scales(
+            triton_fp8_per_group_rowwise_scales(
                 grad_output.transpose(-2, -1),
                 offs,
                 torch.float8_e4m3fn,
@@ -238,7 +238,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             )
         )
 
-        A_fp8_col_major, A_scales = triton_fp8_col_major_jagged_colwise_scales(
+        A_fp8_col_major, A_scales = triton_fp8_per_group_colwise_scales(
             A,
             offs,
             torch.float8_e4m3fn,

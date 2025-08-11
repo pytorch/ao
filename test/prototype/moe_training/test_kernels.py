@@ -23,8 +23,8 @@ from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
@@ -52,7 +52,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
         target_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
-    kernel_fp8_data, kernel_scales = triton_fp8_row_major_jagged_rowwise_scales(
+    kernel_fp8_data, kernel_scales = triton_fp8_per_group_rowwise_scales(
         x,
         colwise_offs,
         output_dtype=torch.float8_e4m3fn,
@@ -80,7 +80,7 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
         target_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
-    kernel_fp8_data, kernel_scales = triton_fp8_col_major_jagged_colwise_scales(
+    kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
         x,
         rowwise_offs,
         output_dtype=torch.float8_e4m3fn,
