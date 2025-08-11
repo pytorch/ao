@@ -2060,6 +2060,7 @@ def _intx_weight_only_quantize_tensor(weight, config):
         zero_point_domain=ZeroPointDomain.INT,
         _layout=layout,
     )
+    return weight
 
 
 @register_quantize_module_handler(IntxWeightOnlyConfig)
