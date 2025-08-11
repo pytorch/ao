@@ -21,7 +21,12 @@ from torchao import quantize_
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_training_tensor import LinearMMConfig
-from torchao.quantization.granularity import PerAxis, PerGroup, PerRow, PerToken
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerGroup,
+    PerRow,
+    PerToken,
+)
 from torchao.quantization.linear_quant_modules import (
     _replace_linear_8da4w,
     _replace_linear_int4,
@@ -29,16 +34,16 @@ from torchao.quantization.linear_quant_modules import (
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FromIntXQuantizationAwareTrainingConfig,
-    initialize_fake_quantizers,
     IntXQuantizationAwareTrainingConfig,
     QATConfig,
     QATStep,
+    initialize_fake_quantizers,
 )
 from torchao.quantization.qat.embedding import FakeQuantizedEmbedding
 from torchao.quantization.qat.fake_quantize_config import IntxFakeQuantizeConfig
 from torchao.quantization.qat.fake_quantizer import (
-    _Float8RowwiseActivationFakeQuantizer,
     IntxFakeQuantizer,
+    _Float8RowwiseActivationFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
@@ -52,17 +57,21 @@ from torchao.quantization.qat.utils import (
     _Float8RowwiseFakeQuantize,
     _get_qmin_qmax,
 )
-from torchao.quantization.quant_api import Int8DynamicActivationInt4WeightConfig
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationInt4WeightConfig,
+)
 from torchao.quantization.quant_primitives import (
+    MappingType,
+    TorchAODType,
+    ZeroPointDomain,
     _fake_quantize_affine,
     choose_qparams_affine,
     dequantize_affine,
-    MappingType,
     quantize_affine,
-    TorchAODType,
-    ZeroPointDomain,
 )
-from torchao.quantization.unified import TwoStepQuantizer
+from torchao.quantization.unified import (
+    TwoStepQuantizer,
+)
 from torchao.quantization.utils import (
     _get_per_token_block_size,
     compute_error,
@@ -421,9 +430,9 @@ class TestQAT(unittest.TestCase):
         Test that 8da4w QAT with disabled fake quant matches nn.Linear in forward.
         """
         from torchao.quantization.qat.linear import (
+            Int8DynActInt4WeightQATQuantizer,
             disable_8da4w_fake_quant,
             enable_8da4w_fake_quant,
-            Int8DynActInt4WeightQATQuantizer,
         )
 
         group_size = 16
@@ -482,8 +491,8 @@ class TestQAT(unittest.TestCase):
         Test that 8da4w QAT with disabled fake quant matches nn.Linear in backward.
         """
         from torchao.quantization.qat.linear import (
-            disable_8da4w_fake_quant,
             Int8DynActInt4WeightQATQuantizer,
+            disable_8da4w_fake_quant,
         )
 
         group_size = 16
@@ -1201,20 +1210,20 @@ class TestQAT(unittest.TestCase):
         We will remove this test in the near future when we actually break BC.
         """
         from torchao.quantization.prototype.qat import (  # noqa: F401, F811, I001
-            ComposableQATQuantizer,
             disable_4w_fake_quant,
             disable_8da4w_fake_quant,
             enable_4w_fake_quant,
             enable_8da4w_fake_quant,
+            ComposableQATQuantizer,
+            Int8DynActInt4WeightQATLinear,
             Int4WeightOnlyEmbeddingQATQuantizer,
             Int4WeightOnlyQATQuantizer,
-            Int8DynActInt4WeightQATLinear,
             Int8DynActInt4WeightQATQuantizer,
         )
         from torchao.quantization.prototype.qat._module_swap_api import (  # noqa: F401, F811
             disable_4w_fake_quant_module_swap,
-            disable_8da4w_fake_quant_module_swap,
             enable_4w_fake_quant_module_swap,
+            disable_8da4w_fake_quant_module_swap,
             enable_8da4w_fake_quant_module_swap,
             Int4WeightOnlyQATQuantizerModuleSwap,
             Int8DynActInt4WeightQATQuantizerModuleSwap,
@@ -1229,8 +1238,8 @@ class TestQAT(unittest.TestCase):
         )
         from torchao.quantization.prototype.qat.embedding import (  # noqa: F401, F811
             FakeQuantizedEmbedding,
-            Int4WeightOnlyEmbedding,
             Int4WeightOnlyEmbeddingQATQuantizer,
+            Int4WeightOnlyEmbedding,
             Int4WeightOnlyQATEmbedding,
         )
         from torchao.quantization.prototype.qat.fake_quantizer import (  # noqa: F401, F811
@@ -1389,7 +1398,9 @@ class TestQAT(unittest.TestCase):
 
         can produce the same results as `Int8DynActInt4WeightQATQuantizer` prepare + convert.
         """
-        from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.quantization.qat import (
+            Int8DynActInt4WeightQATQuantizer,
+        )
 
         group_size = 16
         torch.manual_seed(self.SEED)

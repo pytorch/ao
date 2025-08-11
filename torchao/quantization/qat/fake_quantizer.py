@@ -8,13 +8,17 @@ from typing import Optional
 
 import torch
 
-from torchao.quantization.granularity import PerAxis, PerGroup, PerToken
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerGroup,
+    PerToken,
+)
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
+    MappingType,
     _Round,
     choose_qparams_affine,
-    MappingType,
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
@@ -22,7 +26,10 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
 )
 
-from .fake_quantize_config import FakeQuantizeConfigBase, IntxFakeQuantizeConfig
+from .fake_quantize_config import (
+    FakeQuantizeConfigBase,
+    IntxFakeQuantizeConfig,
+)
 from .utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
