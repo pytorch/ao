@@ -39,8 +39,12 @@ from torchao.quantization.qat.api import (
     QATStep,
     initialize_fake_quantizers,
 )
-from torchao.quantization.qat.embedding import FakeQuantizedEmbedding
-from torchao.quantization.qat.fake_quantize_config import IntxFakeQuantizeConfig
+from torchao.quantization.qat.embedding import (
+    FakeQuantizedEmbedding,
+)
+from torchao.quantization.qat.fake_quantize_config import (
+    IntxFakeQuantizeConfig,
+)
 from torchao.quantization.qat.fake_quantizer import (
     IntxFakeQuantizer,
     _Float8RowwiseActivationFakeQuantizer,
