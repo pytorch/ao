@@ -16,10 +16,10 @@ Here is the serialization and deserialization flow::
       quantize_,
       Int4WeightOnlyConfig,
   )
-  from torchao.testing.model_architectures import ToyLinearModel
+  from torchao.testing.model_architectures import ToyMultiLinearModel
 
   dtype = torch.bfloat16
-  m = ToyLinearModel(1024, 1024, 1024).eval().to(dtype).to("cuda")
+  m = ToyMultiLinearModel(1024, 1024, 1024).eval().to(dtype).to("cuda")
   print(f"original model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB")
 
   example_inputs = m.example_inputs(dtype=dtype, device="cuda")
@@ -33,7 +33,7 @@ Here is the serialization and deserialization flow::
       state_dict = torch.load(f)
 
   with torch.device("meta"):
-      m_loaded = ToyLinearModel(1024, 1024, 1024).eval().to(dtype)
+      m_loaded = ToyMultiLinearModel(1024, 1024, 1024).eval().to(dtype)
 
   # `linear.weight` is nn.Parameter, so we check the type of `linear.weight.data`
   print(f"type of weight before loading: {type(m_loaded.linear1.weight.data), type(m_loaded.linear2.weight.data)}")
@@ -69,7 +69,7 @@ To deserialize an optimized model, we can initialize the floating point model in
 
 
   with torch.device("meta"):
-      m_loaded = ToyLinearModel(1024, 1024, 1024).eval().to(dtype)
+      m_loaded = ToyMultiLinearModel(1024, 1024, 1024).eval().to(dtype)
 
   print(f"type of weight before loading: {type(m_loaded.linear1.weight), type(m_loaded.linear2.weight)}")
   m_loaded.load_state_dict(state_dict, assign=True)

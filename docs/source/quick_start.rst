@@ -29,9 +29,9 @@ First, let's set up our toy model:
 
   import copy
   import torch
-  from torchao.testing.model_architectures import ToyLinearModel
+  from torchao.testing.model_architectures import ToyMultiLinearModel
 
-  model = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
+  model = ToyMultiLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
 
   # Optional: compile model for faster inference and generation
   model = torch.compile(model, mode="max-autotune", fullgraph=True)
