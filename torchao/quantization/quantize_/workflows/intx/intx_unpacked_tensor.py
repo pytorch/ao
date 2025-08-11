@@ -40,15 +40,19 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
     This format is inteded for torch.export use cases.
 
     Tensor Attributes:
-        _data: int data for
-        scale: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor, where B is batch size,
-               dtype is the same as the original Tensor dtype
-        zero_point: (K/group_size, N) for 2D Tensor, (B, N, K/group_size) for 3D Tensor, where B is batch size,
-               dtype is the same as the original Tensor dtype
+        int_data: int data for quantization.
+                dtype is int8
+                Shape is the same as original Tensor: (n, k) for 2D tensor
+        scale: block scales for quantization
+               dtype is the same as the original Tensor dtype.
+               Shape is (n // block_size[0], k // block_size[1]) for 2D tensor
+        zero_point: block zero points for quantization
+               dtype is the same as the original Tensor dtype or int8
+               Shape is (n // block_size[0], k // block_size[1]) for 2D tensor
 
     Non-Tensor Attributes:
+        bit_width: the bit width for quantization (can be 1 - 8)
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
-        shape: the shape of the original Tensor
     """
 
     tensor_data_attrs = ["int_data", "scale", "zero_point"]
