@@ -3,15 +3,19 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from enum import Enum
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
 
 from torchao.quantization.observer import AffineQuantizedMinMaxObserver, PerAxis
-from torchao.quantization.quant_primitives import (
-    MappingType,
-)
+from torchao.quantization.quant_primitives import MappingType
+
+
+class SmoothQuantStep(str, Enum):
+    PREPARE = "prepare"
+    CONVERT = "convert"
 
 
 class SmoothQuantObserver(torch.nn.Module):
@@ -39,36 +43,28 @@ class SmoothQuantObserver(torch.nn.Module):
         super().__init__()
         assert weight.ndim == 2
         self.weight = weight
-        self.inputs = []
         self.device = self.weight.device
         self.alpha = alpha
-        assert quant_mode in ["static", "dynamic"]
         self.quant_mode = quant_mode
         self.quant_min = quant_min
         self.quant_max = quant_max
-        self.eps = eps
+        self.eps = eps or torch.finfo(torch.float32).eps
         # act.shape = [mb, ic] (reshape if needed), wei.shape = [oc, ic]
         # *_ic_obs are used to determine smoothing_factor
         # wei_oc_obs is used to find qparams for quantization
         self.act_ic_obs = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC,
-            torch.int8,
-            PerAxis(-1),
-            eps=eps,
+            MappingType.SYMMETRIC, torch.int8, PerAxis(-1), eps=self.eps
         )
         self.wei_ic_obs = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC,
-            torch.int8,
-            PerAxis(-1),
-            eps=eps,
+            MappingType.SYMMETRIC, torch.int8, PerAxis(-1), eps=self.eps
         )
         self.wei_oc_obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.int8,
             PerAxis(0),
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=eps,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            eps=self.eps,
         )
         self.wei_ic_obs(self.weight)
 
@@ -78,7 +74,7 @@ class SmoothQuantObserver(torch.nn.Module):
         return input
 
     def calculate_qparams(self):
-        # 1 Get min/max per IC from observers
+        # Step 1: Get min/max per input channel (IC) from observers
         wei_min_per_ic = self.wei_ic_obs.min_val
         wei_max_per_ic = self.wei_ic_obs.max_val
         act_min_per_ic = self.act_ic_obs.min_val
@@ -89,43 +85,44 @@ class SmoothQuantObserver(torch.nn.Module):
         w_abs_max_per_ic = (
             torch.max(torch.abs(wei_min_per_ic), torch.abs(wei_max_per_ic)) + self.eps
         )
-        # 2 calculate the smoothing factor
+
+        # Step 2: Calculate smoothing factor
         if self.alpha is None:
             # fall back to conventional quantization if alpha is None
-            smoothing_factor = torch.ones_like(
-                x_abs_max_per_ic,
-                dtype=x_abs_max_per_ic.dtype,
-                device=x_abs_max_per_ic.device,
-            )
+            smoothing_factor = torch.ones_like(x_abs_max_per_ic)
         else:
             smoothing_factor = torch.pow(x_abs_max_per_ic, self.alpha) / torch.pow(
                 w_abs_max_per_ic.to(x_abs_max_per_ic.device), 1 - self.alpha
             )
-        # 3 apply smoothing factor to activations and find scales for static quantization
+
+        # Step 3: Calculate activation scales for static quantization
         act_scales = None
         if self.quant_mode == "static":
-            act_min_per_ic_new = act_min_per_ic / smoothing_factor.reshape(
+            act_min_new = act_min_per_ic / smoothing_factor.reshape(
                 act_min_per_ic.shape
             )
-            act_max_per_ic_new = act_max_per_ic / smoothing_factor.reshape(
+            act_max_new = act_max_per_ic / smoothing_factor.reshape(
                 act_max_per_ic.shape
             )
-            min_val_per_tensor = torch.min(act_min_per_ic_new)
-            max_val_per_tensor = torch.max(act_max_per_ic_new)
-            min_val_neg = torch.min(
-                min_val_per_tensor, torch.zeros_like(min_val_per_tensor)
-            )
-            max_val_pos = torch.max(
-                max_val_per_tensor, torch.zeros_like(max_val_per_tensor)
-            )
-            max_val_pos = torch.max(-min_val_neg, max_val_pos)
-            act_scale = max_val_pos / (float(self.quant_max - self.quant_min) / 2)
-            act_scales = act_scale.to(self.device)
-        # 4 update weight and find scales
+
+            # Calculate global scale (scalar)
+            global_min = torch.min(act_min_new)
+            global_max = torch.max(act_max_new)
+            abs_max = torch.max(torch.abs(global_min), torch.abs(global_max))
+            act_scale = abs_max / (float(self.quant_max - self.quant_min) / 2)
+
+            # Create scalar tensor for tensor-wise quantization
+            act_scales = act_scale.reshape(()).to(self.device)  # Ensure scalar shape
+
+        # Step 4: Update weight and find scales
         self.wei_oc_obs(self.weight * smoothing_factor.to(self.device))
         wei_scales, _ = self.wei_oc_obs.calculate_qparams()
-        # 5 return results
-        return smoothing_factor.to(self.device), act_scales, wei_scales.to(self.device)
+
+        return (
+            smoothing_factor.to(self.device),
+            act_scales,
+            wei_scales.to(self.device),
+        )
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
@@ -133,27 +130,25 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
         self,
         in_features: int,
         out_features: int,
-        bias: bool,
         obs: SmoothQuantObserver,
+        bias: bool = True,
         device=None,
         dtype=None,
     ):
         super().__init__(in_features, out_features, bias, device, dtype)
-        assert isinstance(obs, SmoothQuantObserver)
         self.obs = obs
 
     def forward(self, input: torch.Tensor):
         input = self.obs(input)
-        output = F.linear(input, self.weight, self.bias)
-        return output
+        return F.linear(input, self.weight, self.bias)
 
     @classmethod
     def from_float(cls, float_linear: torch.nn.Linear, obs: SmoothQuantObserver):
         observed_linear = cls(
             float_linear.in_features,
             float_linear.out_features,
-            float_linear.bias is not None,
             obs,
+            float_linear.bias is not None,
             device=float_linear.weight.device,
             dtype=float_linear.weight.dtype,
         )
