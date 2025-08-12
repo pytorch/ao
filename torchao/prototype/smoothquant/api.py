@@ -58,7 +58,7 @@ class SmoothQuantConfig(AOBaseConfig):
     smoothing_factor: Optional[torch.Tensor] = None
     act_scales: Optional[torch.Tensor] = None
     wei_scales: Optional[torch.Tensor] = None
-    set_inductor_config = True
+    set_inductor_config: bool = True
 
     def __post_init__(self):
         self.step = self.step.lower() if isinstance(self.step, str) else self.step.value
