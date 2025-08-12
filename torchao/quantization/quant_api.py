@@ -1120,7 +1120,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
         `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT
-        `packing_format`: the packing format for int4 tensor, available from VERSION 2 and above
+        `packing_format`: the packing format for int4 tensor, available from version 2 and above
     """
 
     group_size: int = 128
@@ -1129,9 +1129,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
     preserve_zero: Optional[bool] = None
-    # only used in VERSION >= 2
+    # only used in version >= 2
     packing_format: PackingFormat = PackingFormat.PLAIN
-    VERSION: int = 1
+    version: int = 1
 
 
 # for BC
@@ -1159,7 +1159,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
 
-    if config.VERSION == 2:
+    if config.version == 2:
         block_size = list(block_size)
         if packing_format == PackingFormat.PRESHUFFLED:
             new_weight = Int4PreshuffledTensor.from_hp(
@@ -1177,7 +1177,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
         else:
             raise ValueError(f"Unsupported packing format: {packing_format}")
 
-    assert config.VERSION == 1
+    assert config.version == 1
 
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
