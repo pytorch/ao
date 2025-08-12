@@ -1629,6 +1629,27 @@ class TestAutoQuant(unittest.TestCase):
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
 
+        # Note: This test was incorrectly written before with this skip condition:
+        #
+        #     m1 == 1 or m2 == 1 and not TORCH_VERSION_AT_LEAST_2_5:
+        #
+        # This is actually equivalent to:
+        #
+        #     m1 == 1 or (m2 == 1 and not TORCH_VERSION_AT_LEAST_2_5)
+        #
+        # which means we always skips the test as long as `m1 == 1` regardless of
+        # the pytorch version, which was not the intended behavior. Unfortunately,
+        # unskipping this test now leads to the following error when calling
+        # `aten._int_mm`:
+        #
+        #     RuntimeError: self.size(0) needs to be greater than 16, but got 1
+        #
+        # Therefore, we keep around this skip condition for now since it doesn't
+        # change the test behavior from before. For more details, please see
+        # https://github.com/pytorch/ao/pull/2720.
+        if m1 == 1:
+            self.skipTest(f"Shape {(m1, m2, k, n)} is not supported")
+
         class NeedsKwargs(torch.nn.Module):
             def __init__(self):
                 super().__init__()
