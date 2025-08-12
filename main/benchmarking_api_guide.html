@@ -550,7 +550,6 @@
 <span class="w">        </span><span class="nt">min_power</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 <span class="w">        </span><span class="nt">max_power</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
 <span class="w">    </span><span class="nt">high_precision_dtype</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;torch.bfloat16&quot;</span>
-<span class="w">    </span><span class="nt">use_torch_compile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">torch_compile_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;max-autotune&quot;</span>
 <span class="w">    </span><span class="nt">device</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cuda&quot;</span>
 <span class="w">    </span><span class="nt">model_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;linear&quot;</span>
@@ -626,7 +625,6 @@
 <h3>Common Issues<a class="headerlink" href="#common-issues" title="Permalink to this heading">¶</a></h3>
 <ol class="arabic simple">
 <li><p><strong>CUDA Out of Memory</strong>: Reduce batch size or matrix dimensions</p></li>
-<li><p><strong>Compilation Errors</strong>: Set <code class="docutils literal notranslate"><span class="pre">use_torch_compile:</span> <span class="pre">false</span></code> for debugging</p></li>
 <li><p><strong>Missing Quantization Methods</strong>: Ensure TorchAO is properly installed</p></li>
 <li><p><strong>Device Not Available</strong>: Check device availability and drivers</p></li>
 </ol>
