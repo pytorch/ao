@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-# copied from https://github.com/pytorch-labs/gpt-fast/blob/main/tokenizer.py
+# copied from https://github.com/meta-pytorch/gpt-fast/blob/main/tokenizer.py
 
 import os
 from pathlib import Path
