@@ -758,7 +758,7 @@ def fold_bn_weights_into_conv_node(
     # since the node refers to a mutating op. Here we still need to call DCE first
     # to get rid of the unused getitem nodes that consume the BN node.
     m.graph.eliminate_dead_code()
-    if len(bn_node.users) == 0:
+    if not bn_node._erased and len(bn_node.users) == 0:
         m.graph.erase_node(bn_node)
 
 
@@ -1031,6 +1031,8 @@ def _replace_literals_with_existing_placeholders(
             continue
         new_args = []
         for arg in node.args:
+            if isinstance(arg, list):
+                arg = tuple(arg)  # type: ignore[assignment]
             if (
                 _is_literal(arg)
                 and arg not in exclude_literals

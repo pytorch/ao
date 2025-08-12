@@ -46,7 +46,7 @@ from torchao.quantization.qat.fake_quantize_config import (
     IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
-    FakeQuantizer,
+    IntxFakeQuantizer,
     _Float8RowwiseActivationFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
@@ -115,15 +115,22 @@ class M(torch.nn.Module):
     def example_inputs(self):
         return (torch.randn(1, 512).to(torch.float),)
 
-    def _get_all_weight_qparams(self) -> List[torch.Tensor]:
+    def _get_all_weight_scales(self) -> List[torch.Tensor]:
         return [
             self.linear1.weight_fake_quantizer.scale,
-            self.linear1.weight_fake_quantizer.zero_point,
             self.sub.linear.weight_fake_quantizer.scale,
-            self.sub.linear.weight_fake_quantizer.zero_point,
             self.linear2.weight_fake_quantizer.scale,
+        ]
+
+    def _get_all_weight_zero_points(self) -> List[torch.Tensor]:
+        return [
+            self.linear1.weight_fake_quantizer.zero_point,
+            self.sub.linear.weight_fake_quantizer.zero_point,
             self.linear2.weight_fake_quantizer.zero_point,
         ]
+
+    def _get_all_weight_qparams(self) -> List[torch.Tensor]:
+        return self._get_all_weight_scales() + self._get_all_weight_zero_points()
 
     def forward(self, x):
         x = self.linear1(x)
@@ -1466,10 +1473,10 @@ class TestQAT(unittest.TestCase):
     )
     def test_fake_quantizer_repr(self):
         """
-        Test that `repr(FakeQuantizer(config))` exposes useful config details.
+        Test that `repr(IntxFakeQuantizer(config))` exposes useful config details.
         """
         config = IntxFakeQuantizeConfig(torch.int4, group_size=128)
-        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer = IntxFakeQuantizer(config)
         fake_quantizer_repr = repr(fake_quantizer)
         self.assertTrue("dtype=torch.int4" in fake_quantizer_repr)
         self.assertTrue("group_size=128" in fake_quantizer_repr)
@@ -1500,7 +1507,7 @@ class TestQAT(unittest.TestCase):
     def test_fake_quantize_per_token_vs_convert(self, dtype: torch.dtype):
         """
         Test that the following produce the exact same numerics:
-          1. FakeQuantizer with asymmetric per_token config
+          1. IntxFakeQuantizer with asymmetric per_token config
           2. torchao.quantization.utils.per_token_dynamic_quant
         """
         from torchao.quantization.utils import per_token_dynamic_quant
@@ -1508,7 +1515,7 @@ class TestQAT(unittest.TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(1, 235, 2048).to(dtype)
         config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer = IntxFakeQuantizer(config)
         fake_quantizer_out = fake_quantizer(x)
         baseline_out = per_token_dynamic_quant(x)
         torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
@@ -1580,7 +1587,7 @@ class TestQAT(unittest.TestCase):
             is_symmetric=False,
             eps=eps,
         )
-        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer = IntxFakeQuantizer(config)
         actual_out = fake_quantizer(x)
         torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
 
@@ -1633,12 +1640,13 @@ class TestQAT(unittest.TestCase):
         actual_out = converted_model.linear1(x)
         torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
 
+    @parameterized.expand([(True,), (False,)])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_fake_quantizer_range_learning(self):
+    def test_fake_quantizer_range_learning(self, is_symmetric):
         """
-        Test that range learning requires `FakeQuantizer`s to be initialized correctly.
+        Test that range learning requires `IntxFakeQuantizer`s to be initialized correctly.
         """
         config = IntxFakeQuantizeConfig(
             torch.int8,
@@ -1647,8 +1655,9 @@ class TestQAT(unittest.TestCase):
             range_learning=True,
             scale_precision=torch.float32,
             zero_point_precision=torch.float32,
+            is_symmetric=is_symmetric,
         )
-        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer = IntxFakeQuantizer(config)
         example_inputs = (torch.randn(2, 3),)
 
         # Not initialized, should fail
@@ -1666,15 +1675,20 @@ class TestQAT(unittest.TestCase):
         initialize_fake_quantizers(fake_quantizer, example_inputs)
         self.assertTrue(fake_quantizer._initialized)
         self.assertIsInstance(fake_quantizer.scale, torch.nn.Parameter)
-        self.assertIsInstance(fake_quantizer.zero_point, torch.nn.Parameter)
         self.assertTrue(fake_quantizer.scale.requires_grad)
-        self.assertTrue(fake_quantizer.zero_point.requires_grad)
+        if config.is_symmetric:
+            self.assertFalse(isinstance(fake_quantizer.zero_point, torch.nn.Parameter))
+            self.assertTrue(torch.all(fake_quantizer.zero_point == 0))
+        else:
+            self.assertIsInstance(fake_quantizer.zero_point, torch.nn.Parameter)
+            self.assertTrue(fake_quantizer.zero_point.requires_grad)
         fake_quantizer(*example_inputs)
 
+    @parameterized.expand([(True,), (False,)])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_qat_range_learning(self):
+    def test_qat_range_learning(self, is_symmetric):
         """
         Test end-to-end QAT flow with range learning.
         """
@@ -1685,6 +1699,7 @@ class TestQAT(unittest.TestCase):
             range_learning=True,
             scale_precision=torch.float32,
             zero_point_precision=torch.float32,
+            is_symmetric=is_symmetric,
         )
         m = M()
         example_inputs = m.example_inputs()
@@ -1704,10 +1719,21 @@ class TestQAT(unittest.TestCase):
         # All scales and zero points should be in `m.parameters()`
         initialize_fake_quantizers(m, example_inputs)
         params = set(m.parameters())
-        for t in m._get_all_weight_qparams():
-            self.assertIsInstance(t, torch.nn.Parameter)
-            self.assertTrue(t.requires_grad)
-            self.assertTrue(t in params)
+
+        for scale in m._get_all_weight_scales():
+            self.assertIsInstance(scale, torch.nn.Parameter)
+            self.assertTrue(scale.requires_grad)
+            self.assertTrue(scale in params)
+
+        for zero_point in m._get_all_weight_zero_points():
+            if config.is_symmetric:
+                self.assertFalse(isinstance(zero_point, torch.nn.Parameter))
+                self.assertTrue(torch.all(zero_point == 0))
+            else:
+                self.assertIsInstance(zero_point, torch.nn.Parameter)
+                self.assertTrue(zero_point.requires_grad)
+                self.assertTrue(zero_point in params)
+
         m(*example_inputs)
 
         # Simulate training
@@ -1770,7 +1796,7 @@ class TestQAT(unittest.TestCase):
             self.assertIsInstance(
                 linear.activation_fake_quantizer, _Float8RowwiseActivationFakeQuantizer
             )
-            self.assertIsInstance(linear.weight_fake_quantizer, FakeQuantizer)
+            self.assertIsInstance(linear.weight_fake_quantizer, IntxFakeQuantizer)
         prev_weight = copy.deepcopy(m.linear1.weight)
 
         # Simulate training
@@ -1854,6 +1880,7 @@ class TestQAT(unittest.TestCase):
         """
         from torchao.quantization.qat import (
             FakeQuantizeConfig,
+            FakeQuantizer,
             from_intx_quantization_aware_training,
             intx_quantization_aware_training,
         )
@@ -1868,6 +1895,7 @@ class TestQAT(unittest.TestCase):
             intx_quantization_aware_training: (),
             from_intx_quantization_aware_training: (),
             FakeQuantizeConfig: (torch.int8, "per_channel"),
+            FakeQuantizer: (IntxFakeQuantizeConfig(torch.int8, "per_channel"),),
         }
 
         with warnings.catch_warnings(record=True) as _warnings:

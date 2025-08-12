@@ -29,6 +29,20 @@ endif()
 
 if(TORCHAO_BUILD_KLEIDIAI)
     add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
+    # TODO: build tests at top-level so we can use same KleidiAI version
+    if (NOT TARGET kleidiai)
+        include(FetchContent)
+        # KleidiAI is an open-source library that provides optimized
+        # performance-critical routines, also known as micro-kernels, for artificial
+        # intelligence (AI) workloads tailored for Arm® CPUs.
+        set(KLEIDIAI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(KLEIDIAI_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(kleidiai
+            GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
+            GIT_TAG v1.12.0
+        )
+        FetchContent_MakeAvailable(kleidiai)
+    endif()
 endif()
 
 if(TORCHAO_BUILD_ARM_I8MM)
@@ -78,6 +92,13 @@ if (TORCHAO_BUILD_CPU_AARCH64)
     test_linear_8bit_act_xbit_weight
     PRIVATE
     torchao_kernels_aarch64
+  )
+endif()
+if (TORCHAO_BUILD_KLEIDIAI)
+  target_link_libraries(
+    test_linear_8bit_act_xbit_weight
+    PRIVATE
+    kleidiai
   )
 endif()
 target_link_torchao_parallel_backend(test_linear_8bit_act_xbit_weight "${TORCHAO_PARALLEL_BACKEND}")

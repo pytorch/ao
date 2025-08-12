@@ -8,6 +8,7 @@ import re
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 # TODO: Refactor torchao and tests to use these models
@@ -177,3 +178,64 @@ def create_model_and_input_data(
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     return model, input_data
+
+
+# from https://github.com/meta-llama/llama-models/blob/a9c89c471f793423afd4cc3ca8671d6e56fe64cb/models/llama4/moe.py#L22
+class LlamaModelsLlama4Experts(nn.Module):
+    def __init__(
+        self,
+        num_local_experts: int,
+        dim: int,
+        hidden_dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        super().__init__()
+
+        self.num_local_experts = num_local_experts
+        self.dim = dim
+
+        self.w1: nn.Parameter = nn.Parameter(
+            torch.randn(
+                num_local_experts,
+                dim,
+                hidden_dim,
+                dtype=dtype,
+                device=device,
+            )
+        )
+
+        self.w2: nn.Parameter = nn.Parameter(
+            torch.randn(
+                num_local_experts,
+                hidden_dim,
+                dim,
+                dtype=dtype,
+                device=device,
+            )
+        )
+
+        self.w3: nn.Parameter = nn.Parameter(
+            torch.randn(
+                num_local_experts,
+                dim,
+                hidden_dim,
+                dtype=dtype,
+                device=device,
+            )
+        )
+
+    def forward(
+        self,
+        routed_in_egD: torch.Tensor,  # noqa: N803
+    ) -> torch.Tensor:
+        e = self.num_local_experts
+        D = self.dim
+
+        x_egD = routed_in_egD.view(e, -1, D)
+
+        middle_out_egF = F.silu(torch.bmm(x_egD, self.w1)) * torch.bmm(x_egD, self.w3)
+        out_egD = torch.bmm(middle_out_egF, self.w2)
+        out_egD = out_egD.view(-1, D)
+
+        return out_egD
