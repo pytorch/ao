@@ -185,7 +185,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         # Check the shared_embedding and linear ops use the same lifted weight
         expected_lines = [
             "torch.ops.torchao._shared_embedding_4bit.default",
-            "torch.ops.torchao._linear_8bit_act_4bit_weight.defaul",
+            "torch.ops.torchao._linear_8bit_act_4bit_weight.default",
         ]
         for line in expected_lines:
             FileCheck().check_count(line, 1, exactly=True).run(
