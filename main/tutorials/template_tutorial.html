@@ -318,9 +318,9 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quantization_overview.html">Quantization Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../benchmarking_api_guide.html">Benchmarking API Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../benchmarking_user_guide.html">Benchmarking User Guide</a></li>
 </ul>
@@ -331,6 +331,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_utils.html">torchao.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul>
@@ -461,11 +463,11 @@ to download the full example code.</p>
 <span class="nb">print</span><span class="p">(</span><a href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="torch.Tensor" class="sphx-glr-backref-module-torch sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">x</span></a><span class="p">)</span>
 </pre></div>
 </div>
-<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.1019, 0.1709, 0.9329],
-        [0.9981, 0.1550, 0.6977],
-        [0.9833, 0.7860, 0.0205],
-        [0.8888, 0.7266, 0.8951],
-        [0.5736, 0.9850, 0.4250]])
+<div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>tensor([[0.0838, 0.1195, 0.2089],
+        [0.4557, 0.6814, 0.2418],
+        [0.8267, 0.1172, 0.9576],
+        [0.3948, 0.3666, 0.6436],
+        [0.0249, 0.8251, 0.4649]])
 </pre></div>
 </div>
 </section>

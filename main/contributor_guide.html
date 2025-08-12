@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Benchmarking API Guide" href="benchmarking_api_guide.html" />
-    <link rel="prev" title="Sparsity Overview" href="sparsity.html" />
+    <link rel="next" title="Sparsity Overview" href="sparsity.html" />
+    <link rel="prev" title="Quantization Overview" href="quantization_overview.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -320,9 +320,9 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="quantization.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantization_overview.html">Quantization Overview</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
 </ul>
@@ -333,6 +333,8 @@
 <li class="toctree-l1"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html">torchao.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul>
@@ -433,16 +435,32 @@
 <h1>Contributor Guide<a class="headerlink" href="#contributor-guide" title="Permalink to this heading">¶</a></h1>
 <section id="general-guide-on-extending-torchao">
 <h2>General Guide on Extending torchao<a class="headerlink" href="#general-guide-on-extending-torchao" title="Permalink to this heading">¶</a></h2>
-<p>For a new use case, for example, a training dtype (like fp4 training), it’s fine to start with adding a new tensor subclass in prototype folder <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype">torchao/prototype</a>, but you could also take a look at <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> if what you want to do is mostly supported there, e.g. adding int3 kernel for the exact same affine quantization. Please feel free to open an issue and if you have questions on what to do for a specific new use case. For more details, please refer to our <a class="reference external" href="quantization.html">quantization overview page</a>.</p>
+<p>Please start by reading our <a class="reference external" href="quantization_overview.html">quantization overview page</a> first.</p>
 <p>To contribute to existing code base:</p>
 <ul class="simple">
-<li><p>Adding features to AffineQuantizedTensor, e.g. making it trainable, add tensor parallelism support etc.: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py">torchao/dtypes/affine_quantized_tensor.py</a></p></li>
+<li><p>Adding a new Tensor: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows">torchao/quantization/quantize_/workflows</a></p></li>
 <li><p>Adding new quantization APIs: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py">torchao/quantization/quant_api.py</a></p></li>
+<li><p>Adding features to existing Tensor subclasses like <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>, e.g. adding new operator support, making it trainable, add tensor parallelism support etc., <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows">tensor subclasses</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/test/quantization/quantize_/workflows">tests</a></p></li>
 <li><p>Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py">torchao/quantization/quant_primitives.py</a></p></li>
 <li><p>Adding new autotuned triton kernels: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/kernel">torchao/kernel</a></p></li>
 <li><p>Adding new custom cpu/cuda/mps kernels: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/csrc">torchao/csrc</a></p></li>
-<li><p>Integrating custom kernel with AffineQuantizedTensor (maybe a new layout as well): Add sparse marlin AQT layout <a class="reference external" href="https://github.com/pytorch/ao/pull/621">#621</a> as an example. We are still not decided if we want to split <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> to more tensor subclasses or not.</p></li>
 </ul>
+</section>
+<section id="adding-new-tensor-subclasses">
+<h2>Adding New Tensor Subclasses<a class="headerlink" href="#adding-new-tensor-subclasses" title="Permalink to this heading">¶</a></h2>
+<p>torchao Tensor subclasses are structured by <code class="docutils literal notranslate"><span class="pre">derived</span> <span class="pre">dtype</span></code> and <code class="docutils literal notranslate"><span class="pre">packing</span> <span class="pre">format</span></code>, please check out the <a class="reference external" href="quantization_overview.html">quantization overview page</a> to understand these concepts. If a new tensor subclass is needed for your use case, i.e. a new dtype, or a new packing format that does not already exist, we could define a new Tensor.</p>
+<p>To understand how to use tensor subclass in the context of quantization, please also check <a class="reference external" href="https://docs.pytorch.org/ao/main/subclass_basic.html">Writing Your Own Quantized Tensor</a>.</p>
+<p>We have utility base class: <code class="docutils literal notranslate"><span class="pre">torchao.utils.TorchAOBaseTensor</span></code> that can help define common util functions and methods for you, if you specified the names of Tensor and non-Tensor attributes of the tensor subclass. for example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;qdata&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">]</span>
+    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">,</span> <span class="s2">&quot;dtype&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>With the above, we’ll have multiple methods and functions available to use for this Tensor, for more details please check the docs for <a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor">TorchAOBaseTensor</a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Many of the existing use cases in torchao still uses AffineQuantizedTensor, but we plan to move away from it to reduce the abstractions and make it easier for people to contribute to torchao.</p>
+</div>
 </section>
 <section id="adding-efficient-kernels">
 <h2>Adding Efficient Kernels<a class="headerlink" href="#adding-efficient-kernels" title="Permalink to this heading">¶</a></h2>
@@ -460,46 +478,55 @@
 <p>Custom kernels (implementations) for cpu/cuda/mps can be implemented through <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/csrc">torchao/csrc</a> e.g. int4 cuda, and accessible through torch.ops.my_custom_op</p>
 </section>
 </section>
-<section id="dispatches">
-<h2>Dispatches<a class="headerlink" href="#dispatches" title="Permalink to this heading">¶</a></h2>
-<p>For dispatching to optimized kernels for cpu/cuda/mps devices, we can have checks for the dispatch conditions in <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> or <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code> and dispatch to target operators, for example, condition for bfloat16 activation and uint4 weight kernel can be found <a class="reference external" href="https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L1784-L1797">here</a>.</p>
-<p>Specifically for <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code>, we also allow people to extend the quantized linear to use a new efficient kernel or implement by defining two functions:
-<code class="docutils literal notranslate"><span class="pre">dispatch_condition</span></code> (defines the condition to dispatch to the kernel) and impl (actual implementation that takes activation, (quantized) weight, bias Tensor and runs the efficient kernel), both taking <code class="docutils literal notranslate"><span class="pre">input_tensor</span></code>, <code class="docutils literal notranslate"><span class="pre">weight_tensor</span></code>, <code class="docutils literal notranslate"><span class="pre">bias</span></code> as argument, and can be registered into dispatch of quantized linear in <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> with <code class="docutils literal notranslate"><span class="pre">register_aqt_quantized_linear_dispatch</span></code>. <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/test/dtypes/test_affine_quantized.py#L92-L113">Here</a> is an example showing how it works.</p>
+<section id="using-hand-written-kernels-in-tensor-subclasses">
+<h2>Using hand written kernels in Tensor Subclasses<a class="headerlink" href="#using-hand-written-kernels-in-tensor-subclasses" title="Permalink to this heading">¶</a></h2>
+<p>For calling optimized kernels, we have <code class="docutils literal notranslate"><span class="pre">implements</span></code> from the tensor subclass, for example, if we want to call into a new custom op: <code class="docutils literal notranslate"><span class="pre">torch.ops.torchao.my_mm_for_mps</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">Float8Tensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+    <span class="o">...</span>
+
+<span class="n">implements</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">implements</span>
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="o">...</span>
+    <span class="c1"># call into the custom op</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">torchao</span><span class="o">.</span><span class="n">my_mm_for_mps</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">res</span>
+</pre></div>
+</div>
+<section id="kernelpreference">
+<h3>KernelPreference<a class="headerlink" href="#kernelpreference" title="Permalink to this heading">¶</a></h3>
+<p>For some tensor subclasses, there could be multiple kernel choices for quantize and mm etc. The recommended way to handle this in torchao tensor subclasses is through <code class="docutils literal notranslate"><span class="pre">KernelPreference</span></code>, that represents which group of kernels we want to use for quantize, mm, group_mm etc. We can use use <code class="docutils literal notranslate"><span class="pre">KernelPreference.AUTO</span></code> as default option, as the option for developers to choose whatever we think is the fastest under different conditions for user, so user don’t need to worry about the details, and we can have other more specific kernel options for debugging purposes.</p>
+<p><code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code> for example, has:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">KernelPreference.AUTO</span></code> that will choose the most performant quantize and mm kernel based on hardware (H100 SM89 or SM90+), availability of libraries (whether <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu_genai</span></code> is installed), granularity (per row or per tensor)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">KernelPreference.TORCH</span></code> will use torchao quantize op (<code class="docutils literal notranslate"><span class="pre">_choose_scale_float8</span></code> and <code class="docutils literal notranslate"><span class="pre">_quantize_affine_float8</span></code>) and <code class="docutils literal notranslate"><span class="pre">_scaled_mm</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Kerenel.FBGEMM</span></code> uses fbgemm quantize and mm op (<code class="docutils literal notranslate"><span class="pre">torch.ops.fbgemm.f8f8bf16_rowwise</span></code>)</p></li>
+</ul>
 </section>
-<section id="layout-tensorimpl">
-<h2>Layout/TensorImpl<a class="headerlink" href="#layout-tensorimpl" title="Permalink to this heading">¶</a></h2>
-<p>Sometimes the quantized weights has to be packed in order to yield optimal performance. And this can be abstracted with <code class="docutils literal notranslate"><span class="pre">layout</span></code>. See <a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/tutorials/developer_api_guide/my_dtype_tensor_subclass.py#L215-L317">here</a> for full example.</p>
 </section>
 <section id="flow">
 <h2>Flow<a class="headerlink" href="#flow" title="Permalink to this heading">¶</a></h2>
-<dl class="simple">
-<dt>After the tensor subclass is implemented, we can also wrap that into factory functions, e.g.::</dt><dd><p># convert from floating point tensor to my dtype tensor subclass
-to_my_dtype = MyDTypeTensor.from_float</p>
-</dd>
-</dl>
-<p>For model level API, people can reuse <code class="docutils literal notranslate"><span class="pre">torchao.quantize_</span></code> that allows people to apply a tensor subclass conversion to weight of linear, and allows <a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/quantization/quant_api.py#L421">filtering function</a> to choose which module the tensor subclass conversion should be applied to.</p>
-<p>See Quantization Algorithms/Flows section for examples of weight only/dynamic quant/static quant and other types of model level APIs based on the factory function.</p>
+<p>For model level API, people can reuse <code class="docutils literal notranslate"><span class="pre">torchao.quantize_</span></code> that allows people to apply a tensor subclass conversion to weight of linear, and allows <a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">filtering function</a> to choose which module the tensor subclass conversion should be applied to.</p>
+<p>See Quantization Algorithms/Flows section for examples of weight only/dynamic quant and other types of model level APIs.</p>
 </section>
 <section id="using-torch-compile-for-performance">
 <h2>Using torch.compile for Performance<a class="headerlink" href="#using-torch-compile-for-performance" title="Permalink to this heading">¶</a></h2>
-<dl class="simple">
-<dt>Note: for pytorch 2.4 and below, we need to use the following::</dt><dd><p>from torchao.utils import unwrap_tensor_subclass
-m_unwrapped = unwrap_tensor_subclass(m)</p>
-</dd>
-<dt>In order to be compatible with <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, to aim for performance optimization, we should run through <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> with <code class="docutils literal notranslate"><span class="pre">fullgraph=True</span></code> first, and remove any unnecessary graph breaks. You can add <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span></code> when you run the script in order to see the inductor generated code. e.g. <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span> <span class="pre">python</span> <span class="pre">example.py</span></code>::</dt><dd><p>model = torch.compile(model, mode=”max-autotune”, fullgraph=True)</p>
-</dd>
-</dl>
+<p>In order to be compatible with <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, to aim for performance optimization, we should run through <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> with <code class="docutils literal notranslate"><span class="pre">fullgraph=True</span></code> first, and remove any unnecessary graph breaks. You can add <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span></code> when you run the script in order to see the inductor generated code. e.g. <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span> <span class="pre">python</span> <span class="pre">example.py</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;max-autotune&quot;</span><span class="p">,</span> <span class="n">fullgraph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 <section id="serialization">
 <h2>Serialization<a class="headerlink" href="#serialization" title="Permalink to this heading">¶</a></h2>
-<p>Please checkout the <a class="reference external" href="https://pytorch.org/ao/stable/serialization.html">serialization doc</a> for more details.</p>
+<dl class="simple">
+<dt>To enable support for serialization (torch.save and torch.load with tensor subclasses as weights), we need to add the tensor subclass and the relevant object to safe globals (available after torch 2.5), e.g.::</dt><dd><p>torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])</p>
+</dd>
+</dl>
+<p>Please checkout the <a class="reference external" href="serialization.html">serialization doc</a> for more details.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>We are integrated with huggingface transformer and supports serialization/deserialization through the huggingface save_pretrained/push_to_hub/from_pretrained APIs: <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao">https://huggingface.co/docs/transformers/main/en/quantization/torchao</a></p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Another example can be found in integration with diffuser: <a class="reference external" href="https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md">https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md</a></p>
+<p>We are <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao">integrated</a> with huggingface transformer and supports serialization and deserialization through the huggingface <code class="docutils literal notranslate"><span class="pre">save_pretrained</span></code>, <code class="docutils literal notranslate"><span class="pre">push_to_hub</span></code> and <code class="docutils literal notranslate"><span class="pre">from_pretrained</span></code> APIs. We also have <a class="reference external" href="https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md">serialization examples</a> with diffuser models.</p>
 </div>
 </section>
 <section id="other-feature-support">
@@ -509,8 +536,6 @@ m_unwrapped = unwrap_tensor_subclass(m)</p>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_trainable_tensor_subclass.py">Quantized Training</a></p></li>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/tensor_parallel.py">Tensor Parallel Support for Quantized Tensor</a></p></li>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/export_to_executorch.py">Compatibility with executorch / torchchat</a></p></li>
-<li><p>[TODO] FSDP</p></li>
-<li><p>[TODO] QAT</p></li>
 </ul>
 </section>
 <section id="tensor-subclass-functionality-composability-testing">
@@ -544,14 +569,21 @@ m_unwrapped = unwrap_tensor_subclass(m)</p>
 <p>After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.</p>
 <p>Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/llama">llama</a>
-* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py">benchmark</a>
-* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py">eval</a></p></li>
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/sam">sam</a>
-* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py">benchmark and eval</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/llama">llama</a></p>
+<ul>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py">benchmark</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py">eval</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/sam">sam</a></p>
+<ul>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py">benchmark and eval</a></p></li>
+</ul>
+</li>
 </ul>
 <p>Please checkout the <code class="docutils literal notranslate"><span class="pre">--help</span></code> option for each of the script to understand the supported options, e.g. you can use <code class="docutils literal notranslate"><span class="pre">--profile=profile_path</span></code> to get the chrome trace of the run to understand detailed <a class="reference external" href="https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality">chrome trace</a>.</p>
 <p>Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.</p>
+<p>Please also check out <a class="reference external" href="https://docs.pytorch.org/ao/main/benchmarking_user_guide.html">Benchmarking User Guide</a> and <a class="reference external" href="https://docs.pytorch.org/ao/main/benchmarking_api_guide.html">Benchmarking API Guide</a> to understand how to use our benchmarking framework.</p>
 </section>
 </section>
 
@@ -563,10 +595,10 @@ m_unwrapped = unwrap_tensor_subclass(m)</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="benchmarking_api_guide.html" class="btn btn-neutral float-right" title="Benchmarking API Guide" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="sparsity.html" class="btn btn-neutral float-right" title="Sparsity Overview" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="sparsity.html" class="btn btn-neutral" title="Sparsity Overview" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="quantization_overview.html" class="btn btn-neutral" title="Quantization Overview" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -600,13 +632,16 @@ m_unwrapped = unwrap_tensor_subclass(m)</p>
               <ul>
 <li><a class="reference internal" href="#">Contributor Guide</a><ul>
 <li><a class="reference internal" href="#general-guide-on-extending-torchao">General Guide on Extending torchao</a></li>
+<li><a class="reference internal" href="#adding-new-tensor-subclasses">Adding New Tensor Subclasses</a></li>
 <li><a class="reference internal" href="#adding-efficient-kernels">Adding Efficient Kernels</a><ul>
 <li><a class="reference internal" href="#custom-triton-kernels">Custom triton kernels</a></li>
 <li><a class="reference internal" href="#custom-hand-written-kernels">Custom hand written kernels</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#dispatches">Dispatches</a></li>
-<li><a class="reference internal" href="#layout-tensorimpl">Layout/TensorImpl</a></li>
+<li><a class="reference internal" href="#using-hand-written-kernels-in-tensor-subclasses">Using hand written kernels in Tensor Subclasses</a><ul>
+<li><a class="reference internal" href="#kernelpreference">KernelPreference</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#flow">Flow</a></li>
 <li><a class="reference internal" href="#using-torch-compile-for-performance">Using torch.compile for Performance</a></li>
 <li><a class="reference internal" href="#serialization">Serialization</a></li>

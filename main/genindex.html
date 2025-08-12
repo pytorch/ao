@@ -317,9 +317,9 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="quantization.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantization_overview.html">Quantization Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
 </ul>
@@ -330,6 +330,8 @@
 <li class="toctree-l1"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html">torchao.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
 <ul>
@@ -428,7 +430,8 @@
 <h1 id="index">Index</h1>
 
 <div class="genindex-jumpbox">
- <a href="#A"><strong>A</strong></a>
+ <a href="#_"><strong>_</strong></a>
+ | <a href="#A"><strong>A</strong></a>
  | <a href="#B"><strong>B</strong></a>
  | <a href="#C"><strong>C</strong></a>
  | <a href="#D"><strong>D</strong></a>
@@ -436,11 +439,13 @@
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
  | <a href="#I"><strong>I</strong></a>
+ | <a href="#K"><strong>K</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#Q"><strong>Q</strong></a>
+ | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
@@ -448,14 +453,24 @@
  | <a href="#Z"><strong>Z</strong></a>
  
 </div>
+<h2 id="_">_</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html#torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor">_choose_quant_func_and_quantize_tensor() (in module torchao.quantization.quantize_.common)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="A">A</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor">AffineQuantizedTensor (class in torchao.dtypes)</a>
 </li>
+      <li><a href="generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity">apply_fake_sparsity() (in module torchao.sparsity)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity">apply_fake_sparsity() (in module torchao.sparsity)</a>
+      <li><a href="generated/torchao.quantization.quantize_.common.KernelPreference.html#torchao.quantization.quantize_.common.KernelPreference.AUTO">AUTO (torchao.quantization.quantize_.common.KernelPreference attribute)</a>
 </li>
       <li><a href="generated/torchao.quantization.autoquant.html#torchao.quantization.autoquant">autoquant() (in module torchao.quantization)</a>
 </li>
@@ -595,9 +610,11 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.quantization.GemliteUIntXWeightOnlyConfig.html#torchao.quantization.GemliteUIntXWeightOnlyConfig">GemliteUIntXWeightOnlyConfig (class in torchao.quantization)</a>
 </li>
+      <li><a href="generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.get_original_weight">get_original_weight() (torchao.dtypes.NF4Tensor method)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.get_original_weight">get_original_weight() (torchao.dtypes.NF4Tensor method)</a>
+      <li><a href="generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor.get_tensor_impl_constructor">get_tensor_impl_constructor() (torchao.utils.TorchAOBaseTensor class method)</a>
 </li>
       <li><a href="generated/torchao.quantization.qat.IntxFakeQuantizeConfig.html#torchao.quantization.qat.IntxFakeQuantizeConfig.group_size">group_size (torchao.quantization.qat.IntxFakeQuantizeConfig property)</a>
 </li>
@@ -607,6 +624,8 @@
 <h2 id="I">I</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor.implements">implements() (torchao.utils.TorchAOBaseTensor class method)</a>
+</li>
       <li><a href="generated/torchao.quantization.qat.initialize_fake_quantizers.html#torchao.quantization.qat.initialize_fake_quantizers">initialize_fake_quantizers() (in module torchao.quantization.qat)</a>
 </li>
       <li><a href="generated/torchao.dtypes.Int4CPULayout.html#torchao.dtypes.Int4CPULayout">Int4CPULayout (class in torchao.dtypes)</a>
@@ -623,10 +642,10 @@
 </li>
       <li><a href="generated/torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyQATQuantizer">Int4WeightOnlyQATQuantizer (class in torchao.quantization.qat)</a>
 </li>
-      <li><a href="generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html#torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear">Int8DynActInt4WeightQATLinear (class in torchao.quantization.qat.linear)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html#torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear">Int8DynActInt4WeightQATLinear (class in torchao.quantization.qat.linear)</a>
+</li>
       <li><a href="generated/torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html#torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer">Int8DynActInt4WeightQATQuantizer (class in torchao.quantization.qat)</a>
 </li>
       <li><a href="generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig">Int8DynamicActivationInt4WeightConfig (class in torchao.quantization)</a>
@@ -644,6 +663,14 @@
       <li><a href="generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">IntXQuantizationAwareTrainingConfig (class in torchao.quantization.qat)</a>
 </li>
       <li><a href="generated/torchao.quantization.qat.IntxFakeQuantizeConfig.html#torchao.quantization.qat.IntxFakeQuantizeConfig.is_symmetric">is_symmetric (torchao.quantization.qat.IntxFakeQuantizeConfig property)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="K">K</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.quantize_.common.KernelPreference.html#torchao.quantization.quantize_.common.KernelPreference">KernelPreference (class in torchao.quantization.quantize_.common)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -690,14 +717,18 @@
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.quantization.quantize_.common.PackingFormat.html#torchao.quantization.quantize_.common.PackingFormat">PackingFormat (class in torchao.quantization.quantize_.common)</a>
+</li>
       <li><a href="generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver">PerChannelNormObserver (class in torchao.sparsity)</a>
+</li>
+      <li><a href="generated/torchao.quantization.quantize_.common.PackingFormat.html#torchao.quantization.quantize_.common.PackingFormat.PLAIN">PLAIN (torchao.quantization.quantize_.common.PackingFormat attribute)</a>
 </li>
       <li><a href="generated/torchao.dtypes.PlainLayout.html#torchao.dtypes.PlainLayout">PlainLayout (class in torchao.dtypes)</a>
 </li>
-      <li><a href="generated/torchao.dtypes.MarlinSparseLayout.html#torchao.dtypes.MarlinSparseLayout.pre_process">pre_process() (torchao.dtypes.MarlinSparseLayout method)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.dtypes.MarlinSparseLayout.html#torchao.dtypes.MarlinSparseLayout.pre_process">pre_process() (torchao.dtypes.MarlinSparseLayout method)</a>
+</li>
       <li><a href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp">precompute_float8_dynamic_scale_for_fsdp() (in module torchao.float8)</a>
 </li>
       <li><a href="generated/torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.html#torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.prepare">prepare() (torchao.quantization.qat.Float8ActInt4WeightQATQuantizer method)</a>
@@ -718,13 +749,23 @@
 </li>
       <li><a href="generated/torchao.quantization.qat.QATStep.html#torchao.quantization.qat.QATStep">QATStep (class in torchao.quantization.qat)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">quantize_() (in module torchao.quantization)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.quantization.quantize_affine.html#torchao.quantization.quantize_affine">quantize_affine() (in module torchao.quantization)</a>
 </li>
       <li><a href="generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.quantize_tensor_nearest">quantize_tensor_nearest() (torchao.dtypes.NF4Tensor static method)</a>
+</li>
+      <li><a href="generated/torchao.quantization.quantize_.common.QuantizeTensorKwargs.html#torchao.quantization.quantize_.common.QuantizeTensorKwargs">QuantizeTensorKwargs (class in torchao.quantization.quantize_.common)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="R">R</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor.register_layout">register_layout() (torchao.utils.TorchAOBaseTensor class method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -770,15 +811,17 @@
 </li>
       <li><a href="generated/torchao.dtypes.to_affine_quantized_intx.html#torchao.dtypes.to_affine_quantized_intx">to_affine_quantized_intx() (in module torchao.dtypes)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.dtypes.to_affine_quantized_intx_static.html#torchao.dtypes.to_affine_quantized_intx_static">to_affine_quantized_intx_static() (in module torchao.dtypes)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="generated/torchao.quantization.to_linear_activation_quantized.html#torchao.quantization.to_linear_activation_quantized">to_linear_activation_quantized() (in module torchao.quantization)</a>
 </li>
       <li><a href="generated/torchao.dtypes.to_marlinqqq_quantized_intx.html#torchao.dtypes.to_marlinqqq_quantized_intx">to_marlinqqq_quantized_intx() (in module torchao.dtypes)</a>
 </li>
       <li><a href="generated/torchao.dtypes.to_nf4.html#torchao.dtypes.to_nf4">to_nf4() (in module torchao.dtypes)</a>
+</li>
+      <li><a href="generated/torchao.quantization.quantize_.common.KernelPreference.html#torchao.quantization.quantize_.common.KernelPreference.TORCH">TORCH (torchao.quantization.quantize_.common.KernelPreference attribute)</a>
 </li>
       <li>
     torchao.sparsity
@@ -787,6 +830,8 @@
         <li><a href="api_ref_sparsity.html#module-torchao.sparsity">module</a>
 </li>
       </ul></li>
+      <li><a href="generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor">TorchAOBaseTensor (class in torchao.utils)</a>
+</li>
       <li><a href="generated/torchao.quantization.TorchAODType.html#torchao.quantization.TorchAODType">TorchAODType (class in torchao.quantization)</a>
 </li>
   </ul></td>
