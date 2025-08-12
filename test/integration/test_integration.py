@@ -40,7 +40,6 @@ from torchao.quantization.autoquant import (
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     _replace_with_custom_fn_if_matches_filter,
-    change_linear_weights_to_int8_dqtensors,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
@@ -1852,11 +1851,6 @@ class TestAOTI(unittest.TestCase):
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
     def test_aoti(self, api, test_device, test_dtype):
-        if api is change_linear_weights_to_int8_dqtensors and test_device == "cuda":
-            self.skipTest(
-                f"{api} in {test_device} is not support for aoti compilation yet"
-            )
-
         if (
             test_device == "cuda"
             and torch.cuda.is_available()
