@@ -175,6 +175,7 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
 
 
 def main():
+    torch.manual_seed(42)
     parser = argparse.ArgumentParser(
         description="Run microbenchmarks and output results in PyTorch OSS benchmark database format"
     )
