@@ -1678,8 +1678,8 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<div class="viewcode-block" id="Float8ActivationInt4WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8ActivationInt4WeightConfig.html#torchao.quantization.Float8ActivationInt4WeightConfig">[docs]</a><span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">Float8ActivationInt4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<div class="viewcode-block" id="Float8DynamicActivationInt4WeightConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html#torchao.quantization.Float8DynamicActivationInt4WeightConfig">[docs]</a><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Float8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for apply float8 dynamic per row quantization and int4</span>
 <span class="sd">    per group weight quantization to linear</span>
 
@@ -1692,9 +1692,9 @@
     <span class="n">packing_format</span><span class="p">:</span> <span class="n">PackingFormat</span> <span class="o">=</span> <span class="s2">&quot;preshuffled&quot;</span></div>
 
 
-<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8ActivationInt4WeightConfig</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_float8_activation_int4_weight_transform</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8ActivationInt4WeightConfig</span>
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_float8_dynamic_activation_int4_weight_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationInt4WeightConfig</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">),</span> <span class="p">(</span>
         <span class="s2">&quot;applying int8 weight only quant requires module to have weight attribute&quot;</span>
