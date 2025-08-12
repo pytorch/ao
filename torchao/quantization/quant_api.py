@@ -1252,7 +1252,7 @@ def _int4_weight_only_transform(
 
 
 @dataclass
-class Float8ActivationInt4WeightConfig(AOBaseConfig):
+class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Configuration for apply float8 dynamic per row quantization and int4
     per group weight quantization to linear
 
@@ -1265,9 +1265,9 @@ class Float8ActivationInt4WeightConfig(AOBaseConfig):
     packing_format: PackingFormat = "preshuffled"
 
 
-@register_quantize_module_handler(Float8ActivationInt4WeightConfig)
-def _float8_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Float8ActivationInt4WeightConfig
+@register_quantize_module_handler(Float8DynamicActivationInt4WeightConfig)
+def _float8_dynamic_activation_int4_weight_transform(
+    module: torch.nn.Module, config: Float8DynamicActivationInt4WeightConfig
 ) -> torch.nn.Module:
     assert hasattr(module, "weight"), (
         "applying int8 weight only quant requires module to have weight attribute"
