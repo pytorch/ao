@@ -1121,7 +1121,7 @@ def _(
     mode: int,
     include_last_offset: bool,
 ) -> Tensor:
+    # Only support include_last_offset == True
     assert include_last_offset == True
-    # if include_last_offset:
     batch_size = offsets.shape[0] - 1
     return qweight.new_empty(batch_size, qweight.shape[1], dtype=qweight.dtype)

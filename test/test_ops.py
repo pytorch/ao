@@ -781,7 +781,7 @@ def test_swizzle_mm():
 
 
 EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
-EMBEDINGBAG_BAG_SIZES = [1, 128]
+EMBEDINGBAG_BAG_SIZES = [1, 2, 128]
 EMBEDINGBAG_VECTOR_SIZES = [1, 128, 512]
 EMBEDINGBAG_INDEX_DTYPES = [torch.int64, torch.int32]
 
@@ -818,7 +818,7 @@ def test_embeddingbag_cpu(multi_hot, batch_size, vector_size, index_type):
     elif mode == "max":
         mode_enum = 2
     indices = torch.randint(1000, (batch_size * multi_hot,)).to(index_type)
-    offsets = torch.arange(0, batch_size * multi_hot + 1, multi_hot).to(index_type)
+    offsets = torch.arange(0, (batch_size + 1) * multi_hot, multi_hot).to(index_type)
 
     m = torch.nn.EmbeddingBag(
         1000,
