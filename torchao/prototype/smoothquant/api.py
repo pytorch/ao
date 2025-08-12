@@ -54,7 +54,7 @@ class SmoothQuantConfig(AOBaseConfig):
 
     step: SmoothQuantStep
     alpha: Optional[float] = 0.5
-    quant_mode = "dynamic"
+    quant_mode: str = "dynamic"
     smoothing_factor: Optional[torch.Tensor] = None
     act_scales: Optional[torch.Tensor] = None
     wei_scales: Optional[torch.Tensor] = None
@@ -105,9 +105,9 @@ def _smooth_quant_transform(
 
     if step == SmoothQuantStep.PREPARE:
         observer = SmoothQuantObserver(
-            module.weight,
-            config.alpha,
-            config.quant_mode,
+            weight=module.weight,
+            alpha=config.alpha,
+            quant_mode=config.quant_mode,
             quant_min=-127,
             quant_max=127,
             eps=torch.finfo(torch.float32).eps,
