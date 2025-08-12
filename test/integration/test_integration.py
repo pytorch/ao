@@ -320,7 +320,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         assert torch.allclose(y_ref, y_smooth_nocalib), (
             "y_ref not close to y_smooth_nocalib"
         )
-        # after https://github.com/pytorch-labs/ao_benchmarks/pull/32,
+        # after https://github.com/meta-pytorch/ao_benchmarks/pull/32,
         # numerics do not match exactly between production c++ code
         # and this Python code
         # assert torch.allclose(
