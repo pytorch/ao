@@ -317,16 +317,38 @@ class TorchAOBuildExt(BuildExtension):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
 
+        # Get the expected extension file name that Python will look for
+        ext_filename = os.path.basename(self.get_ext_filename(ext.name))
+        ext_basename = os.path.splitext(ext_filename)[0]
+
+        # Add TORCHAO_CMAKE_EXT_SO_NAME is used in CMake to name the library
+        # to something the python extension expects
+        print("EXTENSION NAME", ext_basename)
         subprocess.check_call(
             [
                 "cmake",
                 ext.cmake_lists_dir,
             ]
             + ext.cmake_args
-            + ["-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir],
+            + [
+                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
+                f"-DTORCHAO_CMAKE_EXT_SO_NAME={ext_basename}",
+            ],
             cwd=self.build_temp,
         )
         subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
+
+        # # Handle the case where the file is created with .dylib extension instead of .so
+        # # This is needed because Python expects .so files on macOS, but CMake might create .dylib
+        # if ext.name == "torchao.experimental":
+        #     # Get the expected extension file name
+        #     ext_path = os.path.join(extdir, ext_filename)
+        #     dylib_path = os.path.join(extdir, f"{ext_basename}.dylib")
+
+        #     # If the .dylib exists but the .so doesn't, rename it
+        #     if os.path.exists(dylib_path) and not os.path.exists(ext_path):
+        #         print(f"Renaming {dylib_path} to {ext_path}")
+        #         os.rename(dylib_path, ext_path)
 
 
 class CMakeExtension(Extension):
@@ -708,7 +730,7 @@ def get_extensions():
 
         ext_modules.append(
             CMakeExtension(
-                "torchao.experimental",
+                "torchao._experimental_aten_ops",
                 cmake_lists_dir="torchao/experimental",
                 cmake_args=(
                     [
