@@ -29,7 +29,7 @@ def timestamped_print(*args, **kwargs):
     print(f"[{timestamp}]", *args, **kwargs)
 
 
-# From https://github.com/pytorch-labs/segment-anything-fast/blob/e6aadeb86f3ae1f58c3f98e2a91e251716e0f2aa/experiments/data.py
+# From https://github.com/meta-pytorch/segment-anything-fast/blob/e6aadeb86f3ae1f58c3f98e2a91e251716e0f2aa/experiments/data.py
 # All credit to vkuzo
 def _get_center_point(mask):
     """
