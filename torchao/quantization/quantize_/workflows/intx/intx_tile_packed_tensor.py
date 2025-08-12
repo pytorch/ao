@@ -12,7 +12,9 @@ from typing import Optional
 import torch
 
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
-from torchao.quantization.quantize_.workflows.intx import IntxUnpackedTensor
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_tensor import (
+    IntxUnpackedTensor,
+)
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
