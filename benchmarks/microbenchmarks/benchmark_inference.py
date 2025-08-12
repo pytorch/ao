@@ -43,7 +43,7 @@ from torchao.testing.model_architectures import (
 # construction.  Users should not access this cache directly; it is
 # internal to this module.
 # Eg: (linear, 1024, 1024, 1024, torch.bfloat16, cuda, default) -> (95.00, 56.00)
-# The cache is used to store the baseline inference time for a given configuration, which is used to calculate speedup metrics.
+# The cache is used to store the baseline inference time for a given configuration, which is further used to calculate speedup metrics.
 # This helps in removing multiple baseline calculations, which in turn helps in reducing the benchmarking time.
 # -----------------------------------------------------------------------------
 
