@@ -270,7 +270,7 @@ def _(func, types, args, kwargs):
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
-            wq = weight_tensor.qdata
+            wq = weight_tensor.qdata.contiguous()
             x_scale = input_tensor.scale
             w_scale = weight_tensor.scale
             if _is_rowwise_scaled(weight_tensor):
@@ -510,8 +510,8 @@ def _(func, types, args, kwargs):
 @implements(aten.transpose.int)
 def _(func, types, args, kwargs):
     self, dim0, dim1 = args
-    qdata = self.qdata.transpose(dim0, dim1)
-    scale = self.scale.transpose(dim0, dim1)
+    qdata = self.qdata.transpose(dim0, dim1).contiguous()
+    scale = self.scale.transpose(dim0, dim1).contiguous()
     block_size = self.block_size.copy()
 
     block_size[dim0], block_size[dim1] = block_size[dim1], block_size[dim0]
