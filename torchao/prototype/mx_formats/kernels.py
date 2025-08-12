@@ -971,7 +971,7 @@ else:
 
 
 # pack/unpack code copy-pasted from
-# https://github.com/pytorch-labs/ao/blob/main/torchao/dtypes/uint4.py
+# https://github.com/meta-pytorch/ao/blob/main/torchao/dtypes/uint4.py
 
 
 def down_size(size):
