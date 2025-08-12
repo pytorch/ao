@@ -39,4 +39,4 @@ class PackingFormat(str, Enum):
     """
     Unpacked means the subbyte quantized data is stored as int8
     """
-    UNPACKED = "unpacked"
+    UNPACKED_TO_INT8 = "unpacked_to_int8"

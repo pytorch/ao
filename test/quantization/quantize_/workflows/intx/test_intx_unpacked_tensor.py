@@ -29,8 +29,19 @@ class TestIntxUnpackedTensor(TestCase):
         self.config = IntxWeightOnlyConfig(
             weight_dtype=torch.int4,
             granularity=PerGroup(32),
-            VERSION=2,
+            version=2,
         )
+
+    def test_embedding(self):
+        dtype = torch.bfloat16
+        device = "cpu"
+        input = torch.randint(low=0, high=128, size=(10,), device=device)
+        embedding = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
+        original = embedding(input)
+        quantize_(embedding, self.config)
+        quantized = embedding(input)
+        error = compute_error(original, quantized)
+        self.assertTrue(error > 20)
 
     def test_linear(self):
         dtype = torch.bfloat16

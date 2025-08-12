@@ -55,8 +55,8 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
     """
 
-    tensor_data_attrs = ["int_data", "scale", "zero_point"]
-    tensor_attributes = ["bit_width", "block_size"]
+    tensor_data_names = ["int_data", "scale", "zero_point"]
+    tensor_attribute_names = ["bit_width", "block_size"]
 
     def __new__(cls, int_data, scale, zero_point, bit_width, block_size=None):
         kwargs = {}
@@ -105,30 +105,10 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         self.bit_width = bit_width
         self.block_size = block_size
 
-    def __tensor_flatten__(self):
-        return self.tensor_data_attrs, [
-            getattr(self, attr) for attr in self.tensor_attributes
-        ]
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        return cls(
-            *[tensor_data_dict[name] for name in cls.tensor_data_attrs],
-            *tensor_attributes,
-        )
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            *[fn(getattr(self, attr)) for attr in self.tensor_data_attrs],
-            *[getattr(self, attr) for attr in self.tensor_attributes],
-        )
-
     def __repr__(self):
         repr_fields = (
-            self.tensor_data_attrs
-            + self.tensor_attributes
+            self.tensor_data_names
+            + self.tensor_attribute_names
             + ["shape", "device", "dtype", "require_grad"]
         )
         inner_repr = [f"{attr}={getattr(self, attr)}" for attr in repr_fields]
@@ -157,7 +137,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float(
+    def from_hp(
         cls,
         float_tensor: torch.Tensor,
         block_size: Tuple[int],
@@ -165,6 +145,9 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         *,
         mapping_type: MappingType = MappingType.SYMMETRIC,
     ):
+        """
+        Create an IntxUnpackedTensor from a high-precision tensor
+        """
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[dtype]
         bit_width = _DTYPE_TO_BIT_WIDTH[dtype]
         scale, zero_point = choose_qparams_affine(
@@ -232,44 +215,6 @@ def _(func, types, args, kwargs):
     )
     weight_tensor = weight_tensor.dequantize()
     return torch.nn.functional.embedding(indices, weight_tensor, **kwargs)
-
-
-@implements([aten.detach.default, aten.alias.default])
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-    )
-
-
-@implements(aten.clone.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
-    )
-
-
-def _same_metadata(self: "IntxUnpackedTensor", src: "IntxUnpackedTensor") -> bool:
-    return (
-        isinstance(self, IntxUnpackedTensor)
-        and isinstance(src, IntxUnpackedTensor)
-        and all(
-            getattr(self, attr) == getattr(src, attr) for attr in self.tensor_attributes
-        )
-    )
-
-
-@implements(aten.copy_.default)
-def _(func, types, args, kwargs):
-    self = args[0]
-    src = args[1]
-    if _same_metadata(self, src):
-        self_tensors = self.__tensor_flatten__()[0]
-        for tensor_name in self_tensors:
-            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
-        return
-    raise ValueError(
-        f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
-    )
 
 
 @implements(aten.slice.Tensor)

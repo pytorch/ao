@@ -455,6 +455,10 @@ def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
+def _embedding_extra_repr(self):
+    return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
+
+
 def _get_linear_subclass_inserter(
     constructor, *, allow_requires_grad=False, propagate_bias=False, **kwargs
 ):
@@ -1988,8 +1992,8 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     mapping_type: MappingType = MappingType.SYMMETRIC
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
-    packing_format: PackingFormat = PackingFormat.UNPACKED
-    VERSION: int = 1
+    packing_format: PackingFormat = PackingFormat.UNPACKED_TO_INT8
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.IntxWeightOnlyConfig")
@@ -2031,9 +2035,9 @@ def _intx_weight_only_quantize_tensor(weight, config):
 
     block_size = (1, group_size)
 
-    if config.VERSION == 2:
-        if config.packing_format == PackingFormat.UNPACKED:
-            new_weight = IntxUnpackedTensor.from_float(
+    if config.version == 2:
+        if config.packing_format == PackingFormat.UNPACKED_TO_INT8:
+            new_weight = IntxUnpackedTensor.from_hp(
                 weight,
                 block_size,
                 weight_dtype,
@@ -2073,7 +2077,12 @@ def _intx_weight_only_transform(
     )
     new_weight = _intx_weight_only_quantize_tensor(module.weight, config)
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+
+    if isinstance(module, nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    elif isinstance(module, nn.Embedding):
+        module.extra_repr = types.MethodType(_embedding_extra_repr, module)
+
     return module
 
 
