@@ -15,7 +15,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig, quantize_
-from torchao.testing.model_architectures import ToyLinearModel
+from torchao.testing.model_architectures import ToyMultiLinearModel
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     _is_fbgemm_genai_gpu_available,
@@ -54,7 +54,7 @@ class TestAWQ(TestCase):
         n_calibration_examples = 10
         sequence_length = 5
 
-        m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        m = ToyMultiLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
 
         # baseline quantization
         base_config = FbgemmConfig(
@@ -103,7 +103,7 @@ class TestAWQ(TestCase):
         n_calibration_examples = 10
         sequence_length = 5
 
-        m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        m = ToyMultiLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
         dataset = m.example_inputs(
             dataset_size,
             sequence_length=sequence_length,
@@ -135,7 +135,7 @@ class TestAWQ(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        loaded_model = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        loaded_model = ToyMultiLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
         loaded_model.load_state_dict(state_dict, assign=True)
 
         m = torch.compile(m, fullgraph=True)
@@ -163,7 +163,7 @@ class TestAWQ(TestCase):
         n_calibration_examples = 10
         sequence_length = 5
 
-        m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        m = ToyMultiLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
         dataset = m.example_inputs(
             dataset_size,
             sequence_length=sequence_length,
@@ -195,7 +195,7 @@ class TestAWQ(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        loaded_model = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        loaded_model = ToyMultiLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
         quantize_(loaded_model, quant_config)
 

@@ -20,7 +20,7 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
 )
-from torchao.testing.model_architectures import ToyLinearModel
+from torchao.testing.model_architectures import ToySingleLinearModel
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -126,7 +126,7 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     if kwargs is None:
         kwargs = {}
 
-    m = ToyLinearModel(
+    m = ToySingleLinearModel(
         M, N, K, has_bias=True, dtype=torch.bfloat16, device="cuda"
     ).eval()
     m_bf16 = copy.deepcopy(m)

@@ -25,30 +25,7 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=512, n=256, k=128):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
-        self.linear3 = torch.nn.Linear(k, 1, bias=False)
-
-    def example_inputs(
-        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
-    ):
-        return [
-            torch.randn(
-                1, sequence_length, self.linear1.in_features, dtype=dtype, device=device
-            )
-            for j in range(batch_size)
-        ]
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        x = self.linear3(x)
-        return x
+from torchao.testing.model_architectures import ToyMultiLinearModel
 
 
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
@@ -189,7 +166,7 @@ class TestSmoothQuant(unittest.TestCase):
         sequence_length = 5
 
         # Create two identical models for comparison
-        m = ToyLinearModel(*layer_dims).eval().to(input_dtype).to(device)
+        m = ToyMultiLinearModel(*layer_dims).eval().to(input_dtype).to(device)
         m_save_load = deepcopy(m)
 
         # Generate calibration dataset

@@ -2134,12 +2134,12 @@ class TestUtils(unittest.TestCase):
 
 
 class TestBenchmarkModel(unittest.TestCase):
-    from torchao.testing.model_architectures import ToyLinearModel
+    from torchao.testing.model_architectures import ToyMultiLinearModel
 
     def run_benchmark_model(self, device):
         # params
         dtype = torch.bfloat16
-        m = self.ToyLinearModel(1024, 1024, 1024).eval().to(dtype).to(device)
+        m = self.ToyMultiLinearModel(1024, 1024, 1024).eval().to(dtype).to(device)
         m_bf16 = copy.deepcopy(m)
         example_inputs = m.example_inputs(dtype=dtype, device=device)
         m_bf16 = torch.compile(m_bf16, mode="max-autotune")

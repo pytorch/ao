@@ -15,7 +15,7 @@ from torchao.sparsity.training import (
     swap_linear_with_semi_sparse_linear,
     swap_semi_sparse_linear_with_linear,
 )
-from torchao.testing.model_architectures import ToyLinearModel
+from torchao.testing.model_architectures import ToyMultiLinearModel
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_fbcode
 
 
@@ -30,7 +30,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
 
         input = torch.rand((128, 128)).half().cuda()
         grad = torch.rand((128, 128)).half().cuda()
-        model = ToyLinearModel().half().cuda()
+        model = ToyMultiLinearModel().half().cuda()
         model_c = copy.deepcopy(model)
 
         for name, mod in model.named_modules():
@@ -79,7 +79,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
 
         input = torch.rand((128, 128)).half().cuda()
         grad = torch.rand((128, 128)).half().cuda()
-        model = ToyLinearModel().half().cuda()
+        model = ToyMultiLinearModel().half().cuda()
         model_c = copy.deepcopy(model)
 
         for name, mod in model.named_modules():

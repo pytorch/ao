@@ -44,7 +44,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyLinearModel
+from torchao.testing.model_architectures import ToyMultiLinearModel
 
 
 class ObservedLinear(torch.nn.Linear):
@@ -171,7 +171,7 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     torch.manual_seed(0)
 
     dtype = torch.bfloat16
-    m = ToyLinearModel().eval().to(dtype).to("cuda")
+    m = ToyMultiLinearModel().eval().to(dtype).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
     example_inputs = m.example_inputs(dtype=dtype, device="cuda")

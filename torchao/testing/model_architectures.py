@@ -11,21 +11,47 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=512, n=256, k=128):
+class ToySingleLinearModel(torch.nn.Module):
+    """Single linear for m * k * n problem size"""
+
+    def __init__(
+        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
+    ):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
-        self.linear3 = torch.nn.Linear(k, 1, bias=False)
+        self.m = m
+        self.dtype = dtype
+        self.device = device
+        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
+            dtype=self.dtype, device=self.device
+        )
+
+    def example_inputs(self):
+        return (
+            torch.randn(
+                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear(x)
+        return x
+
+
+class ToyMultiLinearModel(torch.nn.Module):
+    def __init__(self, m=512, n=256, k=128, has_bias=False):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, n, bias=has_bias)
+        self.linear2 = torch.nn.Linear(n, k, bias=has_bias)
+        self.linear3 = torch.nn.Linear(k, 64, bias=has_bias)
 
     def example_inputs(
-        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
+        self, batch_size=1, sequence_length=10, dtype=torch.bfloat16, device="cuda"
     ):
         return [
             torch.randn(
                 1, sequence_length, self.linear1.in_features, dtype=dtype, device=device
             )
-            for j in range(batch_size)
+            for _ in range(batch_size)
         ]
 
     def forward(self, x):

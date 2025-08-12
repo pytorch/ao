@@ -24,7 +24,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyLinearModel
+from torchao.testing.model_architectures import ToyMultiLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -102,7 +102,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+            model = ToyMultiLinearModel(K, N).eval().to(dtype).to("cuda")
 
             quantized_model = copy.deepcopy(model)
 
@@ -211,7 +211,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype = torch.bfloat16
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         # Create a linear layer with bfloat16 dtype
-        model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+        model = ToyMultiLinearModel(K, N).eval().to(dtype).to("cuda")
 
         # reference kernel preference and results
         # we are using KerenelPreference.TORCH as the reference
