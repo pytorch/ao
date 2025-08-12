@@ -742,7 +742,9 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     layout: Layout = QDQLayout()
     packing_format: PackingFormat = PackingFormat.UNPACKED_TO_INT8
-    compute_target: ComputeTarget = ComputeTarget.TORCHAO_AUTO
+
+    # Used with PackingFormat.TILED
+    compute_target: Optional[ComputeTarget] = None
     version: int = 1
 
     def __post_init__(self):
@@ -832,12 +834,13 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
             new_weight.scale = new_weight.scale.to(weight_scale_dtype).to(weight.dtype)
 
-        new_bias = module.bias
+        new_bias = bias
 
         # Apply dynamic activation
         if packing_format == PackingFormat.TILED:
             # IntxTilePackedTensor includes asymmetric dynamic activation
             assert act_mapping_type == MappingType.ASYMMETRIC
+            assert compute_target is not None, "Must specify a compute target for PackingFormat.TILED"
             new_weight = IntxTilePackedTensor.from_intx_unpacked_tensor(
                 new_weight, bias=new_bias, compute_target=compute_target
             )

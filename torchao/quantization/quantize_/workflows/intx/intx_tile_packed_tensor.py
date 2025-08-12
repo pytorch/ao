@@ -155,7 +155,7 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         is_per_channel = group_size == shape[1]
 
         packed_data_has_bias = bias is not None
-        packed_data_has_zeros = not all(zero_point == 0.0)
+        packed_data_has_zeros = not torch.all(zero_point == 0.0).item()
 
         assert scale.dtype in [torch.bfloat16, torch.float32]
         scale_is_bfloat16_or_is_rounded_to_bf16 = (
@@ -216,7 +216,7 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         if scale.dtype != torch.float32:
             logging.info(f"scale has dtype {scale.dtype}, converting to torch.float32")
             scale = scale.to(torch.float32)
-        if bias.dtype != torch.float32:
+        if bias is not None and bias.dtype != torch.float32:
             logging.info(f"bias has dtype {bias.dtype}, converting to torch.float32")
             bias = bias.to(torch.float32)
         if packed_data_has_zeros:
