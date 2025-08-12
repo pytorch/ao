@@ -12,6 +12,13 @@ from torch import nn
 
 from torchao.dtypes import AffineQuantizedTensor, Layout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
+from torchao.quantization.qat import (
+    FakeQuantizedEmbedding,
+    FakeQuantizedLinear,
+    QATConfig,
+    QATStep,
+)
+from torchao.quantization.qat.api import _qat_config_transform
 from torchao.quantization.quant_api import IntxWeightOnlyConfig
 from torchao.quantization.quant_primitives import (
     _SUB_BYTE_UINT_BOUNDS,
@@ -219,3 +226,31 @@ def _stretched_intx_weight_only_transform(
     )
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     return module
+
+
+@dataclass
+class PARQATConfig(QATConfig):
+    def __post_init__(self):
+        try:
+            super().__post_init__()
+        except ValueError as e:
+            msg = str(e)
+            if msg == "One of `base_config` or `weight_config` must be specified":
+                pass
+            else:
+                raise e
+
+
+@register_quantize_module_handler(PARQATConfig)
+def _parq_config_transform(module: nn.Module, config: PARQATConfig) -> nn.Module:
+    step = config.step
+    if step == QATStep.PREPARE:
+        return _qat_config_transform(module, config)
+    elif step == QATStep.CONVERT:
+        if isinstance(module, FakeQuantizedLinear):
+            module = module.to_linear()
+        elif isinstance(module, FakeQuantizedEmbedding):
+            module = module.to_embedding()
+        return module
+    else:
+        raise ValueError("unexpected {step=} in QATConfig")

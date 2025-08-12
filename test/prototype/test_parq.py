@@ -26,14 +26,13 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
-from torchao.prototype.parq.quant.quant_api import StretchedIntxWeightOnlyConfig
+from torchao.prototype.parq.quant.quant_api import (
+    PARQATConfig,
+    StretchedIntxWeightOnlyConfig,
+)
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
-from torchao.quantization.qat import (
-    FromIntXQuantizationAwareTrainingConfig,
-    IntxFakeQuantizeConfig,
-    IntXQuantizationAwareTrainingConfig,
-)
+from torchao.quantization.qat import IntxFakeQuantizeConfig
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
@@ -283,7 +282,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer_ref = UnifQuantizer()
         quantizer = StretchedUnifTorchaoQuantizer(b)
 
-        for n, module in model.named_children():
+        for module in model.children():
             if not _is_linear(module):
                 continue
 
@@ -382,24 +381,31 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         optimizer.step()
 
         # apply torchao quantized activations on top
+        base_config = None
         activation_config = IntxFakeQuantizeConfig(
-            torch.int8,
-            granularity="per_token",
-            mapping_type=config.act_mapping_type,
+            torch.int8, "per_token", is_symmetric=False
+        )
+        qat_config = PARQATConfig(
+            base_config,
+            activation_config=activation_config,
+            weight_config=None,
+            step="prepare",
         )
         filter_fn = optimizer.get_filter_fn(model)
-        quantize_(
-            model,
-            IntXQuantizationAwareTrainingConfig(activation_config=activation_config),
-            filter_fn=filter_fn,
-        )
+        quantize_(model, qat_config, filter_fn=filter_fn)
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
         # equivalent to torchao's convert step
         model.eval()
         optimizer.restore_latent_params()
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), filter_fn=filter_fn)
+        qat_config = PARQATConfig(
+            base_config,
+            activation_config=activation_config,
+            weight_config=None,
+            step="convert",
+        )
+        quantize_(model, qat_config, filter_fn=filter_fn)
         quantize_(model, config, filter_fn=filter_fn)
         converted_out = model(x)
         torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)

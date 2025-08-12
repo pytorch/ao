@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
@@ -14,7 +15,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 
 from ..quant import Quantizer
-from ..utils import HAS_DTENSOR, is_dtensor
+from ..utils import HAS_DTENSOR, instantiate_module, is_dtensor
 from .proxmap import ProxMap
 
 if HAS_DTENSOR:
@@ -172,9 +173,7 @@ class QuantOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             # Override quantizer if specified in the group
             if "quant_cls" in group:
-                quant_cls = instantiate_module(
-                    f"{parq.__name__}.quant", group["quant_cls"]
-                )
+                quant_cls = instantiate_module("..quant", group["quant_cls"])
                 quant_kwargs = (
                     json.loads(group["quant_kwargs"]) if "quant_kwargs" in group else {}
                 )
@@ -201,9 +200,9 @@ class QuantOptimizer(Optimizer):
 
                 # reshape p according to block size if specified
                 if block_size is not None:
-                    assert (
-                        p.size(-1) % block_size == 0
-                    ), f"{p.size(-1)=} is not divisible by {block_size=}"
+                    assert p.size(-1) % block_size == 0, (
+                        f"{p.size(-1)=} is not divisible by {block_size=}"
+                    )
                     assert p.dim() <= 2, f"Invalid {p.dim()=} for {block_size=}"
                     if p.dim() == 1:
                         p = p.unsqueeze(0)
