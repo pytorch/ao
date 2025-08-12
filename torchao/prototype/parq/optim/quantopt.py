@@ -14,6 +14,8 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
+import torchao.prototype.parq as parq
+
 from ..quant import Quantizer
 from ..utils import HAS_DTENSOR, instantiate_module, is_dtensor
 from .proxmap import ProxMap
@@ -173,7 +175,9 @@ class QuantOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             # Override quantizer if specified in the group
             if "quant_cls" in group:
-                quant_cls = instantiate_module("..quant", group["quant_cls"])
+                quant_cls = instantiate_module(
+                    f"{parq.__name__}.quant", group["quant_cls"]
+                )
                 quant_kwargs = (
                     json.loads(group["quant_kwargs"]) if "quant_kwargs" in group else {}
                 )
