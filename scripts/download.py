@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-# copied from https://github.com/pytorch-labs/gpt-fast/blob/main/scripts/download.py
+# copied from https://github.com/meta-pytorch/gpt-fast/blob/main/scripts/download.py
 import os
 from typing import Optional
 
