@@ -510,8 +510,11 @@ def _(func, types, args, kwargs):
 @implements(aten.transpose.int)
 def _(func, types, args, kwargs):
     self, dim0, dim1 = args
-    qdata = self.qdata.transpose(dim0, dim1).contiguous()
-    scale = self.scale.transpose(dim0, dim1).contiguous()
+    # TODO(asap): remove contiguous from here
+    # qdata = self.qdata.transpose(dim0, dim1).contiguous()
+    # scale = self.scale.transpose(dim0, dim1).contiguous()
+    qdata = self.qdata.transpose(dim0, dim1)
+    scale = self.scale.transpose(dim0, dim1)
     block_size = self.block_size.copy()
 
     block_size[dim0], block_size[dim1] = block_size[dim1], block_size[dim0]
