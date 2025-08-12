@@ -7,6 +7,8 @@ import logging
 import os
 
 import torch
+from torch._dynamo import is_compiling as dynamo_is_compiling
+from torch._higher_order_ops.out_dtype import out_dtype
 
 from torchao.utils import check_cpu_version
 
@@ -23,9 +25,6 @@ except ImportError:
     intmm_triton = None
 
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
-
-from torch._dynamo import is_compiling as dynamo_is_compiling
-from torch._higher_order_ops.out_dtype import out_dtype
 
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
