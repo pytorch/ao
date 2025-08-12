@@ -967,6 +967,7 @@ class TestSubclass(unittest.TestCase):
             )
         )
     )
+    @unittest.skip("skip because there is some bug in inductor codegen")
     def test_int8_dynamic_quant_subclass_api(self, device, dtype, act_mapping):
         api = partial(
             _int8da_int8w_api,
