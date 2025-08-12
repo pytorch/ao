@@ -8,6 +8,9 @@ from .int4.int4_preshuffled_tensor import (
 from .int4.int4_tensor import (
     Int4Tensor,
 )
+from .intx.intx_tile_packed_tensor import (
+    IntxTilePackedTensor,
+)
 from .intx.intx_unpacked_tensor import (
     IntxUnpackedTensor,
 )
@@ -18,4 +21,5 @@ __all__ = [
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "IntxUnpackedTensor",
+    "IntxTilePackedTensor",
 ]
