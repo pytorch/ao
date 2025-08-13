@@ -127,6 +127,7 @@ from .utils import _get_per_token_block_size
 
 logger = logging.getLogger(__name__)
 
+# TODO: revisit this list?
 __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
@@ -510,6 +511,8 @@ def quantize_(
         quantize_(m, int4_weight_only(group_size=32))
 
     """
+    torch._C._log_api_usage_once("torchao.quantization.quantize_")
+
     filter_fn = _is_linear if filter_fn is None else filter_fn
 
     if isinstance(config, ModuleFqnToConfig):
@@ -618,6 +621,11 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     mapping_type: MappingType = MappingType.SYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8DynamicActivationInt4WeightConfig"
+        )
 
 
 # for BC
@@ -729,6 +737,9 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
 
     def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8DynamicActivationIntxWeightConfig"
+        )
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         )
@@ -876,6 +887,11 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
     act_mapping_type: MappingType = MappingType.SYMMETRIC
     set_inductor_config: bool = True
 
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int4DynamicActivationInt4WeightConfig"
+        )
+
 
 # for bc
 int4_dynamic_activation_int4_weight = Int4DynamicActivationInt4WeightConfig
@@ -931,6 +947,11 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
     packing_bitwidth: Optional[int] = None
     mode: Optional[str] = "weight_only"
     set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.GemliteUIntXWeightOnlyConfig"
+        )
 
 
 # for BC
@@ -1004,6 +1025,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     # only used in VERSION >= 2
     packing_format: PackingFormat = PackingFormat.PLAIN
     VERSION: int = 1
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
 
 
 # for BC
@@ -1178,6 +1202,9 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     group_size: Optional[int] = None
     set_inductor_config: bool = True
 
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
+
 
 # for BC
 int8_weight_only = Int8WeightOnlyConfig
@@ -1334,6 +1361,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     weight_only_decode: bool = False
     set_inductor_config: bool = True
 
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
+        )
+
 
 # for BC
 int8_dynamic_activation_int8_weight = Int8DynamicActivationInt8WeightConfig
@@ -1437,6 +1469,9 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
     version: int = 2
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.Float8WeightOnlyConfig")
 
 
 # for BC
@@ -1586,9 +1621,11 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     version: int = 2
 
     def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Float8DynamicActivationFloat8WeightConfig"
+        )
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
-
         activation_granularity, weight_granularity = _normalize_granularity(
             self.granularity
         )
@@ -1705,6 +1742,11 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     activation_dtype: torch.dtype = e5m2_dtype
     weight_dtype: torch.dtype = e4m3_dtype
 
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
+        )
+
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
@@ -1755,6 +1797,11 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     ] = None
     mm_config: Optional[Float8MMConfig] = Float8MMConfig(use_fast_accum=True)
     set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Float8StaticActivationFloat8WeightConfig"
+        )
 
 
 # for bc
@@ -1835,6 +1882,9 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
     pack_dim: int = -1
     use_hqq: bool = False
     set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.UIntXWeightOnlyConfig")
 
 
 # for BC
@@ -1934,6 +1984,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
 
     def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.IntxWeightOnlyConfig")
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         )
@@ -2006,6 +2057,9 @@ class FPXWeightOnlyConfig(AOBaseConfig):
     ebits: int
     mbits: int
     set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.FPXWeightOnlyConfig")
 
 
 # for BC
@@ -2137,6 +2191,9 @@ class ModuleFqnToConfig(AOBaseConfig):
     module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
         default_factory=dict
     )
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.ModuleFqnToConfig")
 
 
 def _module_fqn_to_config_handler(

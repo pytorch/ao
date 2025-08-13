@@ -106,7 +106,7 @@ def prepare_pt2e(
 
         return torch_prepare_pt2e(model, quantizer)
 
-    torch._C._log_api_usage_once("quantization_api.quantize_pt2e.prepare_pt2e")
+    torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
     # TODO: check qconfig_mapping to make sure conv and bn are both configured
@@ -192,7 +192,7 @@ def prepare_qat_pt2e(
 
         return torch_prepare_qat_pt2e(model, quantizer)
 
-    torch._C._log_api_usage_once("quantization_api.quantize_pt2e.prepare_qat_pt2e")
+    torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_qat_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
     model = quantizer.transform_for_annotation(model)
@@ -304,7 +304,7 @@ def convert_pt2e(
 
         return torch_convert_pt2e(model, use_reference_representation, fold_quantize)
 
-    torch._C._log_api_usage_once("quantization_api.quantize_pt2e.convert_pt2e")
+    torch._C._log_api_usage_once("torchao.quantization.pt2e.convert_pt2e")
     if not isinstance(use_reference_representation, bool):
         raise ValueError(
             "Unexpected argument type for `use_reference_representation`, "
