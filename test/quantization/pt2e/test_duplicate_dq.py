@@ -11,7 +11,6 @@ import unittest
 from typing import Any
 
 import torch
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import QuantizationTestCase
 from torch.testing._internal.common_utils import IS_WINDOWS, run_tests
 

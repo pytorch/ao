@@ -1805,9 +1805,6 @@ class TestQAT(unittest.TestCase):
                     str(w.message),
                 )
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_api_convert_no_quantization(self):
         """
         Test that `QATConfig(step="convert")` swaps back to nn modules without quantization.

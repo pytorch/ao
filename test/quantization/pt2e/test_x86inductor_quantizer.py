@@ -12,7 +12,6 @@ from enum import Enum
 
 import torch
 import torch.nn as nn
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
