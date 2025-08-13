@@ -5,14 +5,15 @@
 # LICENSE file in the root directory of this source tree.
 import copy
 import tempfile
-import unittest
 
 import torch
+from parameterized import parameterized
 from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
 )
 
+from torchao.dtypes import Int4CPULayout
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig, quantize_
 from torchao.utils import (
@@ -45,15 +46,15 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@unittest.skipIf(
-    not _is_fbgemm_genai_gpu_available(),
-    reason="need to install fbgemm_gpu_genai package",
-)
-@unittest.skipIf(
-    not TORCH_VERSION_AT_LEAST_2_6,
-    reason="torch.int4 needs torch 2.6+, can remove after we are not using FbgemmConfig",
-)
+devices = ["cpu"]
+if (
+    torch.cuda.is_available()
+    and _is_fbgemm_genai_gpu_available()
+    and TORCH_VERSION_AT_LEAST_2_6
+):
+    devices.append("cuda")
+
+
 class TestAWQ(TestCase):
     def test_awq_config(self):
         base_config = Int4WeightOnlyConfig()
@@ -68,8 +69,8 @@ class TestAWQ(TestCase):
         with self.assertRaisesRegex(ValueError, "is not one of"):
             AWQConfig(base_config, step="not_supported")
 
-    def test_awq_functionality(self):
-        device = "cuda"
+    @parameterized.expand([(device,) for device in devices])
+    def test_awq_functionality(self, device):
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -80,13 +81,21 @@ class TestAWQ(TestCase):
         m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
 
         # baseline quantization
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        if device == "cuda":
+            base_config = FbgemmConfig(
+                input_dtype=torch.bfloat16,
+                weight_dtype=torch.int4,
+                output_dtype=torch.bfloat16,
+                block_size=[1, group_size],
+                preshuffle=False,
+            )
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, layout=Int4CPULayout(), set_inductor_config=False
+            )
+            torch.manual_seed(1234)
+        else:
+            assert False, "Unsupported device: {}".format(device)
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config)
 
@@ -117,8 +126,8 @@ class TestAWQ(TestCase):
         loss_base = (ref_out - baseline_out).pow(2).mean().item()
         assert loss_awq < loss_base
 
-    def test_awq_loading(self):
-        device = "cuda"
+    @parameterized.expand([(device,) for device in devices])
+    def test_awq_loading(self, device):
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -136,13 +145,20 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        if device == "cuda":
+            base_config = FbgemmConfig(
+                input_dtype=torch.bfloat16,
+                weight_dtype=torch.int4,
+                output_dtype=torch.bfloat16,
+                block_size=[1, group_size],
+                preshuffle=False,
+            )
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, layout=Int4CPULayout(), set_inductor_config=False
+            )
+        else:
+            assert False, "Unsupported device: {}".format(device)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
@@ -171,14 +187,14 @@ class TestAWQ(TestCase):
         assert awq_save_load_out is not None
         assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
 
-    def test_awq_loading_vllm(self):
+    @parameterized.expand([(device,) for device in devices])
+    def test_awq_loading_vllm(self, device):
         """Simulate weight loading in vllm:
         * prepare model weight to the same format (awq weight)
         * use weight.copy_(state_dict["weight"]) to copy over the quantized weights from checkpoint
 
         There is also a slicing op that is ommitted here, overall e2e is tested in tests in vllm repo
         """
-        device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -196,13 +212,20 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        if device == "cuda":
+            base_config = FbgemmConfig(
+                input_dtype=torch.bfloat16,
+                weight_dtype=torch.int4,
+                output_dtype=torch.bfloat16,
+                block_size=[1, group_size],
+                preshuffle=False,
+            )
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, layout=Int4CPULayout(), set_inductor_config=False
+            )
+        else:
+            assert False, "Unsupported device: {}".format(device)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
