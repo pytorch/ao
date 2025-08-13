@@ -30,3 +30,8 @@ class PackingFormat(str, Enum):
     preshuffled is referring to the preshuffled format used by fbgemm kernels
     """
     PRESHUFFLED = "preshuffled"
+
+    """
+    marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization
+    """
+    MARLIN_SPARSE = "marlin_sparse"
