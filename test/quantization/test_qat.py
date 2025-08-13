@@ -1222,6 +1222,7 @@ class TestQAT(unittest.TestCase):
         QATConfig(base_config, step=QATStep.CONVERT)
         QATConfig(activation_config=fq_config, weight_config=fq_config, step="prepare")
         QATConfig(weight_config=fq_config, step="prepare")
+        QATConfig(step="convert")
 
         # OK: good step values
         self.assertEqual(QATConfig(base_config).step, "prepare")
@@ -1250,7 +1251,7 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Cannot specify both"):
             QATConfig(base_config, activation_config=fq_config, step="prepare")
         with self.assertRaisesRegex(
-            ValueError, "must be specified in the convert step"
+            ValueError, "Cannot specify .* in the convert step"
         ):
             QATConfig(weight_config=fq_config, step="convert")
 
@@ -1803,6 +1804,37 @@ class TestQAT(unittest.TestCase):
                     "is deprecated and will be removed in a future release",
                     str(w.message),
                 )
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_api_convert_no_quantization(self):
+        """
+        Test that `QATConfig(step="convert")` swaps back to nn modules without quantization.
+        """
+        torch.manual_seed(self.SEED)
+        m = M()
+        baseline_model = copy.deepcopy(m)
+
+        # Prepare swaps to FakeQuantizedLinear
+        quantize_(m, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
+        self.assertEqual(type(m.linear1), FakeQuantizedLinear)
+        self.assertEqual(type(m.sub.linear), FakeQuantizedLinear)
+        self.assertEqual(type(m.linear2), FakeQuantizedLinear)
+
+        # Convert without a `base_config` swaps back to nn.Linear
+        quantize_(m, QATConfig(step="convert"))
+        self.assertEqual(type(m.linear1), torch.nn.Linear)
+        self.assertEqual(type(m.sub.linear), torch.nn.Linear)
+        self.assertEqual(type(m.linear2), torch.nn.Linear)
+
+        # Model weights should be identical to before
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs()
+        x2 = copy.deepcopy(x)
+        out = m(*x)
+        baseline_out = baseline_model(*x2)
+        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
 
 if __name__ == "__main__":
