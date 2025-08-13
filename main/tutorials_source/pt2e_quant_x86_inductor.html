@@ -525,7 +525,7 @@ for post training quantization.</p>
     <span class="n">exported_model</span> <span class="o">=</span> <span class="n">export</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
         <span class="n">example_inputs</span>
-    <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">module</span><span class="p">()</span>
 </pre></div>
 </div>
 <p>Next, we will have the FX Module to be quantized.</p>
@@ -639,12 +639,10 @@ For a more in-depth understanding of PT2 Export Quantization-Aware Training,
 we recommend referring to the dedicated <a class="reference external" href="https://pytorch.org/tutorials/prototype/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training</a>.</p>
 <p>The PyTorch 2 Export QAT flow is largely similar to the PTQ flow:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torch._export</span><span class="w"> </span><span class="kn">import</span> <span class="n">capture_pre_autograd_graph</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantize_pt2e</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
   <span class="n">prepare_qat_pt2e</span><span class="p">,</span>
   <span class="n">convert_pt2e</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torch.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">export</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantizer.x86_inductor_quantizer</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xiq</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantizer.x86_inductor_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">X86InductorQuantizer</span>
 
@@ -660,9 +658,7 @@ we recommend referring to the dedicated <a class="reference external" href="http
 <span class="n">m</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span>
 
 <span class="c1"># Step 1. program capture</span>
-<span class="c1"># NOTE: this API will be updated to torch.export API in the future, but the captured</span>
-<span class="c1"># result shoud mostly stay the same</span>
-<span class="n">exported_model</span> <span class="o">=</span> <span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">example_inputs</span><span class="p">)</span>
+<span class="n">exported_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">example_inputs</span><span class="p">)</span><span class="o">.</span><span class="n">module</span><span class="p">()</span>
 <span class="c1"># we get a model with aten ops</span>
 
 <span class="c1"># Step 2. quantization-aware training</span>
