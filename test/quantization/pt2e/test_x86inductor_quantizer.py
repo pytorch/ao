@@ -12,6 +12,7 @@ from enum import Enum
 
 import torch
 import torch.nn as nn
+from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
@@ -35,10 +36,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     QUANT_ANNOTATION_KEY,
     X86InductorQuantizer,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 class NodePosType(Enum):

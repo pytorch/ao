@@ -14,12 +14,8 @@ import torch
 from torch.ao.ns.fx.utils import compute_sqnr
 from torch.export import ExportedProgram
 from torch.fx import GraphModule, Node
+from torch.fx.traceback import NodeSource
 from torch.nn import functional as F
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    from torch.fx.traceback import NodeSource
 
 from .graph_utils import bfs_trace_with_node_process
 
@@ -262,12 +258,6 @@ def prepare_for_propagation_comparison(model: GraphModule) -> GraphModule:
     Returns:
         a model with output loggers for all unlifted nodes
     """
-    if not TORCH_VERSION_AT_LEAST_2_6:
-        log.warning(
-            "prepare_for_propagation_comparison is only supported for PyTorch 2.6+"
-        )
-        return model
-
     # don't change the original model
     model = copy.deepcopy(model)
     for n in model.graph.nodes:

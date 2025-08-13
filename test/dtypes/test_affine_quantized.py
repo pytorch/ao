@@ -41,7 +41,6 @@ from torchao.quantization import (
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.testing.utils import skip_if_no_cuda, skip_if_no_gemlite, skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
@@ -151,11 +150,7 @@ class TestAffineQuantized(TestCase):
                 with tempfile.NamedTemporaryFile() as f:
                     torch.save(ql.state_dict(), f)
                     f.seek(0)
-                    # `weights_only=True` is enabled for torch 2.5+
-                    if TORCH_VERSION_AT_LEAST_2_5:
-                        _ = torch.load(f, weights_only=True)
-                    else:
-                        _ = torch.load(f, weights_only=False)
+                    _ = torch.load(f, weights_only=True)
 
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     @common_utils.parametrize("apply_quant", get_quantization_functions(False, False))
