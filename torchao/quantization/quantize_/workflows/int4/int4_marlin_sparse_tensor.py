@@ -37,7 +37,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
     tensor_data_names = ["qdata", "scale", "zero_point"]
     tensor_attribute_names = ["block_size", "shape", "meta", "num_bits"]
 
-    def __new__(cls, qdata, scale, shape):
+    def __new__(cls, qdata, scale, zero_point, meta, block_size, shape, num_bits):
         kwargs = {}
         kwargs["device"] = qdata.device
         kwargs["dtype"] = scale.dtype
@@ -80,17 +80,70 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         cls,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        zero: torch.Tensor,
+        zero_point: torch.Tensor,
     ):
-        from torchao.sparsity.marlin import const, pack_to_marlin_24
+        from torchao.sparsity.marlin import (
+            const,
+            pack_to_marlin_24
+        )
 
-        # Linear layers are (in_features, out_features) but the int_data that is reaching this point
+        # Linear layers are (in_features, out_features) but the qdata that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
-        q_w_24 = int_data.t()
+        q_w_24 = qdata.t()
         # addressing the case when scale has dimension 1, happens when
         # weight_shape[-1] == group_size == 128
         if scale.ndim == 1:
             scale = scale.reshape(scale.shape[0], -1)
+
+        scale_t = scale.t()
+
+        if not torch.cuda.get_device_capability()[0] >= 8:
+            raise ValueError(
+                f"Can not use Sparse Marlin 2:4 int4*fp16 kernel with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel."
+            )
+
+        if q_w_24.dtype != torch.int32:
+            raise ValueError("Only `torch.int32` weights are supported.")
+
+        in_features, out_features = q_w_24.shape
+        if in_features % 128 != 0 or out_features != 256 == 0:
+            raise ValueError(
+                "`in_features` must be divisible by 64 and `out_features` by 256."
+            )
+
+        # NOTE: The current marlin 2:4 kernel supports both 4 and 8 bits quantization but fp8
+        # will require a bit more work to get our current quantization flow to work with it.
+        # Check the link for a reference: https://github.com/neuralmagic/nm-vllm/tree/main
+        num_bits = 4 if torch.max(q_w_24) < 16 else -1
+        if num_bits not in [4]:
+            raise ValueError(f"Only {[4]} bits are supported, got {num_bits}.")
+
+        group_size = in_features // scale_t.shape[0]
+        if group_size == 0:
+            group_size = in_features
+        assert (
+            group_size <= in_features
+        ), "Group size must be less than or equal to in_features."
+
+        if group_size not in const.SUPPORTED_GROUP_SIZES:
+            raise ValueError(
+                f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {group_size}."
+            )
+
+        # Compress quantized weight to marlin 2:4 format
+        marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(
+            q_w_24, scale_t, num_bits, group_size
+        )
+
+        return cls(
+            qdata=marlin_24_q_w_comp,
+            scale=marlin_24_s,
+            zero_point=zero_point,
+            meta=meta,
+            block_size=group_size,
+            shape=q_w_24.shape,
+            num_bits=num_bits,
+        )
 
     @classmethod
     def from_hp(
@@ -143,6 +196,12 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
 
         scale = scale.to(w.dtype)
         zero_point = zero_point.to(w.dtype)
+
+        return cls.from_plain(
+            qdata=wq,
+            scale=scale,
+            zero_point=zero_point
+        )
 
 
 implements = Int4MarlinSparseTensor.implements
