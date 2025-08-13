@@ -548,6 +548,22 @@ def quantize_(
         )
 
 
+def _int8_asymm_per_token_quant_v2(x: torch.Tensor) -> torch.Tensor:
+    """This is defined here instead of local function to support serialization"""
+    # Use FP32 for quantization
+    x_fp32 = x.to(torch.float32)
+    x_int8_quantized = IntxUnpackedTensor.from_hp(
+        x_fp32,
+        block_size=_get_per_token_block_size(x),
+        dtype=torch.int8,
+        mapping_type=MappingType.ASYMMETRIC,
+    )
+
+    # Cast to original dtype.  This is the dequantization dtype
+    x_int8_quantized = x_int8_quantized.to(x.dtype)
+    return x_int8_quantized
+
+
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     """This is defined here instead of local function to support serialization"""
     mapping_type = MappingType.ASYMMETRIC
@@ -821,6 +837,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     block_size = (1, group_size)
 
     if config.version == 2:
+        assert act_mapping_type == MappingType.ASYMMETRIC
         assert packing_format in [
             PackingFormat.UNPACKED_TO_INT8,
             PackingFormat.TILED,
@@ -839,7 +856,6 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         # Apply dynamic activation
         if packing_format == PackingFormat.TILED:
             # IntxTilePackedTensor includes asymmetric dynamic activation
-            assert act_mapping_type == MappingType.ASYMMETRIC
             assert compute_target is not None, (
                 "Must specify a compute target for PackingFormat.TILED"
             )
@@ -849,12 +865,8 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
             new_bias = None  # bias is packed with weights
         else:
             assert packing_format == PackingFormat.UNPACKED_TO_INT8
-            activation_quant_func = {
-                MappingType.ASYMMETRIC: _int8_asymm_per_token_quant,
-                MappingType.SYMMETRIC: _int8_symm_per_token_quant,
-            }[act_mapping_type]
             new_weight = to_linear_activation_quantized(
-                new_weight, activation_quant_func
+                new_weight, _int8_asymm_per_token_quant_v2
             )
 
         return new_weight, new_bias
@@ -2323,6 +2335,7 @@ def _module_fqn_to_config_handler(
 torch.serialization.add_safe_globals(
     [
         _int8_asymm_per_token_quant,
+        _int8_asymm_per_token_quant_v2,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
         _int4_symm_cutlass_quant,
