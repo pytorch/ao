@@ -152,19 +152,6 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         block_size: Tuple[int],  # quantize functions needs it as tuple not list
     ):
         preprocessed_w = cls.pre_process(w)
-        # assert (
-        #     len(block_size) == w.ndim
-        # ), f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
-        # if int4_row_quantize_zp is None:
-        #     raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
-
-        # assert (
-        #     all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1
-        # ), "Only groupwise quant is supported right now"
-
-        # group_size = block_size[-1]
-        # original_shape = w.shape
-
         assert (
             block_size == 128 or block_size == w.shape[-1]
         ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {block_size}"
@@ -206,9 +193,11 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
 
 implements = Int4MarlinSparseTensor.implements
 
-
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
+    from torchao.ops import marlin_24_gemm
+    from torchao.sparsity.marlin import marlin_24_workspace
+
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -220,17 +209,35 @@ def _(func, types, args, kwargs):
         weight_tensor.zero_point.is_contiguous()
     ), "Expected zero_point to be contiguous"
 
-    orig_act_size = input_tensor.size()
-    orig_out_features = weight_tensor.shape[-2]
+    sparse_w_int4 = weight_tensor.qdata
+    scale = weight_tensor.scale
+    meta = weight_tensor.meta
+    original_shape = weight_tensor.shape
+    num_bits = weight_tensor.num_bits
 
-    input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise(
-        input_tensor,
-        weight_tensor.qdata,
-        weight_tensor.scale,
-        weight_tensor.zero_point,
+    # Folds batch dimension into the first dimension
+    input_2d = input_tensor.view(-1, input_tensor.shape[-1])
+
+    size_m = input_2d.shape[0]
+    size_n = scale.shape[1]
+    size_k = input_2d.shape[1]
+    workspace_24 = marlin_24_workspace(original_shape[1])
+
+    out = marlin_24_gemm(
+        input_2d,
+        sparse_w_int4,
+        meta,
+        scale,
+        workspace_24,
+        num_bits,
+        size_m,
+        size_n,
+        size_k,
     )
-    res = res.reshape(*orig_act_size[:-1], orig_out_features)
+
+    # Unfold the batch dimension
+    out = out.reshape(input_tensor.shape[:-1] + (scale.shape[1],))
+
     if bias is not None:
-        res = res + bias
-    return res
+        out += bias.to(out.dtype)
+    return out
