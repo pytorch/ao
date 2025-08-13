@@ -10,6 +10,11 @@ import torch
 import torch.nn as nn
 
 from torchao.prototype.moe_inference.workflow import convert_to_float8_moe_inference
+from torchao.quantization import Float8DynamicActivationFloat8WeightConfig
+from torchao.quantization.granularity import PerRow
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+    Float8Tensor,
+)
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -56,7 +61,10 @@ class TestMoEInference:
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
         offs = _generate_test_offsets(M, B)
         y = m(x, offs)
-        convert_to_float8_moe_inference(m, "weight")
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+        filter_fn = lambda param, param_name: param_name.endswith("weight")
+        convert_to_float8_moe_inference(m, config, filter_fn)
+        assert type(m.weight) == Float8Tensor
         yq = m(x, offs)
         sqnr = compute_error(y, yq).item()
         assert sqnr > 25.0
