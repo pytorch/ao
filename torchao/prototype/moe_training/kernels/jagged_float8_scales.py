@@ -32,9 +32,9 @@ FP8_DTYPE_MAP = {
 }
 
 block_sizes = [1, 16, 32, 64]
-block_sizes_iter = [32, 64, 128, 256]
-num_warps = [1, 4]
-num_stages = [2, 3]
+block_sizes_iter = [64, 128, 256]
+num_warps = [4]
+num_stages = [3]
 kernel_configs_2D = [
     triton.Config(
         {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
