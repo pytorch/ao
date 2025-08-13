@@ -30,3 +30,13 @@ class PackingFormat(str, Enum):
     preshuffled is referring to the preshuffled format used by fbgemm kernels
     """
     PRESHUFFLED = "preshuffled"
+
+    """
+    Unpacked means the subbyte quantized data is stored as int8
+    """
+    UNPACKED_TO_INT8 = "unpacked_to_int8"
+
+    """
+    Tiled means the tiling used by CPU kernels
+    """
+    TILED = "tiled"

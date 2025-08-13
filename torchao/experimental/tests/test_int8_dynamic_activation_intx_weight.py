@@ -27,7 +27,101 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.quantize_.common import PackingFormat
+from torchao.quantization.quantize_.workflows.intx import (
+    ComputeTarget,
+)
 from torchao.quantization.utils import compute_error
+
+
+def _get_test_cases_v2():
+    MODEL_DTYPES = [
+        torch.float32,
+        torch.bfloat16,
+    ]
+
+    PACKING_FORMATS = [
+        (PackingFormat.UNPACKED_TO_INT8, None),
+        (PackingFormat.TILED, ComputeTarget.ATEN),
+        (PackingFormat.TILED, ComputeTarget.TORCHAO_AUTO),
+        (PackingFormat.TILED, ComputeTarget.TORCHAO_LOWBIT),
+        (PackingFormat.TILED, ComputeTarget.TORCHAO_KLEIDIAI),
+    ]
+
+    WEIGHT_DTYPES = [
+        torch.int1,
+        torch.int2,
+        torch.int3,
+        torch.int4,
+        torch.int5,
+        torch.int6,
+        torch.int7,
+        torch.int8,
+    ]
+
+    MAPPING_TYPES = [
+        MappingType.SYMMETRIC,
+        MappingType.ASYMMETRIC,
+        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+    ]
+
+    GRANULARITIES = [PerGroup(128), PerAxis(0)]
+
+    def _is_valid_test_combination(
+        model_dtype,
+        packing_format,
+        compute_target,
+        weight_dtype,
+        weight_mapping_type,
+        weight_granularity,
+    ):
+        # ATEN restrictions
+        if (packing_format == PackingFormat.TILED) and (
+            compute_target == ComputeTarget.ATEN
+        ):
+            if weight_dtype != torch.int4:
+                return False
+            if weight_mapping_type == MappingType.ASYMMETRIC:
+                return False
+            if model_dtype != torch.float32:
+                return False
+
+        # TORCHAO_KLEIDIAI restrictions
+        if (packing_format == PackingFormat.TILED) and (
+            compute_target == ComputeTarget.ATEN
+        ):
+            if weight_dtype != torch.int4:
+                return False
+            if weight_mapping_type == MappingType.ASYMMETRIC:
+                return False
+
+        # SYMMETRIC_NO_CLIPPING_ERR does not work well with int1
+        if (
+            weight_dtype == torch.int1
+            and weight_mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
+        ):
+            return False
+
+        return True
+
+    test_cases = [
+        param(
+            model_dtype=mdt,
+            packing_format=pf,
+            compute_target=ct,
+            weight_dtype=dt,
+            weight_mapping_type=mt,
+            weight_granularity=gr,
+        )
+        for mdt in MODEL_DTYPES
+        for pf, ct in PACKING_FORMATS
+        for dt in WEIGHT_DTYPES
+        for mt in MAPPING_TYPES
+        for gr in GRANULARITIES
+        if _is_valid_test_combination(dt, pf, ct, dt, mt, gr)
+    ]
+
+    return test_cases
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
@@ -683,6 +777,195 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         self.assertGreater(compute_error(out_q, out), 30)
         self.assertGreater(compute_error(out_qc, out), 30)
+
+    @parameterized.expand(
+        _get_test_cases_v2(),
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_accuracy_v2(
+        self,
+        model_dtype,
+        packing_format,
+        compute_target,
+        weight_dtype,
+        weight_mapping_type,
+        weight_granularity,
+    ):
+        """
+        Checks the accuracy of packed layouts
+        """
+        m = 3
+        n = 1071
+        k = 2048
+        activations = torch.randn(m, k).to(model_dtype)
+        model = torch.nn.Sequential(
+            *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
+        ).to(model_dtype)
+
+        quantized_model = copy.deepcopy(model)
+        quantize_(
+            quantized_model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                packing_format=packing_format,
+                compute_target=compute_target,
+                version=2,
+            ),
+        )
+
+        quantized_model_reference = copy.deepcopy(model)
+        quantize_(
+            quantized_model_reference,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                compute_target=None,
+                version=2,
+            ),
+        )
+
+        with torch.no_grad():
+            result = quantized_model(activations)
+            expected_result = quantized_model_reference(activations)
+
+        mse_tol = 1e-5 if model_dtype == torch.float32 else 1e-4
+        self._assert_close(result, expected_result, mse_tol=mse_tol)
+
+    def test_export_tiled_v2(
+        self,
+    ):
+        m = 3
+        k0 = 512
+        k1 = 256
+        k2 = 128
+        k3 = 1024
+        weight_dtype = torch.int4
+        weight_granularity = PerAxis(0)
+        weight_mapping_type = MappingType.ASYMMETRIC
+
+        layers = [
+            torch.nn.Linear(k0, k1, bias=False),
+            torch.nn.Linear(k1, k2, bias=True),
+            torch.nn.Linear(k2, k3, bias=False),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(2, 1, m, k0, dtype=torch.float32)
+        dynamic_shapes = {
+            "input": {
+                0: torch.export.Dim("dim0"),
+                1: torch.export.Dim.STATIC,
+                2: torch.export.Dim("dim2"),
+                3: torch.export.Dim.STATIC,
+            }
+        }
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                packing_format=PackingFormat.TILED,
+                compute_target=ComputeTarget.TORCHAO_AUTO,
+                version=2,
+            ),
+        )
+        eager_results = model(activations)
+
+        # Export
+        exported = torch.export.export(
+            model, (activations,), strict=True, dynamic_shapes=dynamic_shapes
+        )
+        exported_results = exported.module()(activations)
+        self.assertTrue(torch.allclose(eager_results, exported_results))
+
+    def test_export_unpacked_v2(self):
+        """
+        Checks that models quantized with TestQDQLayout() export as expected
+        """
+        layers = [
+            torch.nn.Linear(512, 256, bias=False),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                weight_mapping_type=MappingType.SYMMETRIC,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                version=2,
+            ),
+        )
+        eager_results = model(activations)
+
+        exported = torch.export.export(model, (activations,), strict=True)
+
+        exported_results = exported.module()(activations)
+        self.assertTrue(torch.allclose(eager_results, exported_results))
+
+        expected_lines = [
+            "torch.ops.torchao.choose_qparams_affine.default",
+            "torch.ops.torchao.quantize_affine.default",
+            "torch.ops.torchao.dequantize_affine.default",
+            "torch.ops.torchao.dequantize_affine.default",
+            "torch.ops.aten.linear.default",
+        ]
+        for line in expected_lines:
+            count = 1
+            if line == "torch.ops.torchao.dequantize_affine.default":
+                count = 2
+            FileCheck().check_count(line, count, exactly=True).run(
+                exported.graph_module.code
+            )
+
+    @parameterized.expand(
+        [
+            param(packing_format=pf, compute_target=ct)
+            for (pf, ct) in [
+                (PackingFormat.UNPACKED_TO_INT8, None),
+                (PackingFormat.TILED, ComputeTarget.TORCHAO_AUTO),
+                (PackingFormat.TILED, ComputeTarget.ATEN),
+            ]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_serialization_v2(self, packing_format, compute_target):
+        layers = [
+            torch.nn.Linear(512, 256),
+        ]
+        model = torch.nn.Sequential(*layers)
+        model2 = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                packing_format=packing_format,
+                compute_target=compute_target,
+                version=2,
+            ),
+        )
+        expected = model(activations)
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            torch.save(model.state_dict(), f"{tmpdirname}/model.pt")
+            state_dict = torch.load(
+                f"{tmpdirname}/model.pt", map_location="cpu", weights_only=True
+            )
+
+            # Load deserialized weights into model2 and check result
+            model2.load_state_dict(state_dict, assign=True)
+            actual = model2(activations)
+            self.assertTrue(torch.allclose(expected, actual))
 
 
 if __name__ == "__main__":
