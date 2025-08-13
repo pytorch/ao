@@ -544,8 +544,10 @@
 <span class="sd">        ValueError: If `base_config` and `activation_config` are both specified</span>
 <span class="sd">        ValueError: If `base_config` and `weight_config` are both specified</span>
 <span class="sd">        ValueError: If neither `base_config` nor `weight_config` is specified</span>
+<span class="sd">             and `step` is &quot;prepare&quot;</span>
+<span class="sd">        ValueError: If either `activation_config` or `weight_config` is specified</span>
+<span class="sd">             and `step` is &quot;convert&quot;</span>
 <span class="sd">        ValueError: If `step` is not one of &quot;prepare&quot; or &quot;convert&quot;</span>
-<span class="sd">        ValueError: If `base_config` is None but `step` is &quot;convert&quot;</span>
 <span class="sd">        ValueError: If the config is applied on a module that is not a</span>
 <span class="sd">            `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on</span>
 <span class="sd">            `torch.nn.Embedding` with an activation config</span>
@@ -577,18 +579,26 @@
         <span class="n">all_step_values</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">QATStep</span><span class="p">]</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">all_step_values</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;`step` must be one of </span><span class="si">{</span><span class="n">all_step_values</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;One of `base_config` or `weight_config` must be specified&quot;</span>
-            <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="s2">&quot;Cannot specify both `base_config` and `activation_config`&quot;</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot specify both `base_config` and `weight_config`&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">==</span> <span class="s2">&quot;convert&quot;</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;`base_config` must be specified in the convert step&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">PREPARE</span>
+            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="kc">None</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;One of `base_config` or `weight_config` must be specified in the prepare step&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">CONVERT</span> <span class="ow">and</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Cannot specify `weight_config` or `activation_config` in the convert step&quot;</span>
+            <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base_config</span><span class="p">,</span> <span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
             <span class="n">config_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
@@ -625,6 +635,9 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="n">act_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_config</span>
             <span class="n">weight_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_config</span>
+            <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+                <span class="s2">&quot;`base_config` and `weight_config` were both None in the prepare step&quot;</span>
+            <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">FakeQuantizedLinear</span><span class="o">.</span><span class="n">from_linear</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">act_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
@@ -642,8 +655,10 @@
         <span class="c1"># Swap FakeQuantizedLinear -&gt; nn.Linear</span>
         <span class="c1"># Swap FakeQuantizedEmbedding -&gt; nn.Embedding</span>
         <span class="c1"># Then apply the base config&#39;s transform function to quantize the model</span>
+        <span class="c1"># If there is no base config, then simply perform the module swap</span>
         <span class="k">assert</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">CONVERT</span><span class="p">,</span> <span class="s2">&quot;unexpected step &#39;</span><span class="si">%s</span><span class="s2">&#39; in QATConfig&quot;</span> <span class="o">%</span> <span class="n">step</span>
-        <span class="k">assert</span> <span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;expected `base_config` in convert step&quot;</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;unexpected `activation_config`&quot;</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;unexpected `weight_config`&quot;</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">FakeQuantizedLinear</span><span class="p">):</span>
             <span class="n">module</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">to_linear</span><span class="p">()</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">FakeQuantizedEmbedding</span><span class="p">):</span>
@@ -651,7 +666,10 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Unrelated module, ignore</span>
             <span class="k">return</span> <span class="n">module</span>
-        <span class="k">return</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)](</span><span class="n">module</span><span class="p">,</span> <span class="n">base_config</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)](</span><span class="n">module</span><span class="p">,</span> <span class="n">base_config</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">module</span>
 
 
 <div class="viewcode-block" id="IntXQuantizationAwareTrainingConfig"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">[docs]</a><span class="nd">@dataclass</span>
