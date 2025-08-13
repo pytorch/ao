@@ -575,6 +575,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">__post_init__</span><span class="p">()</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.QATConfig&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
         <span class="n">all_step_values</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">QATStep</span><span class="p">]</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">all_step_values</span><span class="p">:</span>
@@ -806,6 +807,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">quantizers</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">TwoStepQuantizer</span><span class="p">]):</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.ComposableQATQuantizer&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">quantizers</span> <span class="o">=</span> <span class="n">quantizers</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span>
@@ -832,6 +834,8 @@
 <span class="sd">    :class:`~torchao.quantization.qat.fake_quantizer.IntxFakeQuantizerBase`</span>
 <span class="sd">    in the model based on the provided example inputs.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.initialize_fake_quantizers&quot;</span><span class="p">)</span>
+
     <span class="c1"># avoid circular dependencies</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntxFakeQuantizer</span>
 

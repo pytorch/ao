@@ -436,6 +436,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8LinearConfig</span><span class="p">,</span> <span class="n">Float8LinearRecipeName</span>
@@ -530,6 +531,7 @@
 <span class="sd">    Returns:</span>
 <span class="sd">     nn.Module: The modified module with swapped linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.float8.convert_to_float8_training&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">config</span> <span class="o">=</span> <span class="n">Float8LinearConfig</span><span class="p">()</span>
 

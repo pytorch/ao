@@ -494,6 +494,7 @@
             <span class="o">*</span><span class="n">args</span><span class="p">,</span>
             <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
         <span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.FakeQuantizedEmbedding&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizerBase</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="n">weight_config</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -577,6 +578,9 @@
         <span class="n">zero_point_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
+            <span class="s2">&quot;torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer&quot;</span>
+        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span> <span class="o">=</span> <span class="mi">4</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">group_size</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scale_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">scale_precision</span>
