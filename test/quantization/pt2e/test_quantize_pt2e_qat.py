@@ -18,7 +18,6 @@ from torch.ao.quantization.qconfig import (
     default_symmetric_qnnpack_qat_qconfig,
 )
 from torch.ao.quantization.quantize_fx import prepare_qat_fx
-from torch.export import export_for_training
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
