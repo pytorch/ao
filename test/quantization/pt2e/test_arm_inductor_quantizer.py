@@ -14,7 +14,6 @@ from enum import Enum
 
 import torch
 import torch.nn as nn
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
@@ -315,10 +314,7 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = export_for_training(
-            m,
-            example_inputs,
-        ).module()
+        m = torch.export.export(m, example_inputs).module()
 
         # QAT Model failed to deepcopy
         export_model = m if is_qat else copy.deepcopy(m)
@@ -576,7 +572,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         Test pattern of linear with unary post ops (e.g. relu) with ArmInductorQuantizer.
         """
         use_bias_list = [True, False]
-        # TODO test for inplace add after refactoring of export_for_training
+        # TODO test for inplace add after refactoring of export
         inplace_list = [False]
         if post_op_algo_list is None:
             post_op_algo_list = [None]
@@ -716,7 +712,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         Currently, only add as binary post op is supported.
         """
         linear_pos_list = [NodePosType.left, NodePosType.right, NodePosType.both]
-        # TODO test for inplace add after refactoring of export_for_training
+        # TODO test for inplace add after refactoring of export
         inplace_add_list = [False]
         example_inputs = (torch.randn(2, 16),)
         quantizer = ArmInductorQuantizer().set_global(
@@ -1078,7 +1074,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         )
         example_inputs = (torch.randn(2, 2),)
         m = M().eval()
-        m = export_for_training(m, example_inputs).module()
+        m = torch.export.export(m, example_inputs).module()
         m = prepare_pt2e(m, quantizer)
         # Use a linear count instead of names because the names might change, but
         # the order should be the same.

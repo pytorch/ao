@@ -81,10 +81,7 @@ def aot_compile(
             "max_autotune": True,
             "triton.cudagraphs": True,
         }
-
-    from torch.export import export_for_training
-
-    exported = export_for_training(fn, sample_args, sample_kwargs, strict=True)
+    exported = torch.export.export(fn, sample_args, sample_kwargs, strict=True)
     exported.run_decompositions()
     output_path = torch._inductor.aoti_compile_and_package(
         exported,

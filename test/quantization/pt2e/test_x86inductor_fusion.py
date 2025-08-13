@@ -16,7 +16,6 @@ from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     skipIfNoDynamoSupport,
     skipIfNoONEDNN,
@@ -107,7 +106,7 @@ def _generate_qdq_quantized_model(
 ):
     maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
     with maybe_no_grad:
-        export_model = export_for_training(mod, inputs, strict=True).module()
+        export_model = torch.export.export(mod, inputs, strict=True).module()
         quantizer = (
             quantizer if quantizer else get_default_quantizer(is_qat, is_dynamic)
         )
