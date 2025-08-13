@@ -1266,9 +1266,6 @@ def _convert_to_reference_decomposed_fx(
         reference_quantized_model = _convert_to_reference_decomposed_fx(prepared_model)
 
     """
-    torch._C._log_api_usage_once(
-        "quantization_api.quantize_fx._convert_to_reference_decomposed_fx"
-    )
     return _convert_fx(
         graph_module,
         is_reference=True,
