@@ -1953,9 +1953,7 @@ class TestExport(unittest.TestCase):
         # TODO: export changes numerics right now, this is because of functionalization according to Zhengxu
         # we can re-enable this after non-functional IR is enabled in export
         # model = torch.export.export(model, example_inputs).module()
-        model = torch.export.export_for_training(
-            model, example_inputs, strict=True
-        ).module()
+        model = torch.export.export(model, example_inputs, strict=True).module()
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
         if api is _int8da_int4w_api:

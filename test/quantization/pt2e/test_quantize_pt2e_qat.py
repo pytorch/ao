@@ -149,7 +149,7 @@ class PT2EQATTestCase(QuantizationTestCase):
                 is_per_channel=is_per_channel, is_qat=True
             )
         )
-        model_pt2e = export_for_training(
+        model_pt2e = torch.export.export(
             model_pt2e, example_inputs, strict=True
         ).module()
         model_pt2e = prepare_qat_pt2e(model_pt2e, quantizer)
@@ -248,7 +248,7 @@ class PT2EQATTestCase(QuantizationTestCase):
         quantizer.set_global(
             get_symmetric_quantization_config(is_per_channel, is_qat=True)
         )
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
 
@@ -638,7 +638,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         m = M(self.conv_class, self.bn_class, backbone)
         quantizer = XNNPACKQuantizer()
         quantizer.set_global(get_symmetric_quantization_config(is_qat=True))
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
         m = convert_pt2e(m)
@@ -696,7 +696,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     def test_qat_conv_bn_bias_derived_qspec(self):
         m = self._get_conv_bn_model()
         example_inputs = self.example_inputs
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         quantizer = ConvBnDerivedBiasQuantizer()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
@@ -743,7 +743,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     def test_qat_per_channel_weight_custom_dtype(self):
         m = self._get_conv_bn_model()
         example_inputs = self.example_inputs
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         quantizer = ConvBnInt32WeightQuantizer()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
@@ -797,7 +797,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     def test_qat_conv_bn_per_channel_weight_bias(self):
         m = self._get_conv_bn_model()
         example_inputs = self.example_inputs
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         quantizer = ConvBnDerivedBiasQuantizer(is_per_channel=True)
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
@@ -854,7 +854,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         it into conv in `convert_pt2e` even in train mode.
         """
         m = self._get_conv_bn_model(has_conv_bias=False, has_bn=True, has_relu=False)
-        m = export_for_training(m, self.example_inputs, strict=True).module()
+        m = torch.export.export(m, self.example_inputs, strict=True).module()
         quantizer = XNNPACKQuantizer()
         quantizer.set_global(
             get_symmetric_quantization_config(is_per_channel=False, is_qat=True),
@@ -1106,7 +1106,7 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
                     in_channels = child.linear1.weight.size(1)
 
                 example_input = (torch.rand((1, in_channels)),)
-                traced_child = export_for_training(
+                traced_child = torch.export.export(
                     child, example_input, strict=True
                 ).module()
                 quantizer = XNNPACKQuantizer()
@@ -1139,7 +1139,7 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
         self._convert_qat_linears(model)
         model(*example_inputs)
 
-        model_pt2e = export_for_training(model, example_inputs, strict=True).module()
+        model_pt2e = torch.export.export(model, example_inputs, strict=True).module()
 
         quantizer = XNNPACKQuantizer()
         quantizer.set_module_type(torch.nn.Linear, None)
