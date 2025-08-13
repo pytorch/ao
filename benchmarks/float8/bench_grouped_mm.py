@@ -64,7 +64,7 @@ def run(
 
         # Run bf16 torch._grouped_mm baseline.
         A = torch.randn(M, K, device=device, dtype=dtype)
-        B = torch.randn(E, K, N, device=device, dtype=dtype)
+        B = torch.randn(E, N, K, device=device, dtype=dtype)
         offs = generate_jagged_offs(E, M)
         print(f"offs: {offs}")
         ref_time_sec, ref_tops_sec, ref_pct_top_peak = do_benchmarks(
@@ -73,7 +73,7 @@ def run(
             use_gpu_kernel_time,
             torch._grouped_mm,
             A,
-            B,
+            B.transpose(-2, -1),
             offs,
         )
         print(
@@ -84,12 +84,7 @@ def run(
 
         # Run scaled_grouped_mm.
         A_hp = torch.randn(M, K, device=device)
-        B_hp_t = (
-            torch.randn(E, K, N, device=device)
-            .transpose(-2, -1)
-            .contiguous()
-            .transpose(-2, -1)
-        )
+        B_hp_t = torch.randn(E, N, K, device=device).transpose(-2, -1)
 
         if recipe == "rowwise":
             # TODO: add e5m2
