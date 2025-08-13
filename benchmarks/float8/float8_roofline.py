@@ -67,6 +67,7 @@ from torchao.testing.training.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
+from torchao.utils import is_MI300
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -161,7 +162,10 @@ def get_gemm_times(
     if float8_recipe_name == "rowwise_with_gw_hp" and gemm_role == "grad_weight":
         f8_time_s = bf16_time_s
     else:
-        d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16
+        e4m3_dtype = torch.float8_e4m3fn
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            e4m3_dtype = torch.float8_e4m3fnuz
+        d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
         if float8_recipe_name == "tensorwise":
@@ -236,9 +240,11 @@ def run(
         mx_recipe_name,
         enable_fusion_modeling,
     )
-    bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16, None, None)
+    bf16_gemm_time_sympy = get_gemm_time_sympy(
+        M, K, N, torch.bfloat16, None, None, None
+    )
     fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name
+        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name, None
     )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)

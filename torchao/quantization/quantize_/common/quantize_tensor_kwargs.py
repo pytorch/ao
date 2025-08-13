@@ -35,7 +35,7 @@ def _choose_quant_func_and_quantize_tensor(
 ) -> torch.Tensor:
     """Given a tensor and a kwargs container, chooses a derived dtype (float8, int8, etc) to quantize tensor to, based on the type of quant_kwargs
     quantizes tensor to the derived dtype chosen in (1)
-    This is needed to support flexible quantization of activation and weights to various derived dtypes.
+    This is needed to support flexible quantization of activation to various derived dtypes.
     """
     from torchao.quantization.quantize_.workflows import (
         Float8Tensor,
