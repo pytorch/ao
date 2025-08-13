@@ -26,9 +26,7 @@ import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
-from torchao.core.config import (
-    AOBaseConfig,
-)
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,

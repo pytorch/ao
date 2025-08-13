@@ -114,8 +114,8 @@ class QATConfig(AOBaseConfig):
     Raises:
         ValueError: If `base_config` and `activation_config` are both specified
         ValueError: If `base_config` and `weight_config` are both specified
-        ValueError: If neither `base_config` nor `weight_config` is specified
-             and `step` is "prepare"
+        ValueError: If none of `base_config`, `activation_config`, or
+            `weight_config` are specified
         ValueError: If either `activation_config` or `weight_config` is specified
              and `step` is "convert"
         ValueError: If `step` is not one of "prepare" or "convert"
@@ -157,14 +157,13 @@ class QATConfig(AOBaseConfig):
             )
         if self.base_config is not None and self.weight_config is not None:
             raise ValueError("Cannot specify both `base_config` and `weight_config`")
-        if (
-            self.step == QATStep.PREPARE
-            and self.base_config is None
-            and self.weight_config is None
+        if self.step == QATStep.PREPARE and not any(
+            (self.base_config, self.activation_config, self.weight_config)
         ):
             raise ValueError(
-                "One of `base_config` or `weight_config` must be specified in the prepare step"
+                "Must specify `base_config`, `activation_config`, or `weight_config` in the prepare step"
             )
+
         if self.step == QATStep.CONVERT and (
             self.activation_config is not None or self.weight_config is not None
         ):
@@ -207,9 +206,6 @@ def _qat_config_transform(
         else:
             act_config = config.activation_config
             weight_config = config.weight_config
-            assert config.weight_config is not None, (
-                "`base_config` and `weight_config` were both None in the prepare step"
-            )
         if isinstance(module, torch.nn.Linear):
             return FakeQuantizedLinear.from_linear(module, act_config, weight_config)
         elif isinstance(module, torch.nn.Embedding):
