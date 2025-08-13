@@ -1138,15 +1138,16 @@ def _int4_weight_only_quantize_tensor(weight, config):
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
 
     if config.VERSION == 2:
+        block_size = list(block_size)
         if packing_format == PackingFormat.PRESHUFFLED:
-            new_weight = Int4PreshuffledTensor.from_float(
+            new_weight = Int4PreshuffledTensor.from_hp(
                 weight,
                 block_size,
                 activation_dtype=torch.bfloat16,
             )
             return new_weight
         elif packing_format == PackingFormat.PLAIN:
-            new_weight = Int4Tensor.from_float(
+            new_weight = Int4Tensor.from_hp(
                 weight,
                 block_size,
             )
@@ -1229,7 +1230,7 @@ def _int4_weight_only_transform(
 
 
 @dataclass
-class Float8ActivationInt4WeightConfig(AOBaseConfig):
+class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Configuration for apply float8 dynamic per row quantization and int4
     per group weight quantization to linear
 
@@ -1242,9 +1243,9 @@ class Float8ActivationInt4WeightConfig(AOBaseConfig):
     packing_format: PackingFormat = "preshuffled"
 
 
-@register_quantize_module_handler(Float8ActivationInt4WeightConfig)
-def _float8_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Float8ActivationInt4WeightConfig
+@register_quantize_module_handler(Float8DynamicActivationInt4WeightConfig)
+def _float8_dynamic_activation_int4_weight_transform(
+    module: torch.nn.Module, config: Float8DynamicActivationInt4WeightConfig
 ) -> torch.nn.Module:
     assert hasattr(module, "weight"), (
         "applying int8 weight only quant requires module to have weight attribute"
@@ -1258,7 +1259,7 @@ def _float8_activation_int4_weight_transform(
     )
     weight = module.weight
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
-    new_weight = Int4PreshuffledTensor.from_float(
+    new_weight = Int4PreshuffledTensor.from_hp(
         module.weight,
         block_size,
         activation_dtype=torch.float8_e4m3fn,
@@ -2182,13 +2183,13 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         and (config.output_dtype == torch.bfloat16)
     ):
         if config.preshuffle:
-            weight = Int4PreshuffledTensor.from_float(
+            weight = Int4PreshuffledTensor.from_hp(
                 module.weight,
                 config.block_size,
                 activation_dtype=torch.bfloat16,
             )
         else:
-            weight = Int4Tensor.from_float(
+            weight = Int4Tensor.from_hp(
                 module.weight,
                 config.block_size,
             )
@@ -2201,7 +2202,7 @@ def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
         and (config.output_dtype == torch.bfloat16)
     ):
         if config.preshuffle:
-            weight = Int4PreshuffledTensor.from_float(
+            weight = Int4PreshuffledTensor.from_hp(
                 module.weight,
                 config.block_size,
                 activation_dtype=torch.float8_e4m3fn,
