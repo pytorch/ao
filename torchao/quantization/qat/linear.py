@@ -25,7 +25,6 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
@@ -471,10 +470,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     n_bit,
                     config.group_size,
                 )
-                if (
-                    is_device(q_weight.device.type, "cpu")
-                    and TORCH_VERSION_AT_LEAST_2_6
-                ):
+                if is_device(q_weight.device.type, "cpu"):
                     q_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                         q_weight.to(child.weight.device),
                         child.inner_k_tiles,

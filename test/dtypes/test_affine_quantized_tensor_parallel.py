@@ -24,7 +24,6 @@ from torchao.quantization import (
 )
 from torchao.quantization.observer import PerRow, PerTensor
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
@@ -126,10 +125,6 @@ class TestAffineQuantizedTensorParallel(DTensorTestBase):
         input_dtensor = DTensor.from_local(example_input, mesh, [Replicate()])
 
         dn_dist(up_dist(input_dtensor))
-
-        if not TORCH_VERSION_AT_LEAST_2_6:
-            # Need torch 2.6 to support compiled tensor parallelism
-            return
 
         up_compiled = torch.compile(up_dist)
         y_up = up_compiled(input_dtensor)

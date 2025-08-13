@@ -10,7 +10,7 @@ from typing import List
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor, fill_defaults
+from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 __all__ = [
     "Int4Tensor",
@@ -486,6 +486,5 @@ def _(func, types, args, kwargs):
 
 Int4Tensor.__module__ = "torchao.quantization"
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with Int4Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([Int4Tensor])
+# Allow a model with Int4Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int4Tensor])

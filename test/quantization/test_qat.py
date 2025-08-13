@@ -83,11 +83,6 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_6,
-)
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
@@ -201,9 +196,6 @@ class ModelWithLinearBias(torch.nn.Module):
 class TestQAT(unittest.TestCase):
     SEED = 123
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantize_per_channel_group(self):
         n_bit = 4
         (qmin, qmax) = _get_qmin_qmax(n_bit)
@@ -248,9 +240,6 @@ class TestQAT(unittest.TestCase):
         )
         torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantize_per_token(self):
         (qmin, qmax) = _get_qmin_qmax(8)
 
@@ -348,9 +337,6 @@ class TestQAT(unittest.TestCase):
         else:
             raise ValueError("Unknown ptq_linear type: %s" % type(ptq_linear))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_linear(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
         from torchao.quantization.qat.linear import Int8DynActInt4WeightQATLinear
@@ -381,9 +367,6 @@ class TestQAT(unittest.TestCase):
         ptq_out = ptq_linear(x2)
         torch.testing.assert_close(ptq_out, qat_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_quantizer(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
@@ -419,9 +402,6 @@ class TestQAT(unittest.TestCase):
                 ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0
             )
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_quantizer_meta_weights(self):
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
@@ -433,9 +413,6 @@ class TestQAT(unittest.TestCase):
         qat_model = qat_quantizer.prepare(m)
         self.assertTrue(all(v.is_meta for v in qat_model.state_dict().values()))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_quantizer_disable_fake_quant(self):
         """
         Test that 8da4w QAT with disabled fake quant matches nn.Linear in forward.
@@ -494,9 +471,6 @@ class TestQAT(unittest.TestCase):
         qat_out2 = qat_model2(*x2)
         torch.testing.assert_close(qat_out, qat_out2, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_quantizer_disable_fake_quant_backward(self):
         """
         Test that 8da4w QAT with disabled fake quant matches nn.Linear in backward.
@@ -593,9 +567,6 @@ class TestQAT(unittest.TestCase):
             optimizer.step()
             current_step += 1
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_quantizer_gradients(self):
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
@@ -662,9 +633,6 @@ class TestQAT(unittest.TestCase):
 
         self._assert_close_4w(qat_out, ptq_out)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_linear(self):
         from torchao.quantization.GPTQ import WeightOnlyInt4Linear
@@ -700,18 +668,12 @@ class TestQAT(unittest.TestCase):
         ptq_out = ptq_linear(x2)
         self._assert_close_4w(qat_out, ptq_out)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_4w_quantizer_gradients(self):
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
         quantizer = Int4WeightOnlyQATQuantizer(groupsize=32, inner_k_tiles=8)
         self._test_qat_quantized_gradients(quantizer)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
@@ -797,9 +759,6 @@ class TestQAT(unittest.TestCase):
             values_list, ["quantizer1", "quantizer2", "quantizer1", "quantizer2"]
         )
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_4w_embedding(self):
         from torchao._executorch_ops import (
             _quantized_decomposed_quantize_per_channel_group_wrapper,
@@ -977,15 +936,14 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, msg):
             IntxFakeQuantizeConfig(torch.float32, "per_token")
         # OK
-        if TORCH_VERSION_AT_LEAST_2_3:
-            IntxFakeQuantizeConfig(torch.uint1, "per_token")
-            IntxFakeQuantizeConfig(torch.uint2, "per_token")
-            IntxFakeQuantizeConfig(torch.uint3, "per_token")
-            IntxFakeQuantizeConfig(torch.uint4, "per_token")
-            IntxFakeQuantizeConfig(torch.uint5, "per_token")
-            IntxFakeQuantizeConfig(torch.uint6, "per_token")
-            IntxFakeQuantizeConfig(torch.uint7, "per_token")
-            IntxFakeQuantizeConfig(torch.uint8, "per_token")
+        IntxFakeQuantizeConfig(torch.uint1, "per_token")
+        IntxFakeQuantizeConfig(torch.uint2, "per_token")
+        IntxFakeQuantizeConfig(torch.uint3, "per_token")
+        IntxFakeQuantizeConfig(torch.uint4, "per_token")
+        IntxFakeQuantizeConfig(torch.uint5, "per_token")
+        IntxFakeQuantizeConfig(torch.uint6, "per_token")
+        IntxFakeQuantizeConfig(torch.uint7, "per_token")
+        IntxFakeQuantizeConfig(torch.uint8, "per_token")
         IntxFakeQuantizeConfig(TorchAODType.INT1, "per_token")
         IntxFakeQuantizeConfig(TorchAODType.INT2, "per_token")
         IntxFakeQuantizeConfig(TorchAODType.INT3, "per_token")
@@ -1010,9 +968,6 @@ class TestQAT(unittest.TestCase):
                 torch.int8, "per_channel", is_dynamic=True, range_learning=True
             )
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantized_linear_8da4w(self):
         """
         Test that we can express int8 dynamic activations + int4 weights with `FakeQuantizedLinear`.
@@ -1066,9 +1021,6 @@ class TestQAT(unittest.TestCase):
         baseline_out = linear_forward_8da4w(x2, fq_linear.weight)
         torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantized_linear_4w(self):
         """
         Test that we can express int4 weight only (tinygemm) with `FakeQuantizedLinear`.
@@ -1115,9 +1067,6 @@ class TestQAT(unittest.TestCase):
         baseline_out = linear_forward_4w(x2, fq_linear.weight)
         torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_replace_linear_8da4w(self):
         module = torch.nn.ModuleList(
             [
@@ -1137,9 +1086,6 @@ class TestQAT(unittest.TestCase):
         assert isinstance(module[0], Int8DynActInt4WeightQATLinear)
         assert isinstance(module[1], Int8DynActInt4WeightQATLinear)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_replace_linear_int4(self):
         module = torch.nn.ModuleList(
             [torch.nn.Linear(in_features=256, out_features=50, bias=True)]
@@ -1172,9 +1118,6 @@ class TestQAT(unittest.TestCase):
         )
         assert isinstance(module[0], Int4WeightOnlyQATLinear)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantized_embedding_4w(self):
         """
         Test that we can express int4 per group symmetric weight only fake quantization
@@ -1212,9 +1155,6 @@ class TestQAT(unittest.TestCase):
         baseline_out = embedding_forward_4w(x2, fq_embedding.weight)
         torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_prototype_bc(self):
         """
         Just to make sure we can import all the old prototype paths.
@@ -1268,9 +1208,6 @@ class TestQAT(unittest.TestCase):
             Int8DynActInt4WeightQATQuantizer,
         )
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_config_init(self):
         """
         Test that the correct errors are thrown if `QATConfig` is not instantiated properly.
@@ -1324,9 +1261,6 @@ class TestQAT(unittest.TestCase):
         ):
             QATConfig(fq_config, step="prepare")
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_quantize_api_prepare(self):
         """
         Test that the following:
@@ -1375,9 +1309,6 @@ class TestQAT(unittest.TestCase):
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_quantize_api_errors(self):
         """
         Test that we throw exceptions with helpful error messages if `quantize_`
@@ -1397,9 +1328,6 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not have QAT support"):
             quantize_(m, qat_config, lambda m, _: isinstance(m, torch.nn.ReLU))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_quantize_api_e2e(self):
         """
         Test that the following:
@@ -1448,9 +1376,6 @@ class TestQAT(unittest.TestCase):
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
-    )
     def test_fake_quantize_config_torch_intx(self):
         """
         Test that `IntxFakeQuantizeConfig` works with torch.intx.
@@ -1468,9 +1393,6 @@ class TestQAT(unittest.TestCase):
         out2 = linear2(*x2)
         torch.testing.assert_close(out1, out2, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
-    )
     def test_fake_quantizer_repr(self):
         """
         Test that `repr(IntxFakeQuantizer(config))` exposes useful config details.
@@ -1483,9 +1405,6 @@ class TestQAT(unittest.TestCase):
         self.assertTrue("PerGroup" in fake_quantizer_repr)
         self.assertTrue("MappingType.SYMMETRIC" in fake_quantizer_repr)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_linear_bias(self):
         """
         Test that QAT supports linear bias.
@@ -1501,9 +1420,6 @@ class TestQAT(unittest.TestCase):
         m(*example_inputs)
 
     @parameterized.expand([(torch.float32,), (torch.bfloat16,), (torch.float16,)])
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantize_per_token_vs_convert(self, dtype: torch.dtype):
         """
         Test that the following produce the exact same numerics:
@@ -1521,9 +1437,6 @@ class TestQAT(unittest.TestCase):
         torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
 
     @parameterized.expand([(torch.float32,), (torch.bfloat16,), (torch.float16,)])
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_prepare_vs_convert(self, dtype: torch.dtype):
         """
         Test that the prepare and convert steps of Int8DynActInt4QATQuantizer produces
@@ -1562,9 +1475,6 @@ class TestQAT(unittest.TestCase):
         )
         self.assertEqual(len(non_inf_sqnr), 0, fail_message)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantize_config_eps(self):
         """
         Test that users can set arbitrary eps value in `IntxFakeQuantizeConfig`.
@@ -1591,9 +1501,6 @@ class TestQAT(unittest.TestCase):
         actual_out = fake_quantizer(x)
         torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_8da4w_eps(self):
         """
         Test that the 8da4w QAT flow uses the expected eps.
@@ -1641,9 +1548,6 @@ class TestQAT(unittest.TestCase):
         torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
 
     @parameterized.expand([(True,), (False,)])
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantizer_range_learning(self, is_symmetric):
         """
         Test that range learning requires `IntxFakeQuantizer`s to be initialized correctly.
@@ -1685,9 +1589,6 @@ class TestQAT(unittest.TestCase):
         fake_quantizer(*example_inputs)
 
     @parameterized.expand([(True,), (False,)])
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_range_learning(self, is_symmetric):
         """
         Test end-to-end QAT flow with range learning.
@@ -1780,9 +1681,6 @@ class TestQAT(unittest.TestCase):
         ).to_original_precision()
         torch.testing.assert_close(out, out_expected, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
-    )
     def test_qat_fp8a4w_quantizer(self):
         """
         Test basic model training with `Float8ActInt4WeightQATQuantizer`.
@@ -1817,9 +1715,6 @@ class TestQAT(unittest.TestCase):
         self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
         self.assertFalse(torch.equal(new_weight, prev_weight))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_legacy_quantize_api_e2e(self):
         """
         Test that the following two APIs are numerically equivalent:
@@ -1871,9 +1766,6 @@ class TestQAT(unittest.TestCase):
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_qat_api_deprecation(self):
         """
         Test that the appropriate deprecation warning is logged exactly once per class.
