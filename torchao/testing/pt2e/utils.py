@@ -72,7 +72,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             {0: torch.export.Dim("dim")} if i == 0 else None
             for i in range(len(example_inputs))
         )
-        m = export_for_training(
+        m = torch.export.export(
             m,
             example_inputs,
             dynamic_shapes=dynamic_shapes if export_with_dynamic_shape else None,
@@ -113,7 +113,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             m_fx = _convert_to_reference_decomposed_fx(
                 m_fx, backend_config=backend_config
             )
-            m_fx = export_for_training(
+            m_fx = torch.export.export(
                 m_fx,
                 example_inputs,
                 dynamic_shapes=dynamic_shapes if export_with_dynamic_shape else None,
