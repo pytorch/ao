@@ -37,12 +37,6 @@
       "_linear_groupwise_" #weight_nbit "bit_weight_with_lut.out", \
       &linear_out_cpu<weight_nbit>);
 
-#define DEFINE_LINEAR_META_IMPL(weight_nbit)                     \
-  m.impl(                                                \
-      "_linear_groupwise_" #weight_nbit "bit_weight_with_lut",     \
-      &linear_meta<weight_nbit>);                         \
-
-
 TORCH_LIBRARY_FRAGMENT(torchao, m) {
   DEFINE_PACK_OP(1);
   DEFINE_PACK_OP(2);
@@ -72,9 +66,4 @@ TORCH_LIBRARY_IMPL(torchao, Meta, m) {
   DEFINE_PACK_META_IMPL(2);
   DEFINE_PACK_META_IMPL(3);
   DEFINE_PACK_META_IMPL(4);
-
-  DEFINE_LINEAR_META_IMPL(1);
-  DEFINE_LINEAR_META_IMPL(2);
-  DEFINE_LINEAR_META_IMPL(3);
-  DEFINE_LINEAR_META_IMPL(4);
 }

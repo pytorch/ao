@@ -157,8 +157,6 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
-        from torch.export import export_for_training
-
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -199,11 +197,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 quantizer.set_function_type_qconfig(
                     torch.matmul, quantizer.get_global_quantization_config()
                 )
-                export_model = export_for_training(
-                    mod,
-                    inputs,
-                    strict=True,
-                ).module()
+                export_model = torch.export.export(mod, inputs, strict=True).module()
                 prepare_model = prepare_pt2e(export_model, quantizer)
                 prepare_model(*inputs)
                 convert_model = convert_pt2e(prepare_model)

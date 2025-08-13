@@ -6,7 +6,7 @@
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_7:
     from .constant_fold import constant_fold
@@ -46,7 +46,7 @@ def prepare_pt2e(
     """Prepare a model for post training quantization
 
     Args:
-      * `model` (torch.fx.GraphModule): a model captured by `torch.export.export_for_training` API.
+      * `model` (torch.fx.GraphModule): a model captured by `torch.export.export` API.
       * `quantizer`: A backend specific quantizer that conveys how user want the
         model to be quantized. Tutorial for how to write a quantizer can be found here:
         https://pytorch.org/tutorials/prototype/pt2e_quantizer.html
@@ -84,7 +84,7 @@ def prepare_pt2e(
         # Step 1. program capture
         # NOTE: this API will be updated to torch.export API in the future, but the captured
         # result shoud mostly stay the same
-        m = torch.export.export_for_training(m, *example_inputs).module()
+        m = torch.export.export(m, *example_inputs).module()
         # we get a model with aten ops
 
         # Step 2. quantization
@@ -169,7 +169,7 @@ def prepare_qat_pt2e(
         # Step 1. program capture
         # NOTE: this API will be updated to torch.export API in the future, but the captured
         # result shoud mostly stay the same
-        m = torch.export.export_for_training(m, *example_inputs).module()
+        m = torch.export.export(m, *example_inputs).module()
         # we get a model with aten ops
 
         # Step 2. quantization
@@ -217,13 +217,8 @@ _QUANT_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.quantize_per_channel.default,
+    torch.ops.torchao.quantize_affine,
 ]
-
-# ops are only registered after 2.5
-if TORCH_VERSION_AT_LEAST_2_5:
-    _QUANT_OPS += [
-        torch.ops.torchao.quantize_affine,
-    ]
 
 
 def _quant_node_constraint(n: Node) -> bool:

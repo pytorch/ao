@@ -69,14 +69,11 @@ from torch.ao.quantization.utils import (
 from torch.fx import GraphModule
 from torch.fx.graph import Argument, Graph, Node
 from torch.fx.graph_module import _USER_PRESERVED_ATTRIBUTES_KEY
+from torch.fx.traceback import NodeSource, NodeSourceAction
 from torch.nn.utils.parametrize import type_before_parametrizations
 
 from torchao.quantization.pt2e import FROM_NODE_KEY
 from torchao.quantization.pt2e.observer import _is_activation_post_process
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    from torch.fx.traceback import NodeSource, NodeSourceAction
 
 __all__ = [
     "convert",
@@ -188,8 +185,6 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
 
     def add_quantize_dequantize_node_info(qdq_node, original_node):
         # propagate from_node info from observer/fake_quant node to quantize/dequantize node
-        if not TORCH_VERSION_AT_LEAST_2_6:
-            return
         qdq_node.meta[FROM_NODE_KEY] = [
             NodeSource(
                 original_node,

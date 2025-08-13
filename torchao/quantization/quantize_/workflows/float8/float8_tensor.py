@@ -35,7 +35,6 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     _is_fbgemm_genai_gpu_available,
     fill_defaults,
@@ -270,7 +269,7 @@ def _(func, types, args, kwargs):
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
-            wq = weight_tensor.qdata.contiguous()
+            wq = weight_tensor.qdata
             x_scale = input_tensor.scale
             w_scale = weight_tensor.scale
             if _is_rowwise_scaled(weight_tensor):
@@ -510,8 +509,8 @@ def _(func, types, args, kwargs):
 @implements(aten.transpose.int)
 def _(func, types, args, kwargs):
     self, dim0, dim1 = args
-    qdata = self.qdata.transpose(dim0, dim1).contiguous()
-    scale = self.scale.transpose(dim0, dim1).contiguous()
+    qdata = self.qdata.transpose(dim0, dim1)
+    scale = self.scale.transpose(dim0, dim1)
     block_size = self.block_size.copy()
 
     block_size[dim0], block_size[dim1] = block_size[dim1], block_size[dim0]
@@ -608,6 +607,5 @@ def _(func, types, args, kwargs):
 
 Float8Tensor.__module__ = "torchao.quantization"
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])
+# Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])

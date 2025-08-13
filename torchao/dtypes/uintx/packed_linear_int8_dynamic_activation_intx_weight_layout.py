@@ -19,7 +19,6 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     ZeroPointDomain,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -170,9 +169,6 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         if layout.target != Target.ATEN:
             _check_torchao_ops_loaded()
         else:
-            assert TORCH_VERSION_AT_LEAST_2_6, (
-                "aten target is requires torch version > 2.6.0"
-            )
             assert torch.backends.kleidiai.is_available(), (
                 "ATEN target requires torch.backends.kleidiai.is_available()"
             )
@@ -378,7 +374,6 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         )
 
     if target == Target.ATEN:
-        assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
         _impl_2d = _impl_2d_aten
     else:
         _impl_2d = _impl_2d_non_aten
@@ -420,11 +415,6 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     Constructs an AffineQuantizedTensor with PackedLinearInt8DynamicActivationIntxWeightLayout
     from plain data.
     """
-    # TORCH_VERSION_AT_LEAST_2_6 is needed for torch.intx with x < 8
-    assert TORCH_VERSION_AT_LEAST_2_6, (
-        "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
-    )
-
     layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
 
     bit_width = _DTYPE_TO_BIT_WIDTH[data_dtype]

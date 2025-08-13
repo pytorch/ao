@@ -28,7 +28,6 @@ from torchao.quantization import (
     quantize_,
     uintx_weight_only,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
 
 
 def run_evaluation(
@@ -151,9 +150,6 @@ def run_evaluation(
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             quantizer.quantize(model, *inputs)
             model = model.to(device)
-        else:
-            if not TORCH_VERSION_AT_LEAST_2_5:
-                unwrap_tensor_subclass(model)
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only())
         if "float8dq" in quantization:
@@ -239,11 +235,6 @@ def run_evaluation(
             )
         elif quantization.startswith("awq-uintx"):
             from torchao._models._eval import TransformerEvalWrapper
-            from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
-
-            if not TORCH_VERSION_AT_LEAST_2_3:
-                print("Awq requires torch2.3+")
-                exit()
             from torchao.prototype.awq import (
                 AWQObservedLinear,
                 awq_uintx,

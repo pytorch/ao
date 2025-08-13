@@ -6,12 +6,22 @@
 
 # Owner(s): ["oncall: quantization"]
 import copy
+import functools
 import itertools
+import platform
 import unittest
 from enum import Enum
 
 import torch
 import torch.nn as nn
+from torch.testing._internal.common_quantization import (
+    NodeSpec as ns,
+)
+from torch.testing._internal.common_quantization import (
+    QuantizationTestCase,
+    skipIfNoInductorSupport,
+)
+from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
 
 import torchao.quantization.pt2e.quantizer.arm_inductor_quantizer as armiq
 from torchao.quantization.pt2e import ObserverBase
@@ -26,22 +36,7 @@ from torchao.quantization.pt2e.quantizer.arm_inductor_quantizer import (
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     QUANT_ANNOTATION_KEY,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
-
-import functools
-import platform
-
-from torch.testing._internal.common_quantization import (
-    NodeSpec as ns,
-)
-from torch.testing._internal.common_quantization import (
-    QuantizationTestCase,
-    skipIfNoInductorSupport,
-)
-from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 def skipIfNoArm(fn):
@@ -319,10 +314,7 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = export_for_training(
-            m,
-            example_inputs,
-        ).module()
+        m = torch.export.export(m, example_inputs).module()
 
         # QAT Model failed to deepcopy
         export_model = m if is_qat else copy.deepcopy(m)
@@ -580,7 +572,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         Test pattern of linear with unary post ops (e.g. relu) with ArmInductorQuantizer.
         """
         use_bias_list = [True, False]
-        # TODO test for inplace add after refactoring of export_for_training
+        # TODO test for inplace add after refactoring of export
         inplace_list = [False]
         if post_op_algo_list is None:
             post_op_algo_list = [None]
@@ -720,7 +712,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         Currently, only add as binary post op is supported.
         """
         linear_pos_list = [NodePosType.left, NodePosType.right, NodePosType.both]
-        # TODO test for inplace add after refactoring of export_for_training
+        # TODO test for inplace add after refactoring of export
         inplace_add_list = [False]
         example_inputs = (torch.randn(2, 16),)
         quantizer = ArmInductorQuantizer().set_global(
@@ -1082,7 +1074,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         )
         example_inputs = (torch.randn(2, 2),)
         m = M().eval()
-        m = export_for_training(m, example_inputs).module()
+        m = torch.export.export(m, example_inputs).module()
         m = prepare_pt2e(m, quantizer)
         # Use a linear count instead of names because the names might change, but
         # the order should be the same.

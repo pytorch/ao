@@ -18,9 +18,9 @@ for an overall introduction to the library and recent highlight and updates.
    :maxdepth: 1
    :caption: Developer Notes
 
-   quantization
-   sparsity
+   quantization_overview
    contributor_guide
+   sparsity
    benchmarking_api_guide
    benchmarking_user_guide
 
@@ -34,6 +34,7 @@ for an overall introduction to the library and recent highlight and updates.
    api_ref_qat
    api_ref_sparsity
    api_ref_float8
+   api_ref_utils
 
 .. toctree::
    :glob:

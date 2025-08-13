@@ -201,10 +201,13 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         # Stabilize range learning
         scale = torch.clamp(scale, min=self._scale_eps)
-        zero_point = _Round.apply(zero_point)
-        zero_point = torch.clamp(zero_point, qmin, qmax)
         self.scale = torch.nn.Parameter(scale, requires_grad=True)
-        self.zero_point = torch.nn.Parameter(zero_point, requires_grad=True)
+        if self.config.is_symmetric:
+            self.zero_point.zero_()
+        else:
+            zero_point = _Round.apply(zero_point)
+            zero_point = torch.clamp(zero_point, qmin, qmax)
+            self.zero_point = torch.nn.Parameter(zero_point, requires_grad=True)
 
 
 # For BC
