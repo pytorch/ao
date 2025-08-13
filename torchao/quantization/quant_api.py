@@ -840,7 +840,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         if packing_format == PackingFormat.TILED:
             # IntxTilePackedTensor includes asymmetric dynamic activation
             assert act_mapping_type == MappingType.ASYMMETRIC
-            assert compute_target is not None, "Must specify a compute target for PackingFormat.TILED"
+            assert compute_target is not None, (
+                "Must specify a compute target for PackingFormat.TILED"
+            )
             new_weight = IntxTilePackedTensor.from_intx_unpacked_tensor(
                 new_weight, bias=new_bias, compute_target=compute_target
             )

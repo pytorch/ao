@@ -10,6 +10,9 @@ from typing import List, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+)
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -188,6 +191,14 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             qmax,
             output_dtype=self.dtype,
         )
+
+    # This is to support calling linear with AffineQuantizedTensor inputs
+    # This happens in dynamic quantization
+    @staticmethod
+    def _quantized_linear_op(input_tensor, weight_tensor, bias):
+        if isinstance(input_tensor, AffineQuantizedTensor):
+            input_tensor = input_tensor.dequantize()
+        return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
 implements = IntxUnpackedTensor.implements
