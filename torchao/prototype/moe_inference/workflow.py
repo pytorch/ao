@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import types
 from typing import Callable
 
 import torch
@@ -13,7 +12,6 @@ from torchao.quantization import Float8DynamicActivationFloat8WeightConfig
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     _float8_dynamic_activation_float8_weight_quantize_tensor,
-    _linear_extra_repr,
 )
 from torchao.quantization.quantize_.common import (
     KernelPreference,
@@ -22,6 +20,7 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
     Float8Tensor,
 )
+from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
@@ -57,7 +56,7 @@ def convert_to_float8_moe_inference(
     )
 
     for mod_name, mod in model.named_modules():
-        for param_name, old_param in mod.named_parameters():
+        for param_name, old_param in mod.named_parameters(recurse=False):
             combined_name = f"{mod_name}.{param_name}"
             if not param_filter_fn(old_param, combined_name):
                 continue
@@ -65,4 +64,17 @@ def convert_to_float8_moe_inference(
                 old_param, config
             )
             setattr(mod, param_name, torch.nn.Parameter(new_param, requires_grad=False))
-            mod.extra_repr = types.MethodType(_linear_extra_repr, mod)
+            # TODO separate print function
+            # mod.extra_repr = types.MethodType(_linear_extra_repr, mod)
+
+
+# TODO(future PR): just make some assumptions to have print(mod) output this,
+# will require special handling of any existing `extra_repr` on the user-defined
+# MoE module.
+# TODO(future PR): this printout is way too long, make it shorter (per tensor instance)
+# TODO(before land): better name for this
+def print_param_quant_info(model: torch.nn.Module) -> None:
+    for param_name, param in model.named_parameters():
+        if not isinstance(param, TorchAOBaseTensor):
+            continue
+        print(param_name, param)

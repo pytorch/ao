@@ -9,13 +9,17 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.prototype.moe_inference.workflow import convert_to_float8_moe_inference
+from torchao.prototype.moe_inference.workflow import (
+    convert_to_float8_moe_inference,
+    print_param_quant_info,
+)
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
     Float8Tensor,
 )
 from torchao.quantization.utils import compute_error
+from torchao.testing.torchtitan_moe import MoE, MoEArgs
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_90,
@@ -67,6 +71,38 @@ class TestMoEInference:
         assert type(m.weight) == Float8Tensor
         yq = m(x, offs)
         sqnr = compute_error(y, yq).item()
+        assert sqnr > 25.0
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
+    @torch.no_grad()
+    def test_torchtitan_moe(self):
+        moe_args = MoEArgs(num_experts=2)
+        dim, hidden_dim = 512, 1024
+        batch, seq, dim = 8, 2048, dim
+        with torch.device("cuda"):
+            moe = MoE(moe_args, dim, hidden_dim).to(torch.bfloat16)
+            moe.init_weights(init_std=0.1, buffer_device="cuda")
+            x = torch.randn(batch, seq, dim, dtype=torch.bfloat16)
+
+        y_ref = moe(x)
+
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+        filter_fn = (
+            lambda p, n: n.endswith("experts.w1")
+            or n.endswith("experts.w2")
+            or n.endswith("experts.w3")
+        )
+        convert_to_float8_moe_inference(moe, config, filter_fn)
+
+        assert type(moe.experts.w1) == Float8Tensor
+        assert type(moe.experts.w2) == Float8Tensor
+        assert type(moe.experts.w3) == Float8Tensor
+
+        print_param_quant_info(moe)
+
+        yq = moe(x)
+        sqnr = compute_error(y_ref, yq).item()
         assert sqnr > 25.0
 
 
