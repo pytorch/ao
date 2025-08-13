@@ -26,9 +26,7 @@ import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
-from torchao.core.config import (
-    AOBaseConfig,
-)
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
@@ -148,7 +146,6 @@ __all__ = [
     "gemlite_uintx_weight_only",
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
-    "Int8DynActOnlyConfig",
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
@@ -1311,31 +1308,6 @@ def _float8_cutlass_quant_sparse(
         target_dtype=target_dtype,
         _layout=CutlassSemiSparseLayout(),
     )
-
-
-@dataclass
-class Int8DynActOnlyConfig(AOBaseConfig):
-    """
-    Configuration for applying int8 dynamic symmetric per-token activation quantization to linear layers.
-    Args:
-        is_symmetric: bool = False - Whether to use symmetric quantization for activations.
-    """
-
-    is_symmetric: bool = False
-
-
-@register_quantize_module_handler(Int8DynActOnlyConfig)
-def _int8_dynamic_activation_transform(
-    module: torch.nn.Module, config: Int8DynActOnlyConfig
-) -> torch.nn.Module:
-    weight = module.weight
-    if config.is_symmetric:
-        input_quant_func = _int8_symm_per_token_reduced_range_quant
-    else:
-        input_quant_func = _int8_asymm_per_token_quant
-    weight = to_linear_activation_quantized(weight, input_quant_func)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    return module
 
 
 @dataclass

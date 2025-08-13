@@ -290,9 +290,9 @@ def _infer_fake_quantize_configs(
     Return a 2-tuple of (activation_config, weight_config) for fake quantization.
     """
     # avoid circular imports
+    from torchao.prototype.parq.quant.quant_api import Int8DynamicActivationOnlyConfig
     from torchao.quantization import (
         Int4WeightOnlyConfig,
-        Int8DynActOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
     )
 
@@ -316,7 +316,7 @@ def _infer_fake_quantize_configs(
             zero_point_domain=base_config.zero_point_domain,
         )
         return (None, weight_config)
-    elif isinstance(base_config, Int8DynActOnlyConfig):
+    elif isinstance(base_config, Int8DynamicActivationOnlyConfig):
         act_config = IntxFakeQuantizeConfig(
             dtype=torch.int8,
             granularity="per_token",

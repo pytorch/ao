@@ -10,17 +10,45 @@ from typing import Optional, Tuple, Union
 import torch
 from torch import nn
 
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import AffineQuantizedTensor, Layout, QDQLayout
-from torchao.quantization.granularity import PerAxis, PerGroup
-from torchao.quantization.quant_api import IntxWeightOnlyConfig
+from torchao.quantization import (
+    MappingType,
+    PerAxis,
+    PerGroup,
+    ZeroPointDomain,
+    dequantize_affine,
+    to_linear_activation_quantized,
+)
+from torchao.quantization.quant_api import (
+    IntxWeightOnlyConfig,
+    _int8_asymm_per_token_quant,
+    _int8_symm_per_token_reduced_range_quant,
+)
 from torchao.quantization.quant_primitives import (
     _SUB_BYTE_UINT_BOUNDS,
-    MappingType,
-    ZeroPointDomain,
     _get_reduction_params,
-    dequantize_affine,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
+
+
+@dataclass
+class Int8DynamicActivationOnlyConfig(AOBaseConfig):
+    is_symmetric: bool = False
+
+
+@register_quantize_module_handler(Int8DynamicActivationOnlyConfig)
+def _int8_dynamic_activation_transform(
+    module: torch.nn.Module, config: Int8DynamicActivationOnlyConfig
+) -> torch.nn.Module:
+    weight = module.weight
+    if config.is_symmetric:
+        input_quant_func = _int8_symm_per_token_reduced_range_quant
+    else:
+        input_quant_func = _int8_asymm_per_token_quant
+    weight = to_linear_activation_quantized(weight, input_quant_func)
+    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    return module
 
 
 def choose_qparams_stretched_affine(
