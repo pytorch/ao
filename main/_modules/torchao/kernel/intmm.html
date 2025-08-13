@@ -436,18 +436,16 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch._dynamo</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">dynamo_is_compiling</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch._higher_order_ops.out_dtype</span><span class="w"> </span><span class="kn">import</span> <span class="n">out_dtype</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">,</span> <span class="n">check_cpu_version</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_cpu_version</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">NullHandler</span><span class="p">())</span>
 
 <span class="k">try</span><span class="p">:</span>
-    <span class="c1"># Only works for torch2.2 or newer.</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">:</span>
-        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.kernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">intmm_triton</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">intmm_triton</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.kernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">intmm_triton</span>
 <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
         <span class="s2">&quot;Warning: Detected no triton, on systems without Triton certain kernels will not work&quot;</span>
@@ -457,85 +455,63 @@
 
 <span class="n">AUTOTUNER_ENABLE</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;TORCHAO_AUTOTUNER_ENABLE&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
 
-<span class="c1"># torch._int_mm doesn&#39;t exist before 2.2</span>
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">:</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torch._dynamo</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">dynamo_is_compiling</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torch._higher_order_ops.out_dtype</span><span class="w"> </span><span class="kn">import</span> <span class="n">out_dtype</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Performs a safe integer matrix multiplication, considering different paths for</span>
-<span class="sd">        torch.compile, cublas, and fallback cases.</span>
+<div class="viewcode-block" id="safe_int_mm"><a class="viewcode-back" href="../../../generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Performs a safe integer matrix multiplication, considering different paths for</span>
+<span class="sd">    torch.compile, cublas, and fallback cases.</span>
 
-<span class="sd">        Args:</span>
-<span class="sd">            input (torch.Tensor): The input tensor of shape [i, j].</span>
-<span class="sd">            mat2 (torch.Tensor): The matrix to multiply with, of shape [j, k].</span>
+<span class="sd">    Args:</span>
+<span class="sd">        input (torch.Tensor): The input tensor of shape [i, j].</span>
+<span class="sd">        mat2 (torch.Tensor): The matrix to multiply with, of shape [j, k].</span>
 
-<span class="sd">        Returns:</span>
-<span class="sd">            torch.Tensor: The result of the matrix multiplication.</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        torch.Tensor: The result of the matrix multiplication.</span>
 
-<span class="sd">        Raises:</span>
-<span class="sd">            AssertionError: If the tensors are not on the same device.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># torch.compile path</span>
-        <span class="k">if</span> <span class="n">dynamo_is_compiling</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;FakeTensor&quot;</span> <span class="ow">in</span> <span class="nb">input</span><span class="o">.</span><span class="fm">__repr__</span><span class="p">():</span>
-            <span class="k">if</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
-                <span class="c1"># Matmul in int32 is slow on CPU and not supported well by Inductor cpp backend</span>
-                <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span>
-                    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
-                <span class="p">)</span>
-            <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">)</span>
-
-        <span class="c1"># error checking for cublas path</span>
-        <span class="k">assert</span> <span class="n">mat2</span><span class="o">.</span><span class="n">device</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;need both tensors to be on the same device but got </span><span class="si">{</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="p">)</span>
-        <span class="n">device_cpu</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">in</span> <span class="p">[</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">]</span>
-        <span class="c1"># with input.shape = [i,j] and mat2.shape = [j,k]</span>
-        <span class="n">j_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
-        <span class="n">k_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
-        <span class="n">bad_dimensions_for_cublas</span> <span class="o">=</span> <span class="ow">not</span> <span class="p">(</span>
-            <span class="n">j_is_nonzero_multiple_of_8</span> <span class="ow">and</span> <span class="n">k_is_nonzero_multiple_of_8</span>
-        <span class="p">)</span>
-
-        <span class="k">if</span> <span class="n">device_cpu</span> <span class="ow">or</span> <span class="n">bad_dimensions_for_cublas</span><span class="p">:</span>
-            <span class="c1"># fallback path</span>
-            <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span>
-                <span class="nb">input</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
-            <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
-
-        <span class="c1"># cublas paths</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">mat2</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">():</span>  <span class="c1"># silently gives incorrect result without this</span>
-            <span class="n">mat2</span> <span class="o">=</span> <span class="n">mat2</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
-        <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="nb">input</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">())</span> <span class="ow">and</span> <span class="p">(</span>
-            <span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">!=</span> <span class="mi">0</span>
-        <span class="p">):</span>  <span class="c1"># gives cryptic error without this</span>
-            <span class="nb">input</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="nb">input</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
-            <span class="p">)</span>  <span class="c1"># (it seems the transpose makes cublas check the above j constraint on i)</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">)</span>
-        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-            <span class="c1"># fallback path, would run on H100 for float8 dtypes</span>
-            <span class="c1"># Exception on H100 float8 dtype : &quot;addmm_cuda&quot; not implemented for &#39;Float8_e4m3fn&#39;</span>
-            <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+<span class="sd">    Raises:</span>
+<span class="sd">        AssertionError: If the tensors are not on the same device.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># torch.compile path</span>
+    <span class="k">if</span> <span class="n">dynamo_is_compiling</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;FakeTensor&quot;</span> <span class="ow">in</span> <span class="nb">input</span><span class="o">.</span><span class="fm">__repr__</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
+            <span class="c1"># Matmul in int32 is slow on CPU and not supported well by Inductor cpp backend</span>
+            <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
             <span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">)</span>
 
-<div class="viewcode-block" id="safe_int_mm"><a class="viewcode-back" href="../../../generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Performs a fallback integer matrix multiplication for torch versions before 2.2.</span>
+    <span class="c1"># error checking for cublas path</span>
+    <span class="k">assert</span> <span class="n">mat2</span><span class="o">.</span><span class="n">device</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;need both tensors to be on the same device but got </span><span class="si">{</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+    <span class="n">device_cpu</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">in</span> <span class="p">[</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">]</span>
+    <span class="c1"># with input.shape = [i,j] and mat2.shape = [j,k]</span>
+    <span class="n">j_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">k_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">bad_dimensions_for_cublas</span> <span class="o">=</span> <span class="ow">not</span> <span class="p">(</span>
+        <span class="n">j_is_nonzero_multiple_of_8</span> <span class="ow">and</span> <span class="n">k_is_nonzero_multiple_of_8</span>
+    <span class="p">)</span>
 
-<span class="sd">        Args:</span>
-<span class="sd">            input (torch.Tensor): The input tensor of shape [i, j].</span>
-<span class="sd">            mat2 (torch.Tensor): The matrix to multiply with, of shape [j, k].</span>
+    <span class="k">if</span> <span class="n">device_cpu</span> <span class="ow">or</span> <span class="n">bad_dimensions_for_cublas</span><span class="p">:</span>
+        <span class="c1"># fallback path</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span>
+        <span class="p">)</span>
 
-<span class="sd">        Returns:</span>
-<span class="sd">            torch.Tensor: The result of the matrix multiplication in int32.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># We can improve on this by writing Triton code that works for older versions of Triton</span>
-        <span class="c1"># that ship with 2.1 or 2.0.</span>
+    <span class="c1"># cublas paths</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">mat2</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">():</span>  <span class="c1"># silently gives incorrect result without this</span>
+        <span class="n">mat2</span> <span class="o">=</span> <span class="n">mat2</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+    <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="nb">input</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">())</span> <span class="ow">and</span> <span class="p">(</span>
+        <span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">!=</span> <span class="mi">0</span>
+    <span class="p">):</span>  <span class="c1"># gives cryptic error without this</span>
+        <span class="nb">input</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="nb">input</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+        <span class="p">)</span>  <span class="c1"># (it seems the transpose makes cublas check the above j constraint on i)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="c1"># fallback path, would run on H100 for float8 dtypes</span>
+        <span class="c1"># Exception on H100 float8 dtype : &quot;addmm_cuda&quot; not implemented for &#39;Float8_e4m3fn&#39;</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
         <span class="p">)</span></div>

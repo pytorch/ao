@@ -443,7 +443,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Layout</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span> <span class="n">TorchAOBaseTensor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchAOBaseTensor</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.bitpacking</span><span class="w"> </span><span class="kn">import</span> <span class="n">pack</span><span class="p">,</span> <span class="n">unpack</span>
 
@@ -453,20 +453,17 @@
 <span class="n">_DTYPE_TO_BIT_WIDTH</span> <span class="o">=</span> <span class="p">{}</span>
 <span class="n">_BIT_WIDTH_TO_DTYPE</span> <span class="o">=</span> <span class="p">{}</span>
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">:</span>
-    <span class="n">_DTYPE_TO_BIT_WIDTH</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
-    <span class="p">}</span>
+<span class="n">_DTYPE_TO_BIT_WIDTH</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
+<span class="p">}</span>
 
-    <span class="n">_BIT_WIDTH_TO_DTYPE</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;uintx feature requires torch 2.3+, please upgrade pytorch&quot;</span><span class="p">)</span>
+<span class="n">_BIT_WIDTH_TO_DTYPE</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">UintxTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>

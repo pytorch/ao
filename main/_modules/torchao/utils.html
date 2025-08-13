@@ -570,9 +570,8 @@
         <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
     <span class="k">elif</span> <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
         <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;xpu&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
-            <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;mps&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;mps&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">devices</span>
 
 
@@ -645,37 +644,31 @@
     <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._library.infer_schema</span><span class="w"> </span><span class="kn">import</span> <span class="n">infer_schema</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torch._library.infer_schema</span><span class="w"> </span><span class="kn">import</span> <span class="n">infer_schema</span>
 
-            <span class="k">assert</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">c</span> <span class="ow">in</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">&quot;.&lt;&gt;&quot;</span><span class="p">),</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Expecting op to be defined in normal functions, not lambda or local: </span><span class="si">{</span><span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span>
-            <span class="n">op_name</span> <span class="o">=</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span>
-            <span class="k">if</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;_&quot;</span><span class="p">:</span>
-                <span class="n">op_name</span> <span class="o">=</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
-            <span class="n">schema</span> <span class="o">=</span> <span class="n">op_name</span> <span class="o">+</span> <span class="n">infer_schema</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">{})</span>
-            <span class="n">lib</span><span class="o">.</span><span class="n">define</span><span class="p">(</span><span class="n">schema</span><span class="p">)</span>
-            <span class="n">lib</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">dispatch_key</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">c</span> <span class="ow">in</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">&quot;.&lt;&gt;&quot;</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Expecting op to be defined in normal functions, not lambda or local: </span><span class="si">{</span><span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">op_name</span> <span class="o">=</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span>
+        <span class="k">if</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;_&quot;</span><span class="p">:</span>
+            <span class="n">op_name</span> <span class="o">=</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="n">schema</span> <span class="o">=</span> <span class="n">op_name</span> <span class="o">+</span> <span class="n">infer_schema</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">{})</span>
+        <span class="n">lib</span><span class="o">.</span><span class="n">define</span><span class="p">(</span><span class="n">schema</span><span class="p">)</span>
+        <span class="n">lib</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">dispatch_key</span><span class="p">)</span>
 
-            <span class="n">lib_namespace</span> <span class="o">=</span> <span class="n">lib</span><span class="o">.</span><span class="n">ns</span>
-            <span class="n">op</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="p">,</span> <span class="n">lib_namespace</span><span class="p">),</span> <span class="n">op_name</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">inductor_decomposed</span><span class="p">:</span>
-                <span class="n">register_decomposition</span><span class="p">([</span><span class="n">op</span><span class="p">])(</span><span class="n">fn</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">op</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">fn</span>
+        <span class="n">lib_namespace</span> <span class="o">=</span> <span class="n">lib</span><span class="o">.</span><span class="n">ns</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="p">,</span> <span class="n">lib_namespace</span><span class="p">),</span> <span class="n">op_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">inductor_decomposed</span><span class="p">:</span>
+            <span class="n">register_decomposition</span><span class="p">([</span><span class="n">op</span><span class="p">])(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">op</span>
 
     <span class="k">return</span> <span class="n">decorator</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_register_meta_op</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="n">op_name</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-            <span class="n">op</span> <span class="o">=</span> <span class="n">lib</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="s2">&quot;Meta&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">op</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">fn</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="n">lib</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="s2">&quot;Meta&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">op</span>
 
     <span class="k">return</span> <span class="n">decorator</span>
 
@@ -1073,9 +1066,8 @@
         <span class="n">tensor_class</span><span class="o">.</span><span class="n">_LAYOUT_CONSTRUCTOR_TABLE</span><span class="p">[</span><span class="n">layout_class</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">tensor_impl_class</span><span class="o">.</span><span class="n">from_plain</span>
         <span class="p">)</span>
-        <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-            <span class="c1"># Allow serialization to work for models uses this tensor impl subclass</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">layout_class</span><span class="p">,</span> <span class="n">tensor_impl_class</span><span class="p">])</span>
+        <span class="c1"># Allow serialization to work for models uses this tensor impl subclass</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">layout_class</span><span class="p">,</span> <span class="n">tensor_impl_class</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">tensor_impl_class</span>
 
     <span class="k">return</span> <span class="n">decorator</span>

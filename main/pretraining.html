@@ -553,10 +553,6 @@ what kind of performance improvement over bfloat16 you can expect for a given GE
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
-
-<span class="k">if</span> <span class="ow">not</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-    <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s2">&quot;torchao.float8 requires PyTorch version 2.5 or greater&quot;</span><span class="p">)</span>
 
 <span class="c1"># create model and sample input</span>
 <span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>

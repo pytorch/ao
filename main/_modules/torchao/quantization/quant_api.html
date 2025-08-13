@@ -515,9 +515,6 @@
     <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">,</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span>
     <span class="n">_is_fbgemm_genai_gpu_available</span><span class="p">,</span>
     <span class="n">is_MI300</span><span class="p">,</span>
     <span class="n">is_sm_at_least_89</span><span class="p">,</span>
@@ -611,16 +608,16 @@
     <span class="k">return</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">&quot;in_features&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">&gt;</span> <span class="mi">16</span>
 
 
+<span class="c1"># TODO: delete</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int8_dqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`</span>
 <span class="sd">    Tensor subclass, effectively applying the same form of quantization</span>
 <span class="sd">    as apply_dynamic_quant while not modifying the linear modules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
-            <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
-        <span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+        <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
+    <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">filter_fn</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">_is_linear</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_in_features_greater_than_16</span><span class="p">(</span>
@@ -636,6 +633,7 @@
     <span class="p">)</span>
 
 
+<span class="c1"># TODO: delete</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int8_woqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the</span>
@@ -643,10 +641,9 @@
 <span class="sd">    effectively applying the same form of quantization</span>
 <span class="sd">    as apply_weight_only_int8_quant while not modifying the linear modules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
-            <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
-        <span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+        <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
+    <span class="p">)</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
@@ -657,6 +654,7 @@
     <span class="p">)</span>
 
 
+<span class="c1"># TODO: delete</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int4_woqtensors</span><span class="p">(</span>
     <span class="n">model</span><span class="p">,</span>
     <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
@@ -680,10 +678,9 @@
 <span class="sd">            ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
 <span class="sd">        `preserve_zero`: whether to preserve zero, default is False</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
-            <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
-        <span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+        <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
+    <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span>
@@ -1084,20 +1081,15 @@
     <span class="n">scale_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
     <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
     <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-            <span class="n">x</span><span class="p">,</span>
-            <span class="n">mapping_type</span><span class="p">,</span>
-            <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
-            <span class="n">target_dtype</span><span class="p">,</span>
-            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
-            <span class="n">scale_dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span>
-            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
-        <span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-            <span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span>
-        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">,</span>
+        <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span>
+        <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+    <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_uint8_asymm_per_token_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
@@ -1108,27 +1100,17 @@
     <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
     <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">255</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">:</span>
-        <span class="n">out</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-            <span class="n">x</span><span class="p">,</span>
-            <span class="n">mapping_type</span><span class="p">,</span>
-            <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
-            <span class="n">target_dtype</span><span class="p">,</span>
-            <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
-            <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
-            <span class="n">scale_dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span>
-            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
-        <span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">out</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-            <span class="n">x</span><span class="p">,</span>
-            <span class="n">mapping_type</span><span class="p">,</span>
-            <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
-            <span class="n">target_dtype</span><span class="p">,</span>
-            <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
-            <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
-        <span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">,</span>
+        <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
+        <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span>
+        <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+    <span class="p">)</span>
     <span class="k">return</span> <span class="n">out</span>
 
 
@@ -1261,7 +1243,6 @@
 
 <span class="sd">    args:</span>
 <span class="sd">        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.</span>
-<span class="sd">            torch.intx with x &lt; 8 requires TORCH_VERSION_AT_LEAST_2_6</span>
 <span class="sd">        weight_granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).</span>
 <span class="sd">        weight_mapping_type: The type of mapping to use for the weight quantization.</span>
 <span class="sd">            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE</span>
@@ -1283,9 +1264,6 @@
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span> <span class="p">(</span>
-            <span class="s2">&quot;Int8DynamicActivationIntxWeightConfig requires torch 2.6+&quot;</span>
-        <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
@@ -2475,7 +2453,6 @@
 <span class="sd">    manner using the number of bits specified by weight_dtype.</span>
 <span class="sd">    args:</span>
 <span class="sd">        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.</span>
-<span class="sd">            torch.intx with x &lt; 8 requires TORCH_VERSION_AT_LEAST_2_6</span>
 <span class="sd">        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).</span>
 <span class="sd">        mapping_type: The type of mapping to use for the weight quantization.</span>
 <span class="sd">            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.</span>
@@ -2492,7 +2469,6 @@
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span> <span class="s2">&quot;IntxWeightOnlyConfig requires torch 2.6+&quot;</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
@@ -2716,19 +2692,18 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span>
-        <span class="p">[</span>
-            <span class="n">_int8_asymm_per_token_quant</span><span class="p">,</span>
-            <span class="n">_int8_symm_per_token_reduced_range_quant</span><span class="p">,</span>
-            <span class="n">_input_activation_quant_func_fp8</span><span class="p">,</span>
-            <span class="n">_int4_symm_cutlass_quant</span><span class="p">,</span>
-            <span class="n">_int8_symm_cutlass_quant</span><span class="p">,</span>
-            <span class="n">_float8_cutlass_quant</span><span class="p">,</span>
-            <span class="n">_float8_cutlass_quant_sparse</span><span class="p">,</span>
-            <span class="n">Target</span><span class="p">,</span>
-        <span class="p">]</span>
-    <span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">_int8_asymm_per_token_quant</span><span class="p">,</span>
+        <span class="n">_int8_symm_per_token_reduced_range_quant</span><span class="p">,</span>
+        <span class="n">_input_activation_quant_func_fp8</span><span class="p">,</span>
+        <span class="n">_int4_symm_cutlass_quant</span><span class="p">,</span>
+        <span class="n">_int8_symm_cutlass_quant</span><span class="p">,</span>
+        <span class="n">_float8_cutlass_quant</span><span class="p">,</span>
+        <span class="n">_float8_cutlass_quant_sparse</span><span class="p">,</span>
+        <span class="n">Target</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 </pre></div>
 
              </article>

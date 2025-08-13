@@ -453,7 +453,6 @@
     <span class="n">_quantize_affine_tinygemm</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">fill_defaults</span><span class="p">,</span>
     <span class="n">find_multiple</span><span class="p">,</span>
 <span class="p">)</span>
@@ -703,14 +702,9 @@
         <span class="p">)</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">quant_2d</span><span class="p">(</span><span class="n">int_data_2d</span><span class="p">):</span>
-            <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-                <span class="n">int_data_2d</span> <span class="o">=</span> <span class="p">(</span><span class="n">int_data_2d</span><span class="p">[::,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span> <span class="o">|</span> <span class="n">int_data_2d</span><span class="p">[::,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
-                    <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">assert</span> <span class="n">int_data_2d</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="p">(</span>
-                    <span class="s2">&quot;torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype&quot;</span>
-                <span class="p">)</span>
+            <span class="n">int_data_2d</span> <span class="o">=</span> <span class="p">(</span><span class="n">int_data_2d</span><span class="p">[::,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span> <span class="o">|</span> <span class="n">int_data_2d</span><span class="p">[::,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
+            <span class="p">)</span>
             <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack</span><span class="p">(</span>
                 <span class="n">int_data_2d</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(),</span> <span class="n">_layout</span><span class="o">.</span><span class="n">inner_k_tiles</span>
             <span class="p">)</span>

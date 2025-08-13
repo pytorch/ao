@@ -454,7 +454,6 @@
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.unified</span><span class="w"> </span><span class="kn">import</span> <span class="n">TwoStepQuantizer</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_group_qparams_symmetric</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantize_config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizeConfigBase</span><span class="p">,</span>
@@ -900,10 +899,7 @@
                     <span class="n">n_bit</span><span class="p">,</span>
                     <span class="n">config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
                 <span class="p">)</span>
-                <span class="k">if</span> <span class="p">(</span>
-                    <span class="n">is_device</span><span class="p">(</span><span class="n">q_weight</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
-                    <span class="ow">and</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
-                <span class="p">):</span>
+                <span class="k">if</span> <span class="n">is_device</span><span class="p">(</span><span class="n">q_weight</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">):</span>
                     <span class="n">q_weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack_for_cpu</span><span class="p">(</span>
                         <span class="n">q_weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">),</span>
                         <span class="n">child</span><span class="o">.</span><span class="n">inner_k_tiles</span><span class="p">,</span>

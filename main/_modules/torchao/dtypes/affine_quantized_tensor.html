@@ -464,10 +464,7 @@
     <span class="n">dequantize_affine</span><span class="p">,</span>
     <span class="n">quantize_affine</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
-    <span class="n">TorchAOBaseTensor</span><span class="p">,</span>
-<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchAOBaseTensor</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
@@ -1042,9 +1039,8 @@
 <span class="c1"># experimental will be merged in to floatx</span>
 <span class="n">to_affine_quantized_fpx</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_fpx</span>
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-    <span class="c1"># Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">AffineQuantizedTensor</span><span class="p">])</span>
+<span class="c1"># Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">AffineQuantizedTensor</span><span class="p">])</span>
 </pre></div>
 
              </article>

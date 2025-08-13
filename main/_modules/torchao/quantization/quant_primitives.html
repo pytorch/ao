@@ -445,9 +445,6 @@
     <span class="n">_n_ones</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span>
     <span class="n">_register_custom_op</span><span class="p">,</span>
     <span class="n">_register_meta_op</span><span class="p">,</span>
 <span class="p">)</span>
@@ -536,8 +533,7 @@
     <span class="n">INT7</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span></div>
 
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">MappingType</span><span class="p">,</span> <span class="n">ZeroPointDomain</span><span class="p">])</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">MappingType</span><span class="p">,</span> <span class="n">ZeroPointDomain</span><span class="p">])</span>
 
 <span class="n">FP8_TYPES</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
@@ -581,53 +577,49 @@
     <span class="n">TorchAODType</span><span class="o">.</span><span class="n">INT7</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">6</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
 <span class="p">}</span>
 
-<span class="c1"># torch.uintX available only in PyTorch 2.3+</span>
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">:</span>
-    <span class="n">_SUB_BYTE_UINT_BOUNDS</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">1</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">3</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">4</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">5</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">7</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+<span class="n">_SUB_BYTE_UINT_BOUNDS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">1</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">3</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">4</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">5</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">7</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+<span class="p">}</span>
+<span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
     <span class="p">}</span>
-    <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
-        <span class="p">{</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
+<span class="p">)</span>
 
-<span class="c1"># torch.intX available only in PyTorch 2.6+</span>
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">:</span>
-    <span class="n">_SUB_BYTE_INT_BOUNDS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
-        <span class="p">{</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">0</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">0</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int2</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">1</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">1</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int3</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">2</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">3</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">3</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int5</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">4</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">4</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int6</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">5</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">5</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int7</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">6</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
-    <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
-        <span class="p">{</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int2</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int3</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int5</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int6</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int7</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
+<span class="n">_SUB_BYTE_INT_BOUNDS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">0</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">0</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int2</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">1</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">1</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int3</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">2</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">3</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">3</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int5</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">4</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">4</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int6</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">5</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">5</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int7</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">6</span><span class="p">),</span> <span class="mi">2</span><span class="o">**</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+<span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int2</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int3</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int5</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int6</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">int7</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
 
 <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_SUB_BYTE_UINT_BOUNDS</span><span class="p">)</span>
 <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_SUB_BYTE_INT_BOUNDS</span><span class="p">)</span>

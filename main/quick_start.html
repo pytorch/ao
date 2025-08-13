@@ -514,15 +514,9 @@ the size of the original bfloat16 model:</p>
 <p>Next, we demonstrate that not only is the quantized model smaller,
 it is also much faster!</p>
 <div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">benchmark_model</span><span class="p">,</span>
     <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
 <span class="p">)</span>
-
-<span class="c1"># Temporary workaround for tensor subclass + torch.compile</span>
-<span class="c1"># Only needed for torch version &lt; 2.5</span>
-<span class="k">if</span> <span class="ow">not</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-    <span class="n">unwrap_tensor_subclass</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 
 <span class="n">num_runs</span> <span class="o">=</span> <span class="mi">100</span>
 <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>

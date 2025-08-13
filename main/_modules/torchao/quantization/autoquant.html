@@ -460,8 +460,6 @@
     <span class="n">compute_error</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
-    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">TorchAOBaseTensor</span><span class="p">,</span>
     <span class="n">is_sm_at_least_89</span><span class="p">,</span>
     <span class="n">is_sm_at_least_90</span><span class="p">,</span>
@@ -758,6 +756,8 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    runs benchmark op(*args, **kwargs) avoiding torch.compile overhead</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.runtime.benchmarking</span><span class="w"> </span><span class="kn">import</span> <span class="n">benchmarker</span>
+
     <span class="n">rep</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;rep&quot;</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
     <span class="n">warmup</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;warmup&quot;</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
     <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
@@ -772,24 +772,9 @@
         <span class="n">graph</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">CUDAGraph</span><span class="p">()</span>
         <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">graph</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">):</span>
             <span class="n">op</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.runtime.benchmarking</span><span class="w"> </span><span class="kn">import</span> <span class="n">benchmarker</span>
-
-            <span class="n">res</span> <span class="o">=</span> <span class="n">benchmarker</span><span class="o">.</span><span class="n">benchmark_gpu</span><span class="p">(</span>
-                <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">:</span>
-            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.runtime.runtime_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">do_bench_gpu</span>
-
-            <span class="n">res</span> <span class="o">=</span> <span class="n">do_bench_gpu</span><span class="p">(</span>
-                <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">do_bench</span>
-
-            <span class="n">res</span> <span class="o">=</span> <span class="n">do_bench</span><span class="p">(</span>
-                <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
-            <span class="p">)</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">benchmarker</span><span class="o">.</span><span class="n">benchmark_gpu</span><span class="p">(</span>
+            <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
+        <span class="p">)</span>
     <span class="k">return</span> <span class="n">res</span>
 
 
@@ -1775,15 +1760,14 @@
     <span class="k">return</span> <span class="n">model</span></div>
 
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span><span class="n">ALL_AUTOQUANT_CLASS_LIST</span><span class="p">)</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span>
-        <span class="p">[</span>
-            <span class="n">_to_float16</span><span class="p">,</span>
-            <span class="n">_to_bfloat16</span><span class="p">,</span>
-            <span class="n">_identity</span><span class="p">,</span>
-        <span class="p">]</span>
-    <span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span><span class="n">ALL_AUTOQUANT_CLASS_LIST</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">_to_float16</span><span class="p">,</span>
+        <span class="n">_to_bfloat16</span><span class="p">,</span>
+        <span class="n">_identity</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 </pre></div>
 
              </article>
