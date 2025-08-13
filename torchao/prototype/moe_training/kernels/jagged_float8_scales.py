@@ -85,7 +85,12 @@ def triton_fp8_per_group_rowwise_scales(
     n_groups = offsets.numel()
 
     # allocate on-device buffers for output and scales
-    output_buffer = torch.empty((m, k), dtype=output_dtype, device=hp_tensor.device)
+    output_buffer = torch.empty(
+        (m, k), dtype=output_dtype, device=hp_tensor.device
+    ).as_strided(
+        (m, k),  # shape
+        (1, m),  # stride
+    )
     scales_buffer = torch.empty(
         (m * n_groups), dtype=torch.float32, device=hp_tensor.device
     )
@@ -114,7 +119,7 @@ def triton_fp8_per_group_rowwise_scales(
         round_scales_to_power_of_2,
         EPS=EPS,
     )
-    return output_buffer, scales_buffer
+    return output_buffer.transpose(-2, -1).contiguous().transpose(-2, -1), scales_buffer
 
 
 @triton_fp8_per_group_rowwise_scales.register_fake
@@ -336,8 +341,8 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     offsets_ptr,
     out_ptr,
     scales_ptr,
+    M: int,
     K: int,
-    N: int,
     stride_input_row: int,
     stride_input_col: int,
     stride_output_row: int,
@@ -372,7 +377,7 @@ def _triton_fp8_per_group_colwise_scales_kernel(
             + block_col_offs[None, :] * stride_input_col
         )
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
-            block_col_offs[None, :] < N
+            block_col_offs[None, :] < K
         )
         data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
             input_dtype
@@ -394,8 +399,8 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     # store colwise scales for each group in contiguous memory:
     # [group0_col0, group_0_col1, ..., group2_col0, group2_col1]
     # note: input tensor is in col-major memory layout.
-    scales_offs = block_col_offs + (N * offset_idx)
-    scales_mask = tl.arange(0, BLOCK_SIZE) < N
+    scales_offs = block_col_offs + (K * offset_idx)
+    scales_mask = tl.arange(0, BLOCK_SIZE) < K
     tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
     # perform float8 conversion for this group
@@ -406,7 +411,7 @@ def _triton_fp8_per_group_colwise_scales_kernel(
             + block_col_offs[None, :] * stride_input_col
         )
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
-            block_col_offs[None, :] < N
+            block_col_offs[None, :] < K
         )
         data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
             input_dtype
