@@ -7,9 +7,15 @@
 # Tests LLaMa FeedForward numerics with float8
 
 import copy
+import unittest
 from typing import Optional
 
-import pytest
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -18,7 +24,7 @@ from torchao.utils import (
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    raise unittest.SkipTest("Unsupported PyTorch version")
 
 import torch
 import torch.nn as nn
@@ -83,7 +89,7 @@ class FeedForward(nn.Module):
             nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
 
 
-class TestFloat8NumericsIntegrationTest:
+class TestFloat8NumericsIntegrationTest(TestCase):
     def _test_impl(self, config: Float8LinearConfig) -> None:
         data_dtype = torch.bfloat16
         # LLaMa 3 70B shapes
@@ -147,22 +153,20 @@ class TestFloat8NumericsIntegrationTest:
             sqnr = compute_error(ref_grad, cur_grad)
             assert sqnr > grad_sqnr_threshold
 
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_input",
         [ScalingType.DYNAMIC],
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_weight",
         [ScalingType.DYNAMIC],
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_grad_output",
         [ScalingType.DYNAMIC],
     )
-    @pytest.mark.skipif(
-        not is_sm_at_least_89(), reason="requires SM89 compatible machine"
-    )
-    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    @unittest.skipIf(not is_sm_at_least_89(), "requires SM89 compatible machine")
+    @unittest.skipIf(IS_ROCM, "test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_config_params(
         self,
         scaling_type_input: ScalingType,
@@ -177,17 +181,15 @@ class TestFloat8NumericsIntegrationTest:
         )
         self._test_impl(config)
 
-    @pytest.mark.parametrize(
+    @parametrize(
         "recipe_name",
         [
             Float8LinearRecipeName.ROWWISE,
             Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
         ],
     )
-    @pytest.mark.skipif(
-        not is_sm_at_least_90(), reason="requires SM90 compatible machine"
-    )
-    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    @unittest.skipIf(not is_sm_at_least_90(), "requires SM90 compatible machine")
+    @unittest.skipIf(IS_ROCM, "test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(
         self,
         recipe_name: str,
@@ -196,5 +198,7 @@ class TestFloat8NumericsIntegrationTest:
         self._test_impl(config)
 
 
+instantiate_parametrized_tests(TestFloat8NumericsIntegrationTest)
+
 if __name__ == "__main__":
-    pytest.main([__file__])
+    run_tests()
