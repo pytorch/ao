@@ -292,6 +292,7 @@ def _infer_fake_quantize_configs(
     # avoid circular imports
     from torchao.quantization import (
         Int4WeightOnlyConfig,
+        Int8DynActOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
     )
 
@@ -315,5 +316,12 @@ def _infer_fake_quantize_configs(
             zero_point_domain=base_config.zero_point_domain,
         )
         return (None, weight_config)
+    elif isinstance(base_config, Int8DynActOnlyConfig):
+        act_config = IntxFakeQuantizeConfig(
+            dtype=torch.int8,
+            granularity="per_token",
+            is_symmetric=base_config.is_symmetric,
+        )
+        return (act_config, None)
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
