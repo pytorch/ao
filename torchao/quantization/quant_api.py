@@ -634,13 +634,21 @@ def quantize_(
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
-        _replace_with_custom_fn_if_matches_filter(
+        # Handle the case where the top-level model itself matches the filter
+        # In this case, we need to return the transformed model and update the reference
+        result = _replace_with_custom_fn_if_matches_filter(
             model,
             handler,
             filter_fn,
             device=device,
             extra_args=(config,),
         )
+        # If the top-level model was transformed, update the reference
+        if result is not model and result is not None:
+            # Update the model reference by copying the new module's state to the original model
+            model.__dict__.update(result.__dict__)
+            model.__class__ = result.__class__
+        return
 
     else:
         raise AssertionError(
