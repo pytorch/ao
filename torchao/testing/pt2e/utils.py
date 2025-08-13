@@ -15,6 +15,7 @@ from torch.ao.quantization.quantize_fx import (
     _convert_to_reference_decomposed_fx,
     prepare_fx,
 )
+from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec,
     QuantizationTestCase,

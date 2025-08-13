@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 import torch
 from torch._higher_order_ops.out_dtype import out_dtype  # noqa: F401
+from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
