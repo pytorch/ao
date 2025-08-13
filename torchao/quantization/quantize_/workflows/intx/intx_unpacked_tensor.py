@@ -10,9 +10,6 @@ from typing import List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-)
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
@@ -98,7 +95,6 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             zero_point = zero_point.reshape(*n_blocks)
 
         assert block_size is not None
-        assert isinstance(block_size, tuple)
         assert bit_width >= 1 and bit_width <= 8
 
         self.int_data = int_data
@@ -194,14 +190,6 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             output_dtype=self.dtype,
         )
 
-    # This is to support calling linear with AffineQuantizedTensor inputs
-    # This happens in dynamic quantization
-    @staticmethod
-    def _quantized_linear_op(input_tensor, weight_tensor, bias):
-        if isinstance(input_tensor, AffineQuantizedTensor):
-            input_tensor = input_tensor.dequantize()
-        return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
-
 
 implements = IntxUnpackedTensor.implements
 
@@ -213,7 +201,10 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    weight_tensor = weight_tensor.dequantize()
+    if isinstance(input_tensor, IntxUnpackedTensor):
+        input_tensor = input_tensor.dequantize()
+    if isinstance(weight_tensor, IntxUnpackedTensor):
+        weight_tensor = weight_tensor.dequantize()
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
