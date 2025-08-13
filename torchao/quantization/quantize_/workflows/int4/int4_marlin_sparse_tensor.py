@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -149,7 +149,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
     def from_hp(
         cls,
         w: torch.Tensor,
-        block_size: Tuple[int],  # quantize functions needs it as tuple not list
+        block_size: List[int],
     ):
         preprocessed_w = cls.pre_process(w)
         assert (
@@ -160,10 +160,12 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         quant_max = 15
         target_dtype = torch.int4
 
+        assert(len(block_size) == 1), f"Expected one block size, got {len(block_size)}"
+
         scale, zero_point = choose_qparams_affine(
             input=preprocessed_w,
             mapping_type=MappingType.SYMMETRIC,
-            block_size=block_size,
+            block_size=(block_size[0],),
             target_dtype=torch.int4,  # ??? i think its int4 because we wanna convert to int4 idk but in the old version i think its int32
             quant_min=quant_min,
             quant_max=quant_max,
@@ -173,7 +175,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
 
         wq = quantize_affine(
             input=preprocessed_w,
-            block_size=block_size,
+            block_size=(block_size[0],),
             scale=scale,
             zero_point=zero_point,
             output_dtype=target_dtype,
