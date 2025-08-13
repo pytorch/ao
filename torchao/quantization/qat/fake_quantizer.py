@@ -13,10 +13,14 @@ from torchao.quantization.granularity import (
     PerGroup,
     PerToken,
 )
+from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
+    _choose_scale_float8,
+    _dequantize_affine_float8,
+    _quantize_affine_float8,
     _Round,
     choose_qparams_affine,
 )
@@ -28,12 +32,12 @@ from torchao.quantization.utils import (
 
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
+    Float8FakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from .utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _Float8RowwiseFakeQuantize,
     _log_deprecation_warning,
 )
 
@@ -55,8 +59,36 @@ class FakeQuantizerBase(torch.nn.Module):
     def from_config(config: FakeQuantizeConfigBase) -> "FakeQuantizerBase":
         if isinstance(config, IntxFakeQuantizeConfig):
             return IntxFakeQuantizer(config)
+        if isinstance(config, Float8FakeQuantizeConfig):
+            return Float8FakeQuantizer(config)
         else:
             raise ValueError(f"Unknown config type: {config}")
+
+
+class Float8FakeQuantizer(FakeQuantizerBase):
+    """
+    Generic module for applying float8 fake quantization to a tensor, as specified in the config.
+    """
+
+    def __init__(self, config: Float8FakeQuantizeConfig):
+        super().__init__()
+        self.config = config
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        original_dtype = x.dtype
+        block_size = get_block_size(x.shape, self.config.granularity)
+        scale = _choose_scale_float8(
+            x,
+            block_size,
+            self.config.dtype,
+            hp_value_lb=self.config.hp_value_lb,
+            hp_value_ub=self.config.hp_value_ub,
+        )
+        q = _quantize_affine_float8(
+            x, scale, self.config.dtype, cast_to_float8_dtype=False
+        )
+        dq = _dequantize_affine_float8(q, scale, original_dtype)
+        return dq
 
 
 class IntxFakeQuantizer(FakeQuantizerBase):
@@ -218,24 +250,3 @@ class FakeQuantizer(IntxFakeQuantizer):
     def __init__(self, config: FakeQuantizeConfigBase):
         super().__init__(config)
         _log_deprecation_warning(self)
-
-
-# TODO: make this a FakeQuantizerBase
-class _Float8RowwiseActivationFakeQuantizer(torch.nn.Module):
-    """
-    Simple fake quantizer for float8 rowwise fake quantization, intended for activations only.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.enabled = True
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.enabled:
-            return _Float8RowwiseFakeQuantize.apply(
-                x,
-                torch.float8_e4m3fn,
-                -1,
-            )
-        else:
-            return x
