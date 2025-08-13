@@ -141,9 +141,8 @@ def get_available_devices():
         devices.append("cuda")
     elif torch.xpu.is_available():
         devices.append("xpu")
-    if TORCH_VERSION_AT_LEAST_2_5:
-        if torch.mps.is_available():
-            devices.append("mps")
+    if torch.mps.is_available():
+        devices.append("mps")
     return devices
 
 
@@ -216,37 +215,31 @@ def _register_custom_op(lib, inductor_decomposed=True):
     )
 
     def decorator(fn):
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._library.infer_schema import infer_schema
+        from torch._library.infer_schema import infer_schema
 
-            assert not any(c in fn.__name__ for c in ".<>"), (
-                f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
-            )
-            op_name = fn.__name__
-            if op_name[0] == "_":
-                op_name = op_name[1:]
-            schema = op_name + infer_schema(fn, mutates_args={})
-            lib.define(schema)
-            lib.impl(op_name, fn, dispatch_key)
+        assert not any(c in fn.__name__ for c in ".<>"), (
+            f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
+        )
+        op_name = fn.__name__
+        if op_name[0] == "_":
+            op_name = op_name[1:]
+        schema = op_name + infer_schema(fn, mutates_args={})
+        lib.define(schema)
+        lib.impl(op_name, fn, dispatch_key)
 
-            lib_namespace = lib.ns
-            op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            if inductor_decomposed:
-                register_decomposition([op])(fn)
-            return op
-        else:
-            return fn
+        lib_namespace = lib.ns
+        op = getattr(getattr(torch.ops, lib_namespace), op_name)
+        if inductor_decomposed:
+            register_decomposition([op])(fn)
+        return op
 
     return decorator
 
 
 def _register_meta_op(lib, op_name):
     def decorator(fn):
-        if TORCH_VERSION_AT_LEAST_2_5:
-            op = lib.impl(op_name, fn, "Meta")
-            return op
-        else:
-            return fn
+        op = lib.impl(op_name, fn, "Meta")
+        return op
 
     return decorator
 
@@ -644,9 +637,8 @@ def _register_layout(tensor_class: Callable, layout_class: Callable):
         tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] = (
             tensor_impl_class.from_plain
         )
-        if TORCH_VERSION_AT_LEAST_2_5:
-            # Allow serialization to work for models uses this tensor impl subclass
-            torch.serialization.add_safe_globals([layout_class, tensor_impl_class])
+        # Allow serialization to work for models uses this tensor impl subclass
+        torch.serialization.add_safe_globals([layout_class, tensor_impl_class])
         return tensor_impl_class
 
     return decorator

@@ -25,7 +25,6 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_100,
 )
@@ -213,16 +212,15 @@ def _nvfp4_inference_linear_transform(
     return module
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals(
-        [
-            MXTensor,
-            NVFP4Tensor,
-            NVFP4MMConfig,
-            MXGemmKernelChoice,
-            _input_activation_quant_func_mxfp,
-        ]
-    )
+torch.serialization.add_safe_globals(
+    [
+        MXTensor,
+        NVFP4Tensor,
+        NVFP4MMConfig,
+        MXGemmKernelChoice,
+        _input_activation_quant_func_mxfp,
+    ]
+)
 
 
 import torch.nn as nn
