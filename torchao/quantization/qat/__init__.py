@@ -15,11 +15,13 @@ from .embedding import (
 from .fake_quantize_config import (
     FakeQuantizeConfig,
     FakeQuantizeConfigBase,
+    Float8FakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from .fake_quantizer import (
     FakeQuantizer,
     FakeQuantizerBase,
+    Float8FakeQuantizer,
     IntxFakeQuantizer,
 )
 from .linear import (
@@ -34,6 +36,8 @@ __all__ = [
     "QATStep",
     "FakeQuantizeConfigBase",
     "FakeQuantizerBase",
+    "Float8FakeQuantizeConfig",
+    "Float8FakeQuantizer",
     "IntxFakeQuantizeConfig",
     "IntxFakeQuantizer",
     "FakeQuantizedLinear",
