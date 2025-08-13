@@ -26,13 +26,10 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
-from torchao.prototype.parq.quant.quant_api import (
-    Int8DynamicActivationOnlyConfig,
-    StretchedIntxWeightOnlyConfig,
-)
+from torchao.prototype.parq.quant.quant_api import StretchedIntxWeightOnlyConfig
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
-from torchao.quantization.qat import QATConfig
+from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
@@ -394,7 +391,10 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         optimizer.step()
 
         # apply torchao quantized activations on top
-        qat_config = QATConfig(Int8DynamicActivationOnlyConfig(), step="prepare")
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int8, "per_token", is_symmetric=False
+        )
+        qat_config = QATConfig(activation_config=activation_config, step="prepare")
         filter_fn = optimizer.get_filter_fn(model)
         quantize_(model, qat_config, filter_fn=filter_fn)
         out = model(x)
@@ -403,9 +403,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         # equivalent to torchao's convert step
         model.eval()
         optimizer.restore_latent_params()
-        qat_config = QATConfig(step="convert")
-        quantize_(model, qat_config, filter_fn=filter_fn)
-        quantize_(model, config, filter_fn=filter_fn)
+        quantize_(model, QATConfig(config, step="convert"), filter_fn=filter_fn)
         converted_out = model(x)
         torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)
 

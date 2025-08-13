@@ -1239,9 +1239,10 @@ class TestQAT(unittest.TestCase):
         ):
             QATConfig(base_config, None, None, "prepare")
 
-        # No configs are provided
+        # No configs were provided in prepare step
         with self.assertRaisesRegex(
-            ValueError, "One of `base_config` or `weight_config` must be specified"
+            ValueError,
+            "Must specify `base_config`, `activation_config`, or `weight_config` in the prepare step",
         ):
             QATConfig(step="prepare")
 
