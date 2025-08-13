@@ -87,12 +87,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         return out
 
     def run_triton(input_tensor: torch.Tensor):
-        _ = triton_fp8_rowwise_3d_transpose_rhs(
+        out = triton_fp8_rowwise_3d_transpose_rhs(
             input_tensor,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
         torch.cuda.synchronize()
+        return out
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)

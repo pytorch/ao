@@ -6,15 +6,16 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 import argparse
 import itertools
-import time
 from dataclasses import dataclass
 from typing import List
 
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
+from utils import bench_fwd_bwd_microseconds
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 
 device = torch.device("cuda")
 
@@ -27,11 +28,14 @@ class ExperimentConfig:
     high_precision_dtype: torch.dtype
     A_shape: tuple[int]
     B_shape: tuple[int]
+    recipe: MoEScalingType
 
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    time_us: float
+    bf16_us: float
+    fp8_us: float
+    fp8_speedup: float
 
 
 @dataclass(frozen=True)
@@ -41,19 +45,22 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    A_shapes = [(2**8, 8192), (2**12, 8192), (2**16, 8192)]
-    B_shapes = [(4, 8192, 8192), (8, 8192, 8192), (16, 8192, 8192)]
+    A_shapes = [(16640, 5120)]
+    B_shapes = [(16, 8192, 5120)]
+    recipes = [MoEScalingType.FP8_ROWWISE]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
-    for A_shape, B_shape, high_precision_dtype in itertools.product(
+    for A_shape, B_shape, recipe, high_precision_dtype in itertools.product(
         A_shapes,
         B_shapes,
+        recipes,
         high_precision_dtypes,
     ):
         configs.append(
             ExperimentConfig(
                 A_shape=A_shape,
                 B_shape=B_shape,
+                recipe=recipe,
                 high_precision_dtype=high_precision_dtype,
             )
         )
@@ -92,30 +99,35 @@ def run_experiment(
         dtype=torch.int32,
     )
 
-    def warmup(func, *args, **kwargs):
-        for _ in range(10):
-            func(*args, **kwargs)
+    labels = torch.ones(
+        (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
+    )
 
-    def forward_backward(A, B_t, offs):
-        out = _scaled_grouped_mm(
-            A,
-            B_t,
-            offs=offs,
-            out_dtype=torch.bfloat16,
-        )
-        out.sum().backward()
-        torch.cuda.synchronize()
+    # benchmark bf16 grouped mm
+    bf16_us = bench_fwd_bwd_microseconds(
+        torch._grouped_mm,
+        A,
+        B_t,
+        offs,
+        labels=labels,
+        use_compile=args.compile,
+    )
 
-    # benchmark torch
-    torch_func = torch.compile(forward_backward) if args.compile else forward_backward
-    warmup(torch_func, A, B_t, offs)
-    start_time_ns = time.perf_counter_ns()
-    torch_func(A, B_t, offs)
-    torch_time_ns = time.perf_counter_ns() - start_time_ns
-    time_us = torch_time_ns / 1e3
+    # benchmark scaled grouped mm with dynamic fp8 rowwise quant
+    fp8_us = bench_fwd_bwd_microseconds(
+        _scaled_grouped_mm,
+        A,
+        B_t,
+        offs,
+        scaling_type=config.recipe,
+        labels=labels,
+        use_compile=args.compile,
+    )
 
     return ExperimentResult(
-        time_us=round(time_us, 3),
+        bf16_us=round(bf16_us, 3),
+        fp8_us=round(fp8_us, 3),
+        fp8_speedup=round(bf16_us / fp8_us, 3),
     )
 
 
@@ -123,7 +135,9 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "A_shape",
         "B_shape",
-        "time_us",
+        "bf16_time_us",
+        "fp8_time_us",
+        "fp8_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -133,7 +147,9 @@ def print_results(experiments: List[Experiment]):
             [
                 A_shape,
                 B_shape,
-                experiment.result.time_us,
+                experiment.result.bf16_us,
+                experiment.result.fp8_us,
+                f"{experiment.result.fp8_speedup}x",
             ]
         )
     print(tabulate(rows, headers=headers))
