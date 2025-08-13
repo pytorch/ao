@@ -29,11 +29,7 @@ from torchao.prototype.parq.quant import (
 from torchao.prototype.parq.quant.quant_api import StretchedIntxWeightOnlyConfig
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
-from torchao.quantization.qat import (
-    FromIntXQuantizationAwareTrainingConfig,
-    IntxFakeQuantizeConfig,
-    IntXQuantizationAwareTrainingConfig,
-)
+from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
@@ -63,9 +59,18 @@ def split_param_groups(model):
     return params_quant, params_no_quant
 
 
-def build_param_groups(model, b: int = 2, group_size: Optional[int] = None):
+def build_param_groups(
+    model,
+    b: int = 2,
+    group_size: Optional[int] = None,
+    quant_cls_name: Optional[str] = None,
+):
     params_quant, params_no_quant = split_param_groups(model)
-    quant_kwargs = {"quant_block_size": group_size} if group_size else {}
+    quant_kwargs = {}
+    if group_size:
+        quant_kwargs["quant_block_size"] = group_size
+    if quant_cls_name is not None:
+        quant_kwargs["quant_cls"] = quant_cls_name
     return [
         {"params": params_quant, "quant_bits": b, **quant_kwargs},
         {"params": params_no_quant},
@@ -164,15 +169,19 @@ class TestPARQuantization(common_utils.TestCase):
     @common_utils.parametrize("b", [0, 1, 2, 4])
     @common_utils.parametrize("unif_quant", [True, False])
     @common_utils.parametrize("hard_prox", [True, False])
-    def test_parq_train_loop(self, b: int = 2, unif_quant=True, hard_prox=True):
+    @common_utils.parametrize("per_group_quant_cls", [True, False])
+    def test_parq_train_loop(
+        self, b: int = 2, unif_quant=True, hard_prox=True, per_group_quant_cls=False
+    ):
         self.model.reset_parameters()
-        param_groups = build_param_groups(self.model, b)
-        base_optimizer = torch.optim.AdamW(param_groups)
-
         if unif_quant:
             quantizer = TernaryUnifQuantizer() if b == 0 else UnifQuantizer()
         else:
             quantizer = LSBQuantizer()
+        quant_cls_name = quantizer.__class__.__name__ if per_group_quant_cls else None
+        param_groups = build_param_groups(self.model, b, quant_cls_name=quant_cls_name)
+        base_optimizer = torch.optim.AdamW(param_groups)
+
         prox_map = (
             ProxHardQuant() if hard_prox else ProxPARQ(anneal_start=0, anneal_end=2)
         )
@@ -283,7 +292,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer_ref = UnifQuantizer()
         quantizer = StretchedUnifTorchaoQuantizer(b)
 
-        for n, module in model.named_children():
+        for module in model.children():
             if not _is_linear(module):
                 continue
 
@@ -383,24 +392,18 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         # apply torchao quantized activations on top
         activation_config = IntxFakeQuantizeConfig(
-            torch.int8,
-            granularity="per_token",
-            mapping_type=config.act_mapping_type,
+            torch.int8, "per_token", is_symmetric=False
         )
+        qat_config = QATConfig(activation_config=activation_config, step="prepare")
         filter_fn = optimizer.get_filter_fn(model)
-        quantize_(
-            model,
-            IntXQuantizationAwareTrainingConfig(activation_config=activation_config),
-            filter_fn=filter_fn,
-        )
+        quantize_(model, qat_config, filter_fn=filter_fn)
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
         # equivalent to torchao's convert step
         model.eval()
         optimizer.restore_latent_params()
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), filter_fn=filter_fn)
-        quantize_(model, config, filter_fn=filter_fn)
+        quantize_(model, QATConfig(config, step="convert"), filter_fn=filter_fn)
         converted_out = model(x)
         torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)
 
