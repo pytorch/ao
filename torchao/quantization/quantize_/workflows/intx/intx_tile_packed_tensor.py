@@ -61,63 +61,63 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
     intx quantization with tile packed format for CPUs
 
     Tensor Attributes:
-        packed_data: packed bytes.  Only interpretable by kernel
+        packed_weights: packed bytes.  Only interpretable by kernel
 
     Non-Tensor Attributes:
         bit_width: the bit width for quantization (can be 1 - 8)
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
         shape: the shape of the original Tensor
         dtype: dtype for activations/outputs
-        packed_data_has_zeros: whether zeros are present in packed_data
-        packed_data_has_bias: whether bias is present in packed_data
+        packed_weights_has_zeros: whether zeros are present in packed_weights
+        packed_weights_has_bias: whether bias is present in packed_weights
         compute_target: the compute target for the packed data.  Compute targets may pack the data differently.  See ComputeTarget enum for details.
     """
 
-    tensor_data_names = ["packed_data"]
+    tensor_data_names = ["packed_weights"]
     tensor_attribute_names = [
         "bit_width",
         "block_size",
         "shape",
         "dtype",
-        "packed_data_has_zeros",
-        "packed_data_has_bias",
+        "packed_weights_has_zeros",
+        "packed_weights_has_bias",
         "compute_target",
     ]
 
     def __new__(
         cls,
-        packed_data,
+        packed_weights,
         bit_width,
         block_size,
         shape,
         dtype,
-        packed_data_has_zeros,
-        packed_data_has_bias,
+        packed_weights_has_zeros,
+        packed_weights_has_bias,
         compute_target,
     ):
         kwargs = {}
-        kwargs["device"] = packed_data.device
+        kwargs["device"] = packed_weights.device
         kwargs["dtype"] = dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
         self,
-        packed_data,
+        packed_weights,
         bit_width,
         block_size,
         shape,
         dtype,
-        packed_data_has_zeros,
-        packed_data_has_bias,
+        packed_weights_has_zeros,
+        packed_weights_has_bias,
         compute_target,
     ):
-        assert packed_data.device == torch.device("cpu")
-        self.packed_data = packed_data
+        assert packed_weights.device == torch.device("cpu")
+        self.packed_weights = packed_weights
         self.bit_width = bit_width
         self.block_size = block_size
-        self.packed_data_has_zeros = packed_data_has_zeros
-        self.packed_data_has_bias = packed_data_has_bias
+        self.packed_weights_has_zeros = packed_weights_has_zeros
+        self.packed_weights_has_bias = packed_weights_has_bias
         self.compute_target = compute_target
 
     def _quantization_type(self):
@@ -154,8 +154,8 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         group_size = block_size[1]
         is_per_channel = group_size == shape[1]
 
-        packed_data_has_bias = bias is not None
-        packed_data_has_zeros = not torch.all(zero_point == 0.0).item()
+        packed_weights_has_bias = bias is not None
+        packed_weights_has_zeros = not torch.all(zero_point == 0.0).item()
 
         assert scale.dtype in [torch.bfloat16, torch.float32]
         scale_is_bfloat16_or_is_rounded_to_bf16 = (
@@ -171,7 +171,7 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
                 "ATEN target requires torch.backends.kleidiai.is_available()"
             )
             assert bit_width == 4, "ATEN target only supports 4-bit"
-            assert not packed_data_has_zeros, "ATEN target does not support zeros"
+            assert not packed_weights_has_zeros, "ATEN target does not support zeros"
             int_data = int_data.add(8)
             int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
 
@@ -192,8 +192,8 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
                 block_size,
                 shape,
                 dtype,
-                packed_data_has_zeros,
-                packed_data_has_bias,
+                packed_weights_has_zeros,
+                packed_weights_has_bias,
                 compute_target,
             )
 
@@ -219,29 +219,28 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         if bias is not None and bias.dtype != torch.float32:
             logging.info(f"bias has dtype {bias.dtype}, converting to torch.float32")
             bias = bias.to(torch.float32)
-        if packed_data_has_zeros:
-            assert tensor._has_float_zero_point()
+        if packed_weights_has_zeros and not tensor._has_float_zero_point():
             zero_point = zero_point.to(torch.int8)
 
-        packed_data = getattr(
+        packed_weights = getattr(
             torch.ops.torchao,
             f"_pack_8bit_act_{bit_width}bit_weight",
         )(
             int_data,
             scale.reshape(-1),
-            zero_point.reshape(-1) if packed_data_has_zeros else None,
+            zero_point.reshape(-1) if packed_weights_has_zeros else None,
             group_size,
             bias,
             compute_target_map[compute_target],
         )
         return cls(
-            packed_data,
+            packed_weights,
             bit_width,
             block_size,
             shape,
             dtype,
-            packed_data_has_zeros,
-            packed_data_has_bias,
+            packed_weights_has_zeros,
+            packed_weights_has_bias,
             compute_target,
         )
 
@@ -262,10 +261,10 @@ def _linear_impl_2d_aten(input_tensor, weight_tensor):
     n, k_ = weight_tensor.shape
     assert k_ == k
 
-    packed_data = weight_tensor.packed_data
+    packed_weights = weight_tensor.packed_weights
 
     return torch.ops.aten._dyn_quant_matmul_4bit(
-        input_tensor, packed_data, group_size, k, n
+        input_tensor, packed_weights, group_size, k, n
     )
 
 
@@ -280,14 +279,14 @@ def _linear_impl_2d_torchao(input_tensor, weight_tensor):
     n, k_ = weight_tensor.shape
     assert k_ == k
 
-    packed_data = weight_tensor.packed_data
+    packed_weights = weight_tensor.packed_weights
     bit_width = weight_tensor.bit_width
 
     if weight_tensor.dtype != torch.float32:
         input_tensor = input_tensor.to(torch.float32)
     res = getattr(torch.ops.torchao, f"_linear_8bit_act_{bit_width}bit_weight")(
         input_tensor,
-        packed_data,
+        packed_weights,
         group_size,
         n,
         k,
@@ -332,7 +331,7 @@ def _(func, types, args, kwargs):
         res = res.reshape(*lead_shape, m, n)
 
     if bias is not None:
-        assert not weight_tensor.packed_data_has_bias
+        assert not weight_tensor.packed_weights_has_bias
         res = res + bias
 
     return res
