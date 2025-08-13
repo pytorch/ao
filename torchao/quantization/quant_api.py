@@ -61,7 +61,6 @@ from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
-    _check_hardware_support,
     _normalize_granularity,
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
@@ -276,6 +275,46 @@ def change_linear_weights_to_int4_woqtensors(
 ########
 # TO BE DEPRECATED END
 ########
+
+
+def _check_hardware_support(
+    config: Union[
+        "Float8DynamicActivationFloat8WeightConfig",
+        "Float8StaticActivationFloat8WeightConfig",
+    ],
+) -> None:
+    """
+    Validate that the hardware supports the given float8 quantization configuration.
+
+    Args:
+        config: Must be one of Float8DynamicActivationFloat8WeightConfig or Float8StaticActivationFloat8WeightConfig.
+
+    Raises:
+        AssertionError: If hardware doesn't support the float8 feature.
+        ValueError: If invalid granularity type is provided
+        TypeError: If config is not of the correct type.
+    """
+    if not isinstance(
+        config,
+        (
+            Float8DynamicActivationFloat8WeightConfig,
+            Float8StaticActivationFloat8WeightConfig,
+        ),
+    ):
+        raise TypeError(
+            f"config must be one of Float8DynamicActivationFloat8WeightConfig or Float8StaticActivationFloat8WeightConfig, got {type(config)}"
+        )
+    # XPU by default supports float8 by simulation, thus always passes.
+    if not torch.xpu.is_available():
+        assert is_sm_at_least_89() or is_MI300(), (
+            f"{config.__class__.__name__} requires CUDA compute capability ≥8.9 or MI300+."
+        )
+    if config is Float8DynamicActivationFloat8WeightConfig:
+        for _granularity in config.granularity:
+            if not isinstance(_granularity, (PerTensor, PerRow)):
+                raise ValueError(
+                    f"Invalid granularity type: {_granularity}, only PerTensor or PerRow are supported."
+                )
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -1737,7 +1776,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     kernel_preference = config.kernel_preference
 
     # Ensure works on device
-    _check_hardware_support(granularity)
+    _check_hardware_support(config)
     activation_granularity, weight_granularity = granularity
 
     if not _fp8_mm_compat(weight):
@@ -1800,9 +1839,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
+    _check_hardware_support(config)
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1838,7 +1875,8 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
 ):
-    assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
+    if torch.cuda.is_available():
+        assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
     weight = module.weight
     weight_dtype = config.weight_dtype
@@ -1893,9 +1931,7 @@ float8_static_activation_float8_weight = Float8StaticActivationFloat8WeightConfi
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8StaticActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 static activation quantization is only supported on CUDA 8.9 and above"
-    )
+    _check_hardware_support(config)
 
     scale = config.scale
     activation_dtype = config.activation_dtype
