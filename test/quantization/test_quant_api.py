@@ -146,32 +146,6 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
-    """
-    The deprecated implementation for int8 dynamic quant API, used as a reference for
-    numerics and performance
-    """
-    from torchao.quantization.quant_api import (
-        _get_subclass_inserter,
-        _in_features_greater_than_16,
-        _is_linear,
-    )
-    from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight
-
-    if filter_fn is None:
-        filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
-            *args
-        )
-
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(
-            Int8DynamicallyQuantizedLinearWeight, enable_parametrization=False, **kwargs
-        ),
-        filter_fn,
-    )
-
-
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
     def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
         """
