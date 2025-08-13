@@ -442,10 +442,14 @@
     <span class="n">PerGroup</span><span class="p">,</span>
     <span class="n">PerToken</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_block_size</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="p">,</span>
     <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">,</span>
     <span class="n">MappingType</span><span class="p">,</span>
+    <span class="n">_choose_scale_float8</span><span class="p">,</span>
+    <span class="n">_dequantize_affine_float8</span><span class="p">,</span>
+    <span class="n">_quantize_affine_float8</span><span class="p">,</span>
     <span class="n">_Round</span><span class="p">,</span>
     <span class="n">choose_qparams_affine</span><span class="p">,</span>
 <span class="p">)</span>
@@ -457,12 +461,12 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantize_config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizeConfigBase</span><span class="p">,</span>
+    <span class="n">Float8FakeQuantizeConfig</span><span class="p">,</span>
     <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_fake_quantize_per_channel_group</span><span class="p">,</span>
     <span class="n">_fake_quantize_per_token</span><span class="p">,</span>
-    <span class="n">_Float8RowwiseFakeQuantize</span><span class="p">,</span>
     <span class="n">_log_deprecation_warning</span><span class="p">,</span>
 <span class="p">)</span>
 
@@ -484,8 +488,36 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">FakeQuantizeConfigBase</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;FakeQuantizerBase&quot;</span><span class="p">:</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">IntxFakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">Float8FakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown config type: </span><span class="si">{</span><span class="n">config</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Float8FakeQuantizer"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.Float8FakeQuantizer.html#torchao.quantization.qat.Float8FakeQuantizer">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">Float8FakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generic module for applying float8 fake quantization to a tensor, as specified in the config.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
+
+<div class="viewcode-block" id="Float8FakeQuantizer.forward"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.Float8FakeQuantizer.html#torchao.quantization.qat.Float8FakeQuantizer.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">original_dtype</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">granularity</span><span class="p">)</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">_choose_scale_float8</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">hp_value_lb</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">hp_value_lb</span><span class="p">,</span>
+            <span class="n">hp_value_ub</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">hp_value_ub</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="n">_quantize_affine_float8</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">cast_to_float8_dtype</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+        <span class="n">dq</span> <span class="o">=</span> <span class="n">_dequantize_affine_float8</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">original_dtype</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">dq</span></div></div>
 
 
 <div class="viewcode-block" id="IntxFakeQuantizer"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.IntxFakeQuantizer.html#torchao.quantization.qat.IntxFakeQuantizer">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">IntxFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
@@ -647,27 +679,6 @@
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
-
-
-<span class="c1"># TODO: make this a FakeQuantizerBase</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">_Float8RowwiseActivationFakeQuantizer</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Simple fake quantizer for float8 rowwise fake quantization, intended for activations only.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="kc">True</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">_Float8RowwiseFakeQuantize</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
-                <span class="n">x</span><span class="p">,</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
-                <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">x</span>
 </pre></div>
 
              </article>

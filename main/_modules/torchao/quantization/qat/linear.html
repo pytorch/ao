@@ -439,7 +439,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_device</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="n">PerGroup</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="n">PerGroup</span><span class="p">,</span> <span class="n">PerRow</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.linear_quant_modules</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Int8DynActInt4WeightLinear</span><span class="p">,</span>
     <span class="n">WeightOnlyInt4Linear</span><span class="p">,</span>
@@ -457,11 +457,11 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantize_config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizeConfigBase</span><span class="p">,</span>
+    <span class="n">Float8FakeQuantizeConfig</span><span class="p">,</span>
     <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizerBase</span><span class="p">,</span>
-    <span class="n">_Float8RowwiseActivationFakeQuantizer</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_get_qmin_qmax</span><span class="p">,</span>
@@ -1027,6 +1027,10 @@
             <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">&quot;per_group&quot;</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">&quot;per_channel&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_activation_config</span> <span class="o">=</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">(),</span>
+        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span>
             <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span>
@@ -1045,13 +1049,10 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-                <span class="c1"># TODO: add a config for float8?</span>
                 <span class="n">new_linear</span> <span class="o">=</span> <span class="n">FakeQuantizedLinear</span><span class="o">.</span><span class="n">from_linear</span><span class="p">(</span>
                     <span class="n">child</span><span class="p">,</span>
+                    <span class="n">activation_config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_activation_config</span><span class="p">,</span>
                     <span class="n">weight_config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_weight_config</span><span class="p">,</span>
-                <span class="p">)</span>
-                <span class="n">new_linear</span><span class="o">.</span><span class="n">activation_fake_quantizer</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="n">_Float8RowwiseActivationFakeQuantizer</span><span class="p">()</span>
                 <span class="p">)</span>
                 <span class="nb">setattr</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">new_linear</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>

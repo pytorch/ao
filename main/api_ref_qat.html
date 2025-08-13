@@ -458,17 +458,23 @@ please refer to the <a class="reference external" href="https://github.com/pytor
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.IntxFakeQuantizeConfig.html#torchao.quantization.qat.IntxFakeQuantizeConfig" title="torchao.quantization.qat.IntxFakeQuantizeConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IntxFakeQuantizeConfig</span></code></a></p></td>
 <td><p>Config for how to fake quantize weights or activations, targeting integer dtypes up to torch.int8.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear" title="torchao.quantization.qat.FakeQuantizedLinear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FakeQuantizedLinear</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.Float8FakeQuantizeConfig.html#torchao.quantization.qat.Float8FakeQuantizeConfig" title="torchao.quantization.qat.Float8FakeQuantizeConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8FakeQuantizeConfig</span></code></a></p></td>
+<td><p>Config for float8 fake quantization, targeting <code class="xref py py-class docutils literal notranslate"><span class="pre">Float8Tensor</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear" title="torchao.quantization.qat.FakeQuantizedLinear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FakeQuantizedLinear</span></code></a></p></td>
 <td><p>General linear layer with fake quantized weights and activations.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding" title="torchao.quantization.qat.FakeQuantizedEmbedding"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FakeQuantizedEmbedding</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding" title="torchao.quantization.qat.FakeQuantizedEmbedding"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FakeQuantizedEmbedding</span></code></a></p></td>
 <td><p>General embedding layer with fake quantized weights.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.FakeQuantizerBase.html#torchao.quantization.qat.FakeQuantizerBase" title="torchao.quantization.qat.FakeQuantizerBase"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FakeQuantizerBase</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.FakeQuantizerBase.html#torchao.quantization.qat.FakeQuantizerBase" title="torchao.quantization.qat.FakeQuantizerBase"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FakeQuantizerBase</span></code></a></p></td>
 <td><p>Generic module for applying fake quantization to a tensor, as specified in the config.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.IntxFakeQuantizer.html#torchao.quantization.qat.IntxFakeQuantizer" title="torchao.quantization.qat.IntxFakeQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IntxFakeQuantizer</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.IntxFakeQuantizer.html#torchao.quantization.qat.IntxFakeQuantizer" title="torchao.quantization.qat.IntxFakeQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IntxFakeQuantizer</span></code></a></p></td>
 <td><p>Generic module for applying integer fake quantization to a tensor, as specified in the config.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.Float8FakeQuantizer.html#torchao.quantization.qat.Float8FakeQuantizer" title="torchao.quantization.qat.Float8FakeQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8FakeQuantizer</span></code></a></p></td>
+<td><p>Generic module for applying float8 fake quantization to a tensor, as specified in the config.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.qat.linear.enable_linear_fake_quant.html#torchao.quantization.qat.linear.enable_linear_fake_quant" title="torchao.quantization.qat.linear.enable_linear_fake_quant"><code class="xref py py-obj docutils literal notranslate"><span class="pre">linear.enable_linear_fake_quant</span></code></a></p></td>
 <td><p>Helper function to enable fake quantization in <cite>FakeQuantizedLinear</cite>.</p></td>
