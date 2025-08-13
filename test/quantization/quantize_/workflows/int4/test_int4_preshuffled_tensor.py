@@ -30,7 +30,7 @@ from torchao.utils import (
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     packing_format="preshuffled",
-    VERSION=2,
+    version=2,
 )
 
 FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(

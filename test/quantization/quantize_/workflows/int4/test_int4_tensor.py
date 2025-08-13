@@ -27,7 +27,7 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         self.config = Int4WeightOnlyConfig(
             group_size=128,
             packing_format="plain",
-            VERSION=2,
+            version=2,
         )
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
