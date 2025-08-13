@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
-# This source code is licensed under the BSD 3-Clause license found in the
+# This source code is licensed under the ESD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
 
@@ -29,12 +29,12 @@ torch.manual_seed(0)
 
 
 class GroupedMMWrapper(nn.Module):
-    def __init__(self, B, K, N):
+    def __init__(self, E, K, N):
         super().__init__()
-        self.weight = torch.nn.Parameter(torch.randn(B, N, K))
+        self.weight = torch.nn.Parameter(torch.randn(E, N, K))
 
     def forward(self, x, offs):
-        wt = self.weight.transpose(-2, -1)  # B, N, K -> B, K, N
+        wt = self.weight.transpose(-2, -1)  # E, N, K -> E, K, N
         y = torch._grouped_mm(x, wt, offs)
         return y
 
@@ -56,10 +56,10 @@ class TestMoEInference:
     @unittest.skipIf(not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
     @torch.no_grad()
     def test_hello_world(self):
-        M, B, K, N = 4, 2, 16, 32
-        m = GroupedMMWrapper(B, K, N).cuda().bfloat16()
+        M, E, K, N = 4, 2, 16, 32
+        m = GroupedMMWrapper(E, K, N).cuda().bfloat16()
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-        offs = _generate_test_offsets(M, B)
+        offs = _generate_test_offsets(M, E)
         y = m(x, offs)
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
         filter_fn = lambda param, param_name: param_name.endswith("weight")
