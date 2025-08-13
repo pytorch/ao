@@ -549,9 +549,6 @@
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.subclass</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
-    <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span>
-    <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
     <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.unified</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quantizer</span><span class="p">,</span> <span class="n">TwoStepQuantizer</span>
@@ -599,109 +596,6 @@
     <span class="n">Int4CPULayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">Int4XPULayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">}</span>
-
-
-<span class="c1">######</span>
-<span class="c1"># TO BE DEPRECATED START</span>
-<span class="c1">######</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_in_features_greater_than_16</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
-    <span class="k">return</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">&quot;in_features&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">&gt;</span> <span class="mi">16</span>
-
-
-<span class="c1"># TODO: delete</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int8_dqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`</span>
-<span class="sd">    Tensor subclass, effectively applying the same form of quantization</span>
-<span class="sd">    as apply_dynamic_quant while not modifying the linear modules.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
-        <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
-    <span class="p">)</span>
-
-    <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">filter_fn</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">_is_linear</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_in_features_greater_than_16</span><span class="p">(</span>
-            <span class="o">*</span><span class="n">args</span>
-        <span class="p">)</span>
-
-    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span>
-            <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
-        <span class="p">),</span>
-        <span class="n">filter_fn</span><span class="p">,</span>
-    <span class="p">)</span>
-
-
-<span class="c1"># TODO: delete</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int8_woqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Converts all linear weight tensors to the</span>
-<span class="sd">    `Int8WeightOnlyQuantizedLinearWeight` tensor subclass,</span>
-<span class="sd">    effectively applying the same form of quantization</span>
-<span class="sd">    as apply_weight_only_int8_quant while not modifying the linear modules.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
-        <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
-    <span class="p">)</span>
-
-    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span>
-            <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
-        <span class="p">),</span>
-        <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
-    <span class="p">)</span>
-
-
-<span class="c1"># TODO: delete</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int4_woqtensors</span><span class="p">(</span>
-    <span class="n">model</span><span class="p">,</span>
-    <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-    <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-    <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">,</span>
-    <span class="n">preserve_zero</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Converts all linear weight tensors to the</span>
-<span class="sd">    `Int4WeightOnlyQuantizedLinearWeight` tensor subclass,</span>
-<span class="sd">    effectively applying the same form of quantization</span>
-<span class="sd">    as apply_dynamic_quant while not modifying the linear modules.</span>
-<span class="sd">    Args:</span>
-<span class="sd">        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller</span>
-<span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
-<span class="sd">        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]</span>
-<span class="sd">        `filter_fn`: function that takes a nn.Module instance and fully qualified name of the module, \</span>
-<span class="sd">            returns True if we want to run `config` on</span>
-<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, \</span>
-<span class="sd">            ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
-<span class="sd">        `preserve_zero`: whether to preserve zero, default is False</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
-        <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
-    <span class="p">)</span>
-
-    <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span>
-
-    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span>
-            <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
-            <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-            <span class="n">groupsize</span><span class="o">=</span><span class="n">groupsize</span><span class="p">,</span>
-            <span class="n">inner_k_tiles</span><span class="o">=</span><span class="n">inner_k_tiles</span><span class="p">,</span>
-            <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
-            <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
-        <span class="p">),</span>
-        <span class="n">filter_fn</span><span class="p">,</span>
-    <span class="p">)</span>
-
-
-<span class="c1">########</span>
-<span class="c1"># TO BE DEPRECATED END</span>
-<span class="c1">########</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
