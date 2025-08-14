@@ -7,6 +7,10 @@
 """
 Microbenchmark script to compare Triton kernels vs torch._scaled_mm
 for blockwise fp8 GEMM operations.
+
+This provides a proper 1:1 comparison between the Triton blockwise implementation
+and the torch._scaled_mm block-by-block approach, both preserving blockwise 
+scaling precision without approximations.
 """
 
 import torch
@@ -38,25 +42,6 @@ def benchmark_microseconds(f, *args, warmup=25, rep=100):
     )
 
 
-def prepare_blockwise_scaled_mm_tensors(
-    a_fp8: torch.Tensor, 
-    a_scale: torch.Tensor, 
-    b_fp8: torch.Tensor, 
-    b_scale: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Prepare tensors for torch._scaled_mm with proper layout and scaling.
-    """
-    # torch._scaled_mm expects reciprocal scales
-    a_scale_recip = 1.0 / a_scale
-    b_scale_recip = 1.0 / b_scale
-    
-    # Ensure proper memory layout for torch._scaled_mm
-    # A should be row-major, B should be column-major or properly strided
-    a_mm = a_fp8.contiguous()
-    b_mm = b_fp8.contiguous() if b_fp8.is_contiguous() else b_fp8.t().contiguous().t()
-    
-    return a_mm, a_scale_recip, b_mm, b_scale_recip
 
 
 def blockwise_fp8_scaled_mm_1x128_128x128_reference(
@@ -66,25 +51,20 @@ def blockwise_fp8_scaled_mm_1x128_128x128_reference(
     b_scale: torch.Tensor,
 ) -> torch.Tensor:
     """
-    Reference implementation using torch._scaled_mm for blockwise fp8 GEMM.
-    This is a simplified version - the actual implementation needs to handle
-    blockwise scaling properly.
+    Reference implementation using the improved torch._scaled_mm blockwise approach.
+    This provides a proper 1:1 comparison with the Triton kernel by using the
+    same block-by-block processing to preserve blockwise scaling precision.
     """
-    a_mm, a_scale_recip, b_mm, b_scale_recip = prepare_blockwise_scaled_mm_tensors(
-        a_fp8, a_scale, b_fp8, b_scale
+    from torchao.prototype.blockwise_fp8_training.scaled_mm_kernels import (
+        blockwise_fp8_gemm_scaled_mm_1x128_128x128
     )
     
-    # For now, use tensorwise scaling as a baseline comparison
-    # The full blockwise implementation will need custom logic
-    a_scale_tensor = a_scale_recip.mean()
-    b_scale_tensor = b_scale_recip.mean()
-    
-    return torch._scaled_mm(
-        a_mm,
-        b_mm,
-        scale_a=a_scale_tensor,
-        scale_b=b_scale_tensor,
-        out_dtype=torch.bfloat16,
+    return blockwise_fp8_gemm_scaled_mm_1x128_128x128(
+        a_fp8, 
+        1.0 / a_scale, 
+        b_fp8, 
+        1.0 / b_scale, 
+        block_size=128
     )
 
 
@@ -130,7 +110,7 @@ def benchmark_gemm_variants(
     )
     results["triton_time_us"] = triton_time
     
-    # Benchmark torch._scaled_mm (simplified reference)
+    # Benchmark torch._scaled_mm (block-by-block implementation)
     try:
         scaled_mm_time = benchmark_microseconds(
             blockwise_fp8_scaled_mm_1x128_128x128_reference,
@@ -175,7 +155,7 @@ def benchmark_precision(
         "triton_error_db": compute_error(ref_output, triton_output),
     }
     
-    # torch._scaled_mm precision (simplified reference)
+    # torch._scaled_mm precision (block-by-block implementation)
     try:
         scaled_mm_output = blockwise_fp8_scaled_mm_1x128_128x128_reference(
             a_fp8, a_scale, b_fp8, b_scale
