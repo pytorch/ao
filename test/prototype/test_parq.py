@@ -21,6 +21,7 @@ from torchao.prototype.parq.optim import (
 from torchao.prototype.parq.quant import (
     Int4UnifTorchaoQuantizer,
     LSBQuantizer,
+    Quantizer,
     StretchedUnifTorchaoQuantizer,
     TernaryUnifQuantizer,
     UnifQuantizer,
@@ -63,14 +64,14 @@ def build_param_groups(
     model,
     b: int = 2,
     group_size: Optional[int] = None,
-    quant_cls_name: Optional[str] = None,
+    quantizer: Optional[Quantizer] = None,
 ):
     params_quant, params_no_quant = split_param_groups(model)
     quant_kwargs = {}
     if group_size:
         quant_kwargs["quant_block_size"] = group_size
-    if quant_cls_name is not None:
-        quant_kwargs["quant_cls"] = quant_cls_name
+    if quantizer is not None:
+        quant_kwargs["quantizer"] = quantizer
     return [
         {"params": params_quant, "quant_bits": b, **quant_kwargs},
         {"params": params_no_quant},
@@ -169,17 +170,18 @@ class TestPARQuantization(common_utils.TestCase):
     @common_utils.parametrize("b", [0, 1, 2, 4])
     @common_utils.parametrize("unif_quant", [True, False])
     @common_utils.parametrize("hard_prox", [True, False])
-    @common_utils.parametrize("per_group_quant_cls", [True, False])
+    @common_utils.parametrize("per_group_quantizer", [True, False])
     def test_parq_train_loop(
-        self, b: int = 2, unif_quant=True, hard_prox=True, per_group_quant_cls=False
+        self, b: int = 2, unif_quant=True, hard_prox=True, per_group_quantizer=False
     ):
         self.model.reset_parameters()
         if unif_quant:
             quantizer = TernaryUnifQuantizer() if b == 0 else UnifQuantizer()
         else:
             quantizer = LSBQuantizer()
-        quant_cls_name = quantizer.__class__.__name__ if per_group_quant_cls else None
-        param_groups = build_param_groups(self.model, b, quant_cls_name=quant_cls_name)
+        param_groups = build_param_groups(
+            self.model, b, quantizer=quantizer if per_group_quantizer else None
+        )
         base_optimizer = torch.optim.AdamW(param_groups)
 
         prox_map = (
