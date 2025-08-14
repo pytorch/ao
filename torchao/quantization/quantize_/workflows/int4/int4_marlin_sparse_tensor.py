@@ -34,23 +34,22 @@ except:
 
 
 class Int4MarlinSparseTensor(TorchAOBaseTensor):
-    tensor_data_names = ["qdata", "scale", "zero_point"]
-    tensor_attribute_names = ["block_size", "shape", "meta", "num_bits"]
+    tensor_data_names = ["qdata", "scale", "zero_point", "meta"] # meta is a tensor
+    tensor_attribute_names = ["block_size", "num_bits", "shape"]
 
-    def __new__(cls, qdata, scale, zero_point, meta, block_size, shape, num_bits):
+    def __new__(cls, qdata, scale, zero_point, meta, block_size, num_bits, shape):
         kwargs = {}
         kwargs["device"] = qdata.device
         kwargs["dtype"] = scale.dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, qdata, scale, zero_point, meta, block_size, shape, num_bits):
+    def __init__(self, qdata, scale, zero_point, meta, block_size, num_bits, shape): # args need to match lines 37 and 38
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
         self.meta = meta
         self.block_size = block_size
-        self.shape = shape
         self.num_bits = num_bits
 
     def _quantization_type(self):
@@ -153,20 +152,18 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
     ):
         preprocessed_w = cls.pre_process(w)
         assert (
-            block_size == 128 or block_size == w.shape[-1]
-        ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {block_size}"
+            block_size[-1] == 128 or block_size[-1] == preprocessed_w.shape[-1]
+        ), f"MarlinSparse only supports 128 group size or per channel quantization, got {block_size}"
 
         quant_min = 0
         quant_max = 15
-        target_dtype = torch.int4
-
-        assert(len(block_size) == 1), f"Expected one block size, got {len(block_size)}"
+        target_dtype = torch.int32
 
         scale, zero_point = choose_qparams_affine(
             input=preprocessed_w,
             mapping_type=MappingType.SYMMETRIC,
-            block_size=(block_size[0],),
-            target_dtype=torch.int4,  # ??? i think its int4 because we wanna convert to int4 idk but in the old version i think its int32
+            block_size=block_size,
+            target_dtype=target_dtype,  # ??? i think its int4 because we wanna convert to int4 idk but in the old version i think its int32
             quant_min=quant_min,
             quant_max=quant_max,
             eps=1e-6,
@@ -175,7 +172,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
 
         wq = quantize_affine(
             input=preprocessed_w,
-            block_size=(block_size[0],),
+            block_size=block_size,
             scale=scale,
             zero_point=zero_point,
             output_dtype=target_dtype,
