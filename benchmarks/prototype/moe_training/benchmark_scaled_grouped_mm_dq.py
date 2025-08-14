@@ -12,7 +12,7 @@ from typing import List
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
-from utils import bench_fwd_bwd_microseconds
+from utils import bench_fwd_bwd_microseconds, profile_fn
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
@@ -47,7 +47,7 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     A_shapes = [(16640, 5120)]
-    B_shapes = [(16, 8192, 5120), (128, 8192, 5120)]
+    B_shapes = [(16, 8192, 5120)]
     recipes = [MoEScalingType.FP8_ROWWISE]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -106,6 +106,16 @@ def run_experiment(
         labels=labels,
         use_compile=args.compile,
     )
+    if args.profile:
+        profile_fn(
+            torch._grouped_mm,
+            A,
+            B_t,
+            offs,
+            labels=labels,
+            use_compile=args.compile,
+            profile_name="bf16_profile",
+        )
 
     # benchmark scaled grouped mm with dynamic fp8 rowwise quant
     fp8_us = bench_fwd_bwd_microseconds(
@@ -117,6 +127,17 @@ def run_experiment(
         labels=labels,
         use_compile=args.compile,
     )
+    if args.profile:
+        profile_fn(
+            _scaled_grouped_mm,
+            A,
+            B_t,
+            offs,
+            scaling_type=config.recipe,
+            labels=labels,
+            use_compile=args.compile,
+            profile_name="scaled_profile",
+        )
 
     return ExperimentResult(
         bf16_us=round(bf16_us, 3),
@@ -164,5 +185,6 @@ def main(args: argparse.Namespace):
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--compile", action="store_true")
+    arg_parser.add_argument("--profile", action="store_true")
     args = arg_parser.parse_args()
     main(args)
