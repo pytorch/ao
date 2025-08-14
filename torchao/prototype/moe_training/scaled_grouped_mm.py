@@ -192,11 +192,25 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Compute B fp8 column-major for right operand of grouped GEMM:
         # grad_A = grad_output @ B.
-        B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
-            B_t._data if hasattr(B_t, "_data") else B_t,
-            output_dtype=torch.float8_e4m3fn,
+        # B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
+        #     B_t._data if hasattr(B_t, "_data") else B_t,
+        #     output_dtype=torch.float8_e4m3fn,
+        #     round_scales_to_power_of_2=True,
+        # )
+        B = B_t.contiguous().transpose(-2, -1)
+
+        # - B shape: (E, N, K)
+        # - B scales must be computed rowwise keeping the outer/final dim, so:
+        # - B_scale shape: (E, 1, K)
+        B_scales = tensor_to_scale(
+            B,
+            torch.float8_e4m3fn,
+            scaling_granularity=ScalingGranularity.AXISWISE,
+            axiswise_dim=-2,
             round_scales_to_power_of_2=True,
         )
+        B_scaled = B.to(torch.float32) * B_scales
+        B_fp8_col_major = to_fp8_saturated(B_scaled, torch.float8_e4m3fn)
 
         # Compute grad_A.
         # grad_A = grad_output @ B
