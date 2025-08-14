@@ -1254,6 +1254,8 @@ def autoquant(
         model(*example_input2)
         model.finalize_autoquant()
     """
+    torch._C._log_api_usage_once("torchao.quantization.autoquant")
+
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
