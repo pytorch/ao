@@ -9,11 +9,7 @@ import torch
 
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.testing.model_architectures import ToyMultiLinearModel
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    benchmark_model,
-    unwrap_tensor_subclass,
-)
+from torchao.utils import benchmark_model
 
 # ================
 # | Set up model |
@@ -37,11 +33,6 @@ quantize_(model, Int4WeightOnlyConfig(group_size=32))
 # =============
 # | Benchmark |
 # =============
-
-# Temporary workaround for tensor subclass + torch.compile
-# Only needed for torch version < 2.5
-if not TORCH_VERSION_AT_LEAST_2_5:
-    unwrap_tensor_subclass(model)
 
 num_runs = 100
 torch._dynamo.reset()

@@ -25,7 +25,6 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     check_cpu_version,
     check_xpu_version,
 )
@@ -449,7 +448,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
         quant_min,
         quant_max,
     )
-    if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
+    if w.shape[-1] > 1:
         if (not (check_cpu_version(int_data.device))) and (
             not (check_xpu_version(int_data.device))
         ):
@@ -470,10 +469,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert groupsize > 1
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
-    if (
-        TORCH_VERSION_AT_LEAST_2_5
-        and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
-        and not (check_cpu_version(w_int4x8.device))
+    if (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1) and not (
+        check_cpu_version(w_int4x8.device)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4

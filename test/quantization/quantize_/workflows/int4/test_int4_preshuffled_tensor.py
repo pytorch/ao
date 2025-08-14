@@ -16,7 +16,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.quantization import (
-    Float8ActivationInt4WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     quantize_,
 )
@@ -30,10 +30,10 @@ from torchao.utils import (
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     packing_format="preshuffled",
-    VERSION=2,
+    version=2,
 )
 
-FP8_ACT_CONFIG = Float8ActivationInt4WeightConfig(
+FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
     group_size=128,
     packing_format="preshuffled",
 )

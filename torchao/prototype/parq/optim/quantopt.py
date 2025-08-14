@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
@@ -13,8 +14,10 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
+import torchao.prototype.parq as parq
+
 from ..quant import Quantizer
-from ..utils import HAS_DTENSOR, is_dtensor
+from ..utils import HAS_DTENSOR, instantiate_module, is_dtensor
 from .proxmap import ProxMap
 
 if HAS_DTENSOR:
@@ -133,27 +136,6 @@ class QuantOptimizer(Optimizer):
 
         return _filter_fn
 
-    @torch._disable_dynamo
-    def state_dict(self) -> dict[str, Any]:
-        state_dict = self.base_optimizer.state_dict()
-        state_dict["qat_state"] = {"num_steps": self.num_steps}
-        # quantizer and prox_map may also need to save states, can add here
-        return state_dict
-
-    @torch._disable_dynamo
-    def load_state_dict(
-        self, state_dict: dict[str, Any], start_step: Optional[int] = None
-    ) -> None:
-        qat_state = state_dict.get("qat_state")
-        # resume from check points usually not corresponds to saved num_steps
-        # so allow explicit start_step computed from epochs * steps_per_epoc
-        if start_step is not None:
-            self.num_steps = start_step
-        elif qat_state is not None:
-            # hope discrepancy in num_steps does not cause major problem!
-            self.num_steps = qat_state["num_steps"]
-        self.base_optimizer.load_state_dict(state_dict)
-
     @torch.no_grad()
     def step(self, closure: Optional[Callable[[], float]] = None) -> Optional[float]:
         """Performs a single optimization step.
@@ -191,6 +173,18 @@ class QuantOptimizer(Optimizer):
             quant_update = False
 
         for group in self.regularized_param_groups():
+            # Override quantizer if specified in the group
+            if "quant_cls" in group:
+                quant_cls = instantiate_module(
+                    f"{parq.__name__}.quant", group["quant_cls"]
+                )
+                quant_kwargs = (
+                    json.loads(group["quant_kwargs"]) if "quant_kwargs" in group else {}
+                )
+                quantizer = quant_cls(**quant_kwargs)
+            else:
+                quantizer = self.quantizer
+
             # AProx in practice: ensure shrinkage coefficient >= 1
             group["cumu_lr"] += group["lr"]
             gamma = max(1.0, group["cumu_lr"])
@@ -224,7 +218,7 @@ class QuantOptimizer(Optimizer):
                 # update quantization targets periodically
                 per_channel = self.quant_per_channel and p.dim() > 1
                 if quant_update:
-                    quant_size = self.quantizer.get_quant_size(b)
+                    quant_size = quantizer.get_quant_size(b)
 
                     if per_channel:
                         quant_size = (p.size(0), quant_size)
@@ -242,9 +236,7 @@ class QuantOptimizer(Optimizer):
 
                 q = None
                 if quant_update:
-                    qfunc = partial(
-                        self.quantize_, quantizer=self.quantizer, b=b, dim=dim
-                    )
+                    qfunc = partial(self.quantize_, quantizer=quantizer, b=b, dim=dim)
                     if is_dtensor(p):
                         qfunc = local_map(
                             qfunc,

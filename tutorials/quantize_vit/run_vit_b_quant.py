@@ -37,12 +37,6 @@ torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
 ## compilation configs end
 
-# temporary workaround for the API to work with torch.compile
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    unwrap_tensor_subclass(model)
-
 # temporary workaround to recover the perf with quantized model under torch.compile
 torch.backends.mha.set_fastpath_enabled(False)
 

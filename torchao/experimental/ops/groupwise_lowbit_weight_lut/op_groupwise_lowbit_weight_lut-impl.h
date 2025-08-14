@@ -106,30 +106,6 @@ Tensor linear_cpu(
 
 #ifdef USE_ATEN
 template <int weight_nbit>
-at::Tensor linear_meta(
-    const at::Tensor& activations,
-    const at::Tensor& packed_weights,
-    const int64_t& scale_group_size,
-    const int64_t& lut_group_size,
-    const int64_t& n,
-    const int64_t& k) {
-  auto input_sizes = activations.sizes().vec();
-  TORCH_CHECK(
-      !input_sizes.empty() && input_sizes.back() == k,
-      "The last dimension of `activations` is ",
-      input_sizes.back(),
-      " but it must be equal to k=",
-      k);
-
-  auto output_sizes = input_sizes;
-  output_sizes.back() = n;
-
-  return at::empty(output_sizes, activations.options());
-}
-#endif // USE_ATEN
-
-#ifdef USE_ATEN
-template <int weight_nbit>
 Tensor pack_weights_with_lut_cpu(
     const Tensor& weight_qval_idxs,
     const Tensor& luts,

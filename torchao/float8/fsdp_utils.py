@@ -39,6 +39,10 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
 
     from torchao.float8.float8_linear import Float8Linear
 
+    torch._C._log_api_usage_once(
+        "torchao.float8.precompute_float8_dynamic_scale_for_fsdp"
+    )
+
     float8_linears: List[Float8Linear] = [
         m
         for m in module.modules()

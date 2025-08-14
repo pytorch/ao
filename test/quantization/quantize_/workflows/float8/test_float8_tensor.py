@@ -182,14 +182,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         # does not differ too much
         input = torch.randn(2, 256, dtype=dtype, device=device)
         res_ref = dummy1(input)
-        dummy.weight = torch.nn.Parameter(weight1, requires_grad=False)
+        dummy.weight = torch.nn.Parameter(weight1.contiguous(), requires_grad=False)
         res = dummy(input)
         sqnr = compute_error(res, res_ref)
         self.assertTrue(sqnr > 25, f"sqnr: {sqnr}")
 
         input = torch.randn(2, 128, dtype=dtype, device=device)
         res_ref = dummy2(input)
-        dummy.weight = torch.nn.Parameter(weight2, requires_grad=False)
+        dummy.weight = torch.nn.Parameter(weight2.contiguous(), requires_grad=False)
         res = dummy(input)
         sqnr = compute_error(res, res_ref)
         self.assertTrue(sqnr > 15, f"sqnr: {sqnr}")

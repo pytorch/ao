@@ -11,14 +11,17 @@ import torch
 from torch import nn
 
 from torchao.dtypes import AffineQuantizedTensor, Layout, QDQLayout
-from torchao.quantization.granularity import PerAxis, PerGroup
+from torchao.quantization import (
+    MappingType,
+    PerAxis,
+    PerGroup,
+    ZeroPointDomain,
+    dequantize_affine,
+)
 from torchao.quantization.quant_api import IntxWeightOnlyConfig
 from torchao.quantization.quant_primitives import (
     _SUB_BYTE_UINT_BOUNDS,
-    MappingType,
-    ZeroPointDomain,
     _get_reduction_params,
-    dequantize_affine,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
 

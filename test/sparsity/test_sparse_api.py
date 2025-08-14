@@ -18,12 +18,6 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -31,7 +25,6 @@ logging.basicConfig(
 
 
 class TestSemiStructuredSparse(common_utils.TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skip("Temporarily skipping to unpin nightlies")
     def test_sparse(self):
@@ -59,7 +52,6 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
 
 class TestQuantSemiSparse(common_utils.TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [False])
     @unittest.skip("Temporarily skip to unbreak CI")
@@ -97,7 +89,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse_marlin(self, compile):
@@ -132,10 +123,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
 
 class TestBlockSparseWeight(common_utils.TestCase):
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4,
-        "pytorch 2.4+ feature due to need for custom op support",
-    )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("input_shape", [1, 1024])
@@ -170,7 +157,6 @@ class TestBlockSparseWeight(common_utils.TestCase):
 
 
 class TestQuantBlockSparseWeight(common_utils.TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "pytorch 2.6+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse(self, compile):
