@@ -1683,6 +1683,8 @@
 <span class="sd">        model(*example_input2)</span>
 <span class="sd">        model.finalize_autoquant()</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.autoquant&quot;</span><span class="p">)</span>
+
     <span class="k">if</span> <span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
