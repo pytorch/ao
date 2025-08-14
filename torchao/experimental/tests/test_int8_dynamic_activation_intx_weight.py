@@ -88,7 +88,7 @@ def _get_test_cases_v2():
 
         # TORCHAO_KLEIDIAI restrictions
         if (packing_format == PackingFormat.TILED) and (
-            compute_target == ComputeTarget.ATEN
+            compute_target == ComputeTarget.TORCHAO_KLEIDIAI
         ):
             if weight_dtype != torch.int4:
                 return False
@@ -835,7 +835,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         mse_tol = 1e-5 if model_dtype == torch.float32 else 1e-4
         self._assert_close(result, expected_result, mse_tol=mse_tol)
 
-    def test_export_tiled_v2(
+    def test_export_compile_aoti_tiled_v2(
         self,
     ):
         m = 3
@@ -882,6 +882,22 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
         exported_results = exported.module()(activations)
         self.assertTrue(torch.allclose(eager_results, exported_results))
+
+        # Compile
+        compiled = torch.compile(model)
+        with torch.no_grad():
+            compiled_results = compiled(activations)
+        self.assertTrue(torch.allclose(eager_results, compiled_results))
+
+        # AOTI
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            package_path = f"{tmpdirname}/model.pt2"
+            torch._inductor.aoti_compile_and_package(
+                exported, package_path=package_path
+            )
+            fn = torch._inductor.aoti_load_package(package_path)
+            aoti_results = fn(activations)
+            self.assertTrue(torch.allclose(eager_results, aoti_results))
 
     def test_export_unpacked_v2(self):
         """
@@ -966,6 +982,142 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             model2.load_state_dict(state_dict, assign=True)
             actual = model2(activations)
             self.assertTrue(torch.allclose(expected, actual))
+
+    def test_moe_quant_intx_v2(self):
+        from torchao.prototype.moe_quant.quantizable_moe_modules import (
+            MOEFeedForwardAOQuantizable,
+        )
+        from torchao.prototype.moe_quant.utils import (
+            FakeExtraDimTensor,
+            MoEQuantConfig,
+            UseFakeExtraDimTensor,
+            cond_ffn_filter,
+        )
+        from torchao.quantization.quant_api import (
+            Int8DynamicActivationIntxWeightConfig,
+            quantize_,
+        )
+        from torchao.quantization.utils import compute_error
+
+        with torch.device("cpu"):
+            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
+                torch.float32
+            )
+            x = torch.randn(8, 512, dtype=torch.float32)
+
+        out = model(x).clone()
+
+        base_config = Int8DynamicActivationIntxWeightConfig(
+            packing_format=PackingFormat.TILED,
+            compute_target=ComputeTarget.TORCHAO_AUTO,
+            version=2,
+        )
+        moe_config = MoEQuantConfig(
+            base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+        )
+
+        quantize_(model, moe_config, cond_ffn_filter)
+
+        out_q = model(x).clone()
+        assert isinstance(model.experts.w1, FakeExtraDimTensor)
+
+        mod_c = torch.compile(model, mode="reduce-overhead")
+
+        mod_c(x)
+        mod_c(x)
+
+        out_qc = mod_c(x).clone()
+
+        self.assertGreater(compute_error(out_q, out), 30)
+        self.assertGreater(compute_error(out_qc, out), 30)
+
+    @parameterized.expand(
+        [
+            param(
+                weight_dtype=weight_dtype,
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
+            for group_size in [32, 64, 128]
+            for mapping_type in [MappingType.SYMMETRIC]
+            for act_mapping_type in [MappingType.ASYMMETRIC]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_identical_to_IntXQuantizationAwareTrainingConfig_v2(
+        self,
+        weight_dtype,
+        group_size,
+        mapping_type,
+        act_mapping_type,
+        scale_dtype,
+        model_dtype,
+    ):
+        assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+        assert act_mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+        is_symmetric = mapping_type == MappingType.SYMMETRIC
+        is_act_symmetric = act_mapping_type == MappingType.SYMMETRIC
+
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=is_act_symmetric,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            weight_dtype,
+            group_size=group_size,
+            is_symmetric=is_symmetric,
+            scale_precision=scale_dtype,
+        )
+
+        quantize_(
+            model,
+            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+        )
+        try:
+            prepared_out = model(activations)
+        except NotImplementedError as e:
+            # QAT does not support act_mapping_type == MappingType.SYMMETRIC yet
+            if act_mapping_type == MappingType.SYMMETRIC:
+                return
+            raise e
+
+        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                version=2,
+            ),
+        )
+        converted_out = model(activations)
+
+        sqnr = compute_error(prepared_out, converted_out).item()
+        self.assertTrue(sqnr == float("inf"), f"Got SQNR of {sqnr}")
 
 
 if __name__ == "__main__":
