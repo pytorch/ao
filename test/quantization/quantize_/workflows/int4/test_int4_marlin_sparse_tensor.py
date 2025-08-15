@@ -39,11 +39,22 @@ class TestInt4MarlinSparseTensor(TestCase):
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
     @parametrize("config", [BF16_ACT_CONFIG])
-    def test_linear(self, config):
+    @parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 512, 128),
+            ((2, 32, 128), 256, 12),
+        ],
+    )
+    def test_linear(self, config, sizes):
         dtype = torch.float16
         device = "cuda"
-        input = torch.randn(128, dtype=dtype, device=device)
-        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+
+        M, N, K = sizes
+        input = torch.randn(*M, K, dtype=dtype, device=device)
+        linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
+
         apply_fake_sparsity(linear)
         original = linear(input)
         quantize_(linear, config)
