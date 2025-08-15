@@ -47,3 +47,4 @@ jobs:
         uv pip install vllm
         pip install .
         ./test/float8/test_everything_multi_gpu.sh
+        ./test/prototype/mx_formats/test_mx_dtensor.sh
