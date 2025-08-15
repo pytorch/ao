@@ -15,8 +15,8 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_colwise,
@@ -49,8 +49,8 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    input_shapes = [(2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    n_groups_list = [4, 8, 16]
+    input_shapes = [(16640, 5120)]  # (Mg, K)
+    n_groups_list = [16, 128]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for input_shape, n_groups, high_precision_dtype in itertools.product(
@@ -114,13 +114,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     def run_triton(
         input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        _ = triton_fp8_row_major_jagged_rowwise_scales(
+        _ = triton_fp8_per_group_rowwise_scales(
             input_row_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = triton_fp8_col_major_jagged_colwise_scales(
+        _ = triton_fp8_per_group_colwise_scales(
             input_col_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
@@ -129,6 +129,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)
+    warmup(compiled_run_torch, input_row_major, input_col_major, offs)
     torch_time_us = benchmark_cuda_function_in_microseconds(
         compiled_run_torch, input_row_major, input_col_major, offs
     )
@@ -152,6 +153,7 @@ def print_results(experiments: List[Experiment]):
         "high_precision_dtype",
         "torch_time_us",
         "triton_time_us",
+        "triton_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -165,6 +167,7 @@ def print_results(experiments: List[Experiment]):
                 experiment.config.high_precision_dtype,
                 experiment.result.torch_time_us,
                 experiment.result.triton_time_us,
+                f"{experiment.result.torch_time_us / experiment.result.triton_time_us:.2f}x",
             ]
         )
     print(tabulate(rows, headers=headers))

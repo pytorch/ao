@@ -13,8 +13,8 @@ from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
@@ -48,7 +48,7 @@ def _scaled_grouped_mm(
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
     if scaling_type == MoEScalingType.FP8_ROWWISE:
-        logger.info("Using fp8 rowwise scaled_grouped_mm")
+        # print("Using fp8 rowwise scaled_grouped_mm")
         return _Float8GroupedMM.apply(
             A,
             B_t,
@@ -56,7 +56,7 @@ def _scaled_grouped_mm(
             out_dtype,
         )
     elif scaling_type == MoEScalingType.MXFP8:
-        logger.info("Using mxfp8 scaled_grouped_mm")
+        print("Using mxfp8 scaled_grouped_mm")
         block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
         return _MXFP8GroupedMM.apply(
             A,
@@ -140,17 +140,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         B_t_scaled = B_t.to(torch.float32) * B_t_scales
         B_t_fp8_col_major = to_fp8_saturated(B_t_scaled, torch.float8_e4m3fn)
 
-        # Precompute non-transposed B column-major for backward, to save memory by storing the
-        # low precision B tensor instead of the high precision B tensor.
-        # In the backward this is needed for grad_A: grad_output @ B.
-        B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
-            B_t,
-            output_dtype=torch.float8_e4m3fn,
-            round_scales_to_power_of_2=True,
-        )
-
         # Store what we need for backward.
-        ctx.save_for_backward(A, B_fp8_col_major, B_scales, offs)
+        ctx.save_for_backward(A, B_t, offs)
         ctx.out_dtype = out_dtype
 
         # Perform scaled grouped GEMM and return result.
@@ -179,7 +170,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        A, B_fp8_col_major, B_scales, offs = ctx.saved_tensors
+        A, B_t, offs = ctx.saved_tensors
         out_dtype = ctx.out_dtype
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
@@ -199,6 +190,28 @@ class _Float8GroupedMM(torch.autograd.Function):
             grad_output_scaled, torch.float8_e4m3fn
         )
 
+        # Compute B fp8 column-major for right operand of grouped GEMM:
+        # grad_A = grad_output @ B.
+        # B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
+        #     B_t._data if hasattr(B_t, "_data") else B_t,
+        #     output_dtype=torch.float8_e4m3fn,
+        #     round_scales_to_power_of_2=True,
+        # )
+        B = B_t.contiguous().transpose(-2, -1)
+
+        # - B shape: (E, N, K)
+        # - B scales must be computed rowwise keeping the outer/final dim, so:
+        # - B_scale shape: (E, 1, K)
+        B_scales = tensor_to_scale(
+            B,
+            torch.float8_e4m3fn,
+            scaling_granularity=ScalingGranularity.AXISWISE,
+            axiswise_dim=-2,
+            round_scales_to_power_of_2=True,
+        )
+        B_scaled = B.to(torch.float32) * B_scales
+        B_fp8_col_major = to_fp8_saturated(B_scaled, torch.float8_e4m3fn)
+
         # Compute grad_A.
         # grad_A = grad_output @ B
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
@@ -217,8 +230,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major,
             B_fp8_col_major,
-            grad_output_scales.squeeze().reciprocal(),
-            B_scales.squeeze().reciprocal(),
+            grad_output_scales.reciprocal(),
+            B_scales.reciprocal(),
             offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
@@ -230,7 +243,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_B: grad_output_t @ A
         grad_output_t_fp8_row_major, grad_output_t_scales = (
-            triton_fp8_row_major_jagged_rowwise_scales(
+            triton_fp8_per_group_rowwise_scales(
                 grad_output.transpose(-2, -1),
                 offs,
                 torch.float8_e4m3fn,
@@ -238,7 +251,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             )
         )
 
-        A_fp8_col_major, A_scales = triton_fp8_col_major_jagged_colwise_scales(
+        A_fp8_col_major, A_scales = triton_fp8_per_group_colwise_scales(
             A,
             offs,
             torch.float8_e4m3fn,

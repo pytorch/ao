@@ -46,8 +46,11 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    # Llama4 and DeepSeekV3 shapes
-    input_shapes = [(8, 4096, 1024), (16, 5120 * 4, 5120)]
+    # Llama4 shapes
+    input_shapes = [
+        (16, 8192, 5120),  # w1, w3
+        (16, 5120, 8192),  # w2
+    ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for input_shape, high_precision_dtype in itertools.product(
@@ -84,12 +87,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         return out
 
     def run_triton(input_tensor: torch.Tensor):
-        _ = triton_fp8_rowwise_3d_transpose_rhs(
+        out = triton_fp8_rowwise_3d_transpose_rhs(
             input_tensor,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
         torch.cuda.synchronize()
+        return out
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)
@@ -117,6 +121,7 @@ def print_results(experiments: List[Experiment]):
         "input_shape",
         "torch_time_us",
         "triton_time_us",
+        "triton_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -126,6 +131,7 @@ def print_results(experiments: List[Experiment]):
                 input_shape,
                 experiment.result.torch_time_us,
                 experiment.result.triton_time_us,
+                f"{experiment.result.torch_time_us / experiment.result.triton_time_us:.2f}x",
             ]
         )
     print(tabulate(rows, headers=headers))

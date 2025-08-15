@@ -14,8 +14,6 @@
 import argparse
 import copy
 import os
-import statistics
-from time import perf_counter_ns
 
 import pytest
 import torch
@@ -24,51 +22,65 @@ from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
 from torch.nn import functional as F
 
+from benchmarks.prototype.moe_training.utils import (
+    bench_fwd_bwd_microseconds,
+    profile_fn,
+)
+
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     pytest.skip(
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
 from torchao.quantization.quant_api import quantize_
 
-# this test requires torchtitan
+# this benchmark requires torchtitan
 try:
-    from torchtitan.experiments.llama4.infra.expert_parallel import (
+    from torchtitan.distributed.expert_parallel import (
         set_token_group_alignment_size_m,
     )
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
     )
 
 
-def bench_moe_float8_training_fsdp(enable_profile=False):
+def bench_moe_float8_training_fsdp(
+    recipe_name: str, enable_profile: bool, use_compile: bool
+):
     assert torch.cuda.is_available()
+    assert recipe_name in ["fp8_rowwise", "mxfp8"]
+    recipe = MoEScalingType[recipe_name.upper()]
 
     # setup distributed for fsdp
     setup_distributed()
 
     # define model args
     target_fqns = ["experts"]
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=16,
-        dim=5120,
     )
     init_std = 0.02
     device = torch.device("cuda")
 
-    # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    # reference bf16 MoE using llama4 shapes
+    dim, hidden_dim = 5120, 8192
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
 
     # target MoE for testing conversion
     model = copy.deepcopy(ref_model)
+
+    # Token group alignment size must be 16 for fp8 rowwise training
+    alignment_size = 32 if recipe == MoEScalingType.MXFP8 else 16
+    set_token_group_alignment_size_m(alignment_size)
 
     # assert starting params are identical for both models
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
@@ -82,7 +94,7 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
         return False
 
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(scaling_type=recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # FSDP2
@@ -90,74 +102,40 @@ def bench_moe_float8_training_fsdp(enable_profile=False):
     fully_shard(ref_model)
 
     # inputs (llama4 shapes)
-    batch, seq, dim = 1, 8192, 5120
+    batch, seq = 1, 16640
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
     x = ref_x.detach().clone().requires_grad_(True)
 
-    def bench_fn_microseconds(model, input):
-        labels = torch.ones_like(input)
-        times = []
-        for _ in range(10):
-            start_ns = perf_counter_ns()
+    def warmup(model, input):
+        for _ in range(3):
             out = model(input)
-            loss = F.mse_loss(out, labels)
+            loss = F.mse_loss(out, torch.ones_like(out))
             loss.backward()
             torch.cuda.synchronize()
-            end_ns = perf_counter_ns()
-            duration_us = (end_ns - start_ns) / 1000
-            times.append(duration_us)
-        return statistics.median(times)
 
-    def profile_fn(model, input, profile_name="profile"):
-        # Only profile on rank 0
-        if torch.distributed.get_rank() == 0:
-            labels = torch.ones_like(input)
-            wait, warmup, active = 1, 3, 1
-            total_steps = wait + warmup + active
-            with torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.CUDA,
-                ],
-                schedule=torch.profiler.schedule(
-                    wait=wait, warmup=warmup, active=active, repeat=0
-                ),
-                record_shapes=True,
-                with_stack=True,
-            ) as prof:
-                for _ in range(total_steps):
-                    out = model(input)
-                    loss = F.mse_loss(out, labels)
-                    loss.backward()
-                    prof.step()
+    labels = torch.ones_like(x)
 
-            # Save profiler results
-            prof.export_chrome_trace(f"{profile_name}.json")
-            print(f"Saved: {profile_name}.json")
-
-    # Compile models
-    ref_model = torch.compile(ref_model, fullgraph=False)
-    model = torch.compile(model, fullgraph=False)
-
-    print("Benchmarking MoE with FSDP2 using bf16 training")
-    bf16_us = bench_fn_microseconds(ref_model, ref_x)
-    print(f"bf16 time: {bf16_us} us")
+    warmup(ref_model, ref_x)
+    bf16_us = bench_fwd_bwd_microseconds(
+        ref_model, ref_x, labels=labels, use_compile=use_compile
+    )
+    print(f"BF16 time: {bf16_us} us")
     if enable_profile:
-        print("Profiling bf16 model")
-        profile_fn(ref_model, ref_x, profile_name="bf16_profile")
+        print("Profiling bf16 training")
+        profile_fn(ref_model, ref_x, labels=labels, profile_name="bf16_profile")
 
-    # Token group alignment size must be 16 for fp8 rowwise training
-    set_token_group_alignment_size_m(16)
-
-    print("Benchmarking MoE with FSDP2 using fp8 rowwise training")
-    fp8_us = bench_fn_microseconds(model, x)
-    print(f"fp8 time: {fp8_us} us")
+    warmup(model, x)
+    scaled_us = bench_fwd_bwd_microseconds(
+        model, x, labels=labels, use_compile=use_compile
+    )
+    print(f"Scaled time: {scaled_us} us")
     if enable_profile:
-        print("Profiling fp8 model")
-        profile_fn(model, x, profile_name="fp8_profile")
+        print("Profiling quantized training")
+        profile_fn(model, x, labels=labels, profile_name=f"{recipe_name}_profile")
 
+    print(f"Speedup: {bf16_us / scaled_us:.3f}x")
     dist.destroy_process_group()
 
 
@@ -175,5 +153,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable PyTorch profiling and save results to file",
     )
+    parser.add_argument("--recipe", type=str, help="[fp8_rowwise, mxfp8]")
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="use torch.compile",
+    )
     args = parser.parse_args()
-    bench_moe_float8_training_fsdp(enable_profile=args.profile)
+    bench_moe_float8_training_fsdp(
+        recipe_name=args.recipe,
+        enable_profile=args.profile,
+        use_compile=args.compile,
+    )
