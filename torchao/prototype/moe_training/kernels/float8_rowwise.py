@@ -42,10 +42,8 @@ kernel_configs_2D = [
     for stages in num_stages
 ]
 
-from torch.library import triton_op, wrap_triton
 
-
-@triton_op("torchao::triton_fp8_rowwise_transpose_rhs", mutates_args={})
+@torch.library.custom_op("torchao::triton_fp8_rowwise_transpose_rhs", mutates_args={})
 def triton_fp8_rowwise_3d_transpose_rhs(
     hp_tensor: torch.Tensor,  # (E, K, N)
     output_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -80,7 +78,7 @@ def triton_fp8_rowwise_3d_transpose_rhs(
     )
 
     # compute scales
-    wrap_triton(_triton_fp8_rowwise_3d_transpose_scales_rhs_kernel)[grid](
+    _triton_fp8_rowwise_3d_transpose_scales_rhs_kernel[grid](
         hp_tensor,
         hp_tensor.stride(0),
         hp_tensor.stride(1),
@@ -100,7 +98,7 @@ def triton_fp8_rowwise_3d_transpose_rhs(
     )
 
     # perform casting
-    wrap_triton(_triton_fp8_rowwise_3d_transpose_cast_rhs_kernel)[grid](
+    _triton_fp8_rowwise_3d_transpose_cast_rhs_kernel[grid](
         hp_tensor,
         hp_tensor.stride(0),
         hp_tensor.stride(1),
@@ -121,6 +119,22 @@ def triton_fp8_rowwise_3d_transpose_rhs(
         tl_input_dtype,
         tl_output_dtype,
     )
+    return output_buffer, scales_buffer
+
+
+@triton_fp8_rowwise_3d_transpose_rhs.register_fake
+def _fake_triton_fp8_rowwise_3d_transpose_rhs(
+    hp_tensor: torch.Tensor,  # (E, K, N)
+    output_dtype: torch.dtype = torch.float8_e4m3fn,
+    round_scales_to_power_of_2: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert hp_tensor.ndim == 3, "input tensor must be 3D"
+    e, k, n = hp_tensor.shape
+    output_buffer = torch.empty(
+        (e, n, k), dtype=output_dtype, device=hp_tensor.device
+    ).as_strided((e, n, k), (n * k, 1, n))
+
+    scales_buffer = torch.empty((e, k), dtype=torch.float32, device=hp_tensor.device)
     return output_buffer, scales_buffer
 
 

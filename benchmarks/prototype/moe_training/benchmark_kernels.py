@@ -15,8 +15,8 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_colwise,
@@ -114,13 +114,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     def run_triton(
         input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        _ = triton_fp8_row_major_jagged_rowwise_scales(
+        _ = triton_fp8_per_group_rowwise_scales(
             input_row_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = triton_fp8_col_major_jagged_colwise_scales(
+        _ = triton_fp8_per_group_colwise_scales(
             input_col_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
