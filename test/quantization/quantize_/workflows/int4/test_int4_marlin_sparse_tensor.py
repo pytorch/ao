@@ -61,6 +61,10 @@ class TestInt4MarlinSparseTensor(TestCase):
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > 20)
 
+        compiled_linear = torch.compile(linear)
+        quantized_and_compiled = compiled_linear(input)
+        self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
+
     @unittest.skip("Fix later")
     @parametrize("config", [BF16_ACT_CONFIG])
     def test_to_device(self, config):
