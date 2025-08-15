@@ -219,7 +219,7 @@ def get_name_to_moe_shapes_iter(
     N: Optional[int] = None,
     E: Optional[int] = None,
 ):
-    M = 8192 if M is None else M
+    M = 16640 if M is None else M
     if shape_gen_name == "llama4_17bx16e":
         # num_experts=16, dim=5120
         names_to_shapes = {
@@ -232,8 +232,8 @@ def get_name_to_moe_shapes_iter(
         # num_experts=128, dim=5120
         names_to_shapes = {
             # M, K, N, E
-            "moe.experts.w1": (M, 5120, 8192, 128),
-            "moe.experts.w2": (M, 8192, 5120, 128),
+            "moe.experts.w1": (M, 5120, 4 * 5120, 128),
+            "moe.experts.w2": (M, 4 * 5120, 5120, 128),
         }
         return names_to_shapes.items()
     elif shape_gen_name == "custom":

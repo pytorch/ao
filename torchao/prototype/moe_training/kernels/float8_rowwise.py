@@ -29,7 +29,7 @@ FP8_DTYPE_MAP = {
 block_sizes_n = [32, 128, 512]  # large dim (output_features)
 block_sizes_k = [32, 128, 512]  # small dim (input_features)
 num_warps = [8]
-num_stages = [2, 3]
+num_stages = [2, 4]
 kernel_configs_2D = [
     triton.Config(
         {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
