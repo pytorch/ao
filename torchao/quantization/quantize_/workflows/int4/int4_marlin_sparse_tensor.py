@@ -45,37 +45,62 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
     def _quantization_type(self):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
 
-    @staticmethod
-    def pre_process(input: torch.Tensor) -> torch.Tensor:
+    @classmethod
+    def from_hp(
+        cls,
+        w: torch.Tensor,
+        block_size: List[int],
+    ):
+        from torchao.sparsity.marlin import (
+            const,
+            inject_24,  # avoid circular import
+            pack_to_marlin_24,
+        )
+
         """Preprocess the input tensor to be in the correct format for the Marlin sparse kernel.
             - 1º: the input tensor is transposed since the linear layer keeps the weights in a transposed format
             - 2º: tensor is injected with 2:4 sparsity
             - 3º: transposes it again because the quantization process will compute the scales for dim=-1
-
-        Args:
-            input (torch.Tensor): the input tensor to preprocess
-
-        Returns:
-            torch.Tensor: the preprocessed tensor
         """
-        from torchao.sparsity.marlin import inject_24  # avoid circular import
 
-        input_t = input.t()
-        w_24, _ = inject_24(input_t, *input_t.shape)
-        return w_24.t()
+        w_t = w.t()
+        w_24, _ = inject_24(w_t, *w_t.shape)
+        preprocessed_w = w_24.t()
 
-    @classmethod
-    def from_plain(
-        cls,
-        qdata: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-    ):
-        from torchao.sparsity.marlin import const, pack_to_marlin_24
+        assert block_size[-1] == 128 or block_size[-1] == preprocessed_w.shape[-1], (
+            f"MarlinSparse only supports 128 group size or per channel quantization, got {block_size}"
+        )
+
+        quant_min = 0
+        quant_max = 15
+        target_dtype = torch.int32
+
+        scale, zero_point = choose_qparams_affine(
+            input=preprocessed_w,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=1e-6,
+        )
+
+        wq = quantize_affine(
+            input=preprocessed_w,
+            block_size=block_size,
+            scale=scale,
+            zero_point=zero_point,
+            output_dtype=target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+
+        scale = scale.to(w.dtype)
+        zero_point = zero_point.to(w.dtype)
 
         # Linear layers are (in_features, out_features) but the qdata that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
-        q_w_24 = qdata.t()
+        q_w_24 = wq.t()
         # addressing the case when scale has dimension 1, happens when
         # weight_shape[-1] == group_size == 128
         if scale.ndim == 1:
@@ -130,46 +155,6 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
             shape=q_w_24.shape,
             num_bits=num_bits,
         )
-
-    @classmethod
-    def from_hp(
-        cls,
-        w: torch.Tensor,
-        block_size: List[int],
-    ):
-        preprocessed_w = cls.pre_process(w)
-        assert block_size[-1] == 128 or block_size[-1] == preprocessed_w.shape[-1], (
-            f"MarlinSparse only supports 128 group size or per channel quantization, got {block_size}"
-        )
-
-        quant_min = 0
-        quant_max = 15
-        target_dtype = torch.int32
-
-        scale, zero_point = choose_qparams_affine(
-            input=preprocessed_w,
-            mapping_type=MappingType.SYMMETRIC,
-            block_size=block_size,
-            target_dtype=target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=1e-6,
-        )
-
-        wq = quantize_affine(
-            input=preprocessed_w,
-            block_size=block_size,
-            scale=scale,
-            zero_point=zero_point,
-            output_dtype=target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-        )
-
-        scale = scale.to(w.dtype)
-        zero_point = zero_point.to(w.dtype)
-
-        return cls.from_plain(qdata=wq, scale=scale, zero_point=zero_point)
 
 
 implements = Int4MarlinSparseTensor.implements
