@@ -30,7 +30,7 @@ BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     packing_format="marlin_sparse",
     layout=MarlinSparseLayout(),
-    VERSION=2,
+    version=2,
 )
 
 
