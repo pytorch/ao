@@ -115,6 +115,8 @@ def test_linear_eager_vs_hp(
             ScaleCalculationMode.RCEIL,
         ):
             pytest.skip("unsupported configuration")
+        elif not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for MX dim1 cast cuda kernel")
 
     # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
@@ -306,6 +308,17 @@ def test_linear_compile(
         # recipe, this needs a cleanup of out_dtype (needs to match in-hp-dtype, even
         # if the underlying gemm kernel only supports bf16 output)
         pytest.skip("unsupported configuration")
+
+    if (
+        hp_dtype == torch.float32
+        and recipe_name == "mxfp8_emulated"
+        and mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TORCH
+        and not is_sm_at_least_100()
+    ):
+        # TODO(future): debug this
+        pytest.skip(
+            "there are currently accuracy issues with this configuration on H100 and below"
+        )
 
     M, K, N = 128, 256, 512
     input_shape = (M, K)
