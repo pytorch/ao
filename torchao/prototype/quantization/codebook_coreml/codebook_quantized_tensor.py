@@ -10,6 +10,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.prototype.quantization.codebook_coreml.codebook_ops import (
     choose_qparams_and_quantize_codebook_coreml,
+    choose_qparams_and_quantize_codebook_coreml_refactored,
     dequantize_codebook,
 )
 from torchao.quantization.quant_primitives import (
@@ -138,9 +139,12 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             code_dtype (torch.dtype): The dtype of the codes, Note the codes Tensor is stored in uint8
             chunk_size (int): The chunk size to use during quantization (to control memory usage).
         """
-        codebook, codes = choose_qparams_and_quantize_codebook_coreml(
-            input_tensor, code_dtype, block_size
-        )
+        if block_size[0] == input_tensor.shape[0]:
+            codebook, codes = choose_qparams_and_quantize_codebook_coreml(
+                input_tensor, code_dtype, block_size
+            )
+        else:
+            codebook, codes = choose_qparams_and_quantize_codebook_coreml_refactored(input_tensor, code_dtype, block_size)
 
         assert codes.dtype == torch.uint8, "Only support using uint8 for codes for now"
 

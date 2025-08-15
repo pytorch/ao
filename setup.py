@@ -734,8 +734,8 @@ def get_extensions():
 
 
 # Only check submodules if we're going to build C++ extensions
-if use_cpp != "0":
-    check_submodules()
+# if use_cpp != "0":
+#     check_submodules()
 
 setup(
     name="torchao",
