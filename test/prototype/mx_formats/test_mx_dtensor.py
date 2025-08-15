@@ -15,7 +15,7 @@ import os
 import pytest
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7, is_sm_at_least_100
 
 if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -109,8 +109,9 @@ if __name__ == "__main__":
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism,
         _test_mxfp8_mlp_tensor_parallelism_dim1_triton,
-        _test_mxfp8_mlp_tensor_parallelism_dim1_cuda,
     ]
+    if is_sm_at_least_100():
+        tests.append(_test_mxfp8_mlp_tensor_parallelism_dim1_cuda)
 
     for test in tqdm(tests, desc="Running tests"):
         try:
