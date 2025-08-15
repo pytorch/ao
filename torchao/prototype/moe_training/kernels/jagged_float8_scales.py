@@ -47,11 +47,11 @@ kernel_configs_2D = [
     for stages in num_stages
 ]
 
-from torch.library import triton_op, wrap_triton
 
-
-@triton_op("torchao::triton_fp8_row_major_jagged_rowwise_scales", mutates_args={})
-def triton_fp8_row_major_jagged_rowwise_scales(
+@torch.library.custom_op(
+    "torchao::triton_fp8_per_group_rowwise_scales", mutates_args={}
+)
+def triton_fp8_per_group_rowwise_scales(
     hp_tensor: torch.Tensor,
     offsets: torch.Tensor,
     output_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -95,7 +95,7 @@ def triton_fp8_row_major_jagged_rowwise_scales(
         triton.cdiv(m, meta["BLOCK_SIZE"]),
         offsets.numel(),
     )
-    wrap_triton(_triton_fp8_row_major_jagged_rowwise_scales)[grid](
+    _triton_fp8_per_group_rowwise_scales_kernel[grid](
         hp_tensor,
         offsets,
         output_buffer,
@@ -117,6 +117,24 @@ def triton_fp8_row_major_jagged_rowwise_scales(
     return output_buffer, scales_buffer
 
 
+@triton_fp8_per_group_rowwise_scales.register_fake
+def _fake_triton_fp8_per_group_rowwise_scales_kernel(
+    hp_tensor: torch.Tensor,
+    offsets: torch.Tensor,
+    output_dtype: torch.dtype = torch.float8_e4m3fn,
+    round_scales_to_power_of_2: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert hp_tensor.ndim == 2, "input tensor must be 2D"
+    m, k = hp_tensor.shape
+    n_groups = offsets.numel()
+    output = torch.empty_like(hp_tensor, dtype=output_dtype).as_strided(
+        (m, k),  # shape
+        (k, 1),  # stride
+    )
+    scales = torch.empty((m * n_groups), dtype=torch.float32, device=hp_tensor.device)
+    return output, scales
+
+
 # This kernel is used on grad_output.t() which has shape (K, M),
 # before the calculation `grad_B = grad_output_t @ input`.
 # However, in this code, we use the conventional dim names (M, K)
@@ -125,7 +143,7 @@ def triton_fp8_row_major_jagged_rowwise_scales(
 # to recompile on `token` dim (K, in this case) changes.
 @triton.autotune(configs=kernel_configs_2D, key=["M"])
 @triton.jit
-def _triton_fp8_row_major_jagged_rowwise_scales(
+def _triton_fp8_per_group_rowwise_scales_kernel(
     input_ptr,
     offsets_ptr,
     out_ptr,
@@ -215,8 +233,10 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
         tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
 
-@triton_op("torchao::triton_fp8_col_major_jagged_colwise_scales", mutates_args={})
-def triton_fp8_col_major_jagged_colwise_scales(
+@torch.library.custom_op(
+    "torchao::triton_fp8_per_group_colwise_scales", mutates_args={}
+)
+def triton_fp8_per_group_colwise_scales(
     hp_tensor: torch.Tensor,
     offsets: torch.Tensor,
     output_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -263,7 +283,7 @@ def triton_fp8_col_major_jagged_colwise_scales(
         triton.cdiv(n, meta["BLOCK_SIZE"]),
         offsets.numel(),
     )
-    wrap_triton(_triton_fp8_col_major_jagged_colwise_scales)[grid](
+    _triton_fp8_per_group_colwise_scales_kernel[grid](
         hp_tensor,
         offsets,
         output_buffer,
@@ -285,13 +305,33 @@ def triton_fp8_col_major_jagged_colwise_scales(
     return output_buffer, scales_buffer
 
 
+@triton_fp8_per_group_colwise_scales.register_fake
+def _fake_triton_fp8_per_group_colwise_scales(
+    hp_tensor: torch.Tensor,
+    offsets: torch.Tensor,
+    output_dtype: torch.dtype = torch.float8_e4m3fn,
+    round_scales_to_power_of_2: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert hp_tensor.ndim == 2, "input tensor must be 2D"
+    k, n = hp_tensor.shape
+    n_groups = offsets.numel()
+    output_buffer = torch.empty_like(
+        hp_tensor, dtype=output_dtype, device=hp_tensor.device
+    ).as_strided(hp_tensor.size(), (1, k))
+
+    scales_buffer = torch.empty(
+        (n * n_groups), dtype=torch.float32, device=hp_tensor.device
+    )
+    return output_buffer, scales_buffer
+
+
 # This kernel is used on `input` which has shape (M, K),
 # before the calculation `grad_B = grad_output_t @ input`.
 # The tokens per expert will vary per iteration, so don't want
 # to recompile on `token` dim (M) changes.
 @triton.autotune(configs=kernel_configs_2D, key=["K"])
 @triton.jit
-def _triton_fp8_col_major_jagged_colwise_scales(
+def _triton_fp8_per_group_colwise_scales_kernel(
     input_ptr,
     offsets_ptr,
     out_ptr,

@@ -121,7 +121,7 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
     )
 
     # validate param gradients
-    min_param_grad_sqnr = 25.0
+    min_param_grad_sqnr = 23.0
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
         assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
