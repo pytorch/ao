@@ -37,6 +37,8 @@ class ExperimentConfig:
 class ExperimentResult:
     torch_time_us: float
     triton_time_us: float
+    torch_mem_bw_gbps: float
+    triton_mem_bw_gbps: float
 
 
 @dataclass(frozen=True)
@@ -48,8 +50,12 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     # Llama4 shapes
     input_shapes = [
+        (1, 8192, 5120),  # w1, w3
+        (1, 5120, 8192),  # w2
         (16, 8192, 5120),  # w1, w3
         (16, 5120, 8192),  # w2
+        (128, 8192, 5120),  # w1, w3
+        (128, 5120, 8192),  # w2
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -110,9 +116,25 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         input_tensor,
     )
 
+    # mem bw calculations - excluding scales to simplify calculation
+    # but still get an accurate estimate.
+    bytes_per_input_el = torch.finfo(config.high_precision_dtype).bits / 8
+    bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
+    num_elements = input_tensor.numel()
+
+    read_bytes = num_elements * bytes_per_input_el
+    write_bytes = num_elements * bytes_per_output_el
+
+    # Both torch.compile codegen and the triton kernel read the input tensor twice
+    # (once for scale calculations, once for scaling + casting).
+    torch_mem_bw_gbps = ((read_bytes * 2 + write_bytes) / 1e9) / (torch_time_us / 1e6)
+    triton_mem_bw_gbps = ((read_bytes * 2 + write_bytes) / 1e9) / (triton_time_us / 1e6)
+
     return ExperimentResult(
         torch_time_us=torch_time_us,
         triton_time_us=triton_time_us,
+        torch_mem_bw_gbps=torch_mem_bw_gbps,
+        triton_mem_bw_gbps=triton_mem_bw_gbps,
     )
 
 
@@ -121,6 +143,8 @@ def print_results(experiments: List[Experiment]):
         "input_shape",
         "torch_time_us",
         "triton_time_us",
+        "torch_mem_bw_gbps",
+        "triton_mem_bw_gbps",
         "triton_speedup",
     ]
     rows = []
@@ -131,6 +155,8 @@ def print_results(experiments: List[Experiment]):
                 input_shape,
                 experiment.result.torch_time_us,
                 experiment.result.triton_time_us,
+                round(experiment.result.torch_mem_bw_gbps, 3),
+                round(experiment.result.triton_mem_bw_gbps, 3),
                 f"{experiment.result.torch_time_us / experiment.result.triton_time_us:.2f}x",
             ]
         )
