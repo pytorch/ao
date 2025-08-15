@@ -14,7 +14,7 @@ in native PyTorch.  We are currently in prototype and are actively working on op
 
 ## Training e2e benchmarks on NVIDIA B200
 
-- Single-node training on 8xB100 GPUs, batch size 1, sequence length 8192, steps 100, `torch.compile`, FSDP2, per-op SAC
+- Single-node training on 8xB200 GPUs limited to 750W, batch size 1, sequence length 8192, steps 100, `torch.compile`, FSDP2, per-op SAC
 - pytorch version: `2.9.0.dev20250815+cu128`, torchao version: `0.13.0+gite4e681be6`, torchtitan commit: `6fc499f6f5b32151a799188be2208cfb09faed30`
 
 | Model         | Scaling                            | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
