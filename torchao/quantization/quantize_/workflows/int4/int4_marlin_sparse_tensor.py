@@ -31,7 +31,7 @@ except:
 
 
 class Int4MarlinSparseTensor(TorchAOBaseTensor):
-    tensor_data_names = ["qdata", "scale", "zero_point", "meta"]  # meta is a tensor
+    tensor_data_names = ["qdata", "scale", "zero_point", "meta"]
     tensor_attribute_names = ["block_size", "num_bits", "shape"]
 
     def __new__(cls, qdata, scale, zero_point, meta, block_size, num_bits, shape):
@@ -41,9 +41,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(
-        self, qdata, scale, zero_point, meta, block_size, num_bits, shape
-    ):  # args need to match lines 37 and 38
+    def __init__(self, qdata, scale, zero_point, meta, block_size, num_bits, shape):
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
