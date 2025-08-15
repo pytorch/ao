@@ -23,13 +23,6 @@ __all__ = [
 aten = torch.ops.aten
 
 
-try:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
-except:
-    int4_row_quantize_zp = None
-    pack_int4 = None
-
-
 class Int4MarlinSparseTensor(TorchAOBaseTensor):
     tensor_data_names = ["qdata", "scale", "zero_point", "meta"]
     tensor_attribute_names = ["block_size", "num_bits", "shape"]
@@ -230,3 +223,9 @@ def _(func, types, args, kwargs):
     if bias is not None:
         out += bias.to(out.dtype)
     return out
+
+
+Int4MarlinSparseTensor.__module__ = "torchao.quantization"
+
+# Allow a model with Int4MarlinSparseTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int4MarlinSparseTensor])

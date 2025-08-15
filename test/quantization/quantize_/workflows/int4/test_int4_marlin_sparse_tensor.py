@@ -15,7 +15,6 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import MarlinSparseLayout
 from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
@@ -29,7 +28,6 @@ from torchao.utils import (
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     packing_format="marlin_sparse",
-    layout=MarlinSparseLayout(),
     version=2,
 )
 
@@ -68,11 +66,10 @@ class TestInt4MarlinSparseTensor(TestCase):
             quantize_(linear, config)
             linear.to(device)
 
-    @unittest.skip("Fix later")
     @parametrize("config", [BF16_ACT_CONFIG])
     def test_module_path(self, config):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        quantize_(linear, config)
+        quantize_(linear.cuda(), config)
         self.assertEqual(
             str(type(linear.weight)),
             "<class 'torchao.quantization.Int4MarlinSparseTensor'>",
