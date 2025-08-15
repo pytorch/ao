@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -109,6 +110,9 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         transposed: bool,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2649 for more details"
+        )
         self.float8_data = float8_data
         self.scale = scale
         self.transposed = transposed

@@ -20,46 +20,26 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    unwrap_tensor_subclass,
-)
 
 
 def _int8wo_api(mod, **kwargs):
-    if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int8_weight_only(**kwargs), set_inductor_config=False)
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            unwrap_tensor_subclass(mod)
-    else:
-        change_linear_weights_to_int8_woqtensors(mod, **kwargs)
+    quantize_(mod, int8_weight_only(**kwargs), set_inductor_config=False)
 
 
 def _int8da_int8w_api(mod, **kwargs):
-    if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(
-            mod,
-            int8_dynamic_activation_int8_weight(**kwargs),
-            set_inductor_config=False,
-        )
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            unwrap_tensor_subclass(mod)
-    else:
-        change_linear_weights_to_int8_dqtensors(mod, **kwargs)
+    quantize_(
+        mod,
+        int8_dynamic_activation_int8_weight(**kwargs),
+        set_inductor_config=False,
+    )
 
 
 def _int4wo_api(mod, **kwargs):
-    if TORCH_VERSION_AT_LEAST_2_4:
-        kwargs_copy = kwargs.copy()
-        if "groupsize" in kwargs_copy:
-            kwargs_copy["group_size"] = kwargs_copy["groupsize"]
-            del kwargs_copy["groupsize"]
-        quantize_(mod, int4_weight_only(**kwargs_copy), set_inductor_config=False)
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            unwrap_tensor_subclass(mod)
-    else:
-        change_linear_weights_to_int4_woqtensors(mod, **kwargs)
+    kwargs_copy = kwargs.copy()
+    if "groupsize" in kwargs_copy:
+        kwargs_copy["group_size"] = kwargs_copy["groupsize"]
+        del kwargs_copy["groupsize"]
+    quantize_(mod, int4_weight_only(**kwargs_copy), set_inductor_config=False)
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -95,10 +75,12 @@ def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs
     """
     from torchao.quantization.quant_api import (
         _get_subclass_inserter,
-        _in_features_greater_than_16,
         _is_linear,
     )
     from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight
+
+    def _in_features_greater_than_16(mod, *args):
+        return hasattr(mod, "in_features") and mod.in_features > 16
 
     if filter_fn is None:
         filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
@@ -195,13 +177,12 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     )
 
 
-if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_4 and torch.cuda.is_available():
+if __name__ == "__main__" and torch.cuda.is_available():
     all_shapes = [
         (20, 2048, 2048),
     ]
 
     print("_int8da_int8w_api")
-    from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
 
     for M, N, K in all_shapes:
         _bench_quantized_tensor_subclass_perf(
@@ -209,7 +190,6 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_4 and torch.cuda.is_avail
         )
 
     print("_int8wo_api")
-    from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
 
     for M, N, K in all_shapes:
         _bench_quantized_tensor_subclass_perf(
@@ -218,7 +198,6 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_4 and torch.cuda.is_avail
 
     print("_int4wo_api")
     kwargs = {"groupsize": 32}
-    from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
 
     for M, N, K in all_shapes:
         _bench_quantized_tensor_subclass_perf(

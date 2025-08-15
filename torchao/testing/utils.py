@@ -19,7 +19,14 @@ import torchao
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
 from torchao.quantization import int8_weight_only, quantize_
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, get_compute_capability
+from torchao.quantization.transform_module import (
+    _QUANTIZE_CONFIG_HANDLER,
+)
+from torchao.testing.model_architectures import LlamaModelsLlama4Experts
+from torchao.utils import (
+    DummyModule,
+    get_compute_capability,
+)
 
 """
 How to use:
@@ -412,19 +419,194 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
         dn_dist(up_dist(input_dtensor))
 
-        if not TORCH_VERSION_AT_LEAST_2_6:
-            # Need torch 2.6 to support compiled tensor parallelism
-            return
-
         up_compiled = torch.compile(up_dist)
         y_up = up_compiled(input_dtensor)
         dn_compiled = torch.compile(dn_dist)
         dn_compiled(y_up)
 
 
+class TorchAOIntegrationTestCase(common_utils.TestCase):
+    def _test_slice_and_copy_similar_to_vllm(self, config):
+        # making sure https://github.com/vllm-project/vllm/blob/90bd2ab6e3eb7e83d3f40d99fc23e6e43834743a/vllm/model_executor/layers/linear.py#L483-L495 works properly
+        # the test is similar to the linked code, but with some hardcoded arguments
+        # and does not use tensor parallelism
+
+        dtype = torch.bfloat16
+        device = "cuda"
+        l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
+        quantize_(l, config)
+
+        # high level, we do a narrow for both param.data and the loaded_weights
+        # and do inplace copy_ to copy from the loaded_weights into param.data
+
+        # simulate loaded_weight
+        dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
+        # making the weight different
+        dummy_l.weight = torch.nn.Parameter(
+            dummy_l.weight + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
+            requires_grad=False,
+        )
+        quantize_(dummy_l, config)
+
+        output_dim = 0
+        shard_size = 512
+        for tp_rank in [0, 1]:
+            start_idx = tp_rank * shard_size
+            param = l.weight
+            param_data = param.data
+            param_data = param_data.narrow(output_dim, start_idx, shard_size)
+            orig_value = param_data.qdata[0][0].item()
+            loaded_weight = dummy_l.weight
+            loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
+
+            # making sure param.data.qdata[0][0] is not the same as loaded_weight.qdata[0][0]
+            assert orig_value != loaded_weight.qdata[0][0]
+            param_data.copy_(loaded_weight)
+            # making sure param.data is updated to loaded_weight
+            assert param_data.qdata[0][0] == loaded_weight.qdata[0][0]
+            assert torch.equal(param_data.scale, loaded_weight.scale)
+            if hasattr(param_data, "zero_point"):
+                assert torch.equal(param_data.zero_point, loaded_weight.zero_point)
+
+    def _test_moe_weight_reshape_ops(self, config):
+        """This is testing the op call sequence in saving and loading quantization
+        checkpoints in llama-models for llama4
+        (https://github.com/meta-llama/llama-models/tree/main/models/llama4)
+        """
+        # only per row quantization is supported for bmm
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        def _quantize_experts(model, config):
+            for _, module in model.named_modules():
+                if not isinstance(module, LlamaModelsLlama4Experts):
+                    continue
+
+                expert_module = module
+                for weight_name in ["w1", "w2", "w3"]:
+                    weight = getattr(expert_module, weight_name)
+                    config_handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
+                    dummy_mod = DummyModule(weight)
+                    quant_mod = config_handler(dummy_mod, config)
+                    setattr(expert_module, weight_name, quant_mod.weight)
+
+        batch_size = 4
+        num_experts = 2
+        input_dim = 64
+        dim = 128
+        hidden_dim = 256
+
+        moe1 = LlamaModelsLlama4Experts(num_experts, dim, hidden_dim, dtype, device)
+        moe2 = LlamaModelsLlama4Experts(num_experts, dim, hidden_dim, dtype, device)
+        moe_combined = LlamaModelsLlama4Experts(
+            num_experts, dim, 2 * hidden_dim, dtype, device
+        )
+        input = torch.randn(batch_size, input_dim, dim, dtype=dtype, device=device)
+
+        moes = [moe1, moe2]
+
+        for moe in moes:
+            moe(input)
+
+            # need to transpose before quantizing
+            moe.w1 = torch.nn.Parameter(
+                moe.w1.transpose(1, 2).contiguous(), requires_grad=False
+            )
+            moe.w2 = torch.nn.Parameter(
+                moe.w2.transpose(1, 2).contiguous(), requires_grad=False
+            )
+            moe.w3 = torch.nn.Parameter(
+                moe.w3.transpose(1, 2).contiguous(), requires_grad=False
+            )
+
+            _quantize_experts(moe, config)
+
+            before = moe(input)
+
+            # transposing for resharding support since only 2D resharding is supported
+            new_last_dim = moe.w1.shape[-2]
+            moe.w1 = torch.nn.Parameter(
+                moe.w1.transpose(1, 2).reshape(-1, new_last_dim).contiguous(),
+                requires_grad=False,
+            )
+            new_last_dim = moe.w2.shape[-2]
+            moe.w2 = torch.nn.Parameter(
+                moe.w2.transpose(1, 2).reshape(-1, new_last_dim).contiguous(),
+                requires_grad=False,
+            )
+            new_last_dim = moe.w3.shape[-2]
+            moe.w3 = torch.nn.Parameter(
+                moe.w3.transpose(1, 2).reshape(-1, new_last_dim).contiguous(),
+                requires_grad=False,
+            )
+
+            moe.w1 = torch.nn.Parameter(
+                moe.w1.unflatten(0, (num_experts, -1)).squeeze(dim=0),
+                requires_grad=False,
+            )
+            moe.w2 = torch.nn.Parameter(
+                moe.w2.unflatten(0, (num_experts, -1)).squeeze(dim=0),
+                requires_grad=False,
+            )
+            moe.w3 = torch.nn.Parameter(
+                moe.w3.unflatten(0, (num_experts, -1)).squeeze(dim=0),
+                requires_grad=False,
+            )
+
+            # transpose again to recover the original weights
+            moe.w1 = torch.nn.Parameter(
+                moe.w1.transpose(1, 2).contiguous(), requires_grad=False
+            )
+            moe.w2 = torch.nn.Parameter(
+                moe.w2.transpose(1, 2).contiguous(), requires_grad=False
+            )
+            moe.w3 = torch.nn.Parameter(
+                moe.w3.transpose(1, 2).contiguous(), requires_grad=False
+            )
+
+            after = moe(input)
+            self.assertEqual(before, after)
+
+        state_dicts = [moe1.state_dict(), moe2.state_dict()]
+        # align the scale parameter so they can be concatenated
+        for key in ["w1", "w2", "w3"]:
+            weights = [st[key] for st in state_dicts]
+            for i in range(1, len(weights)):
+                weights[i].scale = weights[0].scale
+                if hasattr(weights[i], "zero_point"):
+                    weights[i].zero_point = weights[0].zero_point
+
+        def process_key(key: str) -> torch.Tensor:
+            tensors = [s[key] for s in state_dicts]
+            # Note: we have a hacky implementation for cat in user codebase
+            # since it is not implemented correctly before
+            if key == "w2":
+                return torch.cat(tensors, dim=-1)
+            else:
+                return torch.cat(tensors, dim=-2)
+
+        new_state_dict = {}
+        for key in ["w1", "w2", "w3"]:
+            new_state_dict[key] = process_key(key)
+
+        moe_combined.w1 = torch.nn.Parameter(
+            moe_combined.w1.transpose(1, 2), requires_grad=False
+        )
+        moe_combined.w2 = torch.nn.Parameter(
+            moe_combined.w2.transpose(1, 2), requires_grad=False
+        )
+        moe_combined.w3 = torch.nn.Parameter(
+            moe_combined.w3.transpose(1, 2), requires_grad=False
+        )
+        moe_combined.load_state_dict(new_state_dict, assign=True)
+        # make sure it runs
+        moe_combined(input)
+
+
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
 common_utils.instantiate_parametrized_tests(TorchAOCompileTestCase)
 common_utils.instantiate_parametrized_tests(TorchAOTensorParallelTestCase)
+
 
 if __name__ == "__main__":
     unittest.main()

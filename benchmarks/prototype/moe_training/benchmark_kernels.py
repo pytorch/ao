@@ -6,21 +6,21 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 
 import itertools
-import time
 from dataclasses import dataclass
 from typing import List
 
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
+from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
-    _to_2d_jagged_float8_tensor_colwise,
-    _to_2d_jagged_float8_tensor_rowwise,
+    torch_to_float8_per_group_colwise,
+    torch_to_float8_per_group_rowwise,
 )
 
 device = torch.device("cuda")
@@ -98,13 +98,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     def run_torch(
         input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        _ = _to_2d_jagged_float8_tensor_rowwise(
+        _ = torch_to_float8_per_group_rowwise(
             input_row_major,
             offs,
             target_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = _to_2d_jagged_float8_tensor_colwise(
+        _ = torch_to_float8_per_group_colwise(
             input_col_major,
             offs,
             target_dtype=torch.float8_e4m3fn,
@@ -129,18 +129,15 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)
-    warmup(compiled_run_torch, input_row_major, input_col_major, offs)
-    start_time_ns = time.perf_counter_ns()
-    compiled_run_torch(input_row_major, input_col_major, offs)
-    torch_time_ns = time.perf_counter_ns() - start_time_ns
-    torch_time_us = torch_time_ns / 1e3
+    torch_time_us = benchmark_cuda_function_in_microseconds(
+        compiled_run_torch, input_row_major, input_col_major, offs
+    )
 
     # bench triton
     warmup(run_triton, input_row_major, input_col_major, offs)
-    start_time_ns = time.perf_counter_ns()
-    run_triton(input_row_major, input_col_major, offs)
-    triton_time_ns = time.perf_counter_ns() - start_time_ns
-    triton_time_us = triton_time_ns / 1e3
+    triton_time_us = benchmark_cuda_function_in_microseconds(
+        run_triton, input_row_major, input_col_major, offs
+    )
 
     return ExperimentResult(
         torch_time_us=torch_time_us,
@@ -171,6 +168,10 @@ def print_results(experiments: List[Experiment]):
             ]
         )
     print(tabulate(rows, headers=headers))
+
+
+def benchmark_cuda_function_in_microseconds(f, *args):
+    return do_bench(lambda: f(*args), return_mode="median") * 1e3
 
 
 def main():

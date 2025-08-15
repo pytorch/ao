@@ -239,12 +239,3 @@ def pad_tensor_for_matmul(
 def _round_scale_down_to_power_of_2(scale: torch.Tensor):
     assert scale.dtype == torch.float32, "scale must be float32 tensor"
     return torch.exp2(torch.floor(torch.log2(scale)))
-
-
-@torch.no_grad()
-def mean_absolute_percentage_error(x_ref, x):
-    tmp = torch.abs(x_ref - x) / torch.clamp(torch.abs(x_ref), min=1e-9)
-    # trim to avoid values close to 0 from
-    # significantly impacting the results
-    tmp = torch.clamp(tmp, max=1e3)
-    return torch.mean(tmp)

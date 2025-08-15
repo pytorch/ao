@@ -13,17 +13,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
-
 from torchao.float8.config import (
     Float8LinearConfig,
     Float8LinearRecipeName,
@@ -56,7 +45,13 @@ from torchao.float8.float8_utils import (
     tensor_to_scale,
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
-from torchao.utils import is_MI300, is_ROCM
+from torchao.testing.utils import skip_if_rocm
+from torchao.utils import (
+    is_MI300,
+    is_ROCM,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 random.seed(0)
 torch.manual_seed(0)
@@ -421,13 +416,69 @@ class TestFloat8Linear:
             ),
         )
         config = Float8LinearConfig.from_recipe_name(recipe_name)
-        object.__setattr__(config, "_enable_debug_logging", True)
+
+        @torch.no_grad()
+        def mean_absolute_percentage_error(x_ref, x):
+            tmp = torch.abs(x_ref - x) / torch.clamp(torch.abs(x_ref), min=1e-9)
+            # trim to avoid values close to 0 from
+            # significantly impacting the results
+            tmp = torch.clamp(tmp, max=1e3)
+            return torch.mean(tmp)
+
+        iter_counter = 0
+        iter_fqn_gemm_name_to_data = {}
+
+        @torch._dynamo.disable
+        def debug_logging_fn(fqn, gemm_name, a_hp, b_hp, a_fp8, b_fp8):
+            """
+            Example debugging function - this is user defined, easy to customize
+            1. captures M, K, N
+            2. captures MAPE for high precision vs float8 gemm
+            3. leaves data on GPU, so the user can move it to CPU at their
+               convenience
+            """
+            M, K = a_hp.shape
+            K2, N = b_hp.shape
+            assert K == K2
+            res_hp = a_hp @ b_hp
+            res_fp8 = a_fp8 @ b_fp8
+            mape = mean_absolute_percentage_error(res_hp, res_fp8)
+            iter_fqn_gemm_name_to_data[(iter_counter, fqn, gemm_name)] = (M, K, N), mape
+
+        object.__setattr__(config, "_debug_logging_fn", debug_logging_fn)
         m = convert_to_float8_training(m, config=config)
         _populate_debug_fqns(m)
+
+        # iter 0
         m = torch.compile(m)
         y = m(x)
         y.sum().backward()
-        # TODO(before land): actually test the values logged to stdout
+
+        # iter 1
+        iter_counter += 1
+        m = torch.compile(m)
+        y = m(x)
+        y.sum().backward()
+
+        if recipe_name == Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
+            # check length is num_float8_layers * num_gemms_per_layer * num_iters
+            assert len(iter_fqn_gemm_name_to_data) == 2 * 2 * (iter_counter + 1)
+            # check that some of the expected debug logs exist
+            assert (0, "0", "output") in iter_fqn_gemm_name_to_data
+            assert (1, "1.1", "grad_input") in iter_fqn_gemm_name_to_data
+        else:
+            # check length is num_float8_layers * num_gemms_per_layer * num_iters
+            assert len(iter_fqn_gemm_name_to_data) == 2 * 3 * (iter_counter + 1)
+            # check that some of the expected debug logs exist
+            assert (0, "0", "output") in iter_fqn_gemm_name_to_data
+            assert (0, "1.1", "grad_weight") in iter_fqn_gemm_name_to_data
+            assert (1, "1.1", "grad_input") in iter_fqn_gemm_name_to_data
+
+        # check logged data is what we expect
+        example_data = iter_fqn_gemm_name_to_data[(1, "1.1", "grad_input")]
+        assert example_data[0] == (16, 64, 32)
+        assert type(example_data[1]) == torch.Tensor
+        assert example_data[1].shape == torch.Size()
 
     @pytest.mark.parametrize(
         "emulate", [True, False] if is_sm_at_least_89() else [True]
@@ -502,10 +553,10 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
-        from torchao.quantization.quant_api import float8_weight_only, quantize_
+        from torchao.quantization import Float8WeightOnlyConfig, quantize_
 
-        quantize_(m, float8_weight_only())
-        assert m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn, (
+        quantize_(m, Float8WeightOnlyConfig())
+        assert m[0].weight.qdata.dtype == torch.float8_e4m3fn, (
             "Post quantization dtype should be torch.float8_e4m3fn"
         )
         with torch.no_grad():

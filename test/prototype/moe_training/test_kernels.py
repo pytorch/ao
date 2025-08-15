@@ -7,26 +7,24 @@
 import pytest
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 # We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds and torch < 2.5
-if not (
-    TORCH_VERSION_AT_LEAST_2_5
-    and torch.cuda.is_available()
-    and torch.cuda.get_device_capability()[0] >= 9
-):
+# triton won't be available on CPU builds
+if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
+from torchao.prototype.moe_training.kernels.float8_rowwise import (
+    triton_fp8_rowwise_3d_transpose_rhs,
+)
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
-    _to_2d_jagged_float8_tensor_colwise,
-    _to_2d_jagged_float8_tensor_rowwise,
+    torch_to_3d_rowwise_float8_transpose_rhs,
+    torch_to_float8_per_group_colwise,
+    torch_to_float8_per_group_rowwise,
 )
 from torchao.testing.utils import skip_if_rocm
 
@@ -42,7 +40,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     colwise_offs = torch.arange(k, k * n_groups + 1, k, device=device)
 
     # compute reference with torch impl
-    ref_fp8_data, ref_scales = _to_2d_jagged_float8_tensor_rowwise(
+    ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
         x,
         colwise_offs,
         target_dtype=torch.float8_e4m3fn,
@@ -70,7 +68,7 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     rowwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
 
     # compute reference with torch impl
-    ref_fp8_data, ref_scales = _to_2d_jagged_float8_tensor_colwise(
+    ref_fp8_data, ref_scales = torch_to_float8_per_group_colwise(
         x,
         rowwise_offs,
         target_dtype=torch.float8_e4m3fn,
@@ -85,3 +83,38 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     assert torch.eq(ref_fp8_data, kernel_fp8_data).all(), "fp8 data not equal"
     assert torch.eq(ref_scales, kernel_scales).all(), "scales not equal"
     assert _is_column_major(kernel_fp8_data), "fp8 data is not column major"
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+def test_fp8_rowwise_3d_transpose_rhs(round_scales_to_power_of_2: bool):
+    device = "cuda"
+    experts, n, k = 8, 4 * 5120, 5120
+
+    # Example expert weights as it comes into forward transposed
+    torch.manual_seed(0)
+    x = torch.randn((experts, n, k), dtype=torch.bfloat16, device=device).transpose(
+        -2, -1
+    )
+
+    # Compute reference with torch impl
+    ref_fp8, ref_scales = torch_to_3d_rowwise_float8_transpose_rhs(
+        x,
+        target_dtype=torch.float8_e4m3fn,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    # Torch impl keeps empty scaled dim, so we squeeze it out to be consistent with triton impl
+    ref_scales = ref_scales.squeeze(1)
+
+    triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs(
+        x,
+        output_dtype=torch.float8_e4m3fn,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
+    assert ref_scales.stride() == triton_scales.stride(), "scale strides not equal"
+    assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
+
+    assert ref_fp8.shape == triton_fp8.shape, "output shapes not equal"
+    assert ref_fp8.stride() == triton_fp8.stride(), "output strides not equal"
+    assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"

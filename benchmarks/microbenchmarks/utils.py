@@ -73,18 +73,13 @@ class BenchmarkConfig:
         self.high_precision_dtype = self._parse_precision(
             params.get("high_precision_dtype", "torch.bfloat16")
         )
-        self.use_torch_compile = bool(params.get("use_torch_compile", False))
-        self.torch_compile_mode = (
-            params.get("torch_compile_mode", "default")
-            if self.use_torch_compile
-            else None
-        )
+        self.torch_compile_mode = params.get("torch_compile_mode", "default")
         self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
         self.output_dir = f"{output_dir}/{self.benchmark_mode}"
         self.name = params.get(
             "name",
-            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
+            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile'}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
         self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
@@ -108,7 +103,6 @@ class BenchmarkConfig:
             "k": self.k,
             "n": self.n,
             "high_precision_dtype": self.high_precision_dtype,
-            "use_torch_compile": self.use_torch_compile,
             "torch_compile_mode": self.torch_compile_mode,
             "device": self.device,
             "model_type": self.model_type,
@@ -125,9 +119,13 @@ class BenchmarkResult:
     ):
         self.config = config
         self.output_dir = config.output_dir
-        self.baseline_inference_time_in_ms = 0.0
-        self.model_inference_time_in_ms = 0.0
-        self.speedup = 0.0
+        self.baseline_model_eager_inference_time_in_ms = 0.0
+        self.quantized_model_eager_inference_time_in_ms = 0.0
+        self.baseline_model_compiled_inference_time_in_ms = 0.0
+        self.quantized_model_compiled_inference_time_in_ms = 0.0
+        self.eager_speedup_on_baseline = 0.0
+        self.compile_speedup_on_baseline = 0.0
+        self.compile_speedup_on_eager = 0.0
         self.profiler_json_path: Optional[str] = None
         self.memory_profile_path: Optional[str] = None
         self.memory_visualization_path: Optional[str] = None
@@ -137,9 +135,13 @@ class BenchmarkResult:
         """Convert result to dictionary for main function"""
         result_dict = {
             **self.config.to_dict(),
-            "baseline_inference_time_in_ms": self.baseline_inference_time_in_ms,
-            "model_inference_time_in_ms": self.model_inference_time_in_ms,
-            "speedup": self.speedup,
+            "baseline_model_eager_inference_time_in_ms": self.baseline_model_eager_inference_time_in_ms,
+            "quantized_model_eager_inference_time_in_ms": self.quantized_model_eager_inference_time_in_ms,
+            "baseline_model_compiled_inference_time_in_ms": self.baseline_model_compiled_inference_time_in_ms,
+            "quantized_model_compiled_inference_time_in_ms": self.quantized_model_compiled_inference_time_in_ms,
+            "eager speedup on baseline": self.eager_speedup_on_baseline,
+            "compile speedup on baseline": self.compile_speedup_on_baseline,
+            "eager vs compile speedup": self.compile_speedup_on_eager,
             "profiler_json_path": self.profiler_json_path,
             "memory_profile_path": self.memory_profile_path,
             "memory_visualization_path": self.memory_visualization_path,
@@ -408,9 +410,13 @@ def print_results(results: List[BenchmarkResult]):
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
             f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
-            f"{result.baseline_inference_time_in_ms:.2f}",
-            f"{result.model_inference_time_in_ms:.2f}",
-            f"{result.speedup:.2f}x",
+            f"{result.baseline_model_eager_inference_time_in_ms:.2f}",
+            f"{result.quantized_model_eager_inference_time_in_ms:.2f}",
+            f"{result.eager_speedup_on_baseline:.2f}x",
+            f"{result.baseline_model_compiled_inference_time_in_ms:.2f}",
+            f"{result.quantized_model_compiled_inference_time_in_ms:.2f}",
+            f"{result.compile_speedup_on_baseline:.2f}x",
+            f"{result.compile_speedup_on_eager:.2f}x",
             str(result.config.enable_profiler),
         ]
 
@@ -422,9 +428,13 @@ def print_results(results: List[BenchmarkResult]):
         "Quantization",
         "Sparsity",
         "Shape",
-        "Baseline Inference Time (ms)",
-        "Inference Time (ms)",
-        "Speedup",
+        "Eager Baseline Inference Time (ms)",
+        "Eager Model Inference Time (ms)",
+        "Eager Speedup",
+        "Compile Baseline Inference Time (ms)",
+        "Compile Model Inference Time (ms)",
+        "Compile Speedup",
+        "Eager vs Compile Speedup",
         "Profiler Enabled",
     ]
 

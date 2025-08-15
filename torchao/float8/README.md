@@ -14,6 +14,7 @@ and up to [**1.25x at 8 GPU / 8B parameter count scale**](#training-benchmarks),
 * seamless composability with [DTensor](https://docs.pytorch.org/docs/stable/distributed.tensor.html), including [FSDP2 with float8 weight all-gather](https://dev-discuss.pytorch.org/t/enabling-float8-all-gather-in-fsdp2/2359) and [Async TP](https://discuss.pytorch.org/t/distributed-w-torchtitan-introducing-async-tensor-parallelism-in-pytorch/209487)
 * seamless composability with [PyTorch Activation Checkpointing](https://pytorch.org/blog/activation-checkpointing-techniques/)
 * three different scaling recipes to trade off performance vs accuracy: tensorwise (fastest), rowwise, rowwise_with_gw_hp (most accurate)
+* supports both NVIDIA and AMD hardware
 
 ℹ️ <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) for upcoming features.</em>
 
@@ -27,10 +28,6 @@ import time
 import torch
 import torch.nn as nn
 from torchao.float8 import convert_to_float8_training, Float8LinearConfig
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
 M, K, N = 4096, 8192, 4096
@@ -186,22 +183,28 @@ python test/float8/test_fsdp2/test_fsdp2.py
 [Torchtitan](https://github.com/pytorch/torchtitan) was used to benchmark float8 training performance, for both rowwise
 and tensorwise scaling. The training benchmarks were all run using:
 
-- Single-node training on 8xH100 GPUs
-- Batch size 1
-- Sequence length 8192
-- Steps 100
-- `torch.compile`
-- FSDP2
-- pytorch version: `2.7.0a0+gitb98af95`
-- torchao version: `0.10.0+git890e0ac8`
-- torchtitan version: `0.0.2`
+#### NVIDIA H100
 
+- Single-node training on 8xH100 GPUs, batch size 1, sequence length 8192, steps 100, `torch.compile`, FSDP2, per-op SAC
+- pytorch version: `2.7.0a0+gitb98af95`, torchao version: `0.10.0+git890e0ac8`, torchtitan version: `0.0.2`
 
-| Model         | Scaling                            | Activation checkpointing | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
-| ------------- | ---------------------------------- | ------------------------ | ------------------| -------------------- | ---------------------
-| Llama3-8b     |  none (bfloat16)                   | per op SAC               | 47.65             |  6150                | -
-| Llama3-8b     |  tensorwise with float8 all-gather | per op SAC               | 47.77             |  7689.5              | 25.03%
-| Llama3-8b     |  rowwise with bfloat16 all-gather  | per op SAC               | 47.79             |  6768                | 10.05%
+| Model         | Scaling                            | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
+| ------------- | ---------------------------------- | ------------------| -------------------- | ---------------------
+| Llama3-8b     |  none (bfloat16)                   | 47.65             |  6150                | -
+| Llama3-8b     |  tensorwise with float8 all-gather | 47.77             |  7689.5              | 25.03%
+| Llama3-8b     |  rowwise with bfloat16 all-gather  | 47.79             |  6768                | 10.05%
+
+#### AMD MI300x
+
+- Single-node training on 8xMI300X GPUs, batch size 1, sequence length 8192, steps 100, `torch.compile`, FSDP2, per-op SAC
+- pytorch version: `2.9.0.dev20250811+rocm6.4`, torchao version `0.13.0+git4fc4068d6`, torchtitan commit `2c8b5947991239913d67e2f7d22a255c3e2a9694`
+
+| Model         | Scaling                            | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
+| ------------- | ---------------------------------- | ------------------| -------------------- | ---------------------
+| Llama3-8b     |  none (bfloat16)                   | 39.09             |  5376.5              | -
+| Llama3-8b     |  tensorwise with float8 all-gather | 39.07             |  6166.0              | 14.68%
+| Llama3-8b     |  rowwise_with_gw_hp with bfloat16 all-gather  | 39.32             |  6100.0                | 13.46%
+| Llama3-8b     |  rowwise with bfloat16 all-gather  | 39.32             |  5891.0              | 9.57%
 
 **Important notes**:
 - E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes ([example](https://pytorch.org/blog/training-using-float8-fsdp2/)).
@@ -210,7 +213,7 @@ and tensorwise scaling. The training benchmarks were all run using:
 **Reproducing training benchmarks**
 To reproduce these benchmarks, you can follow these steps:
 
-1. On a machine with 8 H100 GPUs, clone torchtitan and follow local installation [steps](https://github.com/pytorch/torchtitan?tab=readme-ov-file#installation),
+1. On a machine with compatible GPUs, clone torchtitan and follow local installation [steps](https://github.com/pytorch/torchtitan?tab=readme-ov-file#installation),
 including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=readme-ov-file#downloading-a-tokenizer).
 2. Install torchao following these [steps](https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation).
 3. From the `torchao/benchmarks/float8/training/` directory, you can run the following commands to reproduce the benchmarks above:
@@ -232,10 +235,6 @@ import torch.nn.functional as F
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8 import convert_to_float8_training
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
 m = nn.Sequential(
