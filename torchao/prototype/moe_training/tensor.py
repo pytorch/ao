@@ -114,16 +114,25 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
-        # detach is special case
-        scaling_type = args[0].scaling_type
-        if func == torch.ops.aten.detach.default:
-            return ScaledGroupedMMTensor(args[0]._data, scaling_type)
+        # unwrap args/kwargs and extract scaling_type
+        scaling_type = None
 
-        # unwrap args/kwargs
-        unwrap = lambda x: x._data if isinstance(x, ScaledGroupedMMTensor) else x
+        def unwrap(t):
+            nonlocal scaling_type
+            if scaling_type is None:
+                scaling_type = t.scaling_type
+            else:
+                assert t.scaling_type == scaling_type
+            return t._data
+
         args, kwargs = pytree.tree_map_only(
             ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
+        assert scaling_type is not None
+
+        # detach is special case
+        if func == torch.ops.aten.detach.default:
+            return ScaledGroupedMMTensor(args[0], scaling_type)
 
         # perform op
         out = func(*args, **kwargs)
