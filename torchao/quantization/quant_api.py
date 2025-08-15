@@ -72,9 +72,9 @@ from torchao.quantization.quantize_.common import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
+    Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
-    Int4MarlinSparseTensor,
     QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.transform_module import (

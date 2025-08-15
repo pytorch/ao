@@ -5,19 +5,16 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List, Tuple
+from typing import List
 
 import torch
-from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
-    choose_qparams_affine,
     MappingType,
+    choose_qparams_affine,
     quantize_affine,
 )
-
-from torchao.utils import fill_defaults, TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
-
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "Int4MarlinSparseTensor",
@@ -34,7 +31,7 @@ except:
 
 
 class Int4MarlinSparseTensor(TorchAOBaseTensor):
-    tensor_data_names = ["qdata", "scale", "zero_point", "meta"] # meta is a tensor
+    tensor_data_names = ["qdata", "scale", "zero_point", "meta"]  # meta is a tensor
     tensor_attribute_names = ["block_size", "num_bits", "shape"]
 
     def __new__(cls, qdata, scale, zero_point, meta, block_size, num_bits, shape):
@@ -44,7 +41,9 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, qdata, scale, zero_point, meta, block_size, num_bits, shape): # args need to match lines 37 and 38
+    def __init__(
+        self, qdata, scale, zero_point, meta, block_size, num_bits, shape
+    ):  # args need to match lines 37 and 38
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
@@ -81,10 +80,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         zero_point: torch.Tensor,
     ):
-        from torchao.sparsity.marlin import (
-            const,
-            pack_to_marlin_24
-        )
+        from torchao.sparsity.marlin import const, pack_to_marlin_24
 
         # Linear layers are (in_features, out_features) but the qdata that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
@@ -120,9 +116,9 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         group_size = in_features // scale_t.shape[0]
         if group_size == 0:
             group_size = in_features
-        assert (
-            group_size <= in_features
-        ), "Group size must be less than or equal to in_features."
+        assert group_size <= in_features, (
+            "Group size must be less than or equal to in_features."
+        )
 
         if group_size not in const.SUPPORTED_GROUP_SIZES:
             raise ValueError(
@@ -151,9 +147,9 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         block_size: List[int],
     ):
         preprocessed_w = cls.pre_process(w)
-        assert (
-            block_size[-1] == 128 or block_size[-1] == preprocessed_w.shape[-1]
-        ), f"MarlinSparse only supports 128 group size or per channel quantization, got {block_size}"
+        assert block_size[-1] == 128 or block_size[-1] == preprocessed_w.shape[-1], (
+            f"MarlinSparse only supports 128 group size or per channel quantization, got {block_size}"
+        )
 
         quant_min = 0
         quant_max = 15
@@ -163,11 +159,10 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
             input=preprocessed_w,
             mapping_type=MappingType.SYMMETRIC,
             block_size=block_size,
-            target_dtype=target_dtype,  # ??? i think its int4 because we wanna convert to int4 idk but in the old version i think its int32
+            target_dtype=target_dtype,
             quant_min=quant_min,
             quant_max=quant_max,
             eps=1e-6,
-            # leaving scale dtype and zero point dtype as default for now idk
         )
 
         wq = quantize_affine(
@@ -183,14 +178,11 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         scale = scale.to(w.dtype)
         zero_point = zero_point.to(w.dtype)
 
-        return cls.from_plain(
-            qdata=wq,
-            scale=scale,
-            zero_point=zero_point
-        )
+        return cls.from_plain(qdata=wq, scale=scale, zero_point=zero_point)
 
 
 implements = Int4MarlinSparseTensor.implements
+
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
@@ -204,9 +196,9 @@ def _(func, types, args, kwargs):
     )
     assert weight_tensor.qdata.is_contiguous(), "Expected qdata to be contiguous"
     assert weight_tensor.scale.is_contiguous(), "Expected scale to be contiguous"
-    assert (
-        weight_tensor.zero_point.is_contiguous()
-    ), "Expected zero_point to be contiguous"
+    assert weight_tensor.zero_point.is_contiguous(), (
+        "Expected zero_point to be contiguous"
+    )
 
     sparse_w_int4 = weight_tensor.qdata
     scale = weight_tensor.scale
