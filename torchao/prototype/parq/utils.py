@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+from importlib import import_module
+
 import torch
 from torch import Tensor
 
@@ -13,6 +15,10 @@ try:
     HAS_DTENSOR = True
 except ImportError:
     HAS_DTENSOR = False
+
+
+def instantiate_module(module_path, module_suffix):
+    return getattr(import_module(module_path), module_suffix)
 
 
 def is_dtensor(x):

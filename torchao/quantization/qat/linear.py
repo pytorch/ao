@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.granularity import PerGroup
+from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.linear_quant_modules import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
@@ -25,15 +25,14 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
+    Float8FakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from .fake_quantizer import (
     FakeQuantizerBase,
-    _Float8RowwiseActivationFakeQuantizer,
 )
 from .utils import (
     _get_qmin_qmax,
@@ -82,6 +81,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
             *args,
             **kwargs,
         )
+        torch._C._log_api_usage_once("torchao.quantization.qat.FakeQuantizedLinear")
         # initialize activation fake quantizer
         if activation_config is not None:
             self.activation_fake_quantizer = FakeQuantizerBase.from_config(
@@ -211,6 +211,9 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer"
+        )
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
@@ -414,6 +417,9 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
         scales_precision: torch.dtype = torch.bfloat16,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int4WeightOnlyQATQuantizer"
+        )
         assert inner_k_tiles in [2, 4, 8]
         assert groupsize in [32, 64, 128, 256]
         self.inner_k_tiles = inner_k_tiles
@@ -471,10 +477,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     n_bit,
                     config.group_size,
                 )
-                if (
-                    is_device(q_weight.device.type, "cpu")
-                    and TORCH_VERSION_AT_LEAST_2_6
-                ):
+                if is_device(q_weight.device.type, "cpu"):
                     q_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                         q_weight.to(child.weight.device),
                         child.inner_k_tiles,
@@ -598,10 +601,17 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         group_size: Optional[int] = 64,
         scale_precision: torch.dtype = torch.bfloat16,
     ):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Float8ActInt4WeightQATQuantizer"
+        )
         if group_size is not None:
             weight_granularity = "per_group"
         else:
             weight_granularity = "per_channel"
+        self._activation_config = Float8FakeQuantizeConfig(
+            dtype=torch.float8_e4m3fn,
+            granularity=PerRow(),
+        )
         self._weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
             granularity=weight_granularity,
@@ -620,13 +630,10 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         """
         for name, child in model.named_children():
             if isinstance(child, torch.nn.Linear):
-                # TODO: add a config for float8?
                 new_linear = FakeQuantizedLinear.from_linear(
                     child,
+                    activation_config=self._activation_config,
                     weight_config=self._weight_config,
-                )
-                new_linear.activation_fake_quantizer = (
-                    _Float8RowwiseActivationFakeQuantizer()
                 )
                 setattr(model, name, new_linear)
             else:

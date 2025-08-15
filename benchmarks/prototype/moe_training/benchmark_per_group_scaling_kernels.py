@@ -15,10 +15,11 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
+    generate_jagged_offs,
     torch_to_float8_per_group_colwise,
     torch_to_float8_per_group_rowwise,
 )
@@ -40,6 +41,8 @@ class ExperimentConfig:
 class ExperimentResult:
     torch_time_us: float
     triton_time_us: float
+    torch_mem_bw_gbps: float
+    triton_mem_bw_gbps: float
 
 
 @dataclass(frozen=True)
@@ -49,8 +52,8 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    input_shapes = [(2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    n_groups_list = [4, 8, 16]
+    input_shapes = [(16640, 5120)]  # (Mg, K)
+    n_groups_list = [1, 16, 128]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for input_shape, n_groups, high_precision_dtype in itertools.product(
@@ -81,15 +84,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     #   that occurs in the backward pass of the differentiable scaled grouped mm.
     # - the transposed tensor in col-major format with groups along the row dimension,
     #    which represents the right operand.
-    group_size = input_row_major.shape[1] // config.n_groups
     n_groups = config.n_groups
-    offs = torch.arange(
-        group_size,
-        group_size * n_groups + 1,
-        group_size,
-        device=device,
-        dtype=torch.int32,
-    )
+    Mg = input_row_major.shape[0]
+    offs = generate_jagged_offs(n_groups, Mg, multiple_of=16)
 
     def warmup(func, *args, **kwargs):
         for _ in range(10):
@@ -114,13 +111,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     def run_triton(
         input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        _ = triton_fp8_row_major_jagged_rowwise_scales(
+        _ = triton_fp8_per_group_rowwise_scales(
             input_row_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        _ = triton_fp8_col_major_jagged_colwise_scales(
+        _ = triton_fp8_per_group_colwise_scales(
             input_col_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
@@ -129,6 +126,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # bench torch
     compiled_run_torch = torch.compile(run_torch)
+    warmup(compiled_run_torch, input_row_major, input_col_major, offs)
     torch_time_us = benchmark_cuda_function_in_microseconds(
         compiled_run_torch, input_row_major, input_col_major, offs
     )
@@ -139,9 +137,21 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         run_triton, input_row_major, input_col_major, offs
     )
 
+    # mem bw calculations - excluding scales to simplify calculation
+    # but still get an accurate estimate.
+    bytes_per_input_el = torch.finfo(config.high_precision_dtype).bits / 8
+    num_elements = input_tensor.numel()
+    read_bytes = num_elements * bytes_per_input_el
+    write_bytes = num_elements  # 1 byte per element in float8_e4m3fn
+    read_write_bytes = read_bytes + write_bytes
+    torch_mem_bw_gbps = (read_write_bytes) / (torch_time_us / 1e6) / 1e9
+    triton_mem_bw_gbps = (read_write_bytes) / (triton_time_us / 1e6) / 1e9
+
     return ExperimentResult(
         torch_time_us=torch_time_us,
         triton_time_us=triton_time_us,
+        torch_mem_bw_gbps=torch_mem_bw_gbps,
+        triton_mem_bw_gbps=triton_mem_bw_gbps,
     )
 
 
@@ -152,6 +162,9 @@ def print_results(experiments: List[Experiment]):
         "high_precision_dtype",
         "torch_time_us",
         "triton_time_us",
+        "torch_mem_bw_gbps",
+        "triton_mem_bw_gbps",
+        "triton_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -165,6 +178,9 @@ def print_results(experiments: List[Experiment]):
                 experiment.config.high_precision_dtype,
                 experiment.result.torch_time_us,
                 experiment.result.triton_time_us,
+                round(experiment.result.torch_mem_bw_gbps, 3),
+                round(experiment.result.triton_mem_bw_gbps, 3),
+                f"{experiment.result.torch_time_us / experiment.result.triton_time_us:.2f}x",
             ]
         )
     print(tabulate(rows, headers=headers))

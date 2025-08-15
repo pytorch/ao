@@ -19,9 +19,6 @@ from torchao.quantization.utils import (
     dynamically_quantize_per_channel,
 )
 from torchao.testing.model_architectures import ToyLinearModel
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-)
 
 
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
@@ -29,9 +26,8 @@ class TestSmoothQuant(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up class-level configuration for tests."""
-        if TORCH_VERSION_AT_LEAST_2_5:
-            # This test case will trigger recompilation many times, so set a large cache_size_limit here
-            torch._dynamo.config.cache_size_limit = 128
+        # This test case will trigger recompilation many times, so set a large cache_size_limit here
+        torch._dynamo.config.cache_size_limit = 128
 
     @unittest.skip("This test is broken on recent PyTorch, TODO(#1639): fix it")
     @common_utils.parametrize("bias", [True, False])
@@ -70,8 +66,7 @@ class TestSmoothQuant(unittest.TestCase):
         quantize_(m, config)
 
         # Apply compilation if supported
-        if TORCH_VERSION_AT_LEAST_2_5:
-            m = torch.compile(m, fullgraph=True)
+        m = torch.compile(m, fullgraph=True)
 
         # Step 2: Inference quantized model
         with torch.inference_mode():
@@ -200,7 +195,8 @@ class TestSmoothQuant(unittest.TestCase):
         sequence_length = 5
 
         # Create two identical models for comparison
-        m1 = ToyLinearModel(*layer_dims).eval().to(input_dtype).to(device)
+        m1 = 
+        (*layer_dims).eval().to(input_dtype).to(device)
         m2 = deepcopy(m1)
 
         # Generate calibration dataset
@@ -225,12 +221,36 @@ class TestSmoothQuant(unittest.TestCase):
         quantize_(m2, SmoothQuantConfig(), is_observed_linear)
 
         # Apply compilation if supported
-        if TORCH_VERSION_AT_LEAST_2_5:
-            m2 = torch.compile(m2, fullgraph=True)
+        m = torch.compile(m, fullgraph=True)
 
-        # Step 4: Validate outputs on full dataset
-        with torch.inference_mode():
-            m2_outputs = []
+        # Step 2: Setup save/load model with recipe functionality
+        insert_smooth_quant_observer_(m_save_load, alpha, quant_mode)
+        for example in calibration_data:
+            m_save_load(example.to(device))
+
+        # Step 3: Test save/load recipe functionality
+        with tempfile.NamedTemporaryFile() as temp_file:
+            save_path = temp_file.name
+            save_smooth_quant_recipe(m_save_load, save_path)
+            load_smooth_quant_recipe(m_save_load, save_path)
+
+            # Step 4: Complete quantization for save/load model
+            is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
+            quantize_(m_save_load, SmoothQuantConfig(), is_observed_linear)
+
+            m_save_load = torch.compile(m_save_load, fullgraph=True)
+
+            # Step 5: Validate outputs on full dataset
+            with torch.inference_mode():
+                original_outputs = []
+                save_load_outputs = []
+
+                for data in dataset:
+                    # Remove batch dimension for model input
+                    input_tensor = data.squeeze(0)
+
+                    original_output = m(input_tensor)
+                    save_load_output = m_save_load(input_tensor)
 
             for data in dataset:
                 # Remove batch dimension for model input

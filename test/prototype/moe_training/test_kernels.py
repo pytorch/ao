@@ -7,15 +7,9 @@
 import pytest
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 # We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds and torch < 2.5
-if not (
-    TORCH_VERSION_AT_LEAST_2_5
-    and torch.cuda.is_available()
-    and torch.cuda.get_device_capability()[0] >= 9
-):
+# triton won't be available on CPU builds
+if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -23,8 +17,8 @@ from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
@@ -52,7 +46,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
         target_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
-    kernel_fp8_data, kernel_scales = triton_fp8_row_major_jagged_rowwise_scales(
+    kernel_fp8_data, kernel_scales = triton_fp8_per_group_rowwise_scales(
         x,
         colwise_offs,
         output_dtype=torch.float8_e4m3fn,
@@ -80,7 +74,7 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
         target_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
-    kernel_fp8_data, kernel_scales = triton_fp8_col_major_jagged_colwise_scales(
+    kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
         x,
         rowwise_offs,
         output_dtype=torch.float8_e4m3fn,
