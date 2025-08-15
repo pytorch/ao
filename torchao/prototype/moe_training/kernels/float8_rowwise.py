@@ -51,7 +51,6 @@ def triton_fp8_rowwise_3d_transpose_rhs(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert hp_tensor.ndim == 3, "input tensor must be 3D"
 
-    num_elements = hp_tensor.numel()
     tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
     tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -89,7 +88,6 @@ def triton_fp8_rowwise_3d_transpose_rhs(
         e,
         n,
         k,
-        num_elements,
         fp8_dtype_min,
         fp8_dtype_max,
         tl_input_dtype,
@@ -113,7 +111,6 @@ def triton_fp8_rowwise_3d_transpose_rhs(
         e,
         n,
         k,
-        num_elements,
         fp8_dtype_min,
         fp8_dtype_max,
         tl_input_dtype,
@@ -138,20 +135,19 @@ def _fake_triton_fp8_rowwise_3d_transpose_rhs(
     return output_buffer, scales_buffer
 
 
-@triton.autotune(configs=kernel_configs_2D, key=["num_elements"])
+@triton.autotune(configs=kernel_configs_2D, key=["K", "N"])
 @triton.jit
 def _triton_fp8_rowwise_3d_transpose_scales_rhs_kernel(
     input_ptr,
-    stride_input_dim0: int,
-    stride_input_dim1: int,
-    stride_input_dim2: int,
+    stride_input_dim0: tl.int64,
+    stride_input_dim1: tl.int64,
+    stride_input_dim2: tl.int64,
     scales_ptr,
     stride_scales_dim0: int,
     stride_scales_dim1: int,
     E: int,
     N: int,
     K: int,
-    num_elements: int,
     fp8_dtype_min: tl.constexpr,
     fp8_dtype_max: tl.constexpr,
     input_dtype: tl.constexpr,
@@ -202,20 +198,19 @@ def _triton_fp8_rowwise_3d_transpose_scales_rhs_kernel(
 @triton.jit
 def _triton_fp8_rowwise_3d_transpose_cast_rhs_kernel(
     input_ptr,
-    stride_input_dim0: int,
-    stride_input_dim1: int,
-    stride_input_dim2: int,
+    stride_input_dim0: tl.int64,
+    stride_input_dim1: tl.int64,
+    stride_input_dim2: tl.int64,
     output_ptr,
-    stride_output_dim0: int,
-    stride_output_dim1: int,
-    stride_output_dim2: int,
+    stride_output_dim0: tl.int64,
+    stride_output_dim1: tl.int64,
+    stride_output_dim2: tl.int64,
     scales_ptr,
     stride_scales_dim0: int,
     stride_scales_dim1: int,
     E: int,
     N: int,
     K: int,
-    num_elements: int,
     fp8_dtype_min: tl.constexpr,
     fp8_dtype_max: tl.constexpr,
     input_dtype: tl.constexpr,
