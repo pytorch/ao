@@ -26,10 +26,10 @@ FP8_DTYPE_MAP = {
     torch.float64: tl.float64,
 }
 
-block_sizes_n = [32, 128, 512]  # large dim (output_features)
-block_sizes_k = [32, 128, 512]  # small dim (input_features)
-num_warps = [8]
-num_stages = [2, 4]
+block_sizes_n = [32, 128, 256]  # large dim (output_features)
+block_sizes_k = [32, 128, 256]  # small dim (input_features)
+num_warps = [2, 4]
+num_stages = [2, 3, 4, 5, 6]
 kernel_configs_2D = [
     triton.Config(
         {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
@@ -176,9 +176,18 @@ def _triton_fp8_rowwise_3d_transpose_scales_rhs_kernel(
         input_dtype
     )
 
-    # compute scales with local amax, using axis=0 because for each expert,
-    # we are reading the non-transposed input, and want to compute the scales
-    # along axis=1 for the transposed input.
+    # In a normal torch implementation, we should transpose the tensor then compute the amax
+    # along the dim1 (N), to compute colwise scales for a RHS operand of a scaled grouped gemm:
+    #    input_data = input_data.transpose(-2,-1) # (E, K, N) -> (E, N, K)
+    #    amaxes = input_data.abs().max(dim=1) # (E, N, K) -> (E, 1, K)
+    #
+    # Here, we are reading a (K, N) chunk for a given E, and computing the amax along the dim=1 (N)
+    # to compute an equivalent scale of shape (K,) for this chunk of the expert.
+    # We then use atomic min to compute the final scale for these logical columns of the transposed tensor.
+    #
+    # Later, we will use this scale to cast the same (K,N) input chunk to fp8 and transpose it to (N, K) before
+    # writing it to the output tensor.
+    #    ((K, N) * (K, 1))^T = (N, K)
     amaxes = tl.max(tl.abs(input_data), axis=1).to(tl.float64)  # (K,)
     scales = (fp8_dtype_max / tl.clamp(amaxes, min=EPS, max=float("inf"))).to(
         tl.float32

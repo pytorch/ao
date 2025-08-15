@@ -24,7 +24,7 @@ from torch.nn import functional as F
 
 from benchmarks.prototype.moe_training.utils import (
     bench_fwd_bwd_microseconds,
-    profile_fn,
+    profile_fwd_bwd,
 )
 
 # this feature requires CUDA and SM89+
@@ -128,7 +128,7 @@ def bench_moe_float8_training_fsdp(
     print(f"BF16 time: {bf16_us} us")
     if enable_profile:
         print("Profiling bf16 training")
-        profile_fn(ref_model, ref_x, labels=labels, profile_name="bf16_profile")
+        profile_fwd_bwd(ref_model, ref_x, labels=labels, profile_name="bf16_profile")
 
     scaled_us = bench_fwd_bwd_microseconds(
         model,
@@ -140,7 +140,7 @@ def bench_moe_float8_training_fsdp(
     print(f"Scaled time: {scaled_us} us")
     if enable_profile:
         print("Profiling quantized training")
-        profile_fn(model, x, labels=labels, profile_name=f"{recipe_name}_profile")
+        profile_fwd_bwd(model, x, labels=labels, profile_name=f"{recipe_name}_profile")
 
     print(f"Speedup: {bf16_us / scaled_us:.3f}x")
     dist.destroy_process_group()

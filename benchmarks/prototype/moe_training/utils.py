@@ -23,7 +23,7 @@ def bench_fwd_bwd_microseconds(
     return statistics.median(times)
 
 
-def profile_fn(
+def profile_fwd_bwd(
     fn,
     *args,
     labels=None,
