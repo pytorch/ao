@@ -22,21 +22,6 @@
 #include <cuda/barrier>
 #include <cuda/ptx>
 
-#define MIN_CUDA_SM 1000 // SM90 = 900, SM100 = 1000
-
-// Check if we're compiling for supported architecture
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < MIN_CUDA_SM)
-#warning                                                                       \
-    "MXFP8 quantization requires SM90+ (Hopper) or SM100+ (Blackwell) architecture. Kernel will be disabled for this architecture."
-#endif
-
-// Architecture detection for native FP8 support
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
-#define HAS_NATIVE_FP8_CONVERSION 1
-#else
-#define HAS_NATIVE_FP8_CONVERSION 0
-#endif
-
 enum class DType {
   kByte,
   kFloat32,
@@ -975,11 +960,6 @@ public:
           output_bits_per_elem); // bits per elem in output fp8e4m3
     }
 
-// Launch kernel based on input/output types and scaling dimensions
-// Only compile kernel launches for SM90+
-#if defined(__CUDACC__) &&                                                     \
-    (!defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= MIN_CUDA_SM)
-
     // Use TMA and mbarrier instructions
 #define LAUNCH_KERNEL(IType, OType, SCALE_Y, SCALE_X, ScalingMode)                          \
   mxfp8_quantize_kernel<IType, OType, SCALE_Y, SCALE_X, ScalingMode>                        \
@@ -1044,6 +1024,5 @@ public:
 
 #undef LAUNCH_KERNEL
 
-#endif
   }
 };
