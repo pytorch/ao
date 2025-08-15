@@ -18,7 +18,6 @@ from torch.testing._internal.common_utils import (
 from torchao.dtypes import MarlinSparseLayout
 from torchao.quantization import (
     Int4WeightOnlyConfig,
-    int4_weight_only,
     quantize_,
 )
 from torchao.quantization.utils import compute_error
