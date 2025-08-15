@@ -7,14 +7,34 @@ in native PyTorch.  We are currently in prototype and are actively working on op
 
 | workflow | emulation | performance | accuracy |
 | --- | --- | --- | --- |
-| training with mxfp8 | ✅ | 🚧 [active development](https://github.com/pytorch/ao/issues/1768) | ✅ |
-| inference (weight-only) with mxfp8, mxfp6, mxfp4 | ✅ | 🔲 | 🔲 |
-
-We plan to add the following features in the near future:
-* other inference workflows such as dynamic quantization
-* a unified training to inference workflow
+| training with mxfp8 | ✅ | ✅ | ✅ |
+| inference with mxfp8, mxfp6, mxfp4 | ✅ | 🔲 | 🔲 |
 
 ℹ️ <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) and the [performance tracker](https://github.com/pytorch/ao/issues/1768) for upcoming features.</em>
+
+## Training e2e benchmarks on NVIDIA B200
+
+- Single-node training on 8xB200 GPUs limited to 750W, batch size 1, sequence length 8192, steps 100, `torch.compile`, FSDP2, per-op SAC
+- pytorch version: `2.9.0.dev20250815+cu128`, torchao version: `0.13.0+gite4e681be6`, torchtitan commit: `6fc499f6f5b32151a799188be2208cfb09faed30`
+
+| Model         | Scaling                            | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
+| ------------- | ---------------------------------- | ------------------| -------------------- | ---------------------
+| Llama3-8b     |  none (bfloat16)                   | 33.71             |  8307.5              | -
+| Llama3-8b     |  float8 tensorwise (f8 all-gather) | 33.38             |  10417.0             | 25.4%
+| Llama3-8b     |  mxfp8_cublas                      | 33.88             |  9969.0              | 20.0%
+| Llama3-8b     |  mxfp8_cublas_rceil                | 33.88             |  9642.0              | 16.1%
+| Llama3-8b     |  float8 rowwise                    | 33.72             |  8640.5              | 4.0%
+
+**Reproducing training benchmarks**
+To reproduce these benchmarks, you can follow these steps:
+
+1. On a machine with compatible GPUs, clone torchtitan and follow local installation [steps](https://github.com/pytorch/torchtitan?tab=readme-ov-file#installation),
+including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=readme-ov-file#downloading-a-tokenizer).
+2. Install torchao following these [steps](https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation).
+3. From the `torchao/` directory, you can run the following commands to reproduce the benchmarks above:
+   - bf16 + compile: `TORCHTITAN_ROOT=<path> ./benchmarks/float8/training/llama3.sh`
+   - mxfp8_cublas: `TORCHTITAN_ROOT=<path> MX_RECIPE="mxfp8_cublas" ./benchmarks/float8/training/llama3.sh`
+   - mxfp8_cublas_rceil: `TORCHTITAN_ROOT=<path> MX_RECIPE="mxfp8_cublas_rceil" ./benchmarks/float8/training/llama3.sh`
 
 # User API
 
