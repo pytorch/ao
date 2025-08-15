@@ -90,6 +90,7 @@ from .quant_primitives import (
 )
 from .quantize_.workflows import (
     Float8Tensor,
+    Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
 )
@@ -159,6 +160,7 @@ __all__ = [
     # tensor subclasses
     "Int4Tensor",
     "Int4PreshuffledTensor",
+    "Int4MarlinSparseTensor",
     "Float8Tensor",
     # smooth quant - subject to change
     "get_scale",
