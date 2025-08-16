@@ -45,7 +45,7 @@ class TestModels(unittest.TestCase):
             self.skipTest("CUDA not available")
 
         model, input_data = create_model_and_input_data(
-            "transformer_block", 10, 64, 32, device=device
+            "transformer_block", 10, 64, 32
         )
         output = model(input_data)
         self.assertEqual(output.shape, (10, 16, 64))

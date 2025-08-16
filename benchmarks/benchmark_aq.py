@@ -20,6 +20,7 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
 )
+from torchao.testing.model_architectures import ToySingleLinearModel
 
 
 def _int8wo_api(mod, **kwargs):
@@ -40,32 +41,6 @@ def _int4wo_api(mod, **kwargs):
         kwargs_copy["group_size"] = kwargs_copy["groupsize"]
         del kwargs_copy["groupsize"]
     quantize_(mod, int4_weight_only(**kwargs_copy), set_inductor_config=False)
-
-
-class ToyLinearModel(torch.nn.Module):
-    """Single linear for m * k * n problem size"""
-
-    def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
-    ):
-        super().__init__()
-        self.m = m
-        self.dtype = dtype
-        self.device = device
-        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
-            dtype=self.dtype, device=self.device
-        )
-
-    def example_inputs(self):
-        return (
-            torch.randn(
-                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear(x)
-        return x
 
 
 def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
@@ -133,7 +108,7 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     if kwargs is None:
         kwargs = {}
 
-    m = ToyLinearModel(
+    m = ToySingleLinearModel(
         M, N, K, has_bias=True, dtype=torch.bfloat16, device="cuda"
     ).eval()
     m_bf16 = copy.deepcopy(m)
