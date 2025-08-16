@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List
+from typing import List, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -36,6 +36,9 @@ class Int4Tensor(TorchAOBaseTensor):
                dtype is the same as the original Tensor dtype
         zero_point: (K/group_size, N) for 2D Tensor, (B, K/group_size, N) for 3D Tensor, where B is batch size,
                dtype is the same as the original Tensor dtype
+        act_scale (Optional[Tensor]): Optional per row scale for activation Tensor, if present,
+               we'll multiply activation Tensor with act_scale before applying dynamic
+               quantization to activation or running quantized mm op
 
     Non-Tensor Attributes:
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
@@ -43,23 +46,44 @@ class Int4Tensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
+    optional_tensor_data_names = ["act_scale"]
     tensor_attribute_names = ["block_size", "shape"]
 
-    def __new__(cls, qdata, scale, zero_point, block_size, shape):
+    def __new__(
+        cls,
+        qdata: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        act_scale: Optional[torch.Tensor],
+        block_size: List[int],
+        shape: torch.Size,
+    ):
         kwargs = {}
         kwargs["device"] = qdata.device
         kwargs["dtype"] = scale.dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, qdata, scale, zero_point, block_size, shape):
+    def __init__(
+        self,
+        qdata: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        act_scale: Optional[torch.Tensor],
+        block_size: List[int],
+        shape: torch.Size,
+    ):
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
+        self.act_scale = act_scale
         self.block_size = block_size
 
     def _quantization_type(self):
-        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        if self.act_scale is not None:
+            s += f", act_scale.shape={self.act_scale.shape}"
+        return s
 
     @classmethod
     def from_hp(
@@ -98,6 +122,7 @@ class Int4Tensor(TorchAOBaseTensor):
             qdata=wq,
             scale=scale,
             zero_point=zero_point,
+            act_scale=None,
             block_size=block_size,
             shape=original_shape,
         )
@@ -113,11 +138,16 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
+    assert isinstance(weight_tensor, Int4Tensor)
+
     assert weight_tensor.qdata.is_contiguous(), "Expected qdata to be contiguous"
     assert weight_tensor.scale.is_contiguous(), "Expected scale to be contiguous"
     assert weight_tensor.zero_point.is_contiguous(), (
         "Expected zero_point to be contiguous"
     )
+
+    if weight_tensor.act_scale is not None:
+        input_tensor = input_tensor * weight_tensor.act_scale
 
     orig_act_size = input_tensor.size()
     orig_out_features = weight_tensor.shape[-2]
@@ -207,10 +237,11 @@ def _(func, types, args, kwargs):
             func,
             args,
             kwargs,
-            self.__class__(
+            Int4Tensor(
                 self.qdata,
                 self.scale,
                 self.zero_point,
+                self.act_scale,
                 block_size=self.block_size,
                 shape=self.shape,
             ),
@@ -229,8 +260,13 @@ def _(func, types, args, kwargs):
     zero_point = aten.slice.Tensor(self.zero_point, sz_dim, start_sz, end_sz, step)
     packed_shape0, packed_shape1 = qdata.shape
     new_shape = (packed_shape0, packed_shape1 * 2)
-    new = self.__class__(
-        qdata, scale, zero_point, block_size=self.block_size, shape=new_shape
+    new = Int4Tensor(
+        qdata,
+        scale,
+        zero_point,
+        self.act_scale,
+        block_size=self.block_size,
+        shape=new_shape,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -305,6 +341,7 @@ def _(func, types, args, kwargs):
         cat_qdata,
         cat_scale,
         cat_zero_point,
+        tensor_0.act_scale,
         tensor_0.block_size,
         new_shape,
     )
@@ -349,6 +386,7 @@ def _(func, types, args, kwargs):
         qdata,
         scale,
         zero_point,
+        self.act_scale,
         block_size,
         new_shape,
     )
@@ -437,6 +475,7 @@ def _(func, types, args, kwargs):
         qdata,
         scale,
         zero_point,
+        self.act_scale,
         block_size,
         shape,
     )
@@ -478,6 +517,7 @@ def _(func, types, args, kwargs):
         qdata,
         scale,
         zero_point,
+        self.act_scale,
         new_block_size,
         new_shape,
     )
