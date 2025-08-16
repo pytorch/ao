@@ -634,6 +634,10 @@ def get_extensions():
         mxfp8_src_files_exist = all(os.path.exists(f) for f in mxfp8_sources)
         if mxfp8_src_files_exist and build_for_sm100a:
             print("Building mxfp8_cuda extension")
+            arch_flags = [
+                "-gencode=arch=compute_100,code=sm_100",
+                "-gencode=arch=compute_120,code=sm_120"
+            ]
             ext_modules.append(
                 CUDAExtension(
                     name="torchao.prototype.mxfp8_cuda",
@@ -647,7 +651,7 @@ def get_extensions():
                     ],
                     extra_compile_args={
                         "cxx": ["-std=c++17", "-O3"],
-                        "nvcc": nvcc_args,
+                        "nvcc": nvcc_args + arch_flags,
                     },
                     extra_link_args=["-lcuda", "-lcudart"],
                 ),
