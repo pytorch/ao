@@ -1156,13 +1156,13 @@ def _int4_weight_only_transform(
 class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Configuration for apply float8 dynamic per row quantization and int4
     per group weight quantization to linear
+    (only group_size 128 is supported right now since underlying kernel used only supports 128
+    and above and no benefits of making it bigger)
 
     Args:
-        `group_size`: group size for groupwise quantization for weight
         `packing_format`: how the weight is packed, only preshuffled is supported
     """
 
-    group_size: int = 128
     packing_format: PackingFormat = "preshuffled"
 
 
@@ -1174,13 +1174,13 @@ def _float8_dynamic_activation_int4_weight_transform(
         "applying int8 weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
-    group_size = config.group_size
     packing_format = config.packing_format
 
     assert packing_format == "preshuffled", (
         f"only preshuffled packing_format supported right now, got: {packing_format}"
     )
     weight = module.weight
+    group_size = 128
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
     new_weight = Int4PreshuffledTensor.from_hp(
         module.weight,

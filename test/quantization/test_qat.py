@@ -1927,7 +1927,7 @@ class TestQAT(TestCase):
             quantize_(model, QATConfig(Float8DynamicActivationInt4WeightConfig(), step="convert"))
         """
         self._test_quantize_api_against_ptq(
-            Float8DynamicActivationInt4WeightConfig(group_size=128),
+            Float8DynamicActivationInt4WeightConfig(),
             target_prepare_sqnr=15,
             target_convert_sqnr=float("inf"),
         )
