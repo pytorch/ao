@@ -15,10 +15,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
-    SmoothQuantObservedLinear,
-    insert_smooth_quant_observer_,
 )
+from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
+from torchao.quantization.quant_api import int8_dynamic_activation_int8_weight
 
 
 def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
@@ -137,8 +137,15 @@ def wikitext2_ppl(
         print(f"Time to load model: {time.time() - t0:.02f} seconds")
         print("running calibration")
         t0 = time.time()
-        # insert observers to find average magnitude and calculate scales
-        insert_smooth_quant_observer_(model, alpha, quant_mode)
+        # Step 1: Insert observers to find average magnitude and calculate scales
+        config = SmoothQuantConfig(
+            base_config=int8_dynamic_activation_int8_weight(),
+            step=SmoothQuantStep.PREPARE,
+            alpha=alpha,
+        )
+        quantize_(model, config)
+
+        # Step 2: Calibration
         calibration_data = get_calib_dataset(
             tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length
         )
@@ -147,10 +154,11 @@ def wikitext2_ppl(
             batch.to("cpu")
         print(f"time for calibration: {time.time() - t0:.02f} seconds")
 
-        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
+        # Step 3: Convert to quantized model
         print(f"running SmoothQuant with {quant_mode} quantization")
         t0 = time.time()
-        quantize_(model, SmoothQuantConfig(), is_observed_linear)
+        config.step = SmoothQuantStep.CONVERT
+        quantize_(model, config)
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:
             print(f"Saving quantized model to {model_save_path}")
@@ -239,7 +247,7 @@ if __name__ == "__main__":
         args.quant_mode,
         args.calibration_samples,
         args.device,
-        args.precision,
+        precision_dtype,
         args.seq_len,
         args.compile,
         args.model_load_path,

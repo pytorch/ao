@@ -1,4 +1,4 @@
-# SmothQuant quantization
+# SmoothQuant quantization
 This is a native PyTorch implementation of the algorithm described in [this paper](https://arxiv.org/abs/2211.10438).
 
 In this implementation, weights are smoothed (equalized) and quantized to int8 during quantization. Activations are smoothed and quantized to int8 at runtime. Quantization is done either dynamically or statically. If activations are dynamically quantized, qparams (i.e., scales) are found at runtime while qparams are found during quantization for static quantization. For dynamic quantization, activations are quantized per token. And for static quantization, activations are quantized per tensor. Generally, dynamic quantization produces better accuracy while static quantization has better latency. In both cases, weights and activations are symmetrically quantized.
@@ -6,21 +6,21 @@ In this implementation, weights are smoothed (equalized) and quantized to int8 d
 ## Quick start
 Run the example code with
 ```bash
-python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static>
+python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static>
 # An example
 python example.py -m meta-llama/Llama-2-7b-hf --device=cuda --quant-mode=dynamic
 ```
 To use the `torch.compile` for speedup, add `--compile`. You may want to export `TORCHINDUCTOR_FREEZING=1` for even better performance.
 ```bash
-TORCHINDUCTOR_FREEZING=1 python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --compile
+TORCHINDUCTOR_FREEZING=1 python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --compile
 ```
 To save a quantized model for reuse, specify `--model-save-path`
 ```bash
-python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-save-path ./quantized_model.pt
+python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-save-path ./quantized_model.pt
 ```
 And load it by `--model-load-path`
 ```bash
-python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-load-path ./quantized_model.pt
+python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-load-path ./quantized_model.pt
 ```
 
 
