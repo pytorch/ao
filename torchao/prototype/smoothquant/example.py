@@ -16,7 +16,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
 )
+from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
+from torchao.quantization.quant_api import int8_dynamic_activation_int8_weight
 
 
 def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
@@ -136,7 +138,11 @@ def wikitext2_ppl(
         print("running calibration")
         t0 = time.time()
         # Step 1: Insert observers to find average magnitude and calculate scales
-        config = SmoothQuantConfig(step="prepare", alpha=alpha, quant_mode=quant_mode)
+        config = SmoothQuantConfig(
+            base_config=int8_dynamic_activation_int8_weight(),
+            step=SmoothQuantStep.PREPARE,
+            alpha=alpha,
+        )
         quantize_(model, config)
 
         # Step 2: Calibration
@@ -151,7 +157,7 @@ def wikitext2_ppl(
         # Step 3: Convert to quantized model
         print(f"running SmoothQuant with {quant_mode} quantization")
         t0 = time.time()
-        config.step = "convert"
+        config.step = SmoothQuantStep.CONVERT
         quantize_(model, config)
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:

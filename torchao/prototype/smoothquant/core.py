@@ -23,7 +23,6 @@ class SmoothQuantObserver(torch.nn.Module):
         self,
         weight: torch.Tensor,
         alpha: Optional[float] = 0.5,
-        quant_mode: str = "static",  # or dynamic
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         eps: Optional[float] = None,
@@ -35,7 +34,6 @@ class SmoothQuantObserver(torch.nn.Module):
             weight: The weight tensor to be observed.
             alpha: The alpha value to determine smoothing factor, normally between 0 and 1.
                    Fall back to conventional quantization if alpha is None.
-            quant_mode: The mode of activation quantization, either static or dynamic
             quant_min: The minimum quantized value
             quant_max: The maximum quantized value
             eps: The minimum scale to avoid dividing by zero.
@@ -45,7 +43,6 @@ class SmoothQuantObserver(torch.nn.Module):
         self.weight = weight
         self.device = self.weight.device
         self.alpha = alpha
-        self.quant_mode = quant_mode
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.eps = eps or torch.finfo(torch.float32).eps
@@ -97,22 +94,6 @@ class SmoothQuantObserver(torch.nn.Module):
 
         # Step 3: Calculate activation scales for static quantization
         act_scales = None
-        if self.quant_mode == "static":
-            act_min_new = act_min_per_ic / smoothing_factor.reshape(
-                act_min_per_ic.shape
-            )
-            act_max_new = act_max_per_ic / smoothing_factor.reshape(
-                act_max_per_ic.shape
-            )
-
-            # Calculate global scale (scalar)
-            global_min = torch.min(act_min_new)
-            global_max = torch.max(act_max_new)
-            abs_max = torch.max(torch.abs(global_min), torch.abs(global_max))
-            act_scale = abs_max / (float(self.quant_max - self.quant_min) / 2)
-
-            # Create scalar tensor for tensor-wise quantization
-            act_scales = act_scale.reshape(()).to(self.device)  # Ensure scalar shape
 
         # Step 4: Update weight and find scales
         self.wei_oc_obs(self.weight * smoothing_factor.to(self.device))

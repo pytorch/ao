@@ -11,21 +11,17 @@ import torch
 
 import torchao
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
-from torchao.quantization.linear_activation_quantized_tensor import (
-    to_linear_activation_quantized,
-)
 from torchao.quantization.linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
 )
 from torchao.quantization.quant_api import (
+    _QUANTIZE_CONFIG_HANDLER,
     _linear_extra_repr,
 )
-from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.quantization.utils import _get_per_token_block_size
+from torchao.utils import DummyModule
 
 from .core import (
     SmoothQuantObservedLinear,
@@ -40,21 +36,21 @@ class SmoothQuantConfig(AOBaseConfig):
     Configuration for SmoothQuant quantization when passed into quantize_()
 
     Args:
+        base_config: Base quantization configuration that SmoothQuant is applied on top of
         step (SmoothQuantStep): The step for SmoothQuant process
             PREPARE: insert SmoothQuant Observers to linear layers
             CONVERT: convert the observed linear modules to quantized modules
         alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
             Fall back to conventional quantization if None
-        quant_mode: dynamic or static quantization of activation
         smoothing_factor: The smoothing factor for the layer. Acquired from the layer's observer if None.
         act_scales: The activation scales for the layer. Acquired from the layer's observer if None.
         wei_scales: The weight scales for the layer. Acquired from the layer's observer if None.
         set_inductor_config: if True, adjusts `torchinductor` settings to recommended values.
     """
 
+    base_config: AOBaseConfig
     step: SmoothQuantStep
     alpha: Optional[float] = 0.5
-    quant_mode: str = "dynamic"
     smoothing_factor: Optional[torch.Tensor] = None
     act_scales: Optional[torch.Tensor] = None
     wei_scales: Optional[torch.Tensor] = None
@@ -65,34 +61,6 @@ class SmoothQuantConfig(AOBaseConfig):
         all_step_values = [s.value for s in SmoothQuantStep]
         if self.step not in all_step_values:
             raise ValueError(f"{self.step} is not one of {all_step_values}")
-        assert self.quant_mode in ["static", "dynamic"]
-
-
-class _ActQuantizer:
-    def __init__(self, target_dtype, quant_min=-127):
-        self.target_dtype = target_dtype
-        self.quant_min = quant_min
-
-    def dynamic_quantize(self, input):
-        return to_affine_quantized_intx(
-            input,
-            MappingType.SYMMETRIC,
-            _get_per_token_block_size(input),
-            self.target_dtype,
-            self.quant_min,
-        )
-
-    def static_quantize(self, input, scale, zero_point):
-        # Use tensor-wise quantization for static mode
-        # This matches the expected behavior for SmoothQuant static quantization
-        return to_affine_quantized_intx_static(
-            input,
-            scale,
-            zero_point,
-            (1,) + (1,) * (input.ndim - 1),
-            self.target_dtype,
-            self.quant_min,
-        )
 
 
 @register_quantize_module_handler(SmoothQuantConfig)
@@ -102,12 +70,12 @@ def _smooth_quant_transform(
 ) -> torch.nn.Module:
     step = config.step
     observed_linear = None
+    base_config = config.base_config
 
     if step == SmoothQuantStep.PREPARE:
         observer = SmoothQuantObserver(
             weight=module.weight,
             alpha=config.alpha,
-            quant_mode=config.quant_mode,
             quant_min=-127,
             quant_max=127,
             eps=torch.finfo(torch.float32).eps,
@@ -153,19 +121,10 @@ def _smooth_quant_transform(
     linear.bias = observed_linear.bias
 
     # Quantize weights
-    target_dtype = torch.int8
-    weight = weight.to(observed_linear.weight.dtype)
-    block_size = (1, weight.size(1))
-    wei_zero_points = torch.zeros_like(wei_scales, dtype=torch.int64)
-
-    qw = to_affine_quantized_intx_static(
-        weight, wei_scales, wei_zero_points, block_size, target_dtype
-    )
-
-    # Apply activation quantization
-    qw = to_linear_activation_quantized(
-        qw, _ActQuantizer(target_dtype).dynamic_quantize
-    )
+    base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
+    dummy_mod = DummyModule(weight)
+    quant_mod = base_config_handler(dummy_mod, base_config)
+    qw = quant_mod.weight
 
     # Add smoothing factor metadata
     qw = to_weight_tensor_with_linear_activation_scale_metadata(
