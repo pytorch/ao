@@ -22,7 +22,9 @@ potential_paths = [
 
 
 def find_and_load_libtorchao_ops(potential_paths):
-    # import torchao._experimental_aten_ops
+    """
+    Finds and loads torchao._experimental_aten_ops from one of the provided paths
+    """
 
     for lib_path in potential_paths:
         libs = list(lib_path.glob("_experimental_aten_ops.*"))
