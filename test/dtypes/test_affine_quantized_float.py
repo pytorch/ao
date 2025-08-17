@@ -48,7 +48,6 @@ torch.manual_seed(0)
 
 
 class TestAffineQuantizedFloat8Compile(InductorTestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
@@ -270,13 +269,15 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Verify warning messages for both layers
         expected_messages = [
             "Skipping float8 quantization: weight shape torch.Size([25, 10])",
-            "Skipping float8 quantization: weight shape torch.Size([10, 25])",
+            "Skipping float8 quantization: weight shape torch.Size([128, 25])",
         ]
         # Check that we got warnings for both incompatible layers
         warning_count = sum(
             1 for msg in log_context.output if "Skipping float8 quantization" in msg
         )
-        self.assertEqual(warning_count, 2, "Expected warnings for both linear layers")
+        self.assertEqual(
+            warning_count, 2, "Expected warnings for two incompatible linear layers"
+        )
 
         # Check warning message content
         for expected in expected_messages:

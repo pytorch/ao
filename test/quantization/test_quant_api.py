@@ -128,8 +128,6 @@ class TorchCompileDynamicQuantizer(Quantizer):
         return model
 
 
-
-
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
     def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
         """
@@ -278,7 +276,7 @@ class TestQuantFlow(TestCase):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
-        m = ToyMultiLinearModel(bias=True).eval()
+        m = ToyMultiLinearModel(has_bias=True).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
@@ -434,7 +432,12 @@ class TestQuantFlow(TestCase):
     def test_quantized_tensor_subclass_int4(self):
         for device in self.GPU_DEVICES:
             # use 1024 so that we don't need padding
-            m = ToyMultiLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
+            m = (
+                ToyMultiLinearModel(1024, 1024, 1024)
+                .eval()
+                .to(torch.bfloat16)
+                .to(device)
+            )
             m_copy = copy.deepcopy(m)
             example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
 
