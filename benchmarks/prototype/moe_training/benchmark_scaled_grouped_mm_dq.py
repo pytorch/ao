@@ -12,8 +12,8 @@ from typing import List
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
-from utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 
+from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 from torchao.prototype.moe_training import _scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
