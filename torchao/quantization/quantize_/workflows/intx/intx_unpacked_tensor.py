@@ -5,13 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
-    _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     choose_qparams_affine,
@@ -36,12 +35,14 @@ _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
 class IntxUnpackedTensor(TorchAOBaseTensor):
     """
     intx quantization with unpacked format.  Subbyte quantized data is represented as int8.
+    The range of the quantized values are restricted to the quant_min and quant_max of the target_dtype, e.g.,
+    if target_dtype=torch.int4, qdata will be an int8 tensor with values in [-8, 7].
     Quantization is represented in a decomposed way.
     This format is inteded for torch.export use cases.
 
     Tensor Attributes:
-        int_data: int data for quantization.
-                dtype is int8
+        qdata: int data for quantization.
+                dtype is int8, but the range of the qdata is determined by target_dtype
                 Shape is the same as original Tensor: (n, k) for 2D tensor
         scale: block scales for quantization
                dtype is the same as the original Tensor dtype.
@@ -51,72 +52,60 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
                Shape is (n // block_size[0], k // block_size[1]) for 2D tensor
 
     Non-Tensor Attributes:
-        bit_width: the bit width for quantization (can be 1 - 8)
+        target_dtype: this determines the quant_min/quant_max of the qdata (can be torch.int1, ..., torch.int8)
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
     """
 
-    tensor_data_names = ["int_data", "scale", "zero_point"]
-    tensor_attribute_names = ["bit_width", "block_size"]
+    tensor_data_names = ["qdata", "scale", "zero_point"]
+    tensor_attribute_names = ["target_dtype", "block_size"]
 
-    def __new__(cls, int_data, scale, zero_point, bit_width, block_size=None):
+    def __new__(cls, qdata, scale, zero_point, target_dtype, block_size=None):
         kwargs = {}
-        kwargs["device"] = int_data.device
+        kwargs["device"] = qdata.device
         kwargs["dtype"] = scale.dtype
         kwargs["requires_grad"] = False
-        shape = int_data.shape
+        shape = qdata.shape
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
         self,
-        int_data,
+        qdata,
         scale,
         zero_point,
-        bit_width,
-        block_size: Optional[Tuple[int]] = None,
+        target_dtype,
+        block_size: Tuple[int],
     ):
-        # Check plain data and infer block_size from shapes
-        if block_size is None:
-            assert scale.ndim == int_data.ndim
-            assert zero_point.ndim == int_data.ndim
-            block_size = []
-            for i in range(int_data.ndim):
-                assert scale.shape[i] == zero_point.shape[i]
-                n_blocks = scale.shape[i]
-                assert int_data.shape[i] % n_blocks == 0
-                block_size.append(int_data.shape[i] // n_blocks)
-            block_size = tuple(block_size)
-        else:
-            assert len(block_size) == int_data.ndim
-            n_blocks = []
-            for i in range(len(block_size)):
-                assert int_data.shape[i] % block_size[i] == 0
-                n_blocks.append(int_data.shape[i] // block_size[i])
-            scale = scale.reshape(*n_blocks)
-            zero_point = zero_point.reshape(*n_blocks)
+        assert qdata.dtype == torch.int8, (
+            f"qdata dtype must be int8, but got {qdata.dtype}"
+        )
+        assert scale.dtype in _FLOAT_TYPES, (
+            f"scale dtype must be one of {_FLOAT_TYPES}, but got {scale.dtype}"
+        )
+        assert zero_point.dtype in _FLOAT_TYPES or zero_point.dtype == torch.int8, (
+            f"zero_point dtype must be {torch.int8} or one of {_FLOAT_TYPES}, but got {zero_point.dtype}"
+        )
 
-        assert block_size is not None
-        assert isinstance(block_size, tuple)
-        assert bit_width >= 1 and bit_width <= 8
+        assert target_dtype in [
+            getattr(torch, f"int{bit_width}") for bit_width in range(1, 9)
+        ]
 
-        self.int_data = int_data
+        assert len(block_size) == qdata.ndim
+        n_blocks = []
+        for i in range(len(block_size)):
+            assert qdata.shape[i] % block_size[i] == 0
+            n_blocks.append(qdata.shape[i] // block_size[i])
+        scale = scale.reshape(*n_blocks)
+        zero_point = zero_point.reshape(*n_blocks)
+
+        self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
 
-        self.bit_width = bit_width
+        self.target_dtype = target_dtype
         self.block_size = block_size
 
-    def __repr__(self):
-        repr_fields = (
-            self.tensor_data_names
-            + self.tensor_attribute_names
-            + ["shape", "device", "dtype", "require_grad"]
-        )
-        inner_repr = [f"{attr}={getattr(self, attr)}" for attr in repr_fields]
-        inner_repr = ", ".join(inner_repr)
-        return f"{self.__class__.__name__}({inner_repr}))"
-
     def _quantization_type(self):
-        return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}"
+        return f"target_dtype={self.target_dtype}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}"
 
     def _has_float_zero_point(self) -> bool:
         return self.zero_point.dtype in _FLOAT_TYPES
@@ -126,40 +115,44 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         device = kwargs.pop("device")
         dtype = kwargs.pop("dtype")
         assert dtype in _FLOAT_TYPES
-        return self.__class__(
-            self.int_data.to(device),
+        return IntxUnpackedTensor(
+            self.qdata.to(device),
             self.scale.to(device=device, dtype=dtype),
             self.zero_point.to(device=device, dtype=dtype)
             if self._has_float_zero_point()
             else self.zero_point.to(device),
-            self.bit_width,
+            self.target_dtype,
             self.block_size,
         )
 
     @classmethod
     def from_hp(
         cls,
-        float_tensor: torch.Tensor,
+        hp_tensor: torch.Tensor,
         block_size: Tuple[int],
-        dtype: torch.dtype,
+        target_dtype: torch.dtype,
         *,
         mapping_type: MappingType = MappingType.SYMMETRIC,
     ):
         """
         Create an IntxUnpackedTensor from a high-precision tensor
         """
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[dtype]
-        bit_width = _DTYPE_TO_BIT_WIDTH[dtype]
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
         scale, zero_point = choose_qparams_affine(
-            float_tensor,
+            hp_tensor,
             mapping_type,
             block_size,
             target_dtype=torch.int8,
             quant_min=qmin,
             quant_max=qmax,
         )
-        int_data = quantize_affine(
-            float_tensor,
+        if zero_point.dtype == torch.int32:
+            int8_min, int8_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+            assert zero_point.min().item() >= int8_min
+            assert zero_point.max().item() <= int8_max
+            zero_point = zero_point.to(torch.int8)
+        qdata = quantize_affine(
+            hp_tensor,
             block_size,
             scale,
             zero_point,
@@ -168,20 +161,17 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             quant_max=qmax,
         )
         return IntxUnpackedTensor(
-            int_data=int_data,
+            qdata=qdata,
             scale=scale,
             zero_point=zero_point,
-            bit_width=bit_width,
+            target_dtype=target_dtype,
             block_size=block_size,
         )
 
-    def get_plain(self):
-        return self.int_data, self.scale, self.zero_point
-
     def dequantize(self):
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[getattr(torch, f"int{self.bit_width}")]
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.target_dtype]
         return dequantize_affine(
-            self.int_data,
+            self.qdata,
             self.block_size,
             self.scale,
             self.zero_point,
@@ -202,7 +192,10 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    weight_tensor = weight_tensor.dequantize()
+    if isinstance(input_tensor, IntxUnpackedTensor):
+        input_tensor = input_tensor.dequantize()
+    if isinstance(weight_tensor, IntxUnpackedTensor):
+        weight_tensor = weight_tensor.dequantize()
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
@@ -227,14 +220,14 @@ def _(func, types, args, kwargs):
     # Otherwise the sliced tensor cannot be represented as a IntxUnpackedTensor
     # For example, if block_size = 4, we might have:
     #
-    # int_data: i i i i | i i i i
+    # qdata: i i i i | i i i i
     #    scale: s s
     #
-    # If we set start = 2 and end = 8, then the int_data slice is:
+    # If we set start = 2 and end = 8, then the qdata slice is:
     #
-    # int_data_slice: i i (i i | i i i i)
+    # qdata_slice: i i (i i | i i i i)
     #
-    # But then the block_size for the first two int_data in the slice is 2
+    # But then the block_size for the first two qdata in the slice is 2
     # and remaining blocks have size 4.  This cannot be represented
     # with the metadata we store in an IntxUnpackedTensor, which requires uniform blocking
 
@@ -248,15 +241,24 @@ def _(func, types, args, kwargs):
     )
     end_scale = end // self.block_size[dim]
 
-    int_data = aten.slice.Tensor(self.int_data, dim, start, end, step)
+    qdata = aten.slice.Tensor(self.qdata, dim, start, end, step)
     scale = aten.slice.Tensor(self.scale, dim, start_scale, end_scale, step)
     zero_point = aten.slice.Tensor(self.zero_point, dim, start_scale, end_scale, step)
 
-    new = self.__class__(
-        int_data,
+    new_block_size = []
+    for i in range(qdata.ndim):
+        assert scale.shape[i] == zero_point.shape[i]
+        n_blocks = scale.shape[i]
+        assert qdata.shape[i] % n_blocks == 0
+        new_block_size.append(qdata.shape[i] // n_blocks)
+    new_block_size = tuple(new_block_size)
+
+    new = IntxUnpackedTensor(
+        qdata,
         scale,
         zero_point,
-        self.bit_width,
+        self.target_dtype,
+        new_block_size,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 

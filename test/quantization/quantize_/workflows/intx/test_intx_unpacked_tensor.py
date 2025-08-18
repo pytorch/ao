@@ -73,10 +73,10 @@ class TestIntxUnpackedTensor(TestCase):
         weight1 = dummy.weight.narrow(0, 0, 64)
         weight2 = dummy.weight.narrow(1, 0, 128)
 
-        self.assertEqual(weight1.int_data, dummy.weight.int_data.narrow(0, 0, 64))
+        self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64))
         self.assertEqual(weight1.scale, dummy.weight.scale.narrow(0, 0, 64))
 
-        self.assertEqual(weight2.int_data, dummy.weight.int_data.narrow(1, 0, 128))
+        self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128))
         self.assertEqual(weight2.scale, dummy.weight.scale.narrow(1, 0, 4))
 
         # check for sliced weight, before and after float8 quantization
@@ -103,10 +103,10 @@ class TestIntxUnpackedTensor(TestCase):
         param = l.weight
         param_data = param.data
         param_data = param_data.narrow(0, 0, 512)
-        assert param.data.int_data.data_ptr() == param_data.int_data.data_ptr()
+        assert param.data.qdata.data_ptr() == param_data.qdata.data_ptr()
         assert param.data.scale.data_ptr() == param_data.scale.data_ptr()
         assert param.data.zero_point.data_ptr() == param_data.zero_point.data_ptr()
-        orig_value = param.data.int_data[0][0].item()
+        orig_value = param.data.qdata[0][0].item()
 
         # dummy_l has random input (shouldn't be 0)
         dummy_l = torch.nn.Linear(1024, 1024).to(device).to(torch.bfloat16)
@@ -117,7 +117,7 @@ class TestIntxUnpackedTensor(TestCase):
         param_data.copy_(quantized)
 
         # making sure param.data is updated
-        assert param.data.int_data[0][0] != orig_value
+        assert param.data.qdata[0][0] != orig_value
 
     def test_to_dtype(self):
         activations_bf16 = torch.randn(1, 128, dtype=torch.bfloat16)
