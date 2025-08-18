@@ -91,12 +91,15 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor,
 )
 from torchao.utils import (
+    auto_detect_device,
     _is_fbgemm_genai_gpu_available,
     is_sm_at_least_89,
 )
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
+_GPU_IS_AVAILABLE = True if torch.cuda.is_available() or torch.xpu.is_available() else False
+_DEVICE = auto_detect_device()
 
 
 class Sub(torch.nn.Module):
@@ -340,7 +343,7 @@ class TestQAT(TestCase):
                 group_size,
             )
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                q_weight.to("cuda"),
+                q_weight.to(_DEVICE),
                 qat_linear.inner_k_tiles,
             )
             ptq_linear.weight = q_weight
@@ -593,13 +596,13 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
         inner_k_tiles = 8
         scales_precision = torch.bfloat16
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256, dtype=dtype, device=device)
@@ -678,7 +681,7 @@ class TestQAT(TestCase):
         qat_out = qat_linear(x)
         ptq_out = ptq_linear(x2)
         self._assert_close_4w(qat_out, ptq_out)
-
+    
     def test_qat_4w_quantizer_gradients(self):
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
@@ -692,11 +695,12 @@ class TestQAT(TestCase):
 
         group_size = 32
         inner_k_tiles = 8
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         m = M().to(device).to(dtype)
         m2 = copy.deepcopy(m)
+
         qat_quantizer = Int4WeightOnlyQATQuantizer(
             groupsize=group_size,
             inner_k_tiles=inner_k_tiles,
