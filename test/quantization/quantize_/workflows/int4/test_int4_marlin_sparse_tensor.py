@@ -67,6 +67,7 @@ class TestInt4MarlinSparseTensor(TestCase):
         quantized_and_compiled = compiled_linear(input)
         self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
 
+    @skip_if_rocm("ROCm enablement in progress")
     @unittest.skip("Fix later")
     @parametrize("config", [BF16_ACT_CONFIG])
     def test_to_device(self, config):
@@ -83,6 +84,7 @@ class TestInt4MarlinSparseTensor(TestCase):
             quantize_(linear, config)
             linear.to(device)
 
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("config", [BF16_ACT_CONFIG])
     def test_module_path(self, config):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
