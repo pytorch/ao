@@ -19,7 +19,11 @@ from torchao.prototype.mx_formats.config import (
     _validate_gemm_kernel_choice,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4MMConfig, NVFP4Tensor
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4MMConfig,
+    NVFP4Tensor,
+    QuantizeTensorToNVFP4Kwargs,
+)
 from torchao.quantization.quant_api import to_linear_activation_quantized
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
@@ -199,11 +203,15 @@ def _nvfp4_inference_linear_transform(
             "Please use bfloat16 or float16 weights, or remove the bias from the linear layer."
         )
 
+    act_quant_kwargs = None
+    if config.mm_config == NVFP4MMConfig.DYNAMIC:
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
+
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
-        mm_config=config.mm_config,
         is_swizzled_scales=True,
         use_triton_kernel=False,  # Always use traditional construction for weights
+        act_quant_kwargs=act_quant_kwargs,
     )
     # Set triton preference after construction
     quantized_weight.use_triton_kernel = config.use_triton_kernel
