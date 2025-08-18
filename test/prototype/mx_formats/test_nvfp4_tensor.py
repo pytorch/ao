@@ -19,7 +19,6 @@ from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
-    is_sm_at_least_90,
     is_sm_at_least_100,
 )
 
@@ -449,7 +448,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
 @pytest.mark.skipif(
-    not is_sm_at_least_90(), reason="CUDA capability >= 9.0 required for fp8e4nv"
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
 )
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,

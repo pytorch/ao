@@ -28,7 +28,6 @@ from torchao.quantization import (
     quantize_,
     uintx_weight_only,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
 
 
 def run_evaluation(
@@ -151,9 +150,6 @@ def run_evaluation(
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             quantizer.quantize(model, *inputs)
             model = model.to(device)
-        else:
-            if not TORCH_VERSION_AT_LEAST_2_5:
-                unwrap_tensor_subclass(model)
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only())
         if "float8dq" in quantization:
@@ -236,6 +232,41 @@ def run_evaluation(
             model.to(device)
             quantize_(
                 model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64)
+            )
+        elif quantization.startswith("awq-uintx"):
+            from torchao._models._eval import TransformerEvalWrapper
+            from torchao.prototype.awq import (
+                AWQObservedLinear,
+                awq_uintx,
+                insert_awq_observer_,
+            )
+
+            quant_dtype = quantization.split("-")[1]
+            group_size = int(quantization.split("-")[2])
+            quant_dtype = getattr(torch, quant_dtype, torch.uint8)
+            model = model.to(device)
+            # get calibration data
+            insert_awq_observer_(
+                model, 1, 256, quant_dtype=quant_dtype, group_size=group_size
+            )
+            TransformerEvalWrapper(
+                model=model.to(device),
+                tokenizer=tokenizer,
+                max_seq_length=256,
+                input_prep_func=prepare_inputs_for_model,
+                device=device,
+            ).run_eval(
+                tasks=["wikitext"],
+                limit=1,
+            )
+            is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+            use_hqq = "hqq" in quantization
+            quantize_(
+                model,
+                awq_uintx(
+                    quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq
+                ),
+                is_observed_linear,
             )
 
     if compile:

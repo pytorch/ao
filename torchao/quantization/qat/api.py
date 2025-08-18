@@ -24,6 +24,7 @@ from .fake_quantize_config import (
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
+from .utils import _log_deprecation_warning
 
 
 class QATStep(str, Enum):
@@ -113,9 +114,11 @@ class QATConfig(AOBaseConfig):
     Raises:
         ValueError: If `base_config` and `activation_config` are both specified
         ValueError: If `base_config` and `weight_config` are both specified
-        ValueError: If neither `base_config` nor `weight_config` is specified
+        ValueError: If none of `base_config`, `activation_config`, or
+            `weight_config` are specified
+        ValueError: If either `activation_config` or `weight_config` is specified
+             and `step` is "convert"
         ValueError: If `step` is not one of "prepare" or "convert"
-        ValueError: If `base_config` is None but `step` is "convert"
         ValueError: If the config is applied on a module that is not a
             `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
             `torch.nn.Embedding` with an activation config
@@ -143,22 +146,30 @@ class QATConfig(AOBaseConfig):
         self.__post_init__()
 
     def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.qat.QATConfig")
         self.step = self.step.lower()
         all_step_values = [s.value for s in QATStep]
         if self.step not in all_step_values:
             raise ValueError(f"`step` must be one of {all_step_values}")
-        if self.base_config is None and self.weight_config is None:
-            raise ValueError(
-                "One of `base_config` or `weight_config` must be specified"
-            )
         if self.base_config is not None and self.activation_config is not None:
             raise ValueError(
                 "Cannot specify both `base_config` and `activation_config`"
             )
         if self.base_config is not None and self.weight_config is not None:
             raise ValueError("Cannot specify both `base_config` and `weight_config`")
-        if self.base_config is None and self.step == "convert":
-            raise ValueError("`base_config` must be specified in the convert step")
+        if self.step == QATStep.PREPARE and not any(
+            (self.base_config, self.activation_config, self.weight_config)
+        ):
+            raise ValueError(
+                "Must specify `base_config`, `activation_config`, or `weight_config` in the prepare step"
+            )
+
+        if self.step == QATStep.CONVERT and (
+            self.activation_config is not None or self.weight_config is not None
+        ):
+            raise ValueError(
+                "Cannot specify `weight_config` or `activation_config` in the convert step"
+            )
         if isinstance(self.base_config, FakeQuantizeConfigBase):
             config_type = self.base_config.__class__.__name__
             raise ValueError(
@@ -212,8 +223,10 @@ def _qat_config_transform(
         # Swap FakeQuantizedLinear -> nn.Linear
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
+        # If there is no base config, then simply perform the module swap
         assert step == QATStep.CONVERT, "unexpected step '%s' in QATConfig" % step
-        assert base_config is not None, "expected `base_config` in convert step"
+        assert config.activation_config is None, "unexpected `activation_config`"
+        assert config.weight_config is None, "unexpected `weight_config`"
         if isinstance(module, FakeQuantizedLinear):
             module = module.to_linear()
         elif isinstance(module, FakeQuantizedEmbedding):
@@ -221,14 +234,17 @@ def _qat_config_transform(
         else:
             # Unrelated module, ignore
             return module
-        return _QUANTIZE_CONFIG_HANDLER[type(base_config)](module, base_config)
+        if base_config is not None:
+            return _QUANTIZE_CONFIG_HANDLER[type(base_config)](module, base_config)
+        else:
+            return module
 
 
-# TODO: deprecate
 @dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    (Will be deprecated soon)
+    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.
+
     Config for applying fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
@@ -256,9 +272,13 @@ class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     activation_config: Optional[FakeQuantizeConfigBase] = None
     weight_config: Optional[FakeQuantizeConfigBase] = None
 
+    def __post_init__(self):
+        _log_deprecation_warning(self)
+
 
 # for BC
-intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
+class intx_quantization_aware_training(IntXQuantizationAwareTrainingConfig):
+    pass
 
 
 @register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
@@ -286,10 +306,11 @@ def _intx_quantization_aware_training_transform(
         raise ValueError("Module of type '%s' does not have QAT support" % type(mod))
 
 
-# TODO: deprecate
+@dataclass
 class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    (Will be deprecated soon)
+    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.
+
     Config for converting a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
     and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
@@ -306,11 +327,13 @@ class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
         )
     """
 
-    pass
+    def __post_init__(self):
+        _log_deprecation_warning(self)
 
 
 # for BC
-from_intx_quantization_aware_training = FromIntXQuantizationAwareTrainingConfig
+class from_intx_quantization_aware_training(FromIntXQuantizationAwareTrainingConfig):
+    pass
 
 
 @register_quantize_module_handler(FromIntXQuantizationAwareTrainingConfig)
@@ -351,6 +374,7 @@ class ComposableQATQuantizer(TwoStepQuantizer):
     """
 
     def __init__(self, quantizers: List[TwoStepQuantizer]):
+        torch._C._log_api_usage_once("torchao.quantization.qat.ComposableQATQuantizer")
         self.quantizers = quantizers
 
     def prepare(
@@ -374,14 +398,16 @@ def initialize_fake_quantizers(
 ) -> None:
     """
     (Prototype) Initialize the scales and zero points on all
-    :class:`~torchao.quantization.qat.fake_quantizer.FakeQuantizer`
+    :class:`~torchao.quantization.qat.fake_quantizer.IntxFakeQuantizerBase`
     in the model based on the provided example inputs.
     """
+    torch._C._log_api_usage_once("torchao.quantization.qat.initialize_fake_quantizers")
+
     # avoid circular dependencies
-    from torchao.quantization.qat.fake_quantizer import FakeQuantizer
+    from torchao.quantization.qat.fake_quantizer import IntxFakeQuantizer
 
     def _set_initialized(m: torch.nn.Module):
-        if isinstance(m, FakeQuantizer):
+        if isinstance(m, IntxFakeQuantizer):
             m._initialized = True
 
     model.apply(_set_initialized)

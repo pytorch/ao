@@ -13,7 +13,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 from benchmarks.microbenchmarks.utils import string_to_config
 from torchao.quantization import *  # noqa: F401, F403
-from torchao.quantization.utils import _lm_eval_available
 
 
 def quantize_model_and_save(model_id, quant_config, output_dir="results"):
@@ -113,7 +112,9 @@ def run(
 
 
 if __name__ == "__main__":
-    if not _lm_eval_available:
+    try:
+        import lm_eval  # noqa: F401
+    except:
         print(
             "lm_eval is required to run this script. Please install it using pip install lm-eval."
         )
@@ -146,7 +147,7 @@ if __name__ == "__main__":
         "--device", type=str, default="cuda:0", help="Device to run the model on."
     )
     parser.add_argument(
-        "--batch_size", type=int, default=1, help="Batch size for lm_eval."
+        "--batch_size", type=str, default="auto", help="Batch size for lm_eval."
     )
     parser.add_argument(
         "--prompt",

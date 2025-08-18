@@ -16,7 +16,6 @@ from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     skipIfNoDynamoSupport,
     skipIfNoONEDNN,
@@ -26,6 +25,7 @@ from torch.testing._internal.common_utils import (
     IS_FBCODE,
     IS_LINUX,
     IS_X86,
+    TEST_ACL,
     instantiate_parametrized_tests,
     parametrize,
 )
@@ -45,15 +45,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_8,
-)
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    from torch.testing._internal.common_utils import TEST_ACL
-else:
-    TEST_ACL = False
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
@@ -114,7 +106,7 @@ def _generate_qdq_quantized_model(
 ):
     maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
     with maybe_no_grad:
-        export_model = export_for_training(mod, inputs, strict=True).module()
+        export_model = torch.export.export(mod, inputs, strict=True).module()
         quantizer = (
             quantizer if quantizer else get_default_quantizer(is_qat, is_dynamic)
         )

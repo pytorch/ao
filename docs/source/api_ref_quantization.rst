@@ -24,6 +24,7 @@ Inference APIs for quantize\_
     :nosignatures:
 
     Int4WeightOnlyConfig
+    Float8DynamicActivationInt4WeightConfig
     Float8DynamicActivationFloat8WeightConfig
     Float8WeightOnlyConfig
     Float8StaticActivationFloat8WeightConfig

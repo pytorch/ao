@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include <ATen/Functions.h>
-#include <torch/library.h>
 #include <torchao/experimental/ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.h>
 #include <torchao/experimental/ops/groupwise_lowbit_weight_lut/kernel_selector.h>
 #include <torchao/experimental/ops/library.h>
@@ -103,30 +101,6 @@ Tensor linear_cpu(
       k,
       output_tensor);
   return output_tensor;
-}
-#endif // USE_ATEN
-
-#ifdef USE_ATEN
-template <int weight_nbit>
-at::Tensor linear_meta(
-    const at::Tensor& activations,
-    const at::Tensor& packed_weights,
-    const int64_t& scale_group_size,
-    const int64_t& lut_group_size,
-    const int64_t& n,
-    const int64_t& k) {
-  auto input_sizes = activations.sizes().vec();
-  TORCH_CHECK(
-      !input_sizes.empty() && input_sizes.back() == k,
-      "The last dimension of `activations` is ",
-      input_sizes.back(),
-      " but it must be equal to k=",
-      k);
-
-  auto output_sizes = input_sizes;
-  output_sizes.back() = n;
-
-  return at::empty(output_sizes, activations.options());
 }
 #endif // USE_ATEN
 

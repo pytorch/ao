@@ -22,14 +22,18 @@ potential_paths = [
 
 
 def find_and_load_libtorchao_ops(potential_paths):
+    """
+    Finds and loads torchao._experimental_aten_ops from one of the provided paths
+    """
+
     for lib_path in potential_paths:
-        libs = list(lib_path.glob("libtorchao_ops_aten.*"))
+        libs = list(lib_path.glob("_experimental_aten_ops.*"))
 
         if not libs:
             continue
 
         assert len(libs) == 1, (
-            f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
+            f"Expected to find one _experimental_aten_ops.* library at {lib_path}, but found {len(libs)}"
         )
 
         target_lib = libs[0]
@@ -84,3 +88,20 @@ for weight_nbit in range(1, 9):
         assert indices.dim() == 1
         num_out = indices.shape[0]
         return torch.empty(num_out, k, dtype=torch.float32, device="meta")
+
+
+for weight_nbit in range(1, 5):
+
+    @impl(torchao_lib, f"_linear_groupwise_{weight_nbit}bit_weight_with_lut", "Meta")
+    def _(
+        activations: Tensor,
+        packed_weights: Tensor,
+        scale_group_size: int,
+        lut_group_size: int,
+        n: int,
+        k: int,
+    ):
+        assert activations.dim() == 2
+        m, k_ = activations.shape
+        assert k_ == k
+        return torch.empty(m, n, dtype=activations.dtype, device="meta")

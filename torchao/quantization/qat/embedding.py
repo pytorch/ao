@@ -17,7 +17,7 @@ from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     IntxFakeQuantizeConfig,
 )
-from .fake_quantizer import FakeQuantizer
+from .fake_quantizer import FakeQuantizerBase
 from .utils import (
     _get_qmin_qmax,
 )
@@ -65,8 +65,9 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             *args,
             **kwargs,
         )
+        torch._C._log_api_usage_once("torchao.quantization.qat.FakeQuantizedEmbedding")
         if weight_config is not None:
-            self.weight_fake_quantizer = FakeQuantizer(weight_config)
+            self.weight_fake_quantizer = FakeQuantizerBase.from_config(weight_config)
         else:
             self.weight_fake_quantizer = None
 
@@ -148,6 +149,9 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         zero_point_precision: torch.dtype = torch.int32,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer"
+        )
         self.bit_width = 4
         self.group_size: int = group_size
         self.scale_precision: torch.dtype = scale_precision
