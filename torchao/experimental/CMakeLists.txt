@@ -136,7 +136,18 @@ if(TORCHAO_BUILD_ATEN_OPS)
         ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_aten.cpp
     )
     list(TRANSFORM _torchao_op_srcs_aten PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+
+    # Use the Python extension name if provided
     add_library(torchao_ops_aten SHARED ${_torchao_op_srcs_aten})
+    if(DEFINED TORCHAO_CMAKE_EXT_SO_NAME)
+        message(STATUS "Setting output name to: ${TORCHAO_CMAKE_EXT_SO_NAME}.so")
+        set_target_properties(torchao_ops_aten PROPERTIES
+            OUTPUT_NAME ${TORCHAO_CMAKE_EXT_SO_NAME}
+            PREFIX ""  # Remove "lib" prefix for Python extensions
+            SUFFIX ".so"  # Add ".so" suffix for Python extensions
+        )
+    endif()
+
     target_link_torchao_parallel_backend(torchao_ops_aten "${TORCHAO_PARALLEL_BACKEND}")
     if (TORCHAO_BUILD_CPU_AARCH64)
         target_link_libraries(torchao_ops_aten PRIVATE torchao_kernels_aarch64)
