@@ -120,6 +120,7 @@ from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
+    quantize_affine,
 )
 from .subclass import (
     QuantizedLinearWeightBase,
@@ -548,20 +549,9 @@ def quantize_(
         )
 
 
-def _int8_asymm_per_token_quant_v2(x: torch.Tensor) -> torch.Tensor:
-    """This is defined here instead of local function to support serialization"""
-    # Use FP32 for quantization
-    x_fp32 = x.to(torch.float32)
-    x_int8_quantized = IntxUnpackedTensor.from_hp(
-        x_fp32,
-        block_size=_get_per_token_block_size(x),
-        dtype=torch.int8,
-        mapping_type=MappingType.ASYMMETRIC,
-    )
-
-    # Cast to original dtype.  This is the dequantization dtype
-    x_int8_quantized = x_int8_quantized.to(x.dtype)
-    return x_int8_quantized
+def _int8_asymm_per_token_quant_hp(x: torch.Tensor) -> torch.Tensor:
+    """This is the same as _int8_asymm_per_token_quant, but returns a high-precision tensor"""
+    return _int8_asymm_per_token_quant(x).dequantize()
 
 
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
@@ -849,7 +839,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
             mapping_type=weight_mapping_type,
         )
         if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
-            new_weight.scale = new_weight.scale.to(weight_scale_dtype).to(weight.dtype)
+            _adjust_scale_dtype_in_intx_unpacked_tensor(
+                new_weight, weight, weight_scale_dtype
+            )
 
         new_bias = bias
 
@@ -866,7 +858,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         else:
             assert packing_format == PackingFormat.UNPACKED_TO_INT8
             new_weight = to_linear_activation_quantized(
-                new_weight, _int8_asymm_per_token_quant_v2
+                new_weight, _int8_asymm_per_token_quant_hp
             )
 
         return new_weight, new_bias
@@ -2044,6 +2036,31 @@ def _uintx_weight_only_transform(
     return module
 
 
+def _adjust_scale_dtype_in_intx_unpacked_tensor(
+    intx_unpacked_tensor: IntxUnpackedTensor,
+    hp_tensor: torch.Tensor,
+    scale_dtype: torch.dtype,
+) -> None:
+    """
+    Adjusts the scale_dtype on IntxUnpackedTensor.
+    Updating the scale dtype requires updating the qdata because qdata is calculated after the scale.
+    This is used in IntxWeightOnlyConfig and Int8DynamicActivationIntxWeightConfig to make
+    version=2 and version=1 numerically equivalent when the scale_dtype differs from the input dtype
+    """
+    assert isinstance(intx_unpacked_tensor, IntxUnpackedTensor)
+    intx_unpacked_tensor.scale = intx_unpacked_tensor.scale.to(scale_dtype)
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[intx_unpacked_tensor.target_dtype]
+    intx_unpacked_tensor.qdata = quantize_affine(
+        hp_tensor,
+        intx_unpacked_tensor.block_size,
+        intx_unpacked_tensor.scale,
+        intx_unpacked_tensor.zero_point,
+        output_dtype=torch.int8,
+        quant_min=qmin,
+        quant_max=qmax,
+    )
+
+
 @dataclass
 class IntxWeightOnlyConfig(AOBaseConfig):
     """
@@ -2118,7 +2135,10 @@ def _intx_weight_only_quantize_tensor(weight, config):
                 mapping_type=mapping_type,
             )
             if scale_dtype is not None and scale_dtype != weight.dtype:
-                new_weight.scale = new_weight.scale.to(scale_dtype).to(weight.dtype)
+                _adjust_scale_dtype_in_intx_unpacked_tensor(
+                    new_weight, weight, scale_dtype
+                )
+
             return new_weight
         else:
             raise ValueError(f"Unsupported packing format: {packing_format}")
@@ -2335,7 +2355,7 @@ def _module_fqn_to_config_handler(
 torch.serialization.add_safe_globals(
     [
         _int8_asymm_per_token_quant,
-        _int8_asymm_per_token_quant_v2,
+        _int8_asymm_per_token_quant_hp,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
         _int4_symm_cutlass_quant,

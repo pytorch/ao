@@ -779,6 +779,79 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertGreater(compute_error(out_qc, out), 30)
 
     @parameterized.expand(
+        [
+            param(
+                weight_dtype=weight_dtype,
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
+            for group_size in [32, 64, 128]
+            for mapping_type in [MappingType.SYMMETRIC]
+            for act_mapping_type in [MappingType.ASYMMETRIC]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_v2_unpacked_is_identical_to_v1_qdq(
+        self,
+        weight_dtype,
+        group_size,
+        mapping_type,
+        act_mapping_type,
+        scale_dtype,
+        model_dtype,
+    ):
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        model_v1 = copy.deepcopy(model)
+        quantize_(
+            model_v1,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
+                version=1,
+                layout=QDQLayout(),
+            ),
+        )
+        out_v1 = model_v1(activations)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                version=2,
+            ),
+        )
+        out_v2 = model(activations)
+
+        sqnr = compute_error(out_v1, out_v2).item()
+        self.assertTrue(sqnr == float("inf"), f"Got SQNR of {sqnr}")
+
+    @parameterized.expand(
         _get_test_cases_v2(),
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )

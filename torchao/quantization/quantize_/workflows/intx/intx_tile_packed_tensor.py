@@ -12,6 +12,7 @@ from typing import Optional
 import torch
 
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
+from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_tensor import (
     IntxUnpackedTensor,
 )
@@ -141,8 +142,8 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         """
 
         # Extract data from IntxUnpackedTensor
-        int_data, scale, zero_point = tensor.get_plain()
-        bit_width = tensor.bit_width
+        qdata, scale, zero_point = tensor.qdata, tensor.scale, tensor.zero_point
+        bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
         dtype = tensor.dtype
         shape = tensor.shape
 
@@ -172,8 +173,8 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
             )
             assert bit_width == 4, "ATEN target only supports 4-bit"
             assert not packed_weights_has_zeros, "ATEN target does not support zeros"
-            int_data = int_data.add(8)
-            int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
+            qdata = qdata.add(8)
+            qdata = (qdata[::, 1::2] << 4 | qdata[::, ::2]).to(torch.uint8)
 
             # If per-group, convert scales to bfloat16 to call optimized kernel
             if not is_per_channel:
@@ -184,7 +185,7 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
                 scale = scale.to(torch.bfloat16)
 
             packed_weight = torch.ops.aten._dyn_quant_pack_4bit_weight(
-                int_data, scale, bias, group_size, shape[1], shape[0]
+                qdata, scale, bias, group_size, shape[1], shape[0]
             )
             return cls(
                 packed_weight,
@@ -226,7 +227,7 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
             torch.ops.torchao,
             f"_pack_8bit_act_{bit_width}bit_weight",
         )(
-            int_data,
+            qdata,
             scale.reshape(-1),
             zero_point.reshape(-1) if packed_weights_has_zeros else None,
             group_size,
