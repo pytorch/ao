@@ -13,11 +13,11 @@ from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -79,7 +79,7 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     ids=lambda x: f"{x[0]}x{x[1]}x{x[2]}",
 )
 @pytest.mark.parametrize(
-    "format", ["fp8", "fp4"] if TORCH_VERSION_AT_LEAST_2_8 else ["fp8"]
+    "format", ["fp8", "fp4"] if torch_version_at_least("2.8.0") else ["fp8"]
 )
 def test_matrix_multiplication(size, format):
     M, K, N = size

@@ -15,10 +15,10 @@ from torch._inductor.pattern_matcher import (
     register_lowering_pattern,
 )
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
-if TORCH_VERSION_AT_LEAST_2_7:
-    # TORCH_VERSION_AT_LEAST_2_7 is needed for functions in int8 sdpa lowering
+if torch_version_at_least("2.7.0"):
+    # torch_version_at_least("2.7.0") is needed for functions in int8 sdpa lowering
     from ..int8_sdpa_lowering import register_int8_sdpa  # noqa: F401
 else:
     make_fallback(torch.ops.torchao.qscaled_dot_product.default)
@@ -370,8 +370,8 @@ def _register_int8_sdpa_lowerings(custom_pass_dict):
 
 
 custom_pass = None
-if TORCH_VERSION_AT_LEAST_2_7:
-    # TORCH_VERSION_AT_LEAST_2_7 is needed for custom graph pass
+if torch_version_at_least("2.7.0"):
+    # torch_version_at_least("2.7.0") is needed for custom graph pass
     from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 
     # define the custom pass
@@ -390,7 +390,7 @@ if TORCH_VERSION_AT_LEAST_2_7:
 
 @functools.lru_cache(None)
 def _int8_sdpa_init():
-    if TORCH_VERSION_AT_LEAST_2_7:
+    if torch_version_at_least("2.7.0"):
         _register_int8_sdpa_lowerings(config.post_grad_custom_pre_pass)
     else:
         pass

@@ -8,12 +8,12 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 # We need to skip before doing any imports which would use triton, since
 # triton won't be available on CPU builds and torch < 2.5
 if not (
-    TORCH_VERSION_AT_LEAST_2_7
+    torch_version_at_least
     and torch.cuda.is_available()
     and torch.cuda.get_device_capability()[0] >= 9
 ):

@@ -29,8 +29,8 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
 
@@ -176,7 +176,7 @@ class NVFP4InferenceConfig(AOBaseConfig):
 
     def __post_init__(self):
         # Validate PyTorch version
-        if not TORCH_VERSION_AT_LEAST_2_8:
+        if not torch_version_at_least("2.8.0"):
             raise RuntimeError("NVFP4InferenceConfig requires PyTorch 2.8 or later")
 
 

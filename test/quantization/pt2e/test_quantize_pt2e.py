@@ -66,11 +66,11 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     QuantizationConfig,
 )
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else [])
 
-if TORCH_VERSION_AT_LEAST_2_7:
+if torch_version_at_least("2.7.0"):
     from torch.testing._internal.common_utils import (
         TEST_HPU,
     )
@@ -79,7 +79,7 @@ if TORCH_VERSION_AT_LEAST_2_7:
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2E(PT2EQuantizationTestCase):
     def test_simple_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
@@ -1189,7 +1189,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
     @parametrize("dtype", (torch.float32, torch.bfloat16))
     @parametrize("quant_dtype", (torch.int16, torch.float8_e5m2, torch.float8_e4m3fn))
     def test_quantization_dtype(self, dtype, quant_dtype):
-        if TORCH_VERSION_AT_LEAST_2_7 and TEST_HPU:
+        if torch_version_at_least("2.7.0") and TEST_HPU:
             unittest.SkipTest("test doesn't currently work with HPU")
 
         class DtypeActQuantizer(Quantizer):
@@ -1986,7 +1986,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             m.train()
 
     def test_allow_exported_model_train_eval(self):
-        if TORCH_VERSION_AT_LEAST_2_7 and TEST_HPU:
+        if torch_version_at_least("2.7.0") and TEST_HPU:
             unittest.SkipTest("test doesn't currently work with HPU")
 
         class M(torch.nn.Module):
@@ -2916,7 +2916,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
         from torchao.quantization.pt2e._affine_quantization import (

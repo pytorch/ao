@@ -22,14 +22,14 @@ from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -45,7 +45,7 @@ def run_around_tests():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
@@ -96,7 +96,7 @@ def test_inference_workflow(elem_dtype, bias: bool, compile: bool):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
