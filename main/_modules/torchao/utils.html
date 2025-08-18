@@ -1239,6 +1239,8 @@
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                         <span class="n">tensor_data_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tensor_data_name</span><span class="p">)</span>
 
+            <span class="c1"># TODO(future PR): also return names of tensor attributes for easier</span>
+            <span class="c1"># debugging</span>
             <span class="k">return</span> <span class="n">tensor_data_names</span><span class="p">,</span> <span class="p">[</span>
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">]</span>
