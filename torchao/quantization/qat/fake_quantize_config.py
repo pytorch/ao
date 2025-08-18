@@ -77,6 +77,7 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
             )
 
 
+@dataclass
 class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for fake quantizing weights or activations to NVIDIA's NVFP4 format

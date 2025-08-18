@@ -12,7 +12,6 @@ import unittest
 import warnings
 from typing import List
 
-import pytest
 import torch
 import torch.nn.functional as F
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
@@ -1935,8 +1934,8 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @pytest.mark.parametrize("use_per_tensor_scale", [True, False])
-    def test_qat_nvfp4(self, use_per_tensor_scale: bool = False):
+    @parametrize("use_per_tensor_scale", [True, False])
+    def test_qat_nvfp4(self, use_per_tensor_scale: bool):
         """
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
