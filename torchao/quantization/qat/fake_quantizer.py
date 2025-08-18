@@ -117,14 +117,20 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
             per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
         else:
             per_tensor_scale = None
+
+        # quantize
         scale, q = _nvfp4_quantize(
             x,
             block_size=block_size,
             per_tensor_scale=per_tensor_scale,
             skip_dtype_cast_and_packing=True,
         )
+        if self.config.use_per_tensor_scale:
+            scale *= per_tensor_scale
         assert q.dtype == x.dtype
         assert scale.dtype == torch.float32
+
+        # dequantize
         M, K = q.shape[0], q.shape[1]
         q = q.view(M, K // block_size, block_size)
         scale = scale.view(M, K // block_size, 1)

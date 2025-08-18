@@ -1955,9 +1955,7 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        # Use same SQNR threshold as `test_nvfp4_reconstruction`
-        # TODO: why is this 0.0 when `use_per_tensor_scale=True`?
-        self.assertGreater(sqnr, 8.0)
+        self.assertGreater(sqnr, 100)
 
 
 instantiate_parametrized_tests(TestQAT)
