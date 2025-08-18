@@ -21,6 +21,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity.sparse_api import apply_fake_sparsity
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
 )
@@ -38,6 +39,7 @@ class TestInt4MarlinSparseTensor(TestCase):
     def setUp(self):
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("config", [BF16_ACT_CONFIG])
     @parametrize(
         "sizes",
@@ -65,6 +67,7 @@ class TestInt4MarlinSparseTensor(TestCase):
         quantized_and_compiled = compiled_linear(input)
         self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
 
+    @skip_if_rocm("ROCm enablement in progress")
     @unittest.skip("Fix later")
     @parametrize("config", [BF16_ACT_CONFIG])
     def test_to_device(self, config):
@@ -81,6 +84,7 @@ class TestInt4MarlinSparseTensor(TestCase):
             quantize_(linear, config)
             linear.to(device)
 
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("config", [BF16_ACT_CONFIG])
     def test_module_path(self, config):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
