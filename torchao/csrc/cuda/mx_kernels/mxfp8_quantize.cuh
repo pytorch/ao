@@ -451,7 +451,7 @@ __device__ __forceinline__ OType torchao_quantize_value(float input_value,
  * Template parameters ensure compile-time array size checking for safety
  */
 template <typename OType, int NUM_VALUES, ScaleCalculationMode ScalingMode>
-__device__ __forceinline__ float
+__device__ __forceinline__ void
 quantize_block(float amax, e8m0_t &out_scale,
                        const float (&input_values)[NUM_VALUES],
                        OType (&output_values)[NUM_VALUES]) {

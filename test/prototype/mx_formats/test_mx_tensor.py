@@ -888,12 +888,12 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
     # Test that the sliced tensor shares storage with original for data
     # (Note: scales might not share storage due to swizzled layout complexity)
-    assert sliced_tensor._data.data_ptr() == tensor._data.data_ptr()
+    assert sliced_tensor.qdata.data_ptr() == tensor.qdata.data_ptr()
 
     # Test full-width column slicing (should maintain views)
     full_width_slice = tensor[:, 0:K]
     assert full_width_slice._scale_e4m3.data_ptr() == tensor._scale_e4m3.data_ptr()
-    assert full_width_slice._data.data_ptr() == tensor._data.data_ptr()
+    assert full_width_slice.qdata.data_ptr() == tensor.qdata.data_ptr()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -916,8 +916,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert "_is_swizzled_scales" in ctx
-    assert ctx["_is_swizzled_scales"] == True
+    assert NVFP4Tensor.tensor_attribute_names[2] == "_is_swizzled_scales"
+    assert ctx[2] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -1011,8 +1011,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     torch.testing.assert_close(
         nvfp4_pt._scale_e4m3.flatten(), nvfp4_triton._scale_e4m3.flatten()
     )
-    pt_unpacked = unpack_uint4(nvfp4_pt._data)
-    triton_unpacked = unpack_uint4(nvfp4_triton._data)
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
+    triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
     torch.testing.assert_close(
         pt_unpacked,
         triton_unpacked,
