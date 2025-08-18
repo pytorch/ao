@@ -1943,7 +1943,6 @@ class TestQAT(TestCase):
         m = M().cuda()
         baseline_model = copy.deepcopy(m)
         qat_config = QATConfig(
-            activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             step="prepare",
         )
