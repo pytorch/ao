@@ -368,7 +368,14 @@ def is_fbcode():
 
 
 def torch_version_at_least(min_version):
-    return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
+    from packaging.version import parse as parse_version
+
+    if is_fbcode():
+        return True
+
+    # Parser for local identifiers
+    current_version = re.sub(r"\+.*$", "", torch.__version__)
+    return parse_version(current_version) >= parse_version(min_version)
 
 
 def _deprecated_torch_version_at_least(version_str: str) -> str:
