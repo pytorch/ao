@@ -35,6 +35,8 @@ from torchao.utils import _is_float8_type
 
 from .utils import _log_deprecation_warning
 
+from .utils import _log_deprecation_warning
+
 
 class FakeQuantizeConfigBase(abc.ABC):
     """
