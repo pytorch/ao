@@ -17,12 +17,14 @@ from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     Float8FakeQuantizeConfig,
     IntxFakeQuantizeConfig,
+    NVFP4FakeQuantizeConfig,
 )
 from .fake_quantizer import (
     FakeQuantizer,
     FakeQuantizerBase,
     Float8FakeQuantizer,
     IntxFakeQuantizer,
+    NVFP4FakeQuantizer,
 )
 from .linear import (
     FakeQuantizedLinear,
@@ -40,6 +42,8 @@ __all__ = [
     "Float8FakeQuantizer",
     "IntxFakeQuantizeConfig",
     "IntxFakeQuantizer",
+    "NVFP4FakeQuantizeConfig",
+    "NVFP4FakeQuantizer",
     "FakeQuantizedLinear",
     "FakeQuantizedEmbedding",
     # Prototype
