@@ -810,6 +810,8 @@ class TorchAOBaseTensor(torch.Tensor):
                     if maybe_tensor is not None:
                         tensor_data_names.append(tensor_data_name)
 
+            # TODO(future PR): also return names of tensor attributes for easier
+            # debugging
             return tensor_data_names, [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
