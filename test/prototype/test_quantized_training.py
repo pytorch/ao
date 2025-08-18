@@ -3,18 +3,13 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import pytest
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
-
-if not TORCH_VERSION_AT_LEAST_2_4:
-    pytest.skip("Requires torch>=2.4", allow_module_level=True)
-
 import copy
 
+import pytest
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+import torch.testing._internal.common_utils as common_utils
 from torch import nn
 from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
@@ -39,6 +34,9 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
+
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -308,21 +306,19 @@ class TestFSDP2(FSDPTest):
             (bitnet_training(), mp_policy, 1e-5),
         ]
 
-        # FSDP2 mixed-precision requires https://github.com/pytorch/pytorch/pull/136129
-        if TORCH_VERSION_AT_LEAST_2_6:
-            # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
-            # We would need to cast all params to BF16 in forward and backward pass, while keeping
-            # the params in FP32 for optim step.
-            # torch.autocast() will only do this for F.linear() layer (and its backward).
-            # To keep it simple, we just use a larger tolerance here.
-            bf16_mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
+        # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
+        # We would need to cast all params to BF16 in forward and backward pass, while keeping
+        # the params in FP32 for optim step.
+        # torch.autocast() will only do this for F.linear() layer (and its backward).
+        # To keep it simple, we just use a larger tolerance here.
+        bf16_mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
 
-            extra_args = [
-                (int8_weight_only_quantized_training(), bf16_mp_policy, 1e-2),
-                (int8_mixed_precision_training(), bf16_mp_policy, 1e-2),
-                (bitnet_training(), bf16_mp_policy, 1e-2),
-            ]
-            test_args.extend(extra_args)
+        extra_args = [
+            (int8_weight_only_quantized_training(), bf16_mp_policy, 1e-2),
+            (int8_mixed_precision_training(), bf16_mp_policy, 1e-2),
+            (bitnet_training(), bf16_mp_policy, 1e-2),
+        ]
+        test_args.extend(extra_args)
 
         self.run_subtests({"args": test_args}, self._run_subtest)
 

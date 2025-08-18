@@ -38,7 +38,6 @@ from torchao.quantization.pt2e.quantizer import (
     SharedQuantizationSpec,
 )
 from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 # TODO: make pt2e folder private?
 __all__ = [
@@ -553,7 +552,6 @@ def _maybe_insert_output_observer_for_node(
             isinstance(node, Node)
             and isinstance(new_output, Node)
             and FROM_NODE_KEY in node.meta
-            and TORCH_VERSION_AT_LEAST_2_6
         ):
             new_output.meta[FROM_NODE_KEY] = node.meta[FROM_NODE_KEY]
         return new_output

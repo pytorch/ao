@@ -15,9 +15,9 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.float8.config import e4m3_dtype
 from torchao.quantization import (
-    FbgemmConfig,
+    Float8DynamicActivationInt4WeightConfig,
+    Int4WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.utils import compute_error
@@ -27,44 +27,16 @@ from torchao.utils import (
     is_sm_at_least_90,
 )
 
-if TORCH_VERSION_AT_LEAST_2_8:
-    BF16_ACT_CONFIG = FbgemmConfig(
-        input_dtype=torch.bfloat16,
-        weight_dtype=torch.int4,
-        output_dtype=torch.bfloat16,
-        block_size=[1, 128],
-        preshuffle=True,
-    )
+BF16_ACT_CONFIG = Int4WeightOnlyConfig(
+    group_size=128,
+    packing_format="preshuffled",
+    version=2,
+)
 
-    BF16_ACT_BMM_CONFIG = FbgemmConfig(
-        input_dtype=torch.bfloat16,
-        weight_dtype=torch.int4,
-        output_dtype=torch.bfloat16,
-        block_size=[1, 1, 128],
-        preshuffle=True,
-    )
-
-    FP8_ACT_CONFIG = FbgemmConfig(
-        input_dtype=e4m3_dtype,
-        weight_dtype=torch.int4,
-        output_dtype=torch.bfloat16,
-        block_size=[1, 128],
-        preshuffle=True,
-    )
-
-    FP8_ACT_BMM_CONFIG = FbgemmConfig(
-        input_dtype=e4m3_dtype,
-        weight_dtype=torch.int4,
-        output_dtype=torch.bfloat16,
-        block_size=[1, 1, 128],
-        preshuffle=True,
-    )
-
-else:
-    BF16_ACT_CONFIG = None
-    BF16_ACT_BMM_CONFIG = None
-    FP8_ACT_CONFIG = None
-    FP8_ACT_BMM_CONFIG = None
+FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
+    group_size=128,
+    packing_format="preshuffled",
+)
 
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
@@ -90,7 +62,7 @@ class TestInt4PreshuffledTensor(TestCase):
 
     # Note: this order will error out: `Got bad cuda status: an illegal memory access was encountered at line: 449`
     # @parametrize("bmm_config", [BF16_ACT_BMM_CONFIG, FP8_ACT_BMM_CONFIG])
-    @parametrize("bmm_config", [FP8_ACT_BMM_CONFIG, BF16_ACT_BMM_CONFIG])
+    @parametrize("bmm_config", [FP8_ACT_CONFIG, BF16_ACT_CONFIG])
     def test_bmm(self, bmm_config):
         class M(torch.nn.Module):
             def __init__(self, weight):

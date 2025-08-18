@@ -135,23 +135,10 @@ class QuantOptimizer(Optimizer):
 
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:
-        state_dict = self.base_optimizer.state_dict()
-        state_dict["qat_state"] = {"num_steps": self.num_steps}
-        # quantizer and prox_map may also need to save states, can add here
-        return state_dict
+        return self.base_optimizer.state_dict()
 
     @torch._disable_dynamo
-    def load_state_dict(
-        self, state_dict: dict[str, Any], start_step: Optional[int] = None
-    ) -> None:
-        qat_state = state_dict.get("qat_state")
-        # resume from check points usually not corresponds to saved num_steps
-        # so allow explicit start_step computed from epochs * steps_per_epoc
-        if start_step is not None:
-            self.num_steps = start_step
-        elif qat_state is not None:
-            # hope discrepancy in num_steps does not cause major problem!
-            self.num_steps = qat_state["num_steps"]
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         self.base_optimizer.load_state_dict(state_dict)
 
     @torch.no_grad()
@@ -191,6 +178,10 @@ class QuantOptimizer(Optimizer):
             quant_update = False
 
         for group in self.regularized_param_groups():
+            # Override quantizer if specified in the group
+            quantizer = group.get("quantizer", self.quantizer)
+            assert isinstance(quantizer, Quantizer), f"Invalid {quantizer=}"
+
             # AProx in practice: ensure shrinkage coefficient >= 1
             group["cumu_lr"] += group["lr"]
             gamma = max(1.0, group["cumu_lr"])
@@ -224,7 +215,7 @@ class QuantOptimizer(Optimizer):
                 # update quantization targets periodically
                 per_channel = self.quant_per_channel and p.dim() > 1
                 if quant_update:
-                    quant_size = self.quantizer.get_quant_size(b)
+                    quant_size = quantizer.get_quant_size(b)
 
                     if per_channel:
                         quant_size = (p.size(0), quant_size)
@@ -242,9 +233,7 @@ class QuantOptimizer(Optimizer):
 
                 q = None
                 if quant_update:
-                    qfunc = partial(
-                        self.quantize_, quantizer=self.quantizer, b=b, dim=dim
-                    )
+                    qfunc = partial(self.quantize_, quantizer=quantizer, b=b, dim=dim)
                     if is_dtensor(p):
                         qfunc = local_map(
                             qfunc,

@@ -12,8 +12,6 @@ import torch.utils._pytree as pytree
 from torch._inductor.freezing_utils import maybe_set_is_frozen_param
 from torch.utils._ordered_set import OrderedSet
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 aten = torch.ops.aten
 
 # We would like to split modules into two subgraphs for runtime weight updates to work correctly.
@@ -162,12 +160,8 @@ class ConstantFolder(torch.fx.Interpreter):
             torch.ops.quantized_decomposed.dequantize_per_tensor.default,
             torch.ops.quantized_decomposed.dequantize_per_tensor.tensor,
             torch.ops.quantized_decomposed.convert_element_type.no_fuse,
+            torch.ops.torchao.dequantize_affine,
         ]
-
-        if TORCH_VERSION_AT_LEAST_2_5:
-            DEQUANT_OPS += [
-                torch.ops.torchao.dequantize_affine,
-            ]
 
         if node.target in DEQUANT_OPS:
             # For the pattern fp32_weight -> q -> dq

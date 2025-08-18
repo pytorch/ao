@@ -40,6 +40,13 @@ class STDIORedirector {
       close(stdout_dupfd_);
       close(stderr_dupfd_);
       fclose(redirect_out_);
+      /* write done file to detect end of benchmark*/
+      std::string file_name =
+          std::string(std::getenv("HOME")) + "/tmp/BENCH_DONE";
+      FILE *donefile = fopen(file_name.c_str(), "w");
+      std::string done_str = "DONE BENCHMARKING";
+      fwrite(done_str.c_str(), 1, done_str.size(), donefile);
+      fclose(donefile);
     }
   }
 

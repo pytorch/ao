@@ -90,23 +90,39 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     add_subdirectory(kernels/cpu/aarch64)
 endif()
 
-
-
 if (NOT TARGET cpuinfo)
     # For some reason cpuinfo package has unused functions/variables
     # TODO (T215533422): fix upstream
-    set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "Disable unit tests" FORCE)
-    set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Disable mock tests" FORCE)
-    set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks" FORCE)
     add_compile_options(-Wno-unused-function -Wno-unused-variable)
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     include(FetchContent)
+    set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "" FORCE)
+    set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(cpuinfo
         GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
-        GIT_TAG c61fe919607bbc534d7a5a5707bdd7041e72c5ff)
+        GIT_TAG c61fe919607bbc534d7a5a5707bdd7041e72c5ff
+    )
     FetchContent_MakeAvailable(
         cpuinfo)
 endif()
+
+if (TORCHAO_BUILD_KLEIDIAI)
+    if (NOT TARGET kleidiai)
+        include(FetchContent)
+        # KleidiAI is an open-source library that provides optimized
+        # performance-critical routines, also known as micro-kernels, for artificial
+        # intelligence (AI) workloads tailored for Arm® CPUs.
+        set(KLEIDIAI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(KLEIDIAI_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(kleidiai
+            GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
+            GIT_TAG v1.12.0
+        )
+        FetchContent_MakeAvailable(kleidiai)
+    endif()
+endif()
+
 
 # Build ATen ops
 if(TORCHAO_BUILD_ATEN_OPS)
@@ -116,12 +132,28 @@ if(TORCHAO_BUILD_ATEN_OPS)
         ops/embedding_xbit/op_embedding_xbit_aten.cpp
         ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
         ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight_aten.cpp
+        ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+        ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_aten.cpp
     )
     list(TRANSFORM _torchao_op_srcs_aten PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+
+    # Use the Python extension name if provided
     add_library(torchao_ops_aten SHARED ${_torchao_op_srcs_aten})
+    if(DEFINED TORCHAO_CMAKE_EXT_SO_NAME)
+        message(STATUS "Setting output name to: ${TORCHAO_CMAKE_EXT_SO_NAME}.so")
+        set_target_properties(torchao_ops_aten PROPERTIES
+            OUTPUT_NAME ${TORCHAO_CMAKE_EXT_SO_NAME}
+            PREFIX ""  # Remove "lib" prefix for Python extensions
+            SUFFIX ".so"  # Add ".so" suffix for Python extensions
+        )
+    endif()
+
     target_link_torchao_parallel_backend(torchao_ops_aten "${TORCHAO_PARALLEL_BACKEND}")
     if (TORCHAO_BUILD_CPU_AARCH64)
         target_link_libraries(torchao_ops_aten PRIVATE torchao_kernels_aarch64)
+        if (TORCHAO_BUILD_KLEIDIAI)
+            target_link_libraries(torchao_ops_aten PRIVATE kleidiai)
+        endif()
     endif()
     target_link_libraries(torchao_ops_aten PRIVATE cpuinfo)
     target_include_directories(torchao_ops_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
@@ -161,20 +193,21 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
         ops/embedding_xbit/op_embedding_xbit_executorch.cpp
         ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
         ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight_executorch.cpp
-    )
+        ops/groupwise_lowbit_weight_lut/groupwise_lowbit_weight_lut.cpp
+        ops/groupwise_lowbit_weight_lut/op_groupwise_lowbit_weight_lut_executorch.cpp)
+
     list(TRANSFORM _torchao_op_srcs_executorch PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_executorch STATIC ${_torchao_op_srcs_executorch})
-    target_link_torchao_parallel_backend(torchao_ops_executorch executorch)
-    target_include_directories(torchao_ops_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
+
     target_compile_definitions(torchao_ops_executorch PRIVATE USE_EXECUTORCH=1)
+
+    # This links to ExecuTorch
+    target_link_torchao_parallel_backend(torchao_ops_executorch executorch)
     if (TORCHAO_BUILD_CPU_AARCH64)
         target_link_libraries(torchao_ops_executorch PRIVATE torchao_kernels_aarch64)
+        if (TORCHAO_BUILD_KLEIDIAI)
+            target_link_libraries(torchao_ops_executorch PRIVATE kleidiai)
+        endif()
     endif()
     target_link_libraries(torchao_ops_executorch PRIVATE cpuinfo)
-    install(
-        TARGETS
-            torchao_ops_executorch
-        EXPORT _targets
-        DESTINATION lib
-    )
 endif()

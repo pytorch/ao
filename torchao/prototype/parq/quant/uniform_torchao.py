@@ -142,7 +142,7 @@ class UnifTorchaoQuantizer(Quantizer):
 
 
 class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
-    def __init__(self, b: int, int_shift: float = 0.5) -> None:
+    def __init__(self, b: int, int_shift: float = 0.5, **kwargs) -> None:
         quant_absmax = 2 ** (b - 1) - int_shift
         self.quant_min = -quant_absmax
         self.quant_max = quant_absmax
@@ -152,6 +152,7 @@ class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
             mapping_type=MappingType.ASYMMETRIC,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
+            **kwargs,
         )
 
         self._choose_qparams = partial(choose_qparams_stretched_affine, b=b)
