@@ -145,6 +145,16 @@ def get_available_devices():
         devices.append("mps")
     return devices
 
+def auto_detect_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif hasattr(torch.version, "hip") and torch.version.hip:
+        return "rocm"
+    elif hasattr(torch, "xpu") and torch.xpu.is_available(): 
+        return "xpu"
+    else:
+        return "cpu"
+
 
 def get_compute_capability():
     if torch.cuda.is_available():
