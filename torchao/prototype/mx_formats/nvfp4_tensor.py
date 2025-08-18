@@ -155,7 +155,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             block_size: Block size for quantization (must be 16)
             per_tensor_scale: Optional pre-computed absolute maximum for calibration.
                 If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
-            per_tensor_scale: Optional pre-computed absolute maximum for calibration for activation
+            act_per_tensor_scale: Optional pre-computed absolute maximum for calibration for activation
                 If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
             is_swizzled_scales: If True, store scales in swizzled format for faster matrix multiplication
             use_triton_kernel: If True, use Triton kernel for quantization
