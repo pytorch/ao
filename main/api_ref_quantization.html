@@ -454,7 +454,7 @@
 <td><p>Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html#torchao.quantization.Float8DynamicActivationInt4WeightConfig" title="torchao.quantization.Float8DynamicActivationInt4WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code></a></p></td>
-<td><p>Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear</p></td>
+<td><p>Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear (only group_size 128 is supported right now since underlying kernel used only supports 128 and above and no benefits of making it bigger)</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig" title="torchao.quantization.Float8DynamicActivationFloat8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></a></p></td>
 <td><p>Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.</p></td>

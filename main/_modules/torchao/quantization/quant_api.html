@@ -1585,13 +1585,13 @@
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for apply float8 dynamic per row quantization and int4</span>
 <span class="sd">    per group weight quantization to linear</span>
+<span class="sd">    (only group_size 128 is supported right now since underlying kernel used only supports 128</span>
+<span class="sd">    and above and no benefits of making it bigger)</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        `group_size`: group size for groupwise quantization for weight</span>
 <span class="sd">        `packing_format`: how the weight is packed, only preshuffled is supported</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">packing_format</span><span class="p">:</span> <span class="n">PackingFormat</span> <span class="o">=</span> <span class="s2">&quot;preshuffled&quot;</span></div>
 
 
@@ -1603,13 +1603,13 @@
         <span class="s2">&quot;applying int8 weight only quant requires module to have weight attribute&quot;</span>
         <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
-    <span class="n">group_size</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">group_size</span>
     <span class="n">packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_format</span>
 
     <span class="k">assert</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="s2">&quot;preshuffled&quot;</span><span class="p">,</span> <span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;only preshuffled packing_format supported right now, got: </span><span class="si">{</span><span class="n">packing_format</span><span class="si">}</span><span class="s2">&quot;</span>
     <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
+    <span class="n">group_size</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">group_size</span><span class="p">])</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
         <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
