@@ -5,12 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Microbenchmark script to compare Triton kernels vs torch._scaled_mm
+Microbenchmark script to compare Triton kernels vs torch._scaled_mm native blockwise scaling
 for blockwise fp8 GEMM operations.
 
 This provides a proper 1:1 comparison between the Triton blockwise implementation
-and the torch._scaled_mm block-by-block approach, both preserving blockwise 
-scaling precision without approximations.
+and the torch._scaled_mm native blockwise scaling with CUDA 12.9+, as recommended 
+by danielvegamyhre to avoid uncoalesced memory access issues in Triton kernels.
 """
 
 import torch
@@ -51,9 +51,10 @@ def blockwise_fp8_scaled_mm_1x128_128x128_reference(
     b_scale: torch.Tensor,
 ) -> torch.Tensor:
     """
-    Reference implementation using the improved torch._scaled_mm blockwise approach.
-    This provides a proper 1:1 comparison with the Triton kernel by using the
-    same block-by-block processing to preserve blockwise scaling precision.
+    Reference implementation using native torch._scaled_mm with blockwise scaling.
+    This uses the CUDA 12.9+ native blockwise scaling support to provide optimal
+    performance through direct CUTLASS kernel usage, avoiding the uncoalesced
+    memory access issues present in Triton kernels.
     """
     from torchao.prototype.blockwise_fp8_training.scaled_mm_kernels import (
         blockwise_fp8_gemm_scaled_mm_1x128_128x128
@@ -85,6 +86,24 @@ def create_test_tensors(
     return a_ref, b_ref, a_fp8, a_scale, b_fp8, b_scale
 
 
+def create_test_tensors_128x1(
+    m: int, k: int, n: int, block_size: int = 128, device="cuda"
+):
+    """Create test tensors for 1x128 (LHS) x 128x1 (RHS) blockwise GEMM."""
+    # High-precision reference tensors
+    a_ref = torch.randn(m, k, device=device, dtype=torch.bfloat16)
+    b_ref = torch.randn(k, n, device=device, dtype=torch.bfloat16)
+
+    # LHS: use transposed-lhs quantization. Input to that kernel should be KxM
+    a_t = a_ref.t().contiguous()
+    a_fp8, a_scale = fp8_blockwise_act_quant_transposed_lhs(a_t, block_size)
+
+    # RHS: 128x1 scaling along K
+    b_fp8, b_scale = fp8_blockwise_act_quant_rhs(b_ref, block_size)
+
+    return a_ref, b_ref, a_fp8, a_scale, b_fp8, b_scale
+
+
 def benchmark_gemm_variants(
     m: int, k: int, n: int, block_size: int = 128, device="cuda"
 ) -> dict:
@@ -110,7 +129,7 @@ def benchmark_gemm_variants(
     )
     results["triton_time_us"] = triton_time
     
-    # Benchmark torch._scaled_mm (block-by-block implementation)
+    # Benchmark torch._scaled_mm (native blockwise scaling with CUDA 12.9+)
     try:
         scaled_mm_time = benchmark_microseconds(
             blockwise_fp8_scaled_mm_1x128_128x128_reference,
@@ -118,7 +137,8 @@ def benchmark_gemm_variants(
         )
         results["scaled_mm_time_us"] = scaled_mm_time
     except Exception as e:
-        print(f"Warning: torch._scaled_mm benchmark failed: {e}")
+        print(f"Warning: torch._scaled_mm native blockwise benchmark failed: {e}")
+        print(f"Note: Requires CUDA 12.9+ for native blockwise scaling support")
         results["scaled_mm_time_us"] = float('inf')
     
     # Calculate speedups
@@ -129,6 +149,63 @@ def benchmark_gemm_variants(
         else 0
     )
     
+    return results
+
+
+def blockwise_fp8_scaled_mm_1x128_128x1_reference(
+    a_fp8: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_fp8: torch.Tensor,
+    b_scale: torch.Tensor,
+    block_size: int = 128,
+) -> torch.Tensor:
+    from torchao.prototype.blockwise_fp8_training.scaled_mm_kernels import (
+        blockwise_fp8_gemm_scaled_mm_1x128_128x1,
+    )
+    return blockwise_fp8_gemm_scaled_mm_1x128_128x1(
+        a_fp8,
+        1.0 / a_scale,
+        b_fp8,
+        1.0 / b_scale,
+        block_size,
+    )
+
+
+def benchmark_gemm_variants_128x1(
+    m: int, k: int, n: int, block_size: int = 128, device="cuda"
+) -> dict:
+    """Benchmark 1x128 (LHS) x 128x1 (RHS) blockwise GEMM variants."""
+    a_ref, b_ref, a_fp8, a_scale, b_fp8, b_scale = create_test_tensors_128x1(
+        m, k, n, block_size, device
+    )
+
+    results = {"m": m, "k": k, "n": n, "block_size": block_size, "case": "1x128_128x1"}
+
+    # Reference bf16 GEMM
+    bf16_time = benchmark_microseconds(torch.nn.functional.linear, a_ref, b_ref)
+    results["bf16_time_us"] = bf16_time
+
+    # Triton
+    triton_time = benchmark_microseconds(
+        blockwise_fp8_gemm_1x128_128x1,
+        a_fp8, 1.0 / a_scale, b_fp8, 1.0 / b_scale, block_size
+    )
+    results["triton_time_us"] = triton_time
+
+    # Native torch._scaled_mm
+    try:
+        scaled_mm_time = benchmark_microseconds(
+            blockwise_fp8_scaled_mm_1x128_128x1_reference,
+            a_fp8, a_scale, b_fp8, b_scale, block_size
+        )
+        results["scaled_mm_time_us"] = scaled_mm_time
+    except Exception as e:
+        print(f"Warning: torch._scaled_mm native blockwise 128x1 benchmark failed: {e}")
+        results["scaled_mm_time_us"] = float('inf')
+
+    results["triton_speedup"] = bf16_time / triton_time if triton_time > 0 else 0
+    sm_time = results["scaled_mm_time_us"]
+    results["scaled_mm_speedup"] = bf16_time / sm_time if sm_time not in (0, float('inf')) else 0
     return results
 
 
@@ -155,16 +232,50 @@ def benchmark_precision(
         "triton_error_db": compute_error(ref_output, triton_output),
     }
     
-    # torch._scaled_mm precision (block-by-block implementation)
+    # torch._scaled_mm precision (native blockwise scaling)
     try:
         scaled_mm_output = blockwise_fp8_scaled_mm_1x128_128x128_reference(
             a_fp8, a_scale, b_fp8, b_scale
         )
         results["scaled_mm_error_db"] = compute_error(ref_output, scaled_mm_output)
     except Exception as e:
-        print(f"Warning: torch._scaled_mm precision test failed: {e}")
+        print(f"Warning: torch._scaled_mm native blockwise precision test failed: {e}")
+        print(f"Note: Requires CUDA 12.9+ for native blockwise scaling support")
         results["scaled_mm_error_db"] = float('inf')
     
+    return results
+
+
+def benchmark_precision_128x1(
+    m: int, k: int, n: int, block_size: int = 128, device="cuda"
+) -> dict:
+    """Precision benchmark for 1x128 x 128x1."""
+    a_ref, b_ref, a_fp8, a_scale, b_fp8, b_scale = create_test_tensors_128x1(
+        m, k, n, block_size, device
+    )
+
+    ref_output = torch.nn.functional.linear(a_ref, b_ref)
+
+    results = {"m": m, "k": k, "n": n, "block_size": block_size, "case": "1x128_128x1"}
+
+    # Triton
+    triton_output = blockwise_fp8_gemm_1x128_128x1(
+        a_fp8, 1.0 / a_scale, b_fp8, 1.0 / b_scale, block_size
+    )
+
+    from torchao.float8.float8_utils import compute_error
+    results["triton_error_db"] = compute_error(ref_output, triton_output)
+
+    # Native torch._scaled_mm
+    try:
+        scaled_mm_output = blockwise_fp8_scaled_mm_1x128_128x1_reference(
+            a_fp8, a_scale, b_fp8, b_scale, block_size
+        )
+        results["scaled_mm_error_db"] = compute_error(ref_output, scaled_mm_output)
+    except Exception as e:
+        print(f"Warning: torch._scaled_mm native blockwise 128x1 precision failed: {e}")
+        results["scaled_mm_error_db"] = float('inf')
+
     return results
 
 
@@ -196,6 +307,11 @@ def run_benchmarks():
                 perf_results.append(result)
             except Exception as e:
                 print(f"Error benchmarking {m}x{k}x{n}: {e}")
+            try:
+                result_128x1 = benchmark_gemm_variants_128x1(m, k, n)
+                perf_results.append(result_128x1)
+            except Exception as e:
+                print(f"Error benchmarking 128x1 {m}x{k}x{n}: {e}")
     
     print("Running precision benchmarks...")
     precision_results = []
@@ -206,6 +322,11 @@ def run_benchmarks():
                 precision_results.append(result)
             except Exception as e:
                 print(f"Error in precision test {m}x{k}x{n}: {e}")
+            try:
+                result_128x1 = benchmark_precision_128x1(m, k, n)
+                precision_results.append(result_128x1)
+            except Exception as e:
+                print(f"Error in 128x1 precision test {m}x{k}x{n}: {e}")
     
     # Save and display results
     if perf_results:
