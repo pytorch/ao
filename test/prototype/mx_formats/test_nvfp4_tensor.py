@@ -12,11 +12,11 @@ import torch.nn.functional as F
 from torchao.prototype.mx_formats.constants import (
     F4_E2M1_MAX,
 )
-from torchao.prototype.mx_formats.nvfp4_tensor import (
-    QuantizeTensorToNVFP4Kwargs,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4MMConfig,
+)
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    QuantizeTensorToNVFP4Kwargs,
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
