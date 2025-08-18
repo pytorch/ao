@@ -54,15 +54,16 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         target_dtype: this determines the quant_min/quant_max of the qdata (can be torch.int1, ..., torch.int8)
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
+        dtype: the dtype of the dequantized Tensor
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
-    tensor_attribute_names = ["target_dtype", "block_size"]
+    tensor_attribute_names = ["target_dtype", "block_size", "dtype"]
 
-    def __new__(cls, qdata, scale, zero_point, target_dtype, block_size=None):
+    def __new__(cls, qdata, scale, zero_point, target_dtype, block_size, dtype):
         kwargs = {}
         kwargs["device"] = qdata.device
-        kwargs["dtype"] = scale.dtype
+        kwargs["dtype"] = dtype
         kwargs["requires_grad"] = False
         shape = qdata.shape
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
@@ -73,7 +74,8 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         scale,
         zero_point,
         target_dtype,
-        block_size: Tuple[int],
+        block_size,
+        dtype,
     ):
         assert qdata.dtype == torch.int8, (
             f"qdata dtype must be int8, but got {qdata.dtype}"
@@ -96,6 +98,10 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             n_blocks.append(qdata.shape[i] // block_size[i])
         scale = scale.reshape(*n_blocks)
         zero_point = zero_point.reshape(*n_blocks)
+
+        assert dtype in _FLOAT_TYPES, (
+            f"dtype must be one of {_FLOAT_TYPES}, but got {dtype}"
+        )
 
         self.qdata = qdata
         self.scale = scale
@@ -123,6 +129,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             else self.zero_point.to(device),
             self.target_dtype,
             self.block_size,
+            dtype,
         )
 
     @classmethod
@@ -166,6 +173,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             zero_point=zero_point,
             target_dtype=target_dtype,
             block_size=block_size,
+            dtype=hp_tensor.dtype,
         )
 
     def dequantize(self):
@@ -259,6 +267,7 @@ def _(func, types, args, kwargs):
         zero_point,
         self.target_dtype,
         new_block_size,
+        self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
