@@ -76,6 +76,7 @@ class Float8FakeQuantizer(FakeQuantizerBase):
     def __init__(self, config: Float8FakeQuantizeConfig):
         super().__init__()
         self.config = config
+        torch._C._log_api_usage_once("torchao.quantization.qat.Float8FakeQuantizer")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         original_dtype = x.dtype
@@ -101,6 +102,7 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
 
     def __init__(self, config: NVFP4FakeQuantizeConfig):
         super().__init__()
+        torch._C._log_api_usage_once("torchao.quantization.qat.NVFP4FakeQuantizer")
         self.config = config
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -140,14 +142,13 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         torch._C._log_api_usage_once("torchao.quantization.qat.IntxFakeQuantizer")
         self.config = config
         self.enabled = True
+        self.scale: Optional[torch.Tensor] = None
+        self.zero_point: Optional[torch.Tensor] = None
 
-        if isinstance(self.config, IntxFakeQuantizeConfig):
-            self.scale: Optional[torch.Tensor] = None
-            self.zero_point: Optional[torch.Tensor] = None
-            # For range learning only
-            # TODO: make this configurable?
-            self._scale_eps = 1e-9
-            self._initialized = False
+        # For range learning only
+        # TODO: make this configurable?
+        self._scale_eps = 1e-9
+        self._initialized = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
