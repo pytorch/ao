@@ -9,21 +9,18 @@ import unittest
 
 import torch
 from torch.testing._internal.common_utils import (
-    TestCase,
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
+    TestCase,
 )
 
-from torchao.quantization import (
-    Int4WeightOnlyConfig,
-    quantize_,
-)
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.quantization.utils import compute_error
 from torchao.sparsity.sparse_api import apply_fake_sparsity
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
-)
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+from torchao.testing.utils import skip_if_rocm
 
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
@@ -38,6 +35,7 @@ class TestInt4MarlinSparseTensor(TestCase):
     def setUp(self):
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("config", [BF16_ACT_CONFIG])
     @parametrize(
         "sizes",
