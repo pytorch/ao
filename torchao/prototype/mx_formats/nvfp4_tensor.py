@@ -56,18 +56,18 @@ class NVFP4Tensor(torch.Tensor):
     quantization algorithm for FP4 data with UE4M3 scales.
 
     Attributes:
+        qdata: Packed FP4 data (2 values per byte)
         _scale_e4m3: Blockwise scales in float8_e4m3fn format (may be swizzled)
         _per_tensor_scale: Optional global per-tensor scale in float32 format
-        _data: Packed FP4 data (2 values per byte)
         _block_size: Block size for quantization (fixed at 16)
         _orig_dtype: Original tensor dtype before quantization
         _is_swizzled_scales: Whether scales are stored in swizzled (blocked) format
         mm_config: Matrix multiplication configuration
     """
 
+    qdata: torch.Tensor
     _scale_e4m3: torch.Tensor
     _per_tensor_scale: Optional[torch.Tensor]
-    _data: torch.Tensor
     _block_size: int
     _orig_dtype: torch.dtype
     _is_swizzled_scales: bool
@@ -76,9 +76,9 @@ class NVFP4Tensor(torch.Tensor):
 
     def __new__(
         cls,
+        qdata,
         blockwise_scales,
         per_tensor_scale,
-        data_bits,
         block_size,
         orig_dtype,
         mm_config=NVFP4MMConfig.DYNAMIC,
@@ -86,25 +86,25 @@ class NVFP4Tensor(torch.Tensor):
         use_triton_kernel=False,
     ):
         # FP4 tensor size handling two paths, contiguous or not
-        new_size = data_bits.size()
+        new_size = qdata.size()
 
         new_size = tensor_size_fp4x2_to_hp(
             new_size,
-            data_bits.stride(0) > data_bits.stride(1),
+            qdata.stride(0) > qdata.stride(1),
         )
 
         self = torch.Tensor._make_wrapper_subclass(
             cls,
             new_size,
             dtype=orig_dtype,
-            device=data_bits.device,
+            device=qdata.device,
             requires_grad=False,
         )
 
         self._scale_e4m3 = blockwise_scales
         self._is_swizzled_scales = is_swizzled_scales
         self._per_tensor_scale = per_tensor_scale
-        self._data = data_bits
+        self.qdata = qdata
         self._block_size = block_size
         self._orig_dtype = orig_dtype
         self.mm_config = mm_config
@@ -112,7 +112,7 @@ class NVFP4Tensor(torch.Tensor):
         return self
 
     def __repr__(self):
-        return f"NVFP4Tensor: blockwise_scales: {self._scale_e4m3}, per_tensor_scale: {self._per_tensor_scale}, d: {self._data}, d_hp: {self.to_dtype(self._orig_dtype)}"
+        return f"NVFP4Tensor: blockwise_scales: {self._scale_e4m3}, per_tensor_scale: {self._per_tensor_scale}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -163,9 +163,9 @@ class NVFP4Tensor(torch.Tensor):
                 ).flatten()
 
         return NVFP4Tensor(
+            data_lp,
             blockwise_scales,
             per_tensor_scale,
-            data_lp,
             block_size,
             data_hp.dtype,
             mm_config,
@@ -181,7 +181,7 @@ class NVFP4Tensor(torch.Tensor):
             "mm_config": self.mm_config,
             "use_triton_kernel": self.use_triton_kernel,
         }
-        tensor_list = ["_scale_e4m3", "_data"]
+        tensor_list = ["qdata", "_scale_e4m3"]
         if self._per_tensor_scale is not None:
             tensor_list.append("_per_tensor_scale")
         return tensor_list, ctx
@@ -209,9 +209,9 @@ class NVFP4Tensor(torch.Tensor):
         outer_stride,
     ):
         return NVFP4Tensor(
+            inner_tensors["qdata"],
             inner_tensors["_scale_e4m3"],
             inner_tensors.get("_per_tensor_scale", None),
-            inner_tensors["_data"],
             metadata["_block_size"],
             metadata["_orig_dtype"],
             metadata["mm_config"],
@@ -231,12 +231,12 @@ class NVFP4Tensor(torch.Tensor):
         Returns:
             torch.Tensor: Dequantized tensor in the target dtype
         """
-        is_transposed = self._data.stride(0) < self._data.stride(1)
+        is_transposed = self.qdata.stride(0) < self.qdata.stride(1)
         if is_transposed:
             M, K = self.shape[1], self.shape[0]
         else:
             M, K = self.shape[0], self.shape[1]
-        data = self._data.t() if is_transposed else self._data
+        data = self.qdata.t() if is_transposed else self.qdata
         data_unpacked = unpack_uint4(data.contiguous().view(torch.uint8))
         data_f32 = f4_unpacked_to_f32(data_unpacked)
 
@@ -256,7 +256,7 @@ class NVFP4Tensor(torch.Tensor):
         Returns:
             torch.Tensor: Scales of the NVFP4Tensor
         """
-        is_transposed = self._data.stride(0) < self._data.stride(1)
+        is_transposed = self.qdata.stride(0) < self.qdata.stride(1)
         if is_transposed:
             M, K = self.shape[1], self.shape[0]
         else:
@@ -296,7 +296,7 @@ class NVFP4Tensor(torch.Tensor):
             and self._is_swizzled_scales == src._is_swizzled_scales
             and self._scale_e4m3.shape == src._scale_e4m3.shape
             and per_tensor_scale_equal
-            and self._data.shape == src._data.shape
+            and self.qdata.shape == src.qdata.shape
         )
 
 
@@ -379,7 +379,7 @@ def nvfp4_slice(func, types, args, kwargs):
     if step != 1:
         raise ValueError("Only support aten.slice with step=1")
 
-    assert x._data.is_contiguous(), "Only support contiguous data for now"
+    assert x.qdata.is_contiguous(), "Only support contiguous data for now"
 
     M, K = x.shape[0], x.shape[1]
 
@@ -422,7 +422,7 @@ def nvfp4_slice(func, types, args, kwargs):
             )
 
             sliced_scale = aten.slice.Tensor(x._scale_e4m3, 0, start_idx, end_idx, 1)
-            sliced_data = aten.slice.Tensor(x._data, 0, start, end, step)
+            sliced_data = aten.slice.Tensor(x.qdata, 0, start, end, step)
 
         elif dim == 1:
             # Column slicing
@@ -485,7 +485,7 @@ def nvfp4_slice(func, types, args, kwargs):
             packed_start = None if start is None else start // 2
             packed_end = None if end is None else end // 2
             sliced_data = aten.slice.Tensor(
-                x._data, dim, packed_start, packed_end, step
+                x.qdata, dim, packed_start, packed_end, step
             )
 
         else:
@@ -498,7 +498,7 @@ def nvfp4_slice(func, types, args, kwargs):
 
         if dim == 0:
             sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step)
-            sliced_data = aten.slice.Tensor(x._data, dim, start, end, step)
+            sliced_data = aten.slice.Tensor(x.qdata, dim, start, end, step)
 
         elif dim == 1:
             if start is not None:
@@ -518,7 +518,7 @@ def nvfp4_slice(func, types, args, kwargs):
             packed_start = None if start is None else start // 2
             packed_end = None if end is None else end // 2
             sliced_data = aten.slice.Tensor(
-                x._data, dim, packed_start, packed_end, step
+                x.qdata, dim, packed_start, packed_end, step
             )
 
             start_block = 0 if start is None else start // x._block_size
@@ -531,9 +531,9 @@ def nvfp4_slice(func, types, args, kwargs):
 
     # Create result tensor
     result = NVFP4Tensor(
+        sliced_data,
         sliced_scale,
         x._per_tensor_scale,
-        sliced_data,
         x._block_size,
         x._orig_dtype,
         x.mm_config,
@@ -549,9 +549,9 @@ def nvfp4_t(func, types, args, kwargs):
     # For now, only transpose(input, 0, 1) is supported.
     old = args[0]
     new = NVFP4Tensor(
+        old.qdata.t(),
         old._scale_e4m3,
         old._per_tensor_scale,
-        old._data.t(),
         old._block_size,
         old._orig_dtype,
         old.mm_config,
@@ -563,14 +563,14 @@ def nvfp4_t(func, types, args, kwargs):
 
 @implements([aten.view.default])
 def nvfp4_view_op(func, types, args, kwargs):
-    data = args[0]._data
+    data = args[0].qdata
     new_size = args[1]
     new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
     return NVFP4Tensor(
+        new_data,
         args[0]._scale_e4m3,
         args[0]._per_tensor_scale,
-        new_data,
         args[0]._block_size,
         args[0]._orig_dtype,
         args[0].mm_config,
@@ -586,8 +586,8 @@ def _addmm_nvfp4_dispatch(
     Core implementation shared between nvfp4_mm, nvfp4_addmm, and nvfp4_linear.
     The only difference is whether bias is None or not.
     """
-    assert a._data.is_contiguous()
-    assert b._data.t().is_contiguous()
+    assert a.qdata.is_contiguous()
+    assert b.qdata.t().is_contiguous()
     assert a._block_size == 16, f"NVFP4 requires block_size=16, got {a._block_size}"
     assert b._block_size == 16, f"NVFP4 requires block_size=16, got {b._block_size}"
 
@@ -623,8 +623,8 @@ def _addmm_nvfp4_dispatch(
     # should_add_bias_separately = bias is not None
 
     result = torch._scaled_mm(
-        a._data.view(torch.float4_e2m1fn_x2),
-        b._data.view(torch.float4_e2m1fn_x2),
+        a.qdata.view(torch.float4_e2m1fn_x2),
+        b.qdata.view(torch.float4_e2m1fn_x2),
         a_scale_blocked.view(torch.float8_e4m3fn),
         b_scale_blocked.view(torch.float8_e4m3fn),
         bias=None if should_add_bias_separately else bias,
