@@ -27,10 +27,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 @skipIfNoQNNPACK
@@ -48,7 +45,7 @@ class TestPT2ERepresentation(QuantizationTestCase):
     ) -> torch.nn.Module:
         # resetting dynamo cache
         torch._dynamo.reset()
-        model = export_for_training(model, example_inputs, strict=True).module()
+        model = torch.export.export(model, example_inputs, strict=True).module()
         model_copy = copy.deepcopy(model)
 
         model = prepare_pt2e(model, quantizer)

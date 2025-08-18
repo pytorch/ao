@@ -33,10 +33,7 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     QuantizationConfig,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 class TestHelperModules:
@@ -112,7 +109,7 @@ class TestDuplicateDQPass(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
 
         m = prepare_pt2e(m, quantizer)
         # Calibrate

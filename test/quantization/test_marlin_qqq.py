@@ -24,7 +24,6 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_and_quantize_affine_qqq,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 @skip_if_rocm("ROCm enablement in progress")
@@ -67,7 +66,6 @@ class TestMarlinQQQ(TestCase):
                 "Results are not close"
             )
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @skip_if_rocm("ROCm development in progress")
     def test_marlin_qqq_compile(self):

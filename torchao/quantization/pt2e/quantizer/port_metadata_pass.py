@@ -15,7 +15,6 @@ from torch.fx.passes.infra.pass_base import PassBase, PassResult
 from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
 from torchao.quantization.pt2e.utils import _filter_sym_size_users
 from torchao.quantization.quant_primitives import quant_lib  # noqa: F401
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 from .quantizer import QuantizationSpecBase
 from .utils import is_valid_annotation
@@ -34,25 +33,21 @@ _QUANTIZE_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.quantize_per_channel.default,
+    torch.ops.torchao.quantize_affine,
 ]
 
 _DEQUANTIZE_OPS = [
     torch.ops.quantized_decomposed.dequantize_per_tensor.default,
     torch.ops.quantized_decomposed.dequantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.dequantize_per_channel.default,
+    torch.ops.torchao.dequantize_affine,
 ]
 
 _CHOOSE_QPARAMS_OPS = [
     torch.ops.quantized_decomposed.choose_qparams.tensor,
     torch.ops.quantized_decomposed.choose_qparams_symmetric.tensor,
+    torch.ops.torchao.choose_qparams_affine,
 ]
-
-
-# ops are only registered after 2.5
-if TORCH_VERSION_AT_LEAST_2_5:
-    _QUANTIZE_OPS += [torch.ops.torchao.quantize_affine]
-    _DEQUANTIZE_OPS += [torch.ops.torchao.dequantize_affine]
-    _CHOOSE_QPARAMS_OPS += [torch.ops.torchao.choose_qparams_affine]
 
 
 def _add_metadata(to_node: torch.fx.Node, from_node: torch.fx.Node) -> None:

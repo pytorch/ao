@@ -11,10 +11,17 @@ from typing import Any, Optional, Tuple, Union
 import torch
 
 from torchao.core.config import AOBaseConfig
+from torchao.float8.config import e4m3_dtype
+from torchao.float8.inference import (
+    FP8Granularity,
+    _normalize_granularity,
+)
 from torchao.quantization.granularity import (
     Granularity,
     PerAxis,
     PerGroup,
+    PerRow,
+    PerTensor,
     PerToken,
 )
 from torchao.quantization.quant_primitives import (
@@ -24,6 +31,9 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
+from torchao.utils import _is_float8_type
+
+from .utils import _log_deprecation_warning
 
 from .utils import _log_deprecation_warning
 
@@ -37,6 +47,37 @@ class FakeQuantizeConfigBase(abc.ABC):
 
 
 @dataclass
+class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for float8 fake quantization, targeting :class:`~torchao.quantization.Float8Tensor`.
+
+    Args:
+       dtype (torch.dtype): the dtype for float8 Tensor
+       granularity (FP8Granularity): the granularity for the Tensor, currently either PerRow() or PerTensor()
+       hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
+       hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
+    """
+
+    dtype: torch.dtype = e4m3_dtype
+    granularity: FP8Granularity = PerRow()
+    hp_value_lb: Optional[float] = None
+    hp_value_ub: Optional[float] = None
+
+    def __post_init__(self):
+        """
+        Verify dtype and granularity are the ones we support.
+        """
+        if not _is_float8_type(self.dtype):
+            raise ValueError(f"{self.dtype} is not a float8 dtype")
+        if isinstance(self.granularity, type):
+            raise ValueError(
+                "Please specify the granularity object instead of the class, e.g. PerRow() instead of PerRow"
+            )
+        if type(self.granularity) not in [PerRow, PerTensor]:
+            raise ValueError(
+                f"Expected PerRow or PerTensor granularity, got {self.granularity}"
+            )
+
 class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for fake quantizing weights or activations to NVIDIA's NVFP4 format
@@ -46,10 +87,10 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
 
     Args:
         use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
-            after the initial fp8 (e4m3) block-wise scaling.
+            after the initial fp8 (e4m3) block-wise scaling (default True)
     """
 
-    use_per_tensor_scale: bool = False
+    use_per_tensor_scale: bool = True
 
 
 @dataclass
@@ -295,6 +336,7 @@ class FakeQuantizeConfig(IntxFakeQuantizeConfig):
         _log_deprecation_warning(self)
 
 
+# TODO: rewrite using registration API?
 def _infer_fake_quantize_configs(
     base_config: AOBaseConfig,
 ) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
@@ -307,6 +349,8 @@ def _infer_fake_quantize_configs(
     """
     # avoid circular imports
     from torchao.quantization import (
+        Float8DynamicActivationFloat8WeightConfig,
+        Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
     )
@@ -318,18 +362,45 @@ def _infer_fake_quantize_configs(
             is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC,
         )
         weight_config = IntxFakeQuantizeConfig(
-            dtype=TorchAODType.INT4,
+            dtype=torch.int4,
             group_size=base_config.group_size,
             is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
         )
-        return (act_config, weight_config)
     elif isinstance(base_config, Int4WeightOnlyConfig):
+        if base_config.version != 2:
+            raise ValueError(f"Only version 2 of {type(base_config)} is supported")
+        act_config = None
         weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.uint4,
+            dtype=torch.int4,
             group_size=base_config.group_size,
-            is_symmetric=False,
-            zero_point_domain=base_config.zero_point_domain,
+            is_symmetric=True,
         )
-        return (None, weight_config)
+    elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig):
+        if base_config.version != 2:
+            raise ValueError(f"Only version 2 of {type(base_config)} is supported")
+        (act_granularity, weight_granularity) = _normalize_granularity(
+            base_config.granularity
+        )
+        act_config = Float8FakeQuantizeConfig(
+            dtype=base_config.activation_dtype,
+            granularity=act_granularity,
+            hp_value_lb=base_config.activation_value_lb,
+            hp_value_ub=base_config.activation_value_ub,
+        )
+        weight_config = Float8FakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=weight_granularity,
+        )
+    elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig):
+        act_config = Float8FakeQuantizeConfig(
+            dtype=torch.float8_e4m3fn,
+            granularity=PerRow(),
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=torch.int4,
+            group_size=base_config.group_size,
+            is_symmetric=True,
+        )
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
+    return (act_config, weight_config)

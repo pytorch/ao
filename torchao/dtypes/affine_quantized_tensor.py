@@ -35,10 +35,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 logger = logging.getLogger(__name__)
 aten = torch.ops.aten
@@ -613,6 +610,5 @@ to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_stat
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([AffineQuantizedTensor])
+# Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([AffineQuantizedTensor])

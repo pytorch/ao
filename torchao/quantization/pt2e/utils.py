@@ -758,7 +758,7 @@ def fold_bn_weights_into_conv_node(
     # since the node refers to a mutating op. Here we still need to call DCE first
     # to get rid of the unused getitem nodes that consume the BN node.
     m.graph.eliminate_dead_code()
-    if len(bn_node.users) == 0:
+    if not bn_node._erased and len(bn_node.users) == 0:
         m.graph.erase_node(bn_node)
 
 
@@ -815,7 +815,7 @@ def _get_aten_graph_module_for_pattern(
             [x.cuda() if isinstance(x, torch.Tensor) else x for x in example_inputs]
         )
 
-    aten_pattern = torch.export.export_for_training(
+    aten_pattern = torch.export.export(
         pattern,  # type: ignore[arg-type]
         example_inputs,
         kwargs,
@@ -1031,6 +1031,8 @@ def _replace_literals_with_existing_placeholders(
             continue
         new_args = []
         for arg in node.args:
+            if isinstance(arg, list):
+                arg = tuple(arg)  # type: ignore[assignment]
             if (
                 _is_literal(arg)
                 and arg not in exclude_literals
