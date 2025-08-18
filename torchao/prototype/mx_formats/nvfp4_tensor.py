@@ -6,7 +6,7 @@
 
 import sys
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -24,7 +24,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
     tensor_size_hp_to_fp4x2,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
-from torchao.utils import ceil_div, fill_defaults
+from torchao.utils import TorchAOBaseTensor, ceil_div, fill_defaults
 
 E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 
@@ -38,6 +38,7 @@ class NVFP4MMConfig(Enum):
     WEIGHT_ONLY = "weight_only"
 
 
+# TODO(future PR): move over to TorchAOBaseTensor's dispatch
 def implements(aten_ops):
     """Register aten ops to the NVFP4 op table"""
 
@@ -49,7 +50,7 @@ def implements(aten_ops):
     return decorator
 
 
-class NVFP4Tensor(torch.Tensor):
+class NVFP4Tensor(TorchAOBaseTensor):
     """NVIDIA FP4 (NVFP4) Tensor subclass.
 
     This implements the NVIDIA variant of MX FP4 format, which uses a specific
@@ -59,20 +60,22 @@ class NVFP4Tensor(torch.Tensor):
         qdata: Packed FP4 data (2 values per byte)
         _scale_e4m3: Blockwise scales in float8_e4m3fn format (may be swizzled)
         _per_tensor_scale: Optional global per-tensor scale in float32 format
-        _block_size: Block size for quantization (fixed at 16)
-        _orig_dtype: Original tensor dtype before quantization
-        _is_swizzled_scales: Whether scales are stored in swizzled (blocked) format
-        mm_config: Matrix multiplication configuration
+        _block_size (int): Block size for quantization (fixed at 16)
+        _orig_dtype (torch.dtype): Original tensor dtype before quantization
+        _is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
+        mm_config (NVFP4MMConfig): Matrix multiplication configuration
+        use_triton_kernel (bool): Whether to use triton kernels
     """
 
-    qdata: torch.Tensor
-    _scale_e4m3: torch.Tensor
-    _per_tensor_scale: Optional[torch.Tensor]
-    _block_size: int
-    _orig_dtype: torch.dtype
-    _is_swizzled_scales: bool
-    mm_config: NVFP4MMConfig
-    use_triton_kernel: bool
+    tensor_data_names = ["qdata", "_scale_e4m3"]
+    optional_tensor_data_names = ["_per_tensor_scale"]
+    tensor_attribute_names = [
+        "_block_size",
+        "_orig_dtype",
+        "mm_config",
+        "_is_swizzled_scales",
+        "use_triton_kernel",
+    ]
 
     def __new__(
         cls,
@@ -171,52 +174,6 @@ class NVFP4Tensor(torch.Tensor):
             mm_config,
             is_swizzled_scales,
             use_triton_kernel,
-        )
-
-    def __tensor_flatten__(self):
-        ctx = {
-            "_block_size": self._block_size,
-            "_orig_dtype": self._orig_dtype,
-            "_is_swizzled_scales": self._is_swizzled_scales,
-            "mm_config": self.mm_config,
-            "use_triton_kernel": self.use_triton_kernel,
-        }
-        tensor_list = ["qdata", "_scale_e4m3"]
-        if self._per_tensor_scale is not None:
-            tensor_list.append("_per_tensor_scale")
-        return tensor_list, ctx
-
-    def _apply_fn_to_data(self, fn: Callable):
-        """Applies a fn to all tensor components stored on this class"""
-        tensor_names, ctx = self.__tensor_flatten__()
-        new_tensors = {}
-        for name in tensor_names:
-            new_tensors[name] = fn(getattr(self, name))
-        if "_per_tensor_scale" not in tensor_names:
-            new_tensors["_per_tensor_scale"] = None
-        return self.__class__.__tensor_unflatten__(
-            new_tensors,
-            ctx,
-            None,
-            None,
-        )
-
-    @staticmethod
-    def __tensor_unflatten__(
-        inner_tensors,
-        metadata,
-        outer_size,
-        outer_stride,
-    ):
-        return NVFP4Tensor(
-            inner_tensors["qdata"],
-            inner_tensors["_scale_e4m3"],
-            inner_tensors.get("_per_tensor_scale", None),
-            metadata["_block_size"],
-            metadata["_orig_dtype"],
-            metadata["mm_config"],
-            metadata.get("_is_swizzled_scales", False),
-            metadata.get("use_triton_kernel", False),
         )
 
     # Do not force the NVFP4Tensor type on the returned tensor
