@@ -40,3 +40,8 @@ class PackingFormat(str, Enum):
     Unpacked means the subbyte quantized data is stored as int8
     """
     UNPACKED_TO_INT8 = "unpacked_to_int8"
+
+    """
+    tensor_core_tile_packed is referring to the format used by tensor core tiled kernels for int4 quantization
+    """
+    TENSOR_CORE_TILE_PACKED = "tensor_core_tile_packed"

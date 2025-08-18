@@ -1,7 +1,4 @@
-from torchao.kernel import (
-    int_scaled_matmul,
-    safe_int_mm,
-)
+from torchao.kernel import int_scaled_matmul, safe_int_mm
 
 from .autoquant import (
     ALL_AUTOQUANT_CLASS_LIST,
@@ -13,18 +10,8 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-    MultiTensor,
-    MultiTensorInputRecorder,
-)
-from .granularity import (
-    PerAxis,
-    PerGroup,
-    PerRow,
-    PerTensor,
-    PerToken,
-)
+from .GPTQ import Int4WeightOnlyGPTQQuantizer, MultiTensor, MultiTensorInputRecorder
+from .granularity import PerAxis, PerGroup, PerRow, PerTensor, PerToken
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
@@ -37,10 +24,7 @@ from .linear_quant_modules import (
     Int8DynActInt4WeightLinear,
     Int8DynActInt4WeightQuantizer,
 )
-from .observer import (
-    AffineQuantizedMinMaxObserver,
-    AffineQuantizedObserverBase,
-)
+from .observer import AffineQuantizedMinMaxObserver, AffineQuantizedObserverBase
 from .quant_api import (
     CutlassInt4PackedLayout,
     FbgemmConfig,
@@ -93,6 +77,7 @@ from .quantize_.workflows import (
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4TensorCoreTilePackedTensor,
     IntxUnpackedTensor,
 )
 from .smoothquant import (
@@ -106,9 +91,7 @@ from .smoothquant import (
 from .subclass import *  # noqa: F403
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
-from .utils import (
-    compute_error,
-)
+from .utils import compute_error
 from .weight_only import WeightOnlyInt8QuantLinear
 
 # TODO: remove after migration of APIs are done
@@ -163,6 +146,7 @@ __all__ = [
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
     "IntxUnpackedTensor",
+    "Int4TensorCoreTilePackedTensor",
     "Float8Tensor",
     # smooth quant - subject to change
     "get_scale",
