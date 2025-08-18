@@ -1802,7 +1802,6 @@ class TestQAT(TestCase):
                     str(w.message),
                 )
 
-<<<<<<< HEAD
     def test_qat_api_convert_no_quantization(self):
         """
         Test that `QATConfig(step="convert")` swaps back to nn modules without quantization.

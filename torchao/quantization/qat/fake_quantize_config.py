@@ -35,8 +35,6 @@ from torchao.utils import _is_float8_type
 
 from .utils import _log_deprecation_warning
 
-from .utils import _log_deprecation_warning
-
 
 class FakeQuantizeConfigBase(abc.ABC):
     """
@@ -77,6 +75,7 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
             raise ValueError(
                 f"Expected PerRow or PerTensor granularity, got {self.granularity}"
             )
+
 
 class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     """
