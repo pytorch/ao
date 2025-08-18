@@ -15,6 +15,9 @@ from torchao.prototype.mx_formats.constants import (
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4MMConfig,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    QuantizeTensorToNVFP4Kwargs,
+)
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
@@ -304,8 +307,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert NVFP4Tensor.tensor_attribute_names[3] == "_is_swizzled_scales"
-    assert ctx[3] == True
+    assert NVFP4Tensor.tensor_attribute_names[2] == "_is_swizzled_scales"
+    assert ctx[2] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -491,19 +494,21 @@ def test_nvfp4_matmul_with_amax(
 
     a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
+    act_quant_kwargs = None
+    if mm_config == NVFP4MMConfig.DYNAMIC:
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
-        mm_config=mm_config,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        mm_config=mm_config,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
+        act_quant_kwargs=act_quant_kwargs,
     )
 
     func = torch.compile(F.linear, fullgraph=True) if compile else F.linear
