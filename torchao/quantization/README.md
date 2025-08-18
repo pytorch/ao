@@ -125,7 +125,6 @@ be applied individually. While there are a large variety of quantization apis, t
 #### A16W4 WeightOnly Quantization
 
 ```python
-# for torch 2.4+
 from torchao.quantization import quantize_, Int4WeightOnlyConfig
 group_size = 32
 
@@ -133,10 +132,6 @@ group_size = 32
 # use_hqq flag for `Int4WeightOnlyConfig` quantization
 use_hqq = False
 quantize_(model, Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq))
-
-# for torch 2.2.2 and 2.3
-from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
-change_linear_weights_to_int4_woqtensors(model)
 ```
 
 Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
@@ -144,25 +139,15 @@ Note: The quantization error incurred by applying int4 quantization to your mode
 #### A16W8 Int8 WeightOnly Quantization
 
 ```python
-# for torch 2.4+
 from torchao.quantization import quantize_, Int8WeightOnlyConfig
 quantize_(model, Int8WeightOnlyConfig())
-
-# for torch 2.2.2 and 2.3
-from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
-change_linear_weights_to_int8_woqtensors(model)
 ```
 
 #### A8W8 Int8 Dynamic Quantization
 
 ```python
-# for torch 2.4+
 from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig
 quantize_(model, Int8DynamicActivationInt8WeightConfig())
-
-# for torch 2.2.2 and 2.3
-from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
-change_linear_weights_to_int8_dqtensors(model)
 ```
 
 ### A16W8 Float8 WeightOnly Quantization
@@ -304,12 +289,6 @@ quantize_(m, Int4WeightOnlyConfig(group_size=group_size))
 ## If different zero_point_domain needed
 # quantize_(m, Int4WeightOnlyConfig(group_size=group_size, zero_point_domain=ZeroPointDomain.FLOAT))
 
-# temporary workaround for tensor subclass + torch.compile
-# NOTE: this is only need for torch version < 2.5+
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torchao.utils import unwrap_tensor_subclass
-if not TORCH_VERSION_AT_LEAST_2_5:
-    unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
 

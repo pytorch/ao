@@ -12,7 +12,6 @@ import torch
 import torchao
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +164,7 @@ def main(args):
         bench_accuracy(model, tokenizer, tasks=args.tasks, msg=msg)
 
 
-if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_available():
+if __name__ == "__main__" and torch.cuda.is_available():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )

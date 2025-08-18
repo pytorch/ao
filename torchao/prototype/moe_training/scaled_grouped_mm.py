@@ -11,9 +11,11 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
+    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_rowwise_scales,
+    triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
@@ -30,6 +32,7 @@ def _scaled_grouped_mm(
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
 ) -> torch.Tensor:
     """
     This function performs dynamic float8 quantization with row-wise scaling
@@ -43,14 +46,27 @@ def _scaled_grouped_mm(
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
     """
-    # TODO: Remove once prototype is more mature. This is currently very useful for development and debugging.
-    logger.info("Using scaled_grouped_mm")
-    return _Float8GroupedMM.apply(
-        A,
-        B_t,
-        offs,
-        out_dtype,
-    )
+    # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
+    if scaling_type == MoEScalingType.FP8_ROWWISE:
+        # print("Using fp8 rowwise scaled_grouped_mm")
+        return _Float8GroupedMM.apply(
+            A,
+            B_t,
+            offs,
+            out_dtype,
+        )
+    elif scaling_type == MoEScalingType.MXFP8:
+        print("Using mxfp8 scaled_grouped_mm")
+        block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
+        return _MXFP8GroupedMM.apply(
+            A,
+            B_t,
+            offs,
+            block_size,
+            out_dtype,
+        )
+    else:
+        raise ValueError(f"Unsupported scaling type {scaling_type}")
 
 
 class _Float8GroupedMM(torch.autograd.Function):
@@ -95,10 +111,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert not _is_column_major(A), "A must be row-major"
 
         # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
-        if not _is_column_major(B_t):
-            # FSDP will complain if B_t (weights) is not contiguous, we can't require B_t to be column-major.
-            # TODO: figure out better solution than transposing for each forward pass.
-            B_t = B_t.transpose(-2, -1).contiguous().transpose(-2, -1)
+        assert _is_column_major(B_t), "B must be column-major"
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K) or (B, M, K)
@@ -114,9 +127,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         A_fp8_row_major = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
-        # B shape: (E, K, N)
-        # B scales must be computed rowwise keeping the outer/final dim, so:
-        # B_scales shape: (E, 1, N)
+        # B_t shape: (E, K, N)
+        # B_t scales must be computed rowwise keeping the outer/final dim, so:
+        # B_t_scales shape: (E, 1, N)
         B_t_scales = tensor_to_scale(
             B_t,
             torch.float8_e4m3fn,
@@ -127,26 +140,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         B_t_scaled = B_t.to(torch.float32) * B_t_scales
         B_t_fp8_col_major = to_fp8_saturated(B_t_scaled, torch.float8_e4m3fn)
 
-        # Precompute non-transposed B column-major for backward, to save memory by storing the
-        # low precision B tensor instead of the high precision B tensor.
-        # In the backward this is needed for grad_A: grad_output @ B.
-        B = B_t.contiguous().transpose(-2, -1)
-
-        # - B shape: (E, K, N)
-        # - B scales must be computed rowwise keeping the outer/final dim, so:
-        # - B_scale shape: (E, 1, N)
-        B_scales = tensor_to_scale(
-            B,
-            torch.float8_e4m3fn,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-2,
-            round_scales_to_power_of_2=True,
-        )
-        B_scaled = B.to(torch.float32) * B_scales
-        B_fp8_col_major = to_fp8_saturated(B_scaled, torch.float8_e4m3fn)
-
         # Store what we need for backward.
-        ctx.save_for_backward(A, B_fp8_col_major, B_scales, offs)
+        ctx.save_for_backward(A, B_t, offs)
         ctx.out_dtype = out_dtype
 
         # Perform scaled grouped GEMM and return result.
@@ -175,7 +170,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        A, B_fp8_col_major, B_scales, offs = ctx.saved_tensors
+        A, B_t, offs = ctx.saved_tensors
         out_dtype = ctx.out_dtype
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
@@ -193,6 +188,14 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
         grad_output_fp8_row_major = to_fp8_saturated(
             grad_output_scaled, torch.float8_e4m3fn
+        )
+
+        # Compute B fp8 column-major for right operand of grouped GEMM:
+        # grad_A = grad_output @ B.
+        B_fp8_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
+            B_t._data if hasattr(B_t, "_data") else B_t,
+            output_dtype=torch.float8_e4m3fn,
+            round_scales_to_power_of_2=True,
         )
 
         # Compute grad_A.
@@ -213,34 +216,29 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major,
             B_fp8_col_major,
-            grad_output_scales.squeeze().reciprocal(),
-            B_scales.squeeze().reciprocal(),
+            grad_output_scales.reciprocal(),
+            B_scales.reciprocal(),
             offs,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
 
-        # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
-        # needed for grad_B: grad_output_t @ A
-        grad_output_t_row_major = grad_output.transpose(-2, -1).contiguous()
-
-        # Convert A to float8, column-major for right operand of grouped GEMM:
-        # needed for grad_B: grad_output @ A
-        A_col_major = A.transpose(-2, -1).contiguous().transpose(-2, -1)
-
         # grad_B is a special case. both operands of the grouped gemm will be 2D with offsets determing the "groups."
         # Compute scales for grad_output_t and A, which are both 2D tensors with offsets which define the "jagged" groups.
+
+        # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
+        # needed for grad_B: grad_output_t @ A
         grad_output_t_fp8_row_major, grad_output_t_scales = (
-            triton_fp8_row_major_jagged_rowwise_scales(
-                grad_output_t_row_major,
+            triton_fp8_per_group_rowwise_scales(
+                grad_output.transpose(-2, -1),
                 offs,
                 torch.float8_e4m3fn,
                 round_scales_to_power_of_2=True,
             )
         )
 
-        A_fp8_col_major, A_scales = triton_fp8_col_major_jagged_colwise_scales(
-            A_col_major,
+        A_fp8_col_major, A_scales = triton_fp8_per_group_colwise_scales(
+            A,
             offs,
             torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
@@ -248,7 +246,6 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Compute grad_B = grad_output_t @ A.
         # grad_B = grad_output_t @ A
-        # grad_B = (N,M) @ (M,K) = (N,K)
         assert not _is_column_major(grad_output_t_fp8_row_major), (
             "grad_output_t must be row-major for grad_B = grad_output_t @ A"
         )
