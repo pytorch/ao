@@ -14,6 +14,9 @@ from .int4.int4_tensor import (
 from .int4.int4_woq_cpu_tensor import (
     Int4WoqCpuTensor,
 )
+from .intx.intx_unpacked_tensor import (
+    IntxUnpackedTensor,
+)
 
 __all__ = [
     "Int4Tensor",
@@ -22,4 +25,5 @@ __all__ = [
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "Int4WoqCpuTensor",
+    "IntxUnpackedTensor",
 ]

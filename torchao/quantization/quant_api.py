@@ -76,6 +76,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4WoqCpuTensor,
+    IntxUnpackedTensor,
     QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.transform_module import (
@@ -453,6 +454,10 @@ def _quantization_type(weight: torch.Tensor):
 
 def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
+
+
+def _embedding_extra_repr(self):
+    return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
 
 
 def _get_linear_subclass_inserter(
@@ -1163,13 +1168,13 @@ def _int4_weight_only_transform(
 class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Configuration for apply float8 dynamic per row quantization and int4
     per group weight quantization to linear
+    (only group_size 128 is supported right now since underlying kernel used only supports 128
+    and above and no benefits of making it bigger)
 
     Args:
-        `group_size`: group size for groupwise quantization for weight
         `packing_format`: how the weight is packed, only preshuffled is supported
     """
 
-    group_size: int = 128
     packing_format: PackingFormat = "preshuffled"
 
 
@@ -1181,13 +1186,13 @@ def _float8_dynamic_activation_int4_weight_transform(
         "applying int8 weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
-    group_size = config.group_size
     packing_format = config.packing_format
 
     assert packing_format == "preshuffled", (
         f"only preshuffled packing_format supported right now, got: {packing_format}"
     )
     weight = module.weight
+    group_size = 128
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
     new_weight = Int4PreshuffledTensor.from_hp(
         module.weight,
@@ -1994,6 +1999,8 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     mapping_type: MappingType = MappingType.SYMMETRIC
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
+    packing_format: PackingFormat = PackingFormat.UNPACKED_TO_INT8
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.IntxWeightOnlyConfig")
@@ -2012,16 +2019,13 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         )
 
 
-@register_quantize_module_handler(IntxWeightOnlyConfig)
-def _intx_weight_only_transform(
-    module: torch.nn.Module, config: IntxWeightOnlyConfig
-) -> torch.nn.Module:
-    weight = module.weight
+def _intx_weight_only_quantize_tensor(weight, config):
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mapping_type = config.mapping_type
     scale_dtype = config.scale_dtype
     layout = config.layout
+    packing_format = config.packing_format
 
     assert weight.dim() == 2, (
         f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -2036,11 +2040,28 @@ def _intx_weight_only_transform(
     else:
         raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
 
+    block_size = (1, group_size)
+
+    if config.version == 2:
+        if config.packing_format == PackingFormat.UNPACKED_TO_INT8:
+            new_weight = IntxUnpackedTensor.from_hp(
+                weight,
+                block_size,
+                weight_dtype,
+                mapping_type=mapping_type,
+            )
+            if scale_dtype is not None and scale_dtype != weight.dtype:
+                new_weight.scale = new_weight.scale.to(scale_dtype).to(weight.dtype)
+            return new_weight
+        else:
+            raise ValueError(f"Unsupported packing format: {packing_format}")
+
+    # Version 1
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
     weight = to_affine_quantized_intx(
         input_float=weight,
         mapping_type=mapping_type,
-        block_size=(1, group_size),
+        block_size=block_size,
         target_dtype=torch.int8,
         quant_min=quant_min,
         quant_max=quant_max,
@@ -2050,7 +2071,25 @@ def _intx_weight_only_transform(
         zero_point_domain=ZeroPointDomain.INT,
         _layout=layout,
     )
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    return weight
+
+
+@register_quantize_module_handler(IntxWeightOnlyConfig)
+def _intx_weight_only_transform(
+    module: torch.nn.Module, config: IntxWeightOnlyConfig
+) -> torch.nn.Module:
+    assert hasattr(module, "weight"), (
+        "applying intx weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _intx_weight_only_quantize_tensor(module.weight, config)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+
+    if isinstance(module, nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    elif isinstance(module, nn.Embedding):
+        module.extra_repr = types.MethodType(_embedding_extra_repr, module)
+
     return module
 
 
