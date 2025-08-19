@@ -35,3 +35,8 @@ class PackingFormat(str, Enum):
     marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization
     """
     MARLIN_SPARSE = "marlin_sparse"
+
+    """
+    int4_woq_cpu is referring to the format used by int4 weight-only quantization on CPU, which is a groupwise quantization format.
+    """
+    INT4_WOQ_CPU = "int4_woq_cpu"

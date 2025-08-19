@@ -11,6 +11,9 @@ from .int4.int4_preshuffled_tensor import (
 from .int4.int4_tensor import (
     Int4Tensor,
 )
+from .int4.int4_woq_cpu_tensor import (
+    Int4WoqCpuTensor,
+)
 
 __all__ = [
     "Int4Tensor",
@@ -18,4 +21,5 @@ __all__ = [
     "Int4MarlinSparseTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
+    "Int4WoqCpuTensor",
 ]
