@@ -13,9 +13,14 @@ from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
+    auto_detect_device,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_100,
 )
+
+from torchao.testing.utils import skip_if_xpu
+
+_DEVICE = auto_detect_device()
 
 if not TORCH_VERSION_AT_LEAST_2_8:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -23,7 +28,7 @@ if not TORCH_VERSION_AT_LEAST_2_8:
 
 def run_matrix_test(M: int, K: int, N: int, format) -> float:
     dtype = torch.bfloat16
-    device = torch.device("cuda")
+    device = torch.device(_DEVICE)
 
     a = torch.rand((M, K), dtype=dtype, device=device)
     b = torch.rand((N, K), dtype=dtype, device=device)
@@ -57,9 +62,9 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     return compute_error(out_hp, out).item()
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_xpu("XPU enablement in Progress")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+    torch.cuda.is_available() and not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
 )
 @pytest.mark.parametrize(
     "size",
