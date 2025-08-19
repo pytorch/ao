@@ -164,9 +164,8 @@ __all__ = [
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
     "IntxUnpackedTensor",
-    "Float8Tensor",
     "IntxTilePackedTensor",
-    "IntxUnpackedTensor",
+    "Float8Tensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
