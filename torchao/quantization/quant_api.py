@@ -80,6 +80,9 @@ from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.quantize_.workflows.intx import ComputeTarget
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_tensor import (
+    ActivationQuantization,
+)
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
@@ -749,7 +752,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
     packing_format: PackingFormat = PackingFormat.UNPACKED_TO_INT8
 
-    # Used with PackingFormat.TILED
+    # Used with PackingFormat.TILE_PACKED
     compute_target: Optional[ComputeTarget] = None
     version: int = 1
 
@@ -830,13 +833,14 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         assert act_mapping_type == MappingType.ASYMMETRIC
         assert packing_format in [
             PackingFormat.UNPACKED_TO_INT8,
-            PackingFormat.TILED,
+            PackingFormat.TILE_PACKED,
         ], f"Unsupported packing format: {packing_format}"
         new_weight = IntxUnpackedTensor.from_hp(
             weight,
             block_size,
             weight_dtype,
             mapping_type=weight_mapping_type,
+            activation_quantization=ActivationQuantization.DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN,
         )
         if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
             _adjust_scale_dtype_in_intx_unpacked_tensor(
@@ -845,21 +849,15 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
 
         new_bias = bias
 
-        # Apply dynamic activation
-        if packing_format == PackingFormat.TILED:
-            # IntxTilePackedTensor includes asymmetric dynamic activation
+        # Create packed tensor
+        if packing_format == PackingFormat.TILE_PACKED:
             assert compute_target is not None, (
-                "Must specify a compute target for PackingFormat.TILED"
+                "Must specify a compute target for PackingFormat.TILE_PACKED"
             )
             new_weight = IntxTilePackedTensor.from_intx_unpacked_tensor(
                 new_weight, bias=new_bias, compute_target=compute_target
             )
             new_bias = None  # bias is packed with weights
-        else:
-            assert packing_format == PackingFormat.UNPACKED_TO_INT8
-            new_weight = to_linear_activation_quantized(
-                new_weight, _int8_asymm_per_token_quant_hp
-            )
 
         return new_weight, new_bias
 

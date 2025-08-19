@@ -4,19 +4,27 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
+import tempfile
 import unittest
 
 import torch
+from parameterized import param, parameterized
+from torch.testing import FileCheck
 from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
 )
 
+from torchao.dtypes import QDQLayout
 from torchao.quantization import (
+    Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
+    MappingType,
     quantize_,
 )
 from torchao.quantization.granularity import PerGroup
+from torchao.quantization.quantize_.common import PackingFormat
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -96,9 +104,6 @@ class TestIntxUnpackedTensor(TestCase):
     def test_slice_and_copy_(self):
         device = "cpu"
         l = torch.nn.Linear(1024, 1024).to(device).to(torch.bfloat16)
-        l.weight = torch.nn.Parameter(
-            torch.zeros(1024, 1024, dtype=torch.bfloat16, device=device)
-        )
         quantize_(l, self.config)
         param = l.weight
         param_data = param.data
@@ -106,7 +111,6 @@ class TestIntxUnpackedTensor(TestCase):
         assert param.data.qdata.data_ptr() == param_data.qdata.data_ptr()
         assert param.data.scale.data_ptr() == param_data.scale.data_ptr()
         assert param.data.zero_point.data_ptr() == param_data.zero_point.data_ptr()
-        orig_value = param.data.qdata[0][0].item()
 
         # dummy_l has random input (shouldn't be 0)
         dummy_l = torch.nn.Linear(1024, 1024).to(device).to(torch.bfloat16)
@@ -117,7 +121,7 @@ class TestIntxUnpackedTensor(TestCase):
         param_data.copy_(quantized)
 
         # making sure param.data is updated
-        assert param.data.qdata[0][0] != orig_value
+        assert param.data.qdata[0][0] == quantized.qdata[0][0]
 
     def test_to_dtype(self):
         activations_bf16 = torch.randn(1, 128, dtype=torch.bfloat16)
@@ -136,11 +140,194 @@ class TestIntxUnpackedTensor(TestCase):
         linear.to(dtype=torch.bfloat16)
         linear(activations_bf16)
 
-    def test_export(self):
+    def test_export_intx_weight_only_config(self):
         linear = torch.nn.Linear(128, 256)
         quantize_(linear, self.config)
         ep = torch.export.export(linear, (torch.randn(1, 128),))
         assert "torch.ops.torchao.dequantize_affine.default" in ep.graph_module.code
+
+    def test_export_int8_dyn_act_intx_weight_config(self):
+        layers = [
+            torch.nn.Linear(512, 256, bias=False),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                weight_mapping_type=MappingType.SYMMETRIC,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                version=2,
+            ),
+        )
+        eager_results = model(activations)
+
+        exported = torch.export.export(model, (activations,))
+
+        exported_results = exported.module()(activations)
+        self.assertTrue(torch.allclose(eager_results, exported_results))
+
+        expected_lines = [
+            "torch.ops.torchao.choose_qparams_affine.default",
+            "torch.ops.torchao.quantize_affine.default",
+            "torch.ops.torchao.dequantize_affine.default",
+            "torch.ops.torchao.dequantize_affine.default",
+            "torch.ops.aten.linear.default",
+        ]
+        for line in expected_lines:
+            count = 1
+            if line == "torch.ops.torchao.dequantize_affine.default":
+                count = 2
+            FileCheck().check_count(line, count, exactly=True).run(
+                exported.graph_module.code
+            )
+
+    def test_serialization_int8_dyn_act_intx_weight_config(self):
+        layers = [
+            torch.nn.Linear(512, 256),
+        ]
+        model = torch.nn.Sequential(*layers)
+        model2 = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        packing_format = PackingFormat.UNPACKED_TO_INT8
+        compute_target = None
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                packing_format=packing_format,
+                compute_target=compute_target,
+                version=2,
+            ),
+        )
+        expected = model(activations)
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            torch.save(model.state_dict(), f"{tmpdirname}/model.pt")
+            state_dict = torch.load(
+                f"{tmpdirname}/model.pt", map_location="cpu", weights_only=True
+            )
+
+            # Load deserialized weights into model2 and check result
+            model2.load_state_dict(state_dict, assign=True)
+            actual = model2(activations)
+            self.assertTrue(torch.allclose(expected, actual))
+
+    def test_serialization_intx_weight_only_config(self):
+        layers = [
+            torch.nn.Linear(512, 256),
+        ]
+        model = torch.nn.Sequential(*layers)
+        model2 = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        packing_format = PackingFormat.UNPACKED_TO_INT8
+
+        quantize_(
+            model,
+            IntxWeightOnlyConfig(
+                weight_dtype=torch.int4,
+                granularity=PerGroup(64),
+                packing_format=packing_format,
+                version=2,
+            ),
+        )
+        expected = model(activations)
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            torch.save(model.state_dict(), f"{tmpdirname}/model.pt")
+            state_dict = torch.load(
+                f"{tmpdirname}/model.pt", map_location="cpu", weights_only=True
+            )
+
+            # Load deserialized weights into model2 and check result
+            model2.load_state_dict(state_dict, assign=True)
+            actual = model2(activations)
+            self.assertTrue(torch.allclose(expected, actual))
+
+    @parameterized.expand(
+        [
+            param(
+                weight_dtype=weight_dtype,
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
+            for group_size in [32, 64, 128]
+            for mapping_type in [MappingType.SYMMETRIC]
+            for act_mapping_type in [MappingType.ASYMMETRIC]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_intx_unpacked_v2_is_close_to_qdq_v1(
+        self,
+        weight_dtype,
+        group_size,
+        mapping_type,
+        act_mapping_type,
+        scale_dtype,
+        model_dtype,
+    ):
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        model_v1 = copy.deepcopy(model)
+        quantize_(
+            model_v1,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
+                version=1,
+                layout=QDQLayout(),
+            ),
+        )
+        out_v1 = model_v1(activations)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                version=2,
+            ),
+        )
+        out_v2 = model(activations)
+        sqnr = compute_error(out_v1, out_v2).item()
+
+        if scale_dtype == torch.float32 and model_dtype == torch.float32:
+            self.assertTrue(sqnr == float("inf"), f"Got SQNR of {sqnr}")
+        else:
+            # There is slight difference in how v2 does dynamic activation quantization
+            # for non-float32 tensors
+            self.assertTrue(sqnr > 30, f"Got SQNR of {sqnr}")
 
 
 if __name__ == "__main__":

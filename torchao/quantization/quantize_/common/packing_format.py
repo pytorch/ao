@@ -42,6 +42,6 @@ class PackingFormat(str, Enum):
     UNPACKED_TO_INT8 = "unpacked_to_int8"
 
     """
-    Tiled means the tiling used by CPU kernels
+    Tile packed means the tiling used by CPU kernels
     """
-    TILED = "tiled"
+    TILE_PACKED = "tile_packed"

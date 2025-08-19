@@ -14,6 +14,7 @@ import torch
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_tensor import (
+    ActivationQuantization,
     IntxUnpackedTensor,
 )
 from torchao.utils import (
@@ -142,6 +143,10 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         """
 
         # Extract data from IntxUnpackedTensor
+        assert (
+            tensor.activation_quantization
+            == ActivationQuantization.DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN
+        )
         qdata, scale, zero_point = tensor.qdata, tensor.scale, tensor.zero_point
         bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
         dtype = tensor.dtype
