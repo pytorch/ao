@@ -15,8 +15,9 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig, quantize_
-from torchao.utils import _is_fbgemm_genai_gpu_available
+from torchao.utils import _is_fbgemm_genai_gpu_available, auto_detect_device
 
+_DEVICE = auto_detect_device()
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
@@ -26,7 +27,7 @@ class ToyLinearModel(torch.nn.Module):
         self.linear3 = torch.nn.Linear(k, 64, bias=False)
 
     def example_inputs(
-        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
+        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device=_DEVICE
     ):
         return [
             torch.randn(
@@ -42,7 +43,6 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @unittest.skipIf(
     not _is_fbgemm_genai_gpu_available(),
     reason="need to install fbgemm_gpu_genai package",
@@ -62,7 +62,7 @@ class TestAWQ(TestCase):
             AWQConfig(base_config, step="not_supported")
 
     def test_awq_functionality(self):
-        device = "cuda"
+        device = _DEVICE
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -111,7 +111,7 @@ class TestAWQ(TestCase):
         assert loss_awq < loss_base
 
     def test_awq_loading(self):
-        device = "cuda"
+        device = _DEVICE
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -171,7 +171,7 @@ class TestAWQ(TestCase):
 
         There is also a slicing op that is ommitted here, overall e2e is tested in tests in vllm repo
         """
-        device = "cuda"
+        device = _DEVICE
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
