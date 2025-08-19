@@ -16,27 +16,37 @@ class MOEFeedForwardAOQuantizable(nn.Module):
         shared_expert=None,
         return_scores=False,
         empty_init=True,
+        with_bias=False,
+        gpt_oss_mlp=False,
+        limit=7.0,
+        alpha=1.0,
     ) -> None:
         super().__init__()
         self.router = nn.Linear(hidden_dim, num_experts, bias=False)
         self.experts = ConditionalFeedForwardAOQuantizable(
-            num_experts, hidden_dim, expert_dim, act_fn, empty_init
+            num_experts, hidden_dim, expert_dim, act_fn, empty_init, with_bias, gpt_oss_mlp, limit, alpha
         )
         self.hidden_dim = hidden_dim
         self.top_k = top_k
         self.shared_expert = shared_expert
         self.return_scores = return_scores
+        self.gpt_oss_mlp = gpt_oss_mlp
+        self.limit = limit
+        self.alpha = alpha
 
     def forward(self, x: Tensor) -> Tensor:
         batch_size = x.shape[0]
         x = x.view(-1, self.hidden_dim)  # x: [T, D]
-        scores = self.router(x)  # [T, E]
-        scores = F.softmax(scores, dim=-1)
-        scores, expert_indices = torch.topk(
-            scores, self.top_k, dim=-1
-        )  # [T, A], [T, A]
-        scores /= scores.sum(dim=-1, keepdim=True).to(x.dtype)  # [T, A]
-
+        if not self.gpt_oss_mlp:
+            scores = self.router(x)  # [T, E]
+            scores = F.softmax(scores, dim=-1)
+            scores, expert_indices = torch.topk(
+                scores, self.top_k, dim=-1
+            )  # [T, A], [T, A]
+            scores /= scores.sum(dim=-1, keepdim=True).to(x.dtype)  # [T, A]
+        else:
+            scores, expert_indices = self.router(x)
+            
         out = self.experts(x, expert_indices, scores, self.top_k)
         if self.shared_expert:
             out += self.shared_expert(x)
@@ -48,7 +58,7 @@ class MOEFeedForwardAOQuantizable(nn.Module):
 
 
 class ConditionalFeedForwardAOQuantizable(nn.Module):
-    def __init__(self, num_experts, hidden_dim, expert_dim, act_fn, empty_init=True):
+    def __init__(self, num_experts, hidden_dim, expert_dim, act_fn, empty_init=True, with_bias=False, gpt_oss_mlp=False, limit=7.0, alpha=1.0):
         super().__init__()
         if empty_init:
             self.w1 = nn.Parameter(
@@ -60,6 +70,17 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
             self.w3 = nn.Parameter(
                 torch.empty(num_experts, expert_dim, hidden_dim)
             )  # E, I, D
+            if with_bias:
+                self.bias1 = nn.Parameter(
+                    torch.empty(num_experts, expert_dim)
+                )  # E, I
+                self.bias2 = nn.Parameter(
+                    torch.empty(num_experts, hidden_dim)
+                )  # E, D
+                self.bias3 = nn.Parameter(
+                    torch.empty(num_experts, expert_dim)
+                )  # E, I
+                
         else:
             self.w1 = nn.Parameter(
                 torch.randn(num_experts, expert_dim, hidden_dim)
@@ -70,10 +91,24 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
             self.w3 = nn.Parameter(
                 torch.randn(num_experts, expert_dim, hidden_dim)
             )  # E, I, D
+            if with_bias:
+                self.bias1 = nn.Parameter(
+                    torch.randn(num_experts, expert_dim)
+                )  # E, I
+                self.bias2 = nn.Parameter(
+                    torch.randn(num_experts, hidden_dim)
+                )  # E, D
+                self.bias3 = nn.Parameter(
+                    torch.randn(num_experts, expert_dim)
+                )  # E, I
         self.num_experts = num_experts
         self.act_fn = act_fn
         self.hidden_dim = hidden_dim
         self.expert_dim = expert_dim
+        self.with_bias = with_bias
+        self.gpt_oss_mlp = gpt_oss_mlp
+        self.limit = limit
+        self.alpha = alpha
 
     def forward(
         self,
@@ -96,11 +131,27 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
             w3 = self.w3[expert_indices]
             # run token through each expert
             for index in range(top_k):
-                y1 = F.silu(F.linear(x, w1[index]))
-                y3 = F.linear(x, w3[index])
-                y2 = w2[index]
+                if self.gpt_oss_mlp:
+                    gate = F.linear(x, w1[index])
+                    up = F.linear(x, w3[index])
+                    down = w2[index]
+                    if self.with_bias:
+                        gate += self.bias1[index]
+                        up += self.bias3[index]
+                        down += self.bias2[index]
+                    gate = gate.clamp(min=None, max=self.limit)
+                    up = up.clamp(min=-self.limit, max=self.limit)
+                    glu= gate * self.act_fn(gate * self.alpha)
+                    gated_output = (up + 1) * glu
+                    cur_out = F.linear(gated_output, down)
+                    if self.with_bias:
+                        cur_out += self.bias2[index]                                               
+                else:
+                    y1 = F.silu(F.linear(x, w1[index]))
+                    y3 = F.linear(x, w3[index])
+                    y2 = w2[index]
 
-                cur_out = F.linear(y1 * y3, y2)
+                    cur_out = F.linear(y1 * y3, y2)
                 outs.append(cur_out)
 
             # combine outputs
@@ -162,13 +213,29 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                 w1 = self.w1[expert]  # I, D
                 w2 = self.w2[expert]  # D, I
                 w3 = self.w3[expert]  # I, D
+                if self.gpt_oss_mlp:
+                    gate = F.linear(cur_x, w1)  # [T'(e), I]
+                    up = F.linear(cur_x, w3)  # [T'(e), I]
+                    down = w2  # [D, I]
+                    if self.with_bias:
+                        gate += self.bias1[expert]  # [I]
+                        up += self.bias3[expert]  # [I]
+                        down += self.bias2[expert]  # [D]
+                    gate = gate.clamp(min=None, max=self.limit)
+                    up = up.clamp(min=-self.limit, max=self.limit)
+                    glu = gate * self.act_fn(gate * self.alpha)
+                    gated_output = (up + 1) * glu
+                    cur_out = F.linear(gated_output, down)  # [T'(e), D]
+                    if self.with_bias:
+                        cur_out += self.bias2[expert]  # [D]
+                    outs.append(cur_out)
+                else:
+                    y1 = F.silu(F.linear(cur_x, w1))
+                    y3 = F.linear(cur_x, w3)
+                    y2 = w2
 
-                y1 = F.silu(F.linear(cur_x, w1))
-                y3 = F.linear(cur_x, w3)
-                y2 = w2
-
-                cur_out = F.linear(y1 * y3, y2)  # [T'(e), D]
-                outs.append(cur_out)
+                    cur_out = F.linear(y1 * y3, y2)  # [T'(e), D]
+                    outs.append(cur_out)
 
             # weigh outputs
             ordered_outs = torch.cat(outs, dim=0)  # [T*A, D]
