@@ -451,8 +451,8 @@ def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
 class MXTensor(torch.Tensor):
     def __new__(
         cls,
+        qdata,
         scale_e8m0_bits,
-        data_bits,
         elem_dtype,
         block_size,
         orig_dtype,
@@ -460,7 +460,7 @@ class MXTensor(torch.Tensor):
         gemm_kernel_choice,
         pack_fp6,
     ):
-        new_size = data_bits.size()
+        new_size = qdata.size()
         if elem_dtype == torch.float4_e2m1fn_x2:
             # set the tensor size to what it would be without 2x4 packing
             # Note: `is_contiguous` is going to return True for a tensor of size
@@ -469,27 +469,27 @@ class MXTensor(torch.Tensor):
             # a time when fixing this becomes important.
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,
-                data_bits.is_contiguous(),
+                qdata.is_contiguous(),
             )
         elif pack_fp6 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
             # set the tensor size to what it would be without fp6 packing
             new_size = tensor_size_fp6x4_to_hpx3(
                 new_size,
-                data_bits.is_contiguous(),
+                qdata.is_contiguous(),
             )
         self = torch.Tensor._make_wrapper_subclass(
             cls,
             new_size,
-            strides=data_bits.stride(),
-            storage_offset=data_bits.storage_offset(),
-            layout=data_bits.layout,
+            strides=qdata.stride(),
+            storage_offset=qdata.storage_offset(),
+            layout=qdata.layout,
             dtype=orig_dtype,
-            device=data_bits.device,
+            device=qdata.device,
         )
         assert scale_e8m0_bits.dtype == torch.float8_e8m0fnu, (
             f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
         )
-        assert data_bits.dtype in (
+        assert qdata.dtype in (
             torch.float8_e4m3fn,
             torch.float8_e5m2,
             torch.uint8,
@@ -500,10 +500,10 @@ class MXTensor(torch.Tensor):
         ):
             target_numel = scale_e8m0_bits.numel() * block_size
         elif elem_dtype == torch.float4_e2m1fn_x2:
-            assert data_bits.dtype is torch.uint8  # fp4
+            assert qdata.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size / 2
         elif elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
-            assert data_bits.dtype is torch.uint8  # fp4
+            assert qdata.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size
             if pack_fp6:
                 target_numel = 3 * target_numel // 4
@@ -511,18 +511,16 @@ class MXTensor(torch.Tensor):
             raise AssertionError("unsupported")
         if not issubclass(
             torch._subclasses.fake_tensor.FakeTensor,
-            type(data_bits),
+            type(qdata),
         ):
             # this check is sometimes broken for FakeTensor
             # TODO investigate
-            assert target_numel == data_bits.numel(), (
-                f"{target_numel} != {data_bits.numel()}"
-            )
+            assert target_numel == qdata.numel(), f"{target_numel} != {qdata.numel()}"
 
         # `_scale_e8m0` has rank 1 and applies to a row-major memory layout of
-        # `_data`
+        # `qdata`
+        self.qdata = qdata
         self._scale_e8m0 = scale_e8m0_bits
-        self._data = data_bits
         self._elem_dtype = elem_dtype
         self._block_size = block_size
         self._orig_dtype = orig_dtype
@@ -535,7 +533,7 @@ class MXTensor(torch.Tensor):
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self._data}, d_hp: {self.to_dtype(self._orig_dtype)}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"  # noqa: E501
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -556,7 +554,7 @@ class MXTensor(torch.Tensor):
 
     def to_dtype(self, target_dtype):
         return to_dtype(
-            self._data,
+            self.qdata,
             self._scale_e8m0,
             self._elem_dtype,
             self._block_size,
@@ -584,8 +582,8 @@ class MXTensor(torch.Tensor):
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()
             local_data_lp = data_lp.to_local()
             inner_mx_tensor = MXTensor(
-                local_scale_e8m0_biased,
                 local_data_lp,
+                local_scale_e8m0_biased,
                 elem_dtype,
                 block_size,
                 data_hp.dtype,
@@ -602,8 +600,8 @@ class MXTensor(torch.Tensor):
                 stride=data_lp.stride(),
             )
         return MXTensor(
-            scale_e8m0_biased,
             data_lp,
+            scale_e8m0_biased,
             elem_dtype,
             block_size,
             data_hp.dtype,
@@ -621,7 +619,7 @@ class MXTensor(torch.Tensor):
             "_gemm_kernel_choice": self._gemm_kernel_choice,
             "_pack_fp6": self._pack_fp6,
         }
-        return ["_scale_e8m0", "_data"], ctx
+        return ["qdata", "_scale_e8m0"], ctx
 
     @staticmethod
     def __tensor_unflatten__(
@@ -631,8 +629,8 @@ class MXTensor(torch.Tensor):
         outer_stride,
     ):
         return MXTensor(
+            inner_tensors["qdata"],
             inner_tensors["_scale_e8m0"],
-            inner_tensors["_data"],
             metadata["_elem_dtype"],
             metadata["_block_size"],
             metadata["_orig_dtype"],
@@ -695,8 +693,8 @@ class MXTensor(torch.Tensor):
                 f"scale_e8m0.shape: {self._scale_e8m0.shape} != {src._scale_e8m0.shape}",
             ),
             (
-                self._data.shape == src._data.shape,
-                f"data.shape: {self._data.shape} != {src._data.shape}",
+                self.qdata.shape == src.qdata.shape,
+                f"data.shape: {self.qdata.shape} != {src.qdata.shape}",
             ),
         ]
 

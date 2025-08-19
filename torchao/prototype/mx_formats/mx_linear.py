@@ -60,8 +60,8 @@ def _to_mxfp8_dim1_kernel_wrapper(
         a_data_local = a_data.to_local()
         a_scale_local = a_scale.to_local()
         inner = MXTensor(
-            a_scale_local,
             a_data_local.t(),
+            a_scale_local,
             elem_dtype,
             block_size,
             hp_dtype,
@@ -79,8 +79,8 @@ def _to_mxfp8_dim1_kernel_wrapper(
         )
     else:
         mx_tensor = MXTensor(
-            a_scale,
             a_data.t(),
+            a_scale,
             elem_dtype,
             block_size,
             hp_dtype,

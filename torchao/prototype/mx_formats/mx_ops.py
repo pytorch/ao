@@ -91,8 +91,8 @@ def _addmm_mx_dispatch(
     if gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
-        assert a._data.is_contiguous()
-        assert b._data.t().is_contiguous()
+        assert a.qdata.is_contiguous()
+        assert b.qdata.t().is_contiguous()
         assert a._block_size == 32, f"Invalid block size {a._block_size}"
         assert b._block_size == 32, f"Invalid block size {b._block_size}"
 
@@ -108,8 +108,8 @@ def _addmm_mx_dispatch(
             )
 
             res = torch._scaled_mm(
-                a._data,
-                b._data,
+                a.qdata,
+                b.qdata,
                 a_scale_block.view(torch.float8_e8m0fnu),
                 b_scale_block.view(torch.float8_e8m0fnu),
                 bias=bias,
@@ -121,7 +121,7 @@ def _addmm_mx_dispatch(
             assert gemm_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
             # FP4 operations
             res = torchao.ops.mx_fp4_bf16(
-                a._data, b._data, a_scale_block, b_scale_block
+                a.qdata, b.qdata, a_scale_block, b_scale_block
             )
             # TODO add optional bias to kernel
             if bias is not None:
@@ -171,8 +171,8 @@ def mx_t(func, types, args, kwargs):
     # For now, only transpose(input, 0, 1) is supported.
     old = args[0]
     new = MXTensor(
+        old.qdata.t(),
         old._scale_e8m0,
-        old._data.t(),
         old._elem_dtype,
         old._block_size,
         old._orig_dtype,
@@ -205,7 +205,7 @@ def mx_cast_up_op(func, types, args, kwargs):
 
 @implements([aten.view.default])
 def mx_view_op(func, types, args, kwargs):
-    data = args[0]._data
+    data = args[0].qdata
     new_size = args[1]
     if args[0]._elem_dtype == torch.float4_e2m1fn_x2:
         # special case fp4 as we pack two elements per byte
@@ -215,8 +215,8 @@ def mx_view_op(func, types, args, kwargs):
         new_size = tensor_size_hpx3_to_fp6x4(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
     return MXTensor(
-        args[0]._scale_e8m0,
         new_data,
+        args[0]._scale_e8m0,
         args[0]._elem_dtype,
         args[0]._block_size,
         args[0]._orig_dtype,
@@ -241,7 +241,7 @@ def mx_slice(func, types, args, kwargs):
     if dim == 0:
         # Slicing along the first dimension (rows) TODO assuming that dim 1 is reduciton dim for now
         sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step)
-        sliced_data = aten.slice.Tensor(x._data, dim, start, end, step).unsqueeze(-1)
+        sliced_data = aten.slice.Tensor(x.qdata, dim, start, end, step).unsqueeze(-1)
     elif dim == 1:
         # Slicing along reduciton dim
         if start is not None:
@@ -256,7 +256,7 @@ def mx_slice(func, types, args, kwargs):
                 f"End index {end} must be a multiple of block_size {x._block_size}"
             )
 
-        sliced_data = aten.slice.Tensor(x._data, dim, start, end, step)
+        sliced_data = aten.slice.Tensor(x.qdata, dim, start, end, step)
 
         # Calculate which scale elements to keep
         start_block = 0 if start is None else start // x._block_size
@@ -276,8 +276,8 @@ def mx_slice(func, types, args, kwargs):
         args,
         kwargs,
         MXTensor(
-            sliced_scale,
             sliced_data,
+            sliced_scale,
             x._elem_dtype,
             x._block_size,
             x._orig_dtype,
@@ -330,8 +330,8 @@ def autocast_to_copy(func, types, args, kwargs):
     # If dtype is specified, create a new MXTensor with the requested dtype
     if dtype is not None:
         res = MXTensor(
+            tensor.qdata,
             tensor._scale_e8m0,
-            tensor._data,
             tensor._elem_dtype,
             tensor._block_size,
             dtype,
