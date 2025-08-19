@@ -85,6 +85,9 @@ class Int4WoqCpuTensor(TorchAOBaseTensor):
         w: torch.Tensor,
         block_size: List[int],
     ):
+        assert w.ndim == 2 and w.device.type == "cpu", (
+            f"Expecting 2D tensor on CPU, but got: {w.shape} on {w.device.type}"
+        )
         assert len(block_size) == w.ndim
         assert block_size[0] == 1 and block_size[1] in (32, 64, 128), (
             f"Expecting groupwise quantization with group size = 32/64/128, but got block_size: {block_size}"
@@ -178,6 +181,7 @@ def _(func, types, args, kwargs):
     )
 
     # remove out_feature padding
+    assert weight_tensor.ndim == 2
     orig_out_features = weight_tensor.shape[-2]
     y = y[:, :orig_out_features]
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
