@@ -34,6 +34,7 @@ from torchao.utils import (
     is_fbcode,
     auto_detect_device,
 )
+from torchao.testing.utils import skip_if_xpu
 
 _SEED = 1234
 torch.manual_seed(_SEED)
@@ -573,6 +574,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertEqual(scale, eps)
 
     @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
+    @skip_if_xpu()
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
         weight = torch.randn(1024, 1024).to(device=_DEVICE)
