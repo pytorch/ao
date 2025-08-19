@@ -22,16 +22,17 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-class ToyCNNModel(nn.Module):
-    def __init__(self, n_chunks, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+class ConvWithSharedWeightInExportedModel(nn.Module):
+    def __init__(
+        self, n_chunks, in_channels, out_channels, kernel_size=3, stride=1, padding=1
+    ) -> None:
         super().__init__()
         self.n_chunks = n_chunks
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
-
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         chunks = torch.chunk(x, self.n_chunks, dim=1)
         outputs = []
         for chunk in chunks:

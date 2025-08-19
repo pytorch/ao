@@ -671,7 +671,7 @@ def fold_bn_weights_into_conv_node(
     conv_bias_node: Optional[Node],
     bn_node: Node,
     m: GraphModule,
-    fake_fuse: bool=False # removes the BN nodes but doesn't change the conv weights
+    fake_fuse: bool = False,  # removes the BN nodes but doesn't change the conv weights
 ) -> None:
     # conv args: input, weight, bias, stride, padding, dilation, ...
     conv_w = _get_tensor_constant_from_node(conv_weight_node, m)
@@ -707,7 +707,7 @@ def fold_bn_weights_into_conv_node(
     if fake_fuse:
         fused_weight, fused_bias = (
             torch.nn.Parameter(conv_w, conv_w.requires_grad),
-            torch.nn.Parameter(conv_b, conv_b.requires_grad)
+            torch.nn.Parameter(conv_b, conv_b.requires_grad),
         )
     else:
         fused_weight, fused_bias = fuse_conv_bn_weights(
@@ -800,10 +800,9 @@ def _fuse_conv_bn_(m: GraphModule) -> None:
             conv_bias_node,
             bn_node,
             m,
-            (conv_weight_node in fused_convs_weight_nodes)
+            (conv_weight_node in fused_convs_weight_nodes),
         )
         fused_convs_weight_nodes.add(conv_weight_node)
-    del fused_convs_weight_nodes
     m.graph.eliminate_dead_code()
     m.recompile()
 
