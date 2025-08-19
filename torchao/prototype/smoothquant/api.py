@@ -40,6 +40,8 @@ class SmoothQuantConfig(AOBaseConfig):
         step (SmoothQuantStep): The step for SmoothQuant process
             PREPARE: insert SmoothQuant Observers to linear layers
             CONVERT: convert the observed linear modules to quantized modules
+            PREPARE_FOR_LOADING: convert the floating point model to a dummy smoothquant quantized model, so we can
+            load the quantized weights through copy_ later
         alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
             Fall back to conventional quantization if None
         smoothing_factor: The smoothing factor for the layer. Acquired from the layer's observer if None.
@@ -81,6 +83,23 @@ def _smooth_quant_transform(
             eps=torch.finfo(torch.float32).eps,
         )
         return SmoothQuantObservedLinear.from_float(module, observer)
+
+    elif step == SmoothQuantStep.PREPARE_FOR_LOADING:
+        # loading from pre-quantized checkpoint
+        observer = SmoothQuantObserver(
+            weight=module.weight,
+            alpha=config.alpha,
+            quant_min=-127,
+            quant_max=127,
+            eps=torch.finfo(torch.float32).eps,
+        )
+        observed_linear = SmoothQuantObservedLinear.from_float(module, observer)
+        example_input = torch.randn(
+            (1, module.weight.shape[1]),
+            device=module.weight.device,
+            dtype=module.weight.dtype,
+        )
+        observed_linear(example_input)
 
     elif step == SmoothQuantStep.CONVERT:
         if not isinstance(module, SmoothQuantObservedLinear):

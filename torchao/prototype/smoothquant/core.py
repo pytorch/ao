@@ -16,6 +16,7 @@ from torchao.quantization.quant_primitives import MappingType
 class SmoothQuantStep(str, Enum):
     PREPARE = "prepare"
     CONVERT = "convert"
+    PREPARE_FOR_LOADING = "prepare_for_loading"
 
 
 class SmoothQuantObserver(torch.nn.Module):

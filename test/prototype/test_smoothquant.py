@@ -18,7 +18,7 @@ from torchao.prototype.smoothquant.core import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int8_weight,
+    Int8DynamicActivationInt8WeightConfig,
 )
 
 
@@ -67,7 +67,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            int8_dynamic_activation_int8_weight(),
+            Int8DynamicActivationInt8WeightConfig(),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
             # int8_dynamic_activation_int4_weight(),
@@ -137,7 +137,7 @@ class TestSmoothQuant(unittest.TestCase):
 
         # PREPARE step - should insert observers
         config = SmoothQuantConfig(
-            base_config=int8_dynamic_activation_int8_weight(),
+            base_config=Int8DynamicActivationInt8WeightConfig(),
             step=SmoothQuantStep.PREPARE,
         )
         quantize_(m, config)
@@ -158,11 +158,48 @@ class TestSmoothQuant(unittest.TestCase):
         self.assertIsInstance(m.linear1, torch.nn.Linear)
         self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
 
+    def test_prepare_for_loading(self):
+        """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
+
+        m = self.ToyMultiLinearModel(has_bias=False).eval()
+
+        # Before quantization - should be regular Linear
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+        # PREPARE_FOR_LOADING step - should create quantized model ready for loading
+        config = SmoothQuantConfig(
+            base_config=Int8DynamicActivationInt8WeightConfig(),
+            step=SmoothQuantStep.PREPARE_FOR_LOADING,
+            alpha=0.5,
+        )
+        quantize_(m, config)
+
+        # After PREPARE_FOR_LOADING - should be regular Linear with quantized weights
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+        # Test that model can run inference
+        test_data = torch.randn(2, 512)
+        with torch.inference_mode():
+            output = m(test_data)
+
+            # Validate output
+            self.assertIsNotNone(
+                output, "PREPARE_FOR_LOADING model output should not be None"
+            )
+            self.assertFalse(
+                torch.isnan(output).any(), "Model should not produce NaN values"
+            )
+            self.assertEqual(
+                output.shape, (2, 64), "Output shape should match expected dimensions"
+            )
+
     @common_utils.parametrize("alpha", [None, 0.5, 0.75])
     @common_utils.parametrize(
         "base_config",
         [
-            int8_dynamic_activation_int8_weight(),
+            Int8DynamicActivationInt8WeightConfig(),
             # Skip int4 weight tests for now due to reference implementation mismatch
             # int8_dynamic_activation_int4_weight(),
         ],
