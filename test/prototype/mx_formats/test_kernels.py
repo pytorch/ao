@@ -45,11 +45,18 @@ from torchao.prototype.mx_formats.kernels import (
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
+    get_available_devices,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
 
+from torchao.testing.utils import skip_if_xpu
+
+from torchao.utils import get_available_devices
+
+
+_DEVICES = get_available_devices()
 torch.manual_seed(0)
 
 if not TORCH_VERSION_AT_LEAST_2_8:
@@ -327,9 +334,9 @@ def test_fp4_pack_unpack():
     assert torch.all(orig_vals_dq == orig_vals)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(is_sm_at_least_100(), reason="broken on CUDA capability 10.0")
+@skip_if_xpu("XPU not Support")
 def test_fp4_triton_unscaled_cast():
     packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
     f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
@@ -337,9 +344,9 @@ def test_fp4_triton_unscaled_cast():
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(is_sm_at_least_100(), reason="broken on CUDA capability 10.0")
+@skip_if_xpu("XPU not Support")
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
@@ -357,7 +364,7 @@ def test_fp4_triton_scaled_cast():
     f32_triton = mxtensor_triton.to_dtype(torch.float)
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
-
+@skip_if_xpu("XPU not Support")
 @pytest.mark.parametrize("dtype_name", (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2))
 def test_fp6_values(dtype_name):
     """
@@ -403,18 +410,8 @@ def test_fp6_values(dtype_name):
         torch.testing.assert_close(f32, f32_ref, rtol=0, atol=0)
 
 
-@pytest.mark.parametrize(
-    "device",
-    [
-        "cpu",
-        pytest.param(
-            "cuda",
-            marks=pytest.mark.skipif(
-                not torch.cuda.is_available(), reason="CUDA not available"
-            ),
-        ),
-    ],
-)
+@skip_if_xpu("XPU not Support")
+@pytest.mark.parametrize("device", _DEVICES)
 @pytest.mark.parametrize(
     "f32_val,f6_e3m2_enc",
     [
@@ -433,12 +430,11 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
     assert f6_e3m2_unpacked.item() == (f6_e3m2_enc | 0b100000)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_xpu("XPU not Support")
+@pytest.mark.parametrize("device", _DEVICES)
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-def test_fp6_e2m3_pack_unpack():
-    orig_vals = torch.Tensor([[0.0, 0.5, 7.5, -0.0], [-0.875, 1.0, -6.0, 0.125]]).to(
-        "cuda"
-    )
+def test_fp6_e2m3_pack_unpack(device):
+    orig_vals = torch.Tensor([[0.0, 0.5, 7.5, -0.0], [-0.875, 1.0, -6.0, 0.125]]).to(device)
     orig_vals_f6_unpacked = f32_to_f6_e2m3_unpacked(orig_vals)
     orig_vals_f6_packed = pack_uint6(orig_vals_f6_unpacked)
     assert orig_vals_f6_packed.numel() == (3 * orig_vals.numel() // 4)
@@ -448,12 +444,11 @@ def test_fp6_e2m3_pack_unpack():
     assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_xpu("XPU not Support")
+@pytest.mark.parametrize("device", _DEVICES)
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-def test_fp6_e3m2_pack_unpack():
-    orig_vals = torch.Tensor([[0.0, 5.0, 28.0, -0.0], [-0.25, 0.1875, 0.0625, 8.0]]).to(
-        "cuda"
-    )
+def test_fp6_e3m2_pack_unpack(device):
+    orig_vals = torch.Tensor([[0.0, 5.0, 28.0, -0.0], [-0.25, 0.1875, 0.0625, 8.0]]).to(device)
     orig_vals_f6_unpacked = f32_to_f6_e3m2_unpacked(orig_vals)
     orig_vals_f6_packed = pack_uint6(orig_vals_f6_unpacked)
     assert orig_vals_f6_packed.numel() == (3 * orig_vals.numel() // 4)
@@ -471,14 +466,15 @@ def test_fp6_e3m2_pack_unpack():
 @pytest.mark.parametrize("M", (256, 2048))
 @pytest.mark.parametrize("K", (256, 2048))
 def test_triton_mxfp8_dim1_randn(M, K):
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_xpu("XPU not Support")
+@pytest.mark.parametrize("device", _DEVICES)
 @pytest.mark.parametrize(
     "shape",
     [
@@ -492,8 +488,8 @@ def test_triton_mxfp8_dim1_randn(M, K):
         (128, 1),
     ],
 )
-def test_rearrange(shape):
-    scales = torch.randint(256, size=shape, device="cuda", dtype=torch.uint8)
+def test_rearrange(device, shape):
+    scales = torch.randint(256, size=shape, device=device, dtype=torch.uint8)
     eager = to_blocked(scales, False)
     triton = to_blocked(scales, True)
     torch.testing.assert_close(eager, triton, atol=0, rtol=0)
@@ -519,7 +515,7 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
 
     # Use disinct incrementing values from 0 to M*K-1 to make debugging easier.
     x = (
-        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        torch.arange(0, M * K, dtype=input_dtype, device=device)
         .reshape(M, K)
         .contiguous()
     )
@@ -557,7 +553,7 @@ def test_cuda_mx_dim0_not_supported():
     M, K = 64, 64
     block_size = 32
     x = (
-        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
+        torch.arange(0, M * K, dtype=torch.bfloat16, device=device)
         .reshape(M, K)
         .contiguous()
     )
@@ -580,7 +576,7 @@ def test_cuda_mx_dim1_invalid_block_size():
 
     M, K = 64, 64
     x = (
-        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
+        torch.arange(0, M * K, dtype=torch.bfloat16, device=device)
         .reshape(M, K)
         .contiguous()
     )
