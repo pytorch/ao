@@ -57,8 +57,8 @@ def convert_fn(module):
     return new_mod
 
 
-model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+model_id ="mlx-community/meta-llama-Llama-4-Scout-17B-16E-bf16" #"meta-llama/Llama-4-Scout-17B-16E-Instruct"
+model = Llama4ForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, cache_dir="/local_disk/liangang/hf_models")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 _replace_with_custom_fn_if_matches_filter(
