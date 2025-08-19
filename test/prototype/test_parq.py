@@ -39,9 +39,11 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import check_cpu_version
+from torchao.utils import check_cpu_version, auto_detect_device
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from torchao.testing.utils import skip_if_xpu
+
+_DEVICE = auto_detect_device()
 
 
 def split_param_groups(model):
@@ -206,6 +208,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         torch.manual_seed(123)
 
     @common_utils.parametrize("group_size", [32, 256])
+    @skip_if_xpu("XPU Enablement in Progress")
     def test_int4_weight_only(self, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE, dtype=torch.bfloat16)
         model.reset_parameters()
