@@ -31,6 +31,12 @@ from torchao.utils import (
     is_sm_at_least_100,
 )
 
+from torchao.testing.utils import skip_if_xpu
+
+from torchao.utils import auto_detect_device
+
+_DEVICE = auto_detect_device()
+
 torch.manual_seed(2)
 
 if not TORCH_VERSION_AT_LEAST_2_8:
@@ -67,7 +73,6 @@ elem_dtypes = (
 )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", elem_dtypes)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
@@ -121,7 +126,7 @@ def test_linear_eager_vs_hp(
     grad_shape[-1] = 256
 
     m = nn.Sequential(
-        nn.Linear(256, 256, bias=bias, device="cuda", dtype=torch.bfloat16),
+        nn.Linear(256, 256, bias=bias, device=_DEVICE, dtype=torch.bfloat16),
     )
     m_mx = copy.deepcopy(m)
     config = MXLinearConfig(
@@ -135,10 +140,10 @@ def test_linear_eager_vs_hp(
     quantize_(m_mx, config)
 
     x_ref = torch.randn(
-        *input_shape, device="cuda", dtype=torch.bfloat16
+        *input_shape, device=_DEVICE, dtype=torch.bfloat16
     ).requires_grad_()
     x = copy.deepcopy(x_ref)
-    g = torch.randn(*grad_shape, device="cuda")
+    g = torch.randn(*grad_shape, device=_DEVICE)
 
     y_ref = m(x_ref)
     y_mx = m_mx(x)
@@ -162,9 +167,9 @@ def test_linear_eager_vs_hp(
         assert x_g_sqnr >= 8.0
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_xpu("XPU enablement in progress")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+    torch.cuda.is_available() and not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
 )
 @pytest.mark.parametrize(
     "recipe_name",
@@ -177,11 +182,11 @@ def test_linear_eager_vs_hp(
 def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
     M, K, N = mkn
 
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda").requires_grad_()
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=_DEVICE).requires_grad_()
     x_copy = copy.deepcopy(x)
-    g = torch.randn(M, N, device="cuda", dtype=torch.bfloat16)
+    g = torch.randn(M, N, device=_DEVICE, dtype=torch.bfloat16)
     m_emulated = nn.Sequential(
-        nn.Linear(K, N, bias=False, device="cuda", dtype=torch.bfloat16),
+        nn.Linear(K, N, bias=False, device=_DEVICE, dtype=torch.bfloat16),
     )
     m_real = copy.deepcopy(m_emulated)
 
@@ -211,26 +216,24 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
 
 
 # TODO(future): enable compile support
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_activation_checkpointing():
     input_shape = (16, 4)
     grad_shape = (16, 8)
     elem_dtype = torch.float8_e4m3fn
 
     m = nn.Sequential(
-        nn.Linear(4, 8, bias=True, device="cuda"),
-        nn.Linear(8, 8, bias=True, device="cuda"),
+        nn.Linear(4, 8, bias=True, device=_DEVICE),
+        nn.Linear(8, 8, bias=True, device=_DEVICE),
     )
     config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
     quantize_(m, config=config)
 
-    x = torch.randn(*input_shape, device="cuda").requires_grad_()
-    g = torch.randn(*grad_shape, device="cuda")
+    x = torch.randn(*input_shape, device=_DEVICE).requires_grad_()
+    g = torch.randn(*grad_shape, device=_DEVICE)
     y = torch.utils.checkpoint.checkpoint(m, x, use_reentrant=False)
     y.backward(g)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize(
     "recipe_name",
@@ -311,7 +314,7 @@ def test_linear_compile(
     input_shape = (M, K)
     grad_shape = (M, N)
     m_mx = nn.Sequential(
-        nn.Linear(K, N, bias=bias, device="cuda", dtype=hp_dtype),
+        nn.Linear(K, N, bias=bias, device=_DEVICE, dtype=hp_dtype),
     )
     config = MXLinearConfig.from_recipe_name(recipe_name)
     config.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
@@ -321,9 +324,9 @@ def test_linear_compile(
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
-    x_ref = torch.randn(*input_shape, device="cuda", dtype=hp_dtype).requires_grad_()
+    x_ref = torch.randn(*input_shape, device=_DEVICE, dtype=hp_dtype).requires_grad_()
     x = copy.deepcopy(x_ref)
-    g = torch.randn(*grad_shape, device="cuda", dtype=hp_dtype)
+    g = torch.randn(*grad_shape, device=_DEVICE, dtype=hp_dtype)
 
     y_ref = m_mx(x_ref)
     y = m_mx_c(x)
