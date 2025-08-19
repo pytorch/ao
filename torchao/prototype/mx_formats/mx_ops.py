@@ -169,10 +169,7 @@ def mx_mm(func, types, args, kwargs):
 
 @implements([aten.addmm.default])
 def mx_addmm(func, types, args, kwargs):
-    assert (
-        isinstance(args[0], torch.Tensor)
-        and isinstance(args[2], MXTensor)
-    )
+    assert isinstance(args[0], torch.Tensor) and isinstance(args[2], MXTensor)
     bias = args[0]
     a = args[1]
     b = args[2]
