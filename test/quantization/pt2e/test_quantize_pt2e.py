@@ -57,6 +57,7 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (  # noqa: 
 from torchao.quantization.pt2e.quantizer.embedding_quantizer import (  # noqa: F811
     EmbeddingQuantizer,
 )
+from torchao.testing.model_architectures import ConvWithSharedWeightInExportedModel
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
@@ -149,6 +150,34 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             node_occurrence,
             node_list,
         )
+
+    def test_chunked_bn_fusion(self):
+        batch_size = 1
+        n_chunks = 3
+        in_channels = 1
+        out_channels = 32
+        m = ConvWithSharedWeightInExportedModel(n_chunks, in_channels, out_channels)
+        m.bn.running_var = torch.nn.Parameter(
+            torch.rand(out_channels) * 1e-2, requires_grad=False
+        )
+
+        m.eval()
+        example_inputs = (torch.rand(batch_size, n_chunks, 32, 32),)
+        ref_outputs = m(*example_inputs)
+        traced_model = torch.export.export(m, example_inputs, strict=True).module()
+        traced_outputs = traced_model(*example_inputs)
+        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+        prepared_outputs = prepared_model(*example_inputs)
+
+        if isinstance(ref_outputs, (tuple, list)):
+            for ref, prepared, traced in zip(
+                ref_outputs, prepared_outputs, traced_outputs
+            ):
+                torch.testing.assert_close(ref, traced)
+                torch.testing.assert_close(traced, prepared)
+        else:
+            torch.testing.assert_close(ref_outputs, traced_outputs)
+            torch.testing.assert_close(traced_outputs, prepared_outputs)
 
     def test_wo_annotate_conv_output_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
