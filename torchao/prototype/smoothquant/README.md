@@ -6,60 +6,56 @@ In this implementation, weights are smoothed (equalized) and quantized to int8 d
 ## Quick start
 Run the example code with
 ```bash
-python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static>
+python example.py --repo MODEL_ID --quant smoothquant --device <cuda or cpu>
 # An example
-python example.py -m meta-llama/Llama-2-7b-hf --device=cuda --quant-mode=dynamic
+python example.py --repo meta-llama/Llama-2-7b-hf --quant smoothquant --device cuda
 ```
-To use the `torch.compile` for speedup, add `--compile`. You may want to export `TORCHINDUCTOR_FREEZING=1` for even better performance.
+
+To use the `torch.compile` for speedup, add `--compile`.
 ```bash
-TORCHINDUCTOR_FREEZING=1 python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --compile
+python example.py --repo MODEL_ID --quant smoothquant --device <cuda or cpu> --compile
 ```
-To save a quantized model for reuse, specify `--model-save-path`
+
+To save a quantized model for reuse, specify `--model_save_path`
 ```bash
-python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-save-path ./quantized_model.pt
+python example.py --repo MODEL_ID --quant smoothquant --device <cuda or cpu> --model_save_path ./quantized_model.pt
 ```
-And load it by `--model-load-path`
+
+For different alpha values, use `smoothquant-0.7` format:
 ```bash
-python example.py -m MODEL_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-load-path ./quantized_model.pt
+python example.py --repo MODEL_ID --quant smoothquant-0.7 --device cuda
 ```
 
 
 ## Usage of API
 The following APIs are provided:
-- insert_smooth_quant_observer_
 - SmoothQuantConfig
-- save_smooth_quant_recipe (advanced)
-- load_smooth_quant_recipe (advanced)
+- SmoothQuantStep
+- quantize_
 
-`insert_smooth_quant_observer_` inserts observers into the model to be quantized. For example:
+`SmoothQuantConfig` configures applying SmoothQuant to each linear layer of the model. Use it with `torchao.quantization.quantize_`. For example:
 ```python
-insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
-```
-After insertion, run the model for calibration on a certain dataset or (advanced) load a recipe.
+from torchao.prototype.smoothquant import SmoothQuantConfig
+from torchao.prototype.smoothquant.core import SmoothQuantStep
+from torchao.quantization import quantize_
+from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
-`SmoothQuantConfig` configures appliying SmoothQuant to each linear layer of the model. Use it by calling `torchao.quantization.quantize_`. For example:
-```python
-from torchao.prototype.smoothquant import SmoothQuantObservedLinear
-is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-torchao.quantization.quantize_(model, SmoothQuantConfig(), is_observed_linear)
-```
-`is_observed_linear` is a filter so that we only quantize observed linear layers.
+# Step 1: Prepare - insert observers
+base_config = Int8DynamicActivationInt8WeightConfig()
+quant_config = SmoothQuantConfig(
+    base_config=base_config,
+    step=SmoothQuantStep.PREPARE,
+    alpha=0.5,
+)
+quantize_(model, quant_config)
 
-(Advanced) `save_smooth_quant_recipe` and `load_smooth_quant_recipe` saves or loads a recipe for a model.
-
-A recipe contains smoothing factors and quantization parameters of weights and activation for all linear layers that are to be quantized. For advanced users, these parameters can be saved and modified somehow to produce better accuray, e.g., different alpha for different layers. Users can even leave some linear layers unquantized by deleting these layers in the recipe. Such modifications can be published as a recipe. By loading the recipe, it can be reused and calibration is no longer needed.
-
-To save a recipe, users should insert observers and run calibration first. For example,
-```python
-insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
-for data in dataset_for_calibration:
+# Step 2: Calibration
+for data in calibration_dataset:
     model(data)
-save_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
-```
-To load a recipe, users should insert observers first. For example,
-```python
-insert_smooth_quant_observer_(model)
-load_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
+
+# Step 3: Convert
+quant_config.step = SmoothQuantStep.CONVERT
+quantize_(model, quant_config)
 ```
 
 ## Benchmark
@@ -68,8 +64,7 @@ Running the example with `torch.compile` on a NVIDIA A10G GPU.
 Perplexity
 | Quant Method | alpha=0.25 | alpha=0.5 | alpha=0.75 | alpha=None* |
 |-|-|-|-|-|
-| Dynamic | 8.1872 | 7.4257 | 7.2518 | 7.5509 |
-| Static | 43.8051 | 11.2984 | 7.5791 | 19.5050 |
+| SmoothQuant | - | - | - | - |
 
 Note*: Conventional quantization without SmoothQuant
 
@@ -77,20 +72,7 @@ Note*: Conventional quantization without SmoothQuant
 Perplexity
 | Quant Method | alpha=0.25 | alpha=0.5 | alpha=0.75 | alpha=None* |
 |-|-|-|-|-|
-| Dynamic | 21.2475 | 8.8288 | 9.6514 | 8.3574 |
-| Static | 301.7118 | 18.0617 | 10.8343 | 278.9819 |
-
-Note*: Conventional quantization without SmoothQuant
-
-### Test method
-**Commands**
-```bash
-# dynamic quant
-TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=dynamic --compile
-# static quant
-TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=static --compile
-```
-Use `--alpha` to specify the alpha parameter. Add `--disable-smooth-quant` to run quantization without SmoothQuant.
+| SmoothQuant | - | - | - | - |
 
 **Environment**
 - AWS g5.12xlarge instance
