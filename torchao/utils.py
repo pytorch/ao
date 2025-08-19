@@ -348,19 +348,23 @@ def _is_float8_type(dtype: torch.dtype) -> bool:
 
 
 def parse_version(version_string):
-    # Extract just the X.Y.Z part from the version string
-    match = re.match(r"(\d+\.\d+\.\d+)", version_string)
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0" -> [2, 5, 0], "2.5.0.dev" -> [2, 5, -1]
+    """
+    version = re.sub(r"\+.*$", "", version_string)
+
+    # Check for pre-release indicators (including all common patterns)
+    is_prerelease = bool(re.search(r"(a|b|dev)", version))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
     if match:
-        version = match.group(1)
-        return [int(x) for x in version.split(".")]
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
     else:
         raise ValueError(f"Invalid version string format: {version_string}")
-
-
-def compare_versions(v1, v2):
-    v1_parts = parse_version(v1)
-    v2_parts = parse_version(v2)
-    return (v1_parts > v2_parts) - (v1_parts < v2_parts)
 
 
 def is_fbcode():
@@ -368,14 +372,11 @@ def is_fbcode():
 
 
 def torch_version_at_least(min_version):
-    from packaging.version import parse as parse_version
-
     if is_fbcode():
         return True
 
     # Parser for local identifiers
-    current_version = re.sub(r"\+.*$", "", torch.__version__)
-    return parse_version(current_version) >= parse_version(min_version)
+    return parse_version(torch.__version__) >= parse_version(min_version)
 
 
 def _deprecated_torch_version_at_least(version_str: str) -> str:
@@ -990,13 +991,13 @@ def is_sm_at_least_100():
 def check_cpu_version(device, version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "cpu" and compare_versions(torch.__version__, version) >= 0
+    return device == "cpu" and torch_version_at_least(version)
 
 
 def check_xpu_version(device, version="2.8.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "xpu" and compare_versions(torch.__version__, version) >= 0
+    return device == "xpu" and torch_version_at_least(version)
 
 
 def ceil_div(a, b):
