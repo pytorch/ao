@@ -162,7 +162,6 @@ def _addmm_mx_dispatch(
 def mx_mm(func, types, args, kwargs):
     a = args[0]
     b = args[1]
-    # assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
     assert isinstance(b, MXTensor)
 
     return _addmm_mx_dispatch(a, b, func)
@@ -172,7 +171,6 @@ def mx_mm(func, types, args, kwargs):
 def mx_addmm(func, types, args, kwargs):
     assert (
         isinstance(args[0], torch.Tensor)
-        # and isinstance(args[1], MXTensor)
         and isinstance(args[2], MXTensor)
     )
     bias = args[0]
