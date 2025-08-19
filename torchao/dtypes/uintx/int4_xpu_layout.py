@@ -81,8 +81,7 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
 
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
-    import pdb 
-    pdb.set_trace()
+    
     y = torch.ops.aten._weight_int4pack_mm(
         act_mat, packed_weight, groupsize, scales_and_zeros
     )
