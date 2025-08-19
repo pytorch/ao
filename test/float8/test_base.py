@@ -41,6 +41,7 @@ from torchao.float8.float8_utils import (
     fp8_tensor_statistics,
     tensor_to_scale,
 )
+from torchao.float8.quantizeable_mm import _Float8MM, _QuantizeableMM
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
@@ -478,6 +479,58 @@ class TestFloat8Linear:
             m(x)
 
 
+class TestFloat8MM:
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [
+            Float8LinearRecipeName.TENSORWISE,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
+        ],
+    )
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
+    )
+    def test_quantizeable_mm_hello_world(self, recipe_name):
+        class M(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.mm = _QuantizeableMM()
+
+            def forward(self, a, b):
+                c = self.mm(a, b)
+                return c
+
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
+        m_ref = M()
+        m = copy.deepcopy(m_ref)
+        m = convert_to_float8_training(m, config=config)
+
+        a_ref = torch.randn(32, 64, device="cuda", requires_grad=True)
+        b_ref = torch.randn(64, 128, device="cuda", requires_grad=True)
+        go_ref = torch.randn(32, 128, device="cuda")
+
+        a = copy.deepcopy(a_ref)
+        b = copy.deepcopy(b_ref)
+        go = copy.deepcopy(go_ref)
+
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            c_ref = m_ref(a_ref, b_ref)
+            c = m(a, b)
+        c_ref.backward(go_ref)
+        c.backward(go)
+
+        with torch.no_grad():
+            sqnr_c = compute_error(c_ref, c)
+            sqnr_ga = compute_error(a_ref.grad, a.grad)
+            sqnr_gb = compute_error(b_ref.grad, b.grad)
+
+        assert sqnr_c > 20.0
+        assert sqnr_ga > 20.0
+        assert sqnr_gb > 20.0
+
+
 class TestScaledMM:
     @unittest.skipIf(
         not is_sm_at_least_89(),
@@ -801,6 +854,25 @@ class TestFloat8LinearUtils(unittest.TestCase):
             )
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_over_underflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (tensor_len, tensor_len))
+
+    def test_swap_quantizeable_mm(self):
+        module = _QuantizeableMM()
+        config = Float8LinearConfig()
+        module = convert_to_float8_training(module, config=config)
+        self.assertIsInstance(module, _Float8MM)
+
+        class M(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.mm = _QuantizeableMM()
+
+            def forward(self, a, b):
+                c = self.mm(a, b)
+                return c
+
+        module2 = M()
+        module2 = convert_to_float8_training(module2, config=config)
+        self.assertIsInstance(module2.mm, _Float8MM)
 
 
 if __name__ == "__main__":
