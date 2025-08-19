@@ -122,7 +122,7 @@ class Int4WoqCpuTensor(TorchAOBaseTensor):
         )
         packed_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
             int_data,
-            1,  # TODO:remove
+            1,  # innerKTiles is not needed for CPU
         )
 
         scale = scale.reshape(int_data.shape[0], -1)
@@ -158,8 +158,7 @@ def _(func, types, args, kwargs):
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
     )
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
-        f"need input_tensor shape: {input_tensor.shape} final"
-        f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
+        f"Shapes of input and weight do not match, input:{input_tensor.shape}, weight: {weight_tensor.shape}"
     )
 
     act_mat = input_tensor
