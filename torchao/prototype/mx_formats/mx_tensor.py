@@ -17,7 +17,8 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
   * Zeros: N/A
 """
 
-from typing import Union
+from dataclasses import dataclass
+from typing import Optional, Union
 
 import torch
 from torch.distributed._tensor import DTensor
@@ -57,6 +58,9 @@ from torchao.prototype.mx_formats.kernels import (
     triton_f6_e3m2_to_scaled_bf16,
     unpack_uint4,
 )
+from torchao.quantization.quantize_.common import (
+    QuantizeTensorKwargs,
+)
 from torchao.utils import TorchAOBaseTensor
 
 # TODO(later): read from somewhere else?
@@ -66,6 +70,16 @@ EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
 EBITS_F8_E4M3, MBITS_F8_E4M3 = 4, 3
 EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
+
+
+@dataclass
+class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
+    elem_dtype: Union[torch.dtype, str] = torch.float8_e4m3fn
+    block_size: int = 32
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
+    use_fp4_custom_triton_dequant_kernel: bool = False
+    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
+    pack_fp6: bool = False
 
 
 def _to_mx_rceil(
@@ -458,6 +472,7 @@ class MXTensor(TorchAOBaseTensor):
         "_use_fp4_custom_triton_dequant_kernel",
         "_gemm_kernel_choice",
         "_pack_fp6",
+        "act_quant_kwargs",
     ]
 
     def __new__(
@@ -470,6 +485,7 @@ class MXTensor(TorchAOBaseTensor):
         use_fp4_custom_triton_dequant_kernel,
         gemm_kernel_choice,
         pack_fp6,
+        act_quant_kwargs,
     ):
         new_size = qdata.size()
         if elem_dtype == torch.float4_e2m1fn_x2:
@@ -540,11 +556,12 @@ class MXTensor(TorchAOBaseTensor):
         )
         self._gemm_kernel_choice = gemm_kernel_choice
         self._pack_fp6 = pack_fp6
+        self.act_quant_kwargs = act_quant_kwargs
         return self
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -582,8 +599,10 @@ class MXTensor(TorchAOBaseTensor):
         block_size: int = BLOCK_SIZE_DEFAULT,
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
         use_fp4_custom_triton_dequant_kernel: bool = False,
+        # TODO(future PR): switch default gemm to cublas
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
         pack_fp6: bool = False,
+        act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
     ):
         scale_e8m0_biased, data_lp = to_mx(
             data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
@@ -601,6 +620,7 @@ class MXTensor(TorchAOBaseTensor):
                 use_fp4_custom_triton_dequant_kernel,
                 gemm_kernel_choice,
                 pack_fp6,
+                act_quant_kwargs,
             )
             return DTensor.from_local(
                 inner_mx_tensor,
@@ -619,6 +639,7 @@ class MXTensor(TorchAOBaseTensor):
             use_fp4_custom_triton_dequant_kernel,
             gemm_kernel_choice,
             pack_fp6,
+            act_quant_kwargs,
         )
 
     # Do not force the MXTensor type on the returned tensor
