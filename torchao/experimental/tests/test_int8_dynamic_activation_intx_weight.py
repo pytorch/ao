@@ -13,108 +13,21 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.dtypes import QDQLayout
+from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
+from torchao.quantization.qat import (
+    FromIntXQuantizationAwareTrainingConfig,
+    Int8DynActInt4WeightQATQuantizer,
+    IntxFakeQuantizeConfig,
+    IntXQuantizationAwareTrainingConfig,
+)
 from torchao.quantization.quant_api import (
+    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
     quantize_,
 )
-from torchao.quantization.quantize_.common import PackingFormat
-from torchao.quantization.quantize_.workflows.intx import (
-    ComputeTarget,
-)
 from torchao.quantization.utils import compute_error
-
-
-def _get_test_cases_v2():
-    MODEL_DTYPES = [
-        torch.float32,
-        torch.bfloat16,
-    ]
-
-    PACKING_FORMATS = [
-        (PackingFormat.UNPACKED_TO_INT8, None),
-        (PackingFormat.TILE_PACKED, ComputeTarget.ATEN),
-        (PackingFormat.TILE_PACKED, ComputeTarget.TORCHAO_AUTO),
-        (PackingFormat.TILE_PACKED, ComputeTarget.TORCHAO_LOWBIT),
-        (PackingFormat.TILE_PACKED, ComputeTarget.TORCHAO_KLEIDIAI),
-    ]
-
-    WEIGHT_DTYPES = [
-        torch.int1,
-        torch.int2,
-        torch.int3,
-        torch.int4,
-        torch.int5,
-        torch.int6,
-        torch.int7,
-        torch.int8,
-    ]
-
-    MAPPING_TYPES = [
-        MappingType.SYMMETRIC,
-        MappingType.ASYMMETRIC,
-        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-    ]
-
-    GRANULARITIES = [PerGroup(128), PerAxis(0)]
-
-    def _is_valid_test_combination(
-        model_dtype,
-        packing_format,
-        compute_target,
-        weight_dtype,
-        weight_mapping_type,
-        weight_granularity,
-    ):
-        # ATEN restrictions
-        if (packing_format == PackingFormat.TILE_PACKED) and (
-            compute_target == ComputeTarget.ATEN
-        ):
-            if weight_dtype != torch.int4:
-                return False
-            if weight_mapping_type == MappingType.ASYMMETRIC:
-                return False
-            if model_dtype != torch.float32:
-                return False
-
-        # TORCHAO_KLEIDIAI restrictions
-        if (packing_format == PackingFormat.TILE_PACKED) and (
-            compute_target == ComputeTarget.TORCHAO_KLEIDIAI
-        ):
-            if weight_dtype != torch.int4:
-                return False
-            if weight_mapping_type == MappingType.ASYMMETRIC:
-                return False
-
-        # SYMMETRIC_NO_CLIPPING_ERR does not work well with int1
-        if (
-            weight_dtype == torch.int1
-            and weight_mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
-        ):
-            return False
-
-        return True
-
-    test_cases = [
-        param(
-            model_dtype=mdt,
-            packing_format=pf,
-            compute_target=ct,
-            weight_dtype=dt,
-            weight_mapping_type=mt,
-            weight_granularity=gr,
-        )
-        for mdt in MODEL_DTYPES
-        for pf, ct in PACKING_FORMATS
-        for dt in WEIGHT_DTYPES
-        for mt in MAPPING_TYPES
-        for gr in GRANULARITIES
-        if _is_valid_test_combination(dt, pf, ct, dt, mt, gr)
-    ]
-
-    return test_cases
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
