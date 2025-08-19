@@ -26,15 +26,19 @@ from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_colwise,
     torch_to_float8_per_group_rowwise,
 )
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import( 
+    skip_if_rocm,
+)
+from torchao.utils import auto_detect_device
 
+_DEVICE = auto_detect_device()
 
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
-    device = "cuda"
+    device = _DEVICE
     m, k, n_groups = 256, 256, 4
     x = torch.randn(m, k * n_groups, device=device)
     colwise_offs = torch.arange(k, k * n_groups + 1, k, device=device)
@@ -62,7 +66,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end row indexes (offsets).
-    device = "cuda"
+    device = _DEVICE
     m, k, n_groups = 256, 256, 4
     x = torch.randn(m * n_groups, k, device=device).t().contiguous().t()
     rowwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
