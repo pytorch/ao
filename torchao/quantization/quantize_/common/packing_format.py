@@ -42,6 +42,6 @@ class PackingFormat(str, Enum):
     UNPACKED_TO_INT8 = "unpacked_to_int8"
 
     """
-    int4_woq_cpu is referring to the format used by int4 weight-only quantization on CPU, which is a groupwise quantization format.
+    int4_tinygemm_cpu is referring to the format used by int4 weight-only quantization on CPU, which is a groupwise quantization format.
     """
-    INT4_WOQ_CPU = "int4_woq_cpu"
+    INT4_TINYGEMM_CPU = "int4_tinygemm_cpu"

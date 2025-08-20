@@ -28,31 +28,44 @@ from torchao.utils import (
 def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
-        packing_format="int4_woq_cpu",
+        packing_format="int4_tinygemm_cpu",
         version=2,
     )
 
 
 @unittest.skipIf(not torch_version_at_least("2.6.0"), "Need pytorch 2.6+")
-class TestInt4WoqCpuTensor(TestCase):
+class TestInt4TinyGemmCpuTensor(TestCase):
+    @parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 512, 128),
+            ((2, 32, 128), 256, 12),
+        ],
+    )
+    @parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @parametrize("group_size", [32, 64, 128])
-    def test_linear(self, group_size):
-        dtype = torch.bfloat16
+    def test_linear(self, sizes, dtype, group_size):
         device = "cpu"
-        input = torch.randn(1, 128, dtype=dtype, device=device)
-        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        M, N, K = sizes
+        input = torch.randn(*M, K, dtype=dtype, device=device)
+        linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
         original = linear(input)
         quantize_(linear, get_config(group_size))
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > 20)
 
-    @parametrize("group_size", [32, 64, 128])
-    def test_module_path(self, group_size):
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        quantize_(linear, get_config(group_size))
+        compiled_linear = torch.compile(linear)
+        quantized_and_compiled = compiled_linear(input)
+        self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
+
+    @parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    def test_module_path(self, dtype):
+        linear = torch.nn.Linear(128, 256, dtype=dtype)
+        quantize_(linear, get_config(group_size=128))
         self.assertEqual(
             str(type(linear.weight)),
-            "<class 'torchao.quantization.Int4WoqCpuTensor'>",
+            "<class 'torchao.quantization.Int4TinyGemmCpuTensor'>",
         )
 
         with tempfile.NamedTemporaryFile() as f:
@@ -61,11 +74,11 @@ class TestInt4WoqCpuTensor(TestCase):
             state_dict = torch.load(f)
             self.assertEqual(
                 str(type(state_dict["weight"])),
-                "<class 'torchao.quantization.Int4WoqCpuTensor'>",
+                "<class 'torchao.quantization.Int4TinyGemmCpuTensor'>",
             )
 
 
-instantiate_parametrized_tests(TestInt4WoqCpuTensor)
+instantiate_parametrized_tests(TestInt4TinyGemmCpuTensor)
 
 
 if __name__ == "__main__":
