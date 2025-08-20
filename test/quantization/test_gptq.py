@@ -2,10 +2,7 @@ import unittest
 from pathlib import Path
 
 import torch
-from torch.testing._internal.common_utils import (
-    TestCase,
-)
-
+from torch.testing._internal.common_utils import TestCase
 from torchao._models.llama.model import (
     ModelArgs,
     Transformer,
