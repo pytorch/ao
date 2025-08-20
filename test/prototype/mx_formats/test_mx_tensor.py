@@ -390,6 +390,7 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         use_fp4_custom_triton_dequant_kernel,
         MXGemmKernelChoice.EMULATED,
         pack_fp6,
+        None,
     )
     tensor_hp = tensor_mx.to_dtype(torch.float)
     assert torch.all(torch.isnan(tensor_hp.flatten()[0:4]))
