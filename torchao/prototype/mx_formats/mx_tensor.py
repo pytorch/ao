@@ -17,7 +17,7 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
   * Zeros: N/A
 """
 
-from typing import Callable, Dict, Union
+from typing import Union
 
 import torch
 from torch.distributed._tensor import DTensor
@@ -57,6 +57,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_f6_e3m2_to_scaled_bf16,
     unpack_uint4,
 )
+from torchao.utils import TorchAOBaseTensor
 
 # TODO(later): read from somewhere else?
 SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
@@ -448,7 +449,17 @@ def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
     return new_size
 
 
-class MXTensor(torch.Tensor):
+class MXTensor(TorchAOBaseTensor):
+    tensor_data_names = ["qdata", "_scale_e8m0"]
+    tensor_attribute_names = [
+        "_elem_dtype",
+        "_block_size",
+        "_orig_dtype",
+        "_use_fp4_custom_triton_dequant_kernel",
+        "_gemm_kernel_choice",
+        "_pack_fp6",
+    ]
+
     def __new__(
         cls,
         qdata,
@@ -610,97 +621,5 @@ class MXTensor(torch.Tensor):
             pack_fp6,
         )
 
-    def __tensor_flatten__(self):
-        ctx = {
-            "_elem_dtype": self._elem_dtype,
-            "_block_size": self._block_size,
-            "_orig_dtype": self._orig_dtype,
-            "_use_fp4_custom_triton_dequant_kernel": self._use_fp4_custom_triton_dequant_kernel,
-            "_gemm_kernel_choice": self._gemm_kernel_choice,
-            "_pack_fp6": self._pack_fp6,
-        }
-        return ["qdata", "_scale_e8m0"], ctx
-
-    @staticmethod
-    def __tensor_unflatten__(
-        inner_tensors: Dict,
-        metadata,
-        outer_size,
-        outer_stride,
-    ):
-        return MXTensor(
-            inner_tensors["qdata"],
-            inner_tensors["_scale_e8m0"],
-            metadata["_elem_dtype"],
-            metadata["_block_size"],
-            metadata["_orig_dtype"],
-            metadata["_use_fp4_custom_triton_dequant_kernel"],
-            metadata["_gemm_kernel_choice"],
-            metadata["_pack_fp6"],
-        )
-
-    def _apply_fn_to_data(self, fn: Callable):
-        """Applies a fn to all tensor components stored on this class"""
-        tensor_names, ctx = self.__tensor_flatten__()
-
-        # Apply the function to each tensor component
-        new_tensors = {}
-        for name in tensor_names:
-            new_tensors[name] = fn(getattr(self, name))
-
-        return self.__class__.__tensor_unflatten__(
-            new_tensors,
-            ctx,
-            None,  # outer_size parameter
-            None,  # outer_stride parameter
-        )
-
     # Do not force the MXTensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
-
-    @classmethod
-    def _same_metadata(cls, self: "MXTensor", src: "MXTensor") -> bool:
-        checks = [
-            (isinstance(self, MXTensor), "self is not MXTensor"),
-            (isinstance(src, MXTensor), "src is not MXTensor"),
-            (
-                self._elem_dtype == src._elem_dtype,
-                f"elem_dtype: {self._elem_dtype} != {src._elem_dtype}",
-            ),
-            (
-                self._block_size == src._block_size,
-                f"block_size: {self._block_size} != {src._block_size}",
-            ),
-            (
-                self._orig_dtype == src._orig_dtype,
-                f"orig_dtype: {self._orig_dtype} != {src._orig_dtype}",
-            ),
-            (
-                self._use_fp4_custom_triton_dequant_kernel
-                == src._use_fp4_custom_triton_dequant_kernel,
-                "use_fp4_custom_triton_dequant_kernel mismatch",
-            ),
-            (
-                self._gemm_kernel_choice == src._gemm_kernel_choice,
-                f"gemm_kernel_choice: {self._gemm_kernel_choice} != {src._gemm_kernel_choice}",
-            ),
-            (
-                self._pack_fp6 == src._pack_fp6,
-                f"pack_fp6: {self._pack_fp6} != {src._pack_fp6}",
-            ),
-            (
-                self._scale_e8m0.shape == src._scale_e8m0.shape,
-                f"scale_e8m0.shape: {self._scale_e8m0.shape} != {src._scale_e8m0.shape}",
-            ),
-            (
-                self.qdata.shape == src.qdata.shape,
-                f"data.shape: {self.qdata.shape} != {src.qdata.shape}",
-            ),
-        ]
-
-        for condition, error_msg in checks:
-            if not condition:
-                raise ValueError(f"Metadata mismatch: {error_msg}")
-                return False
-
-        return True
