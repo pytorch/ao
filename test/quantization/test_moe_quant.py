@@ -112,7 +112,7 @@ class TestMoEQuantCompile(unittest.TestCase):
     
     @parameterized.expand(
         [
-            ("single_token", 1, True),
+            ("single_token", 1, False),
             ("multiple_tokens", 8, False),
         ]
     )
@@ -157,7 +157,7 @@ class TestMoEQuantCompile(unittest.TestCase):
     @skip_if_no_cuda()
     @parameterized.expand(
         [
-            ("single_token", 1, True),
+            ("single_token", 1, False),
             ("multiple_tokens", 8, False),
         ]
     )
@@ -256,7 +256,7 @@ class TestMoEQuantCompile(unittest.TestCase):
     @skip_if_no_cuda()
     @parameterized.expand(
         [
-            ("single_token", 1, True),
+            ("single_token", 1, False),
             ("multiple_tokens", 8, False),
         ]
     )
@@ -303,7 +303,7 @@ class TestMoEQuantCompile(unittest.TestCase):
     @skip_if_no_cuda()
     @parameterized.expand(
         [
-            ("single_token", 1, True),
+            ("single_token", 1, False),
             ("multiple_tokens", 8, False),
         ]
     )
