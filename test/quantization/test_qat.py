@@ -98,7 +98,7 @@ from torchao.utils import (
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
-_GPU_IS_AVAILABLE = True if torch.cuda.is_available() or torch.xpu.is_available() else False
+_GPU_IS_AVAILABLE = torch.accelerator.is_available()
 _DEVICE = auto_detect_device()
 
 

@@ -224,8 +224,7 @@ class TestQuantFlow(TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "only works for torch 2.8+")
+    @unittest.skipIf(torch.cuda.is_available() and not TORCH_VERSION_AT_LEAST_2_8, "only works for torch 2.8+")
     def test_int4_wo_quant_save_load(self):
         m = ToyLinearModel().eval().cpu()
 
@@ -306,7 +305,7 @@ class TestQuantFlow(TestCase):
         m(*example_inputs)
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantizer_int4_weight_only(self):
         from torchao._models._eval import TransformerEvalWrapper
         from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
@@ -345,7 +344,7 @@ class TestQuantFlow(TestCase):
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_eval_wrapper(self):
         from torchao._models._eval import TransformerEvalWrapper
 
@@ -379,7 +378,7 @@ class TestQuantFlow(TestCase):
 
     # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_eval_wrapper_llama3(self):
         from torchao._models._eval import TransformerEvalWrapper
 
@@ -453,7 +452,7 @@ class TestQuantFlow(TestCase):
         ref = m_copy(*example_inputs)
         self.assertTrue(torch.equal(res, ref))
 
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_int4(self):
         for device in self.GPU_DEVICES:
             # use 1024 so that we don't need padding
@@ -598,7 +597,7 @@ class TestQuantFlow(TestCase):
             assert "aten.mm.default" not in code[0]
 
     # TODO(#1690): move to new config names
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @common_utils.parametrize(
         "config",
         [
@@ -667,7 +666,7 @@ class TestQuantFlow(TestCase):
         sqnr = compute_error(y_ref, y_q)
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_default(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
@@ -681,7 +680,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_module_name(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
@@ -726,7 +725,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.emb.weight._layout, QDQLayout)
         assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
 
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_skip(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
@@ -738,7 +737,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
         assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
 
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_int4wo_cuda_serialization(self):
         config = Int4WeightOnlyConfig(group_size=32)
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
