@@ -351,13 +351,11 @@ def parse_version(version_string):
     """
     Parse version string representing pre-release with -1
 
-    Examples: "2.5.0" -> [2, 5, 0], "2.5.0.dev" -> [2, 5, -1]
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
     """
-    version = re.sub(r"\+.*$", "", version_string)
-
-    # Check for pre-release indicators (including all common patterns)
-    is_prerelease = bool(re.search(r"(a|b|dev)", version))
-    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev|a\d+|b\d+|rc\d+)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
     if match:
         major, minor, patch = map(int, match.groups())
         if is_prerelease:
