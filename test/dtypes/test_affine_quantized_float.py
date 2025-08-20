@@ -36,6 +36,7 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_float8,
     choose_qparams_affine,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -732,20 +733,13 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self.assertEqual(result.shape, expected_shape)
 
     @torch.no_grad()
-    @unittest.skip("test is flaky in CI, will turn on a bit later")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
         not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
     )
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    @common_utils.parametrize(
-        "torch_compile_mode",
-        [
-            "default",
-            "reduce-overhead",
-        ],
-    )
-    def test_expected_kernels_on_gpu(self, granularity, torch_compile_mode):
+    @common_utils.parametrize("float8_config_version", [1, 2])
+    def test_expected_kernels_on_gpu(self, granularity, float8_config_version):
         """
         Verify that float8 quantization + torch.compile results in the
         expected number of kernels in the GPU trace.
@@ -756,14 +750,23 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
         )
+        if float8_config_version == 1:
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, version=1
+            )
+        else:
+            assert float8_config_version == 2
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity,
+                version=2,
+                kernel_preference=KernelPreference.TORCH,
+            )
         quantize_(
             m,
-            Float8DynamicActivationFloat8WeightConfig(
-                granularity=granularity, version=1
-            ),
+            config,
         )
 
-        m = torch.compile(m, mode=torch_compile_mode)
+        m = torch.compile(m, mode="default")
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
         # warm up
@@ -779,34 +782,16 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             # kernel 2: x_max = max(x_max_tmp)
             # kernel 3: x_float8 = to_float8(x, x_max)
             # kernel 4: gemm
-            if torch_compile_mode == "default":
-                assert len(cuda_kernel_events) == 4, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
-            elif torch_compile_mode == "reduce-overhead":
-                # two extra kernels with reduce-overhead:
-                # void at::native::(anonymous namespace)::multi_tensor...
-                # void at::native::vectorized_elementwise_kernel<2, at...
-                # TODO(future): debug and remove these
-                assert len(cuda_kernel_events) == 6, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
+            assert len(cuda_kernel_events) == 4, (
+                f"too many cuda kernels: {cuda_kernel_events}"
+            )
         else:
             assert granularity == PerRow()
             # kernel 1: x_float8 = to_float8(x)
             # kernel 2: gemm
-            if torch_compile_mode == "default":
-                assert len(cuda_kernel_events) == 2, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
-            elif torch_compile_mode == "reduce-overhead":
-                # two extra kernels with reduce-overhead:
-                # void at::native::(anonymous namespace)::multi_tensor...
-                # void at::native::vectorized_elementwise_kernel<2, at...
-                # TODO(future): debug and remove these
-                assert len(cuda_kernel_events) == 4, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
+            assert len(cuda_kernel_events) == 2, (
+                f"too many cuda kernels: {cuda_kernel_events}"
+            )
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
