@@ -16,9 +16,6 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
-from torchao.quantization import (
-    quantize_,
-)
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
@@ -30,9 +27,6 @@ from torchao.quantization.quantize_.workflows.intx import (
     ComputeTarget,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
-)
 
 
 def _get_accuracy_test_cases():
@@ -133,7 +127,6 @@ except Exception:
     pass
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
 @unittest.skipIf(not _TORCHAO_OPS_LOADED, "Need torchao ops")
 class TestIntxTilePackedTensor(TestCase):
     @parameterized.expand(
