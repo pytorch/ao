@@ -507,6 +507,7 @@ functions that will be added, this includes:
 <div><p>recreate a new subclassed Tensor with the transformed tensor data</p>
 </div></blockquote>
 <p><cite>__repr__</cite>: the string representation of the subclassed tensor instance
+<cite>_same_metadata</cite>: returns whether the metadata is the same between two instances of cls
 torch ops: torch.Tensor.contiguous
 aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, <a href="#id9"><span class="problematic" id="id10">aten.copy_</span></a>.default, aten._to_copy.default (enables t.to)</p>
 <p class="rubric">Example</p>
