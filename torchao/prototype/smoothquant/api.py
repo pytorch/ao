@@ -45,8 +45,6 @@ class SmoothQuantConfig(AOBaseConfig):
         alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
             Fall back to conventional quantization if None
         smoothing_factor: The smoothing factor for the layer. Acquired from the layer's observer if None.
-        act_scales: The activation scales for the layer. Acquired from the layer's observer if None.
-        wei_scales: The weight scales for the layer. Acquired from the layer's observer if None.
         set_inductor_config: if True, adjusts `torchinductor` settings to recommended values.
     """
 
@@ -54,8 +52,6 @@ class SmoothQuantConfig(AOBaseConfig):
     step: SmoothQuantStep
     alpha: Optional[float] = 0.5
     smoothing_factor: Optional[torch.Tensor] = None
-    act_scales: Optional[torch.Tensor] = None
-    wei_scales: Optional[torch.Tensor] = None
     set_inductor_config: bool = True
 
     def __post_init__(self):
@@ -77,10 +73,9 @@ def _smooth_quant_transform(
     if step == SmoothQuantStep.PREPARE:
         observer = SmoothQuantObserver(
             weight=module.weight,
+            bias=module.bias,
+            base_config=base_config,
             alpha=config.alpha,
-            quant_min=-127,
-            quant_max=127,
-            eps=torch.finfo(torch.float32).eps,
         )
         return SmoothQuantObservedLinear.from_float(module, observer)
 
@@ -88,10 +83,9 @@ def _smooth_quant_transform(
         # loading from pre-quantized checkpoint
         observer = SmoothQuantObserver(
             weight=module.weight,
+            bias=module.bias,
+            base_config=base_config,
             alpha=config.alpha,
-            quant_min=-127,
-            quant_max=127,
-            eps=torch.finfo(torch.float32).eps,
         )
         observed_linear = SmoothQuantObservedLinear.from_float(module, observer)
         example_input = torch.randn(
@@ -116,18 +110,12 @@ def _smooth_quant_transform(
         torchao.quantization.utils.recommended_inductor_config_setter()
 
     # Get quantization parameters
-    if all(x is not None for x in (config.smoothing_factor, config.wei_scales)):
-        smoothing_factor, act_scales, wei_scales = (
-            config.smoothing_factor,
-            config.act_scales,
-            config.wei_scales,
-        )
-        weight = observed_linear.weight * smoothing_factor
-    else:
-        smoothing_factor, act_scales, wei_scales = (
-            observed_linear.obs.calculate_qparams()
-        )
-        weight = observed_linear.obs.weight * smoothing_factor
+    smoothing_factor = (
+        config.smoothing_factor
+        if config.smoothing_factor is not None
+        else observed_linear.obs.calculate_qparams()
+    )
+    weight = observed_linear.weight * smoothing_factor
 
     # Create new linear layer
     linear = torch.nn.Linear(

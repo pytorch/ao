@@ -9,8 +9,7 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.observer import AffineQuantizedMinMaxObserver, PerAxis
-from torchao.quantization.quant_primitives import MappingType
+from torchao.core.config import AOBaseConfig
 
 
 class SmoothQuantStep(str, Enum):
@@ -23,87 +22,52 @@ class SmoothQuantObserver(torch.nn.Module):
     def __init__(
         self,
         weight: torch.Tensor,
+        bias: Optional[torch.Tensor],
+        base_config: AOBaseConfig,
         alpha: Optional[float] = 0.5,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int] = None,
-        eps: Optional[float] = None,
     ):
         """
         A custom observer for SmoothQuant
 
         Args:
             weight: The weight tensor to be observed.
+            bias: The bias tensor to be observed.
+            base_config: Base quantization configuration.
             alpha: The alpha value to determine smoothing factor, normally between 0 and 1.
-                   Fall back to conventional quantization if alpha is None.
-            quant_min: The minimum quantized value
-            quant_max: The maximum quantized value
-            eps: The minimum scale to avoid dividing by zero.
         """
         super().__init__()
         assert weight.ndim == 2
         self.weight = weight
-        self.device = self.weight.device
         self.alpha = alpha
-        self.quant_min = quant_min
-        self.quant_max = quant_max
-        self.eps = eps or torch.finfo(torch.float32).eps
-        # act.shape = [mb, ic] (reshape if needed), wei.shape = [oc, ic]
-        # *_ic_obs are used to determine smoothing_factor
-        # wei_oc_obs is used to find qparams for quantization
-        self.act_ic_obs = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC, torch.int8, PerAxis(-1), eps=self.eps
-        )
-        self.wei_ic_obs = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC, torch.int8, PerAxis(-1), eps=self.eps
-        )
-        self.wei_oc_obs = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC,
-            torch.int8,
-            PerAxis(0),
-            quant_min=self.quant_min,
-            quant_max=self.quant_max,
-            eps=self.eps,
-        )
-        self.wei_ic_obs(self.weight)
+        self.inputs = []
+        self.device = weight.device
 
     @torch.no_grad()
     def forward(self, input: torch.Tensor):
-        self.act_ic_obs(input.to("cpu"))
+        self.inputs.append(input.to("cpu"))
         return input
 
     def calculate_qparams(self):
-        # Step 1: Get min/max per input channel (IC) from observers
-        wei_min_per_ic = self.wei_ic_obs.min_val
-        wei_max_per_ic = self.wei_ic_obs.max_val
-        act_min_per_ic = self.act_ic_obs.min_val
-        act_max_per_ic = self.act_ic_obs.max_val
-        x_abs_max_per_ic = (
-            torch.max(torch.abs(act_min_per_ic), torch.abs(act_max_per_ic)) + self.eps
+        assert self.inputs and len(self.inputs) > 0, (
+            "calibrate observer first by running model on exemplar data"
         )
-        w_abs_max_per_ic = (
-            torch.max(torch.abs(wei_min_per_ic), torch.abs(wei_max_per_ic)) + self.eps
-        )
+        inputs = [inp.to(self.device) for inp in self.inputs]
+        acc = torch.cat(inputs, dim=0)
+        # Reshape if needed: [batch, seq, features] -> [batch*seq, features]
+        if acc.ndim > 2:
+            acc = acc.view(-1, acc.shape[-1])
 
-        # Step 2: Calculate smoothing factor
+        # Calculate per-channel max values
+        x_abs_max = torch.max(torch.abs(acc), dim=0)[0]
+        w_abs_max = torch.max(torch.abs(self.weight), dim=0)[0]
+
+        # Calculate smoothing factor
         if self.alpha is None:
-            # fall back to conventional quantization if alpha is None
-            smoothing_factor = torch.ones_like(x_abs_max_per_ic)
-        else:
-            smoothing_factor = torch.pow(x_abs_max_per_ic, self.alpha) / torch.pow(
-                w_abs_max_per_ic.to(x_abs_max_per_ic.device), 1 - self.alpha
-            )
+            return torch.ones_like(x_abs_max)
 
-        # Step 3: Calculate activation scales for static quantization
-        act_scales = None
-
-        # Step 4: Update weight and find scales
-        self.wei_oc_obs(self.weight * smoothing_factor.to(self.device))
-        wei_scales, _ = self.wei_oc_obs.calculate_qparams()
-
-        return (
-            smoothing_factor.to(self.device),
-            act_scales,
-            wei_scales.to(self.device),
+        eps = torch.finfo(torch.float32).eps
+        return torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
+            w_abs_max + eps, 1 - self.alpha
         )
 
 
