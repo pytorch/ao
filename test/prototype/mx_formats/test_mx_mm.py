@@ -38,8 +38,8 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     a_mx = MXTensor.to_mx(a, fmt, 32)
     b_mx = MXTensor.to_mx(b, fmt, 32)
 
-    a_data = a_mx._data
-    b_data = b_mx._data
+    a_data = a_mx.qdata
+    b_data = b_mx.qdata
     assert b_data.is_contiguous()
     b_data = b_data.transpose(-1, -2)
 
