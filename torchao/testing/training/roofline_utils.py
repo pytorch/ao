@@ -350,3 +350,79 @@ def get_float8_mem_sympy(
 
     res = sum([*fwd_fp8_input_mem, *fwd_fp8_weight_mem, *gi_fp8_grad_output_mem])
     return res
+
+
+def get_inference_tensor_memory_traffic_ovhd_s(
+    specs,
+    dim0,
+    dim1,
+    tensor_role: str,
+    float8_recipe_name: Optional[str],
+    fuse_with_prev=False,
+) -> List[Union[sympy.Symbol, float]]:
+    """
+    Inference version of `get_tensor_memory_traffic_ovhd_s`.
+    The only thing happening here is we quantize the activation.
+    """
+    assert float8_recipe_name == "rowwise", "unsupported"
+    assert fuse_with_prev is False, "unsupported"
+
+    # assumes input bf16, output f8
+    numel = dim0 * dim1
+
+    res_bytes = None
+
+    assert tensor_role == "input"
+    # x_bf16 = ...
+    kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+    res_bytes = [
+        kernel_1_rw,
+    ]
+
+    # convert from bytes to seconds
+    res_s = [
+        x / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
+        for x in res_bytes
+    ]
+
+    # take max of kernel_overhead, r/w time
+    res_s = [sympy.Max(x, KERNEL_LAUNCH_OVERHEAD_SEC) for x in res_s]
+
+    return res_s
+
+
+def get_inference_float8_mem_sympy(
+    M,
+    K,
+    N,
+    float8_recipe_name: Optional[str],
+    gpu_name: Optional[str] = None,
+):
+    specs = get_specs(gpu_name)
+    # input @ weight_t = output
+    # MxK @ KxN => MxN
+    fwd_fp8_input_mem = get_inference_tensor_memory_traffic_ovhd_s(
+        specs,
+        M,
+        K,
+        tensor_role="input",
+        float8_recipe_name=float8_recipe_name,
+        fuse_with_prev=False,
+    )
+    res = sum([*fwd_fp8_input_mem])
+    return res
+
+
+def get_inference_gemm_time_sympy(
+    M: sympy.Symbol,
+    K: sympy.Symbol,
+    N: sympy.Symbol,
+    dtype,
+    float8_recipe_name: Optional[str],
+    gpu_name: Optional[str],
+):
+    assert float8_recipe_name == "rowwise" or float8_recipe_name is None, "unsupported"
+    # note: this function is currently not super accurate for small shapes:
+    # when M,K,N <= 1k,1k,1k it undercounts by around 2x
+    gemm_output_time_s = get_individual_gemm_time_sympy(M, K, N, dtype, None, gpu_name)
+    return gemm_output_time_s
