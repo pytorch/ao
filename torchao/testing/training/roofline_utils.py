@@ -374,6 +374,7 @@ def get_inference_tensor_memory_traffic_ovhd_s(
 
     assert tensor_role == "input"
     # x_bf16 = ...
+    # kernel 1:               x_bf16 -> x_fp8
     kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
     res_bytes = [
         kernel_1_rw,
