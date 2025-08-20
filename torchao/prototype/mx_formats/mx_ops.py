@@ -80,12 +80,26 @@ def _get_gemm_choice(
 
 
 def _addmm_mx_dispatch(
-    a: MXTensor, b: MXTensor, aten_op, bias: Optional[torch.Tensor] = None
+    a: torch.Tensor, b: MXTensor, aten_op, bias: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
     """
     Core implementation shared between mx_mm and mx_addmm.
     The only difference is whether bias is None or not.
     """
+
+    if not isinstance(a, MXTensor):
+        assert b.act_quant_kwargs is not None, "weight-only quant not yet supported"
+        k = b.act_quant_kwargs
+        a = MXTensor.to_mx(
+            a,
+            k.elem_dtype,
+            k.block_size,
+            k.scaling_mode,
+            k.use_fp4_custom_triton_dequant_kernel,
+            k.gemm_kernel_choice,
+            k.pack_fp6,
+        )
+
     gemm_choice = _get_gemm_choice(a._gemm_kernel_choice, b._gemm_kernel_choice)
 
     if gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
@@ -148,18 +162,14 @@ def _addmm_mx_dispatch(
 def mx_mm(func, types, args, kwargs):
     a = args[0]
     b = args[1]
-    assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
+    assert isinstance(b, MXTensor)
 
     return _addmm_mx_dispatch(a, b, func)
 
 
 @implements([aten.addmm.default])
 def mx_addmm(func, types, args, kwargs):
-    assert (
-        isinstance(args[0], torch.Tensor)
-        and isinstance(args[1], MXTensor)
-        and isinstance(args[2], MXTensor)
-    )
+    assert isinstance(args[0], torch.Tensor) and isinstance(args[2], MXTensor)
     bias = args[0]
     a = args[1]
     b = args[2]
@@ -179,6 +189,7 @@ def mx_t(func, types, args, kwargs):
         old._use_fp4_custom_triton_dequant_kernel,
         old._gemm_kernel_choice,
         old._pack_fp6,
+        old.act_quant_kwargs,
     )
     return new
 
@@ -223,6 +234,7 @@ def mx_view_op(func, types, args, kwargs):
         args[0]._use_fp4_custom_triton_dequant_kernel,
         args[0]._gemm_kernel_choice,
         args[0]._pack_fp6,
+        args[0].act_quant_kwargs,
     )
 
 
@@ -284,6 +296,7 @@ def mx_slice(func, types, args, kwargs):
             x._use_fp4_custom_triton_dequant_kernel,
             x._gemm_kernel_choice,
             x._pack_fp6,
+            x.act_quant_kwargs,
         ),
     )
 
@@ -338,6 +351,7 @@ def autocast_to_copy(func, types, args, kwargs):
             tensor._use_fp4_custom_triton_dequant_kernel,
             tensor._gemm_kernel_choice,
             tensor._pack_fp6,
+            tensor.act_quant_kwargs,
         )
         return res
 

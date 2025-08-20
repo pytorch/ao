@@ -68,6 +68,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
             False,
             gemm_kernel_choice,
             False,
+            None,
         )
         mx_tensor = DTensor.from_local(
             inner,
@@ -87,6 +88,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
             False,
             gemm_kernel_choice,
             False,
+            None,
         )
     return mx_tensor
 
