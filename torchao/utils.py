@@ -146,25 +146,10 @@ def get_available_devices():
     return devices
 
 def auto_detect_device():
-    if torch.cuda.is_available():
-        return "cuda"
-    elif hasattr(torch.version, "hip") and torch.version.hip:
-        return "rocm"
-    elif hasattr(torch, "xpu") and torch.xpu.is_available(): 
-        return "xpu"
+    if torch.accelerator.is_available()
+        return torch.accelerator.current_accelerator()
     else:
         return "cpu"
-
-def auto_detect_device():
-    if torch.cuda.is_available():
-        return "cuda"
-    elif hasattr(torch.version, "hip") and torch.version.hip:
-        return "rocm"
-    elif hasattr(torch, "xpu") and torch.xpu.is_available(): 
-        return "xpu"
-    else:
-        return "cpu"
-
 
 def get_compute_capability():
     if torch.cuda.is_available():
