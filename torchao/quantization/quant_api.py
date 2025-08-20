@@ -552,11 +552,6 @@ def quantize_(
         )
 
 
-def _int8_asymm_per_token_quant_hp(x: torch.Tensor) -> torch.Tensor:
-    """This is the same as _int8_asymm_per_token_quant, but returns a high-precision tensor"""
-    return _int8_asymm_per_token_quant(x).dequantize()
-
-
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     """This is defined here instead of local function to support serialization"""
     mapping_type = MappingType.ASYMMETRIC
@@ -2353,7 +2348,6 @@ def _module_fqn_to_config_handler(
 torch.serialization.add_safe_globals(
     [
         _int8_asymm_per_token_quant,
-        _int8_asymm_per_token_quant_hp,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
         _int4_symm_cutlass_quant,

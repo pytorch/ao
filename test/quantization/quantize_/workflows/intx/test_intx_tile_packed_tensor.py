@@ -35,7 +35,7 @@ from torchao.utils import (
 )
 
 
-def _get_test_cases_v2():
+def _get_accuracy_test_cases():
     MODEL_DTYPES = [
         torch.float32,
         torch.bfloat16,
@@ -137,7 +137,7 @@ except Exception:
 @unittest.skipIf(not _TORCHAO_OPS_LOADED, "Need torchao ops")
 class TestIntxTilePackedTensor(TestCase):
     @parameterized.expand(
-        _get_test_cases_v2(),
+        _get_accuracy_test_cases(),
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_accuracy(
