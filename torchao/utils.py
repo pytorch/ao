@@ -738,6 +738,7 @@ class TorchAOBaseTensor(torch.Tensor):
     `_apply_fn_to_data`: takes a function (Tensor -> Tensor),  applies function to all tensor data and
         recreate a new subclassed Tensor with the transformed tensor data
     `__repr__`: the string representation of the subclassed tensor instance
+    `_same_metadata`: returns whether the metadata is the same between two instances of cls
     torch ops: torch.Tensor.contiguous
     aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)
 
