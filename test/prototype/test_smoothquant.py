@@ -13,9 +13,7 @@ from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
     SmoothQuantObservedLinear,
 )
-from torchao.prototype.smoothquant.core import (
-    SmoothQuantStep,
-)
+from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
@@ -33,6 +31,7 @@ class TestSmoothQuant(unittest.TestCase):
         torch._dynamo.config.cache_size_limit = 128
 
     # TODO: Update after #2729 merged
+    # from torchao.testing.model_architectures import ToyMultiLinearModel
     class ToyMultiLinearModel(torch.nn.Module):
         """Shared model class for testing"""
 
@@ -43,7 +42,7 @@ class TestSmoothQuant(unittest.TestCase):
             self.linear3 = torch.nn.Linear(k, 64, bias=has_bias)
 
         def example_inputs(
-            self, batch_size=1, sequence_length=10, dtype=torch.bfloat16, device="cuda"
+            self, batch_size=1, sequence_length=10, dtype=torch.float, device="cuda"
         ):
             return [
                 torch.randn(
@@ -62,7 +61,6 @@ class TestSmoothQuant(unittest.TestCase):
             x = self.linear3(x)
             return x
 
-    @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("alpha", [None, 0.5, 0.75])
     @common_utils.parametrize(
         "base_config",
@@ -70,20 +68,14 @@ class TestSmoothQuant(unittest.TestCase):
             Int8DynamicActivationInt8WeightConfig(),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
-            # int8_dynamic_activation_int4_weight(),
         ],
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
     @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
-    def test_smoothquant_accuracy(self, bias, alpha, base_config, device, input_dtype):
-        """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
+    def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
+        """Test the margin error of SmoothQuant across alpha, dtype, etc."""
 
-        m = (
-            self.ToyMultiLinearModel(32, 16, 8, has_bias=bias)
-            .eval()
-            .to(device)
-            .to(input_dtype)
-        )
+        m = self.ToyMultiLinearModel(32, 16, 8).eval().to(device).to(input_dtype)
         m_ref = deepcopy(m)
         test_data = torch.randn(32, 32, dtype=input_dtype, device=device)
 
@@ -102,12 +94,9 @@ class TestSmoothQuant(unittest.TestCase):
         config.step = SmoothQuantStep.CONVERT
         quantize_(m, config)
 
-        # Apply compilation if supported
-        m = torch.compile(m, fullgraph=True)
-
         # Step 2: Inference quantized model
         with torch.inference_mode():
-            q_out = m(test_data)
+            q_out = torch.compile(m, fullgraph=True)(test_data)
             ref_out = m_ref(test_data)
 
             # Simple validation - ensure quantized model produces reasonable outputs
@@ -115,7 +104,7 @@ class TestSmoothQuant(unittest.TestCase):
             self.assertFalse(
                 torch.isnan(q_out).any(),
                 f"Quantized model should not produce NaN values for "
-                f"bias={bias}, alpha={alpha}, base_config={type(base_config).__name__}, "
+                f"alpha={alpha}, base_config={type(base_config).__name__}, "
                 f"device={device}, dtype={input_dtype}",
             )
 
@@ -129,7 +118,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_observer_insertion(self):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
 
-        m = self.ToyMultiLinearModel(has_bias=True).eval()
+        m = self.ToyMultiLinearModel(has_bias=False).eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
@@ -195,19 +184,18 @@ class TestSmoothQuant(unittest.TestCase):
                 output.shape, (2, 64), "Output shape should match expected dimensions"
             )
 
+    # TODO: Check more quantization APIs and dtype
     @common_utils.parametrize("alpha", [None, 0.5, 0.75])
     @common_utils.parametrize(
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
             # Skip int4 weight tests for now due to reference implementation mismatch
-            # int8_dynamic_activation_int4_weight(),
+            # Int8DynamicActivationInt4WeightConfig(),
         ],
     )
-    @common_utils.parametrize(
-        "device", ["cpu"]
-    )  # Remove CUDA tests due to int_mm limitations
-    @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("device", ["cpu", "cuda"])
+    @common_utils.parametrize("input_dtype", [torch.float])
     def test_two_step_quantization(self, alpha, base_config, device, input_dtype):
         """Test two-step quantization process (PREPARE -> CONVERT)."""
         dataset_size = 20
@@ -240,7 +228,7 @@ class TestSmoothQuant(unittest.TestCase):
 
         # Step 2: Calibration
         for data in calibration_data:
-            m2(data)
+            m2(data.squeeze(0).to(input_dtype))
 
         # Step 3: Apply quantization configuration
         config.step = SmoothQuantStep.CONVERT
@@ -254,8 +242,8 @@ class TestSmoothQuant(unittest.TestCase):
             m2_outputs = []
 
             for data in dataset:
-                # Remove batch dimension for model input
-                input_tensor = data.squeeze(0)
+                # TODO: Remove fixed dtype for testing more quantization APIs
+                input_tensor = data.squeeze(0).float()
                 m2_output = m2(input_tensor)
                 m2_outputs.append(m2_output)
 

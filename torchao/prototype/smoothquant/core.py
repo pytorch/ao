@@ -9,8 +9,6 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.core.config import AOBaseConfig
-
 
 class SmoothQuantStep(str, Enum):
     PREPARE = "prepare"
@@ -22,17 +20,13 @@ class SmoothQuantObserver(torch.nn.Module):
     def __init__(
         self,
         weight: torch.Tensor,
-        bias: Optional[torch.Tensor],
-        base_config: AOBaseConfig,
         alpha: Optional[float] = 0.5,
     ):
         """
-        A custom observer for SmoothQuant
+        A custom observer for smoothing factor, main concept of SmoothQuant.
 
         Args:
             weight: The weight tensor to be observed.
-            bias: The bias tensor to be observed.
-            base_config: Base quantization configuration.
             alpha: The alpha value to determine smoothing factor, normally between 0 and 1.
         """
         super().__init__()
@@ -77,27 +71,27 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
         in_features: int,
         out_features: int,
         obs: SmoothQuantObserver,
-        bias: bool = True,
         device=None,
         dtype=None,
     ):
-        super().__init__(in_features, out_features, bias, device, dtype)
+        super().__init__(
+            in_features, out_features, bias=False, device=device, dtype=dtype
+        )
         self.obs = obs
 
     def forward(self, input: torch.Tensor):
         input = self.obs(input)
-        return F.linear(input, self.weight, self.bias)
+        return F.linear(input, self.weight)
 
     @classmethod
     def from_float(cls, float_linear: torch.nn.Linear, obs: SmoothQuantObserver):
-        observed_linear = cls(
-            float_linear.in_features,
-            float_linear.out_features,
-            obs,
-            float_linear.bias is not None,
-            device=float_linear.weight.device,
-            dtype=float_linear.weight.dtype,
-        )
+        with torch.device("meta"):
+            observed_linear = cls(
+                float_linear.in_features,
+                float_linear.out_features,
+                obs,
+                device=float_linear.weight.device,
+                dtype=float_linear.weight.dtype,
+            )
         observed_linear.weight = float_linear.weight
-        observed_linear.bias = float_linear.bias
         return observed_linear

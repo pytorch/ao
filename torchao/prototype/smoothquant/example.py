@@ -19,7 +19,8 @@ from torchao.quantization import quantize_
 from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
 
-# TODO: Uniform this with torchao/prototype/awq/example.py and expand more tasks
+# TODO: Build benchmark within vLLM ecosystem with more quantization APIs
+# See https://github.com/pytorch/ao/issues/2815 for more details
 def benchmark(model, tokenizer, max_seq_length=512, tasks=["PPL"], device="cuda"):
     """Benchmark model with perplexity calculation on WikiText-2"""
     # Load WikiText-2 test set
@@ -72,7 +73,6 @@ def benchmark(model, tokenizer, max_seq_length=512, tasks=["PPL"], device="cuda"
     }
 
 
-# TODO: Uniform this with torchao/prototype/awq/example.py
 def quantize_and_eval(
     repo_id: str,
     alpha: float,
@@ -99,9 +99,8 @@ def quantize_and_eval(
     # Step 1: Prepare - insert observers
     print("running SmoothQuant prepare and calibrate")
     t0 = time.time()
-    base_config = Int8DynamicActivationInt8WeightConfig()
     quant_config = SmoothQuantConfig(
-        base_config=base_config,
+        base_config=Int8DynamicActivationInt8WeightConfig(),
         step=SmoothQuantStep.PREPARE,
         alpha=alpha,
     )
