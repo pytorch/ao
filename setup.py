@@ -433,6 +433,7 @@ def get_extensions():
             extra_link_args.append("/DEBUG")
 
     rocm_sparse_marlin_supported = False
+    rocm_tiled_layout_supported = False
     if use_rocm:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
@@ -488,8 +489,9 @@ def get_extensions():
     # Define ROCm source directories
     rocm_source_dirs = [
         os.path.join(extensions_dir, "rocm", "swizzle"),
-        os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
     ]
+    if rocm_tiled_layout_supported:
+        rocm_source_dirs.append(os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"))
     if rocm_sparse_marlin_supported:
         rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
