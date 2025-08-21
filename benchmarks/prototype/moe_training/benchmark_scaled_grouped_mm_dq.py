@@ -35,8 +35,8 @@ class ExperimentConfig:
 @dataclass(frozen=True)
 class ExperimentResult:
     bf16_us: float
-    fp8_us: float
-    fp8_speedup: float
+    scaled_us: float
+    scaled_speedup: float
 
 
 @dataclass(frozen=True)
@@ -48,8 +48,8 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     # Llama4 shapes
     A_shapes = [(16640, 5120)]
-    B_shapes = [(1, 8192, 5120), (16, 8192, 5120), (128, 8192, 5120)]
-    recipes = [MoEScalingType.FP8_ROWWISE]
+    B_shapes = [(16, 8192, 5120)]
+    recipes = [MoEScalingType.MXFP8, MoEScalingType.FP8_ROWWISE]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for A_shape, B_shape, recipe, high_precision_dtype in itertools.product(
@@ -93,7 +93,8 @@ def run_experiment(
     #    which represents the right operand.
     n_groups = config.B_shape[0]
     Mg = A.shape[0]
-    offs = generate_jagged_offs(n_groups, Mg, multiple_of=16)
+    token_group_alignment_size = 32 if config.recipe == MoEScalingType.MXFP8 else 16
+    offs = generate_jagged_offs(n_groups, Mg, multiple_of=token_group_alignment_size)
 
     labels = torch.ones(
         (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
@@ -107,6 +108,7 @@ def run_experiment(
         offs,
         labels=labels,
         use_compile=args.compile,
+        fullgraph=False,
     )
     if args.profile:
         profile_fwd_bwd(
@@ -116,11 +118,12 @@ def run_experiment(
             offs,
             labels=labels,
             use_compile=args.compile,
+            fullgraph=False,
             profile_name="bf16_profile",
         )
 
     # benchmark scaled grouped mm with dynamic fp8 rowwise quant
-    fp8_us = bench_fwd_bwd_microseconds(
+    scaled_us = bench_fwd_bwd_microseconds(
         _scaled_grouped_mm,
         A,
         B_t,
@@ -128,6 +131,7 @@ def run_experiment(
         scaling_type=config.recipe,
         labels=labels,
         use_compile=args.compile,
+        fullgraph=False,
     )
     if args.profile:
         profile_fwd_bwd(
@@ -139,12 +143,13 @@ def run_experiment(
             labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
+            fullgraph=False,
         )
 
     return ExperimentResult(
         bf16_us=round(bf16_us, 3),
-        fp8_us=round(fp8_us, 3),
-        fp8_speedup=round(bf16_us / fp8_us, 3),
+        scaled_us=round(scaled_us, 3),
+        scaled_speedup=round(bf16_us / scaled_us, 3),
     )
 
 
@@ -152,9 +157,10 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "A_shape",
         "B_shape",
+        "recipe",
         "bf16_time_us",
         "scaled_time_us",
-        "fp8_speedup",
+        "scaled_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -164,9 +170,10 @@ def print_results(experiments: List[Experiment]):
             [
                 A_shape,
                 B_shape,
+                experiment.config.recipe,
                 experiment.result.bf16_us,
-                experiment.result.fp8_us,
-                f"{experiment.result.fp8_speedup}x",
+                experiment.result.scaled_us,
+                f"{experiment.result.scaled_speedup}x",
             ]
         )
     print(tabulate(rows, headers=headers))
