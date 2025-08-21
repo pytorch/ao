@@ -1,26 +1,22 @@
-import statistics
-from time import perf_counter_ns
-
 import torch
 from torch.nn import functional as F
+from triton.testing import do_bench
 
 
 def bench_fwd_bwd_microseconds(
     fn, *args, labels=None, use_compile=False, fullgraph=True, **kwargs
 ):
     assert labels is not None
-    fn = torch.compile(fn, fullgraph=fullgraph) if use_compile else fn
-    times = []
-    for _ in range(10):
-        start_ns = perf_counter_ns()
+
+    def fwd_bwd():
         out = fn(*args, **kwargs)
         loss = F.mse_loss(out, labels)
         loss.backward()
-        torch.cuda.synchronize()
-        end_ns = perf_counter_ns()
-        duration_us = (end_ns - start_ns) / 1000
-        times.append(duration_us)
-    return statistics.median(times)
+
+    fwd_bwd_compiled = (
+        torch.compile(fwd_bwd, fullgraph=fullgraph) if use_compile else fwd_bwd
+    )
+    return benchmark_cuda_function_in_microseconds(fwd_bwd_compiled)
 
 
 def profile_fwd_bwd(
@@ -56,3 +52,7 @@ def profile_fwd_bwd(
     # Save profiler results
     prof.export_chrome_trace(f"{profile_name}.json")
     print(f"Saved: {profile_name}.json")
+
+
+def benchmark_cuda_function_in_microseconds(f, *args, **kwargs):
+    return do_bench(lambda: f(*args, **kwargs), return_mode="median") * 1e3
