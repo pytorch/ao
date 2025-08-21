@@ -147,12 +147,12 @@ class Float8Tensor(TorchAOBaseTensor):
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.block_size=}, {self.mm_config=}, "
+            f"{self.block_size=}, {self.mm_config=}, {self.kernel_preference=} "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
 
     def _quantization_type(self):
-        return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.mm_config=}, {self.scale.shape=}"
+        return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.mm_config=}, {self.scale.shape=}, {self.kernel_preference=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
