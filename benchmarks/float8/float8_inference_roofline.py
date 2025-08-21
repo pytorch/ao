@@ -8,8 +8,8 @@
 This is a script to estimate the benefit from converting a `torch.nn.Linear`
 layer to float8 given a single saturated GPU, by estimating the difference
 in e2e GPU kernel time between:
-1. bf16 gemms in fwd and bwd, and
-2. float8 gemms in fwd and bwd, and float8 overhead
+1. bf16 gemms in fwd and
+2. float8 gemms in fwd and float8 overhead
 
 The gemm times are estimated either from direct measurements via benchmarks,
 or with a roofline estimation based on TOPS and peak compute bandwidth of an
@@ -18,29 +18,9 @@ NVIDIA H100 or B200.
 The float8 overhead times are estimated by counting memory reads and writes
 based on the specified float8 scaling, and estimating that we can achieve
 a certain % of machine peak memory bandwidth when performing these reads and writes.
-
-Additional context:
-1. the formulas for fwd/bwd gemms in a linear layer, with corresponding input
-   and output sizes:
-
-  input @ weight_t = output
-  MxK @ KxN => MxN
-
-  grad_output @ weight = grad_input
-  MxN @ NxK => MxK
-
-  input_t @ grad_output = grad_weight
-  KxM @ MxN => KxN
-
-2. assume for float8 activations/gradients that torch.compile will fuse to the
-preceding op. Note that this is not always true in practice.
-3. assume no AC (TODO model it)
-4. assume no float8 all-gather (TODO model it)
 """
 
 import copy
-import json
-import os
 from typing import Optional
 
 import fire
@@ -57,46 +37,31 @@ from utils import (
 )
 
 import torchao
-from torchao.float8 import (
-    Float8LinearConfig,
-    convert_to_float8_training,
+from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
+    PerRow,
+    quantize_,
 )
-from torchao.prototype.mx_formats import MXLinearConfig
-from torchao.quantization import quantize_
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.training.roofline_utils import (
-    get_float8_mem_sympy,
-    get_gemm_time_sympy,
+    get_inference_float8_mem_sympy,
+    get_inference_gemm_time_sympy,
 )
 from torchao.utils import is_MI300
 
 
-class LNLinearSigmoid(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        x = self.sigmoid(x)
-        return x
-
-
-def get_gpu_kernel_time(m, x, grad_output):
+@torch.no_grad()
+def get_gpu_kernel_time(m, x):
     # warm up
     for _ in range(2):
-        y = m(x)
-        y.backward(grad_output)
+        __ = m(x)
 
     # capture a profiling run
     activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
     n_iter = 5
     with profile(activities=activities) as prof:
         for _ in range(n_iter):
-            y = m(x)
-            y.backward(grad_output)
+            __ = m(x)
             torch.cuda.synchronize()
     # get the gpu kernel time and aggregate it
     num_leaf_tensors = 1 + len(list(m.parameters()))
@@ -108,40 +73,12 @@ def get_gpu_kernel_time(m, x, grad_output):
 
 
 def get_gemm_times(
-    gemm_role: str,
     M: int,
     K: int,
     N: int,
     fast_accum: bool,
-    bf16_memory_formats: str,
     float8_recipe_name: Optional[str],
-    mx_recipe_name: Optional[str],
-    cache_filename=None,
 ):
-    assert gemm_role in ("output", "grad_input", "grad_weight"), "unsupported"
-    assert bf16_memory_formats in (
-        "row_major:col_major",
-        "row_major:row_major",
-        "col_major:row_major",
-    ), "unsupported"
-
-    # Note: this is definitely not the best way to build a cache,
-    # but it will do for now.
-    if cache_filename is not None:
-        assert False, "TODO retest this for new arguments"
-        if os.path.isfile(cache_filename):
-            # cache already exists, use it
-            with open(cache_filename, "r") as f:
-                cache = json.load(f)
-        else:
-            # cache does not exist yet, create it
-            cache = dict()
-    else:
-        cache = dict()
-    key = f"{M},{K},{N},{fast_accum},{bf16_memory_formats}"
-    if key in cache:
-        return cache[key]
-
     device = torch.device("cuda")
 
     # bf16 time
@@ -149,51 +86,32 @@ def get_gemm_times(
     # w_bf16 = torch.randn(K, N, dtype=torch.bfloat16, device=device).t().contiguous().t()
     w_bf16 = torch.randn(K, N, dtype=torch.bfloat16, device=device)
 
-    if bf16_memory_formats == "row_major:col_major":
-        w_bf16 = w_bf16.t().contiguous().t()
-    elif bf16_memory_formats == "col_major:row_major":
-        x_bf16 = x_bf16.t().contiguous().t()
-    elif bf16_memory_formats == "col_major:row_major":
-        x_bf16 = x_bf16.t().contiguous().t()
-
     bf16_time_s = get_gpu_kernel_gemm_time_s(torch.mm, x_bf16, w_bf16)
 
-    # f8 time
-    if float8_recipe_name == "rowwise_with_gw_hp" and gemm_role == "grad_weight":
-        f8_time_s = bf16_time_s
+    e4m3_dtype = torch.float8_e4m3fn
+    if torch.version.hip and torch.cuda.is_available() and is_MI300():
+        e4m3_dtype = torch.float8_e4m3fnuz
+    d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
+    A = torch.randint(0, 255, (M, K), device=device, dtype=torch.uint8).view(d1)
+    B = (
+        torch.randint(0, 255, (K, N), device=device, dtype=torch.uint8)
+        .view(d2)
+        .t()
+        .contiguous()
+        .t()
+    )
+    if float8_recipe_name in ("rowwise"):
+        scale_a = torch.ones(M, 1, device=device)
+        scale_b = torch.ones(1, N, device=device)
     else:
-        e4m3_dtype = torch.float8_e4m3fn
-        if torch.version.hip and torch.cuda.is_available() and is_MI300():
-            e4m3_dtype = torch.float8_e4m3fnuz
-        d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
-        # TODO(future PR): create more realistic tensors here for more accurate
-        # gemm benchmarking
-        A = torch.zeros(M, K, device=device, dtype=d1)
-        B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
-        if float8_recipe_name == "tensorwise":
-            scale_a = torch.tensor([1.0], device=device)
-            scale_b = torch.tensor([1.0], device=device)
-        elif float8_recipe_name in ("rowwise", "rowwise_with_gw_hp"):
-            scale_a = torch.ones(M, 1, device=device)
-            scale_b = torch.ones(1, N, device=device)
-        elif mx_recipe_name in ("mxfp8_cublas", "mxfp8_cublas_rceil"):
-            scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
-            scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
-        else:
-            assert False, "TODO add cutlass mx gemm here"
+        assert False, "unsupported"
 
-        def do_matmul(A, B):
-            return torch._scaled_mm(
-                A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
-            )
+    def do_matmul(A, B):
+        return torch._scaled_mm(
+            A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
+        )
 
-        f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
-
-    # save to cache if needed
-    if cache_filename is not None:
-        cache[key] = [bf16_time_s, f8_time_s]
-        with open(cache_filename, "w") as f:
-            json.dump(cache, f)
+    f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
 
     return bf16_time_s, f8_time_s
 
@@ -202,26 +120,17 @@ def run(
     outfile: str,
     do_benchmarks: bool = True,
     shape_gen_name: str = "pow2",
-    gemm_cache_filename: Optional[str] = None,
     n_limit: Optional[int] = None,
     float8_recipe_name: Optional[str] = None,
-    mx_recipe_name: Optional[str] = None,
-    enable_fusion_modeling: bool = False,
 ):
     """
     Args:
     * `do_benchmarks`: if True, gemm and e2e fwd+bwd of LNLinearSigmoid are benchmarked
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
-    * `gemm_cache_filename (optional)`: file to cache gemm benchmark results
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
-    * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
 
-    assert not ((float8_recipe_name is not None) and (mx_recipe_name is not None)), (
-        "unsupported"
-    )
-    if float8_recipe_name is None and mx_recipe_name is None:
-        float8_recipe_name = "tensorwise"
+    assert float8_recipe_name is not None, "unsupported"
 
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"torch version: {torch.__version__}")
@@ -229,24 +138,20 @@ def run(
     print(f"do_benchmarks: {do_benchmarks}")
     print(f"shape_gen_name: {shape_gen_name}")
     print(f"float8_recipe_name: {float8_recipe_name}")
-    print(f"mx_recipe_name: {mx_recipe_name}")
-    print(f"enable_fusion_modeling: {enable_fusion_modeling}")
 
     M, K, N = sympy.symbols("M K N")
 
-    fp8_ovhd_time_sympy = get_float8_mem_sympy(
+    fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
         M,
         K,
         N,
         float8_recipe_name,
-        mx_recipe_name,
-        enable_fusion_modeling,
     )
-    bf16_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.bfloat16, None, None, None
+    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
+        M, K, N, torch.bfloat16, None, None
     )
-    fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name, None
+    fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+        M, K, N, torch.float8_e4m3fn, float8_recipe_name, None
     )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
@@ -310,42 +215,14 @@ def run(
             # what PyTorch core is doing for `torch.mm`
             # input @ weight_t = output
             bf16_g1, f8_g1 = get_gemm_times(
-                "output",
                 M_val,
                 K_val,
                 N_val,
                 True,
-                "row_major:col_major",
                 float8_recipe_name,
-                mx_recipe_name,
-                gemm_cache_filename,
             )
-            # grad_output @ weight = grad_input
-            bf16_g2, f8_g2 = get_gemm_times(
-                "grad_input",
-                M_val,
-                N_val,
-                K_val,
-                False,
-                "row_major:row_major",
-                float8_recipe_name,
-                mx_recipe_name,
-                gemm_cache_filename,
-            )
-            # input_t @ grad_output = grad_weight
-            bf16_g3, f8_g3 = get_gemm_times(
-                "grad_weight",
-                K_val,
-                M_val,
-                N_val,
-                False,
-                "col_major:row_major",
-                float8_recipe_name,
-                mx_recipe_name,
-                gemm_cache_filename,
-            )
-            b_bf16_gemm_time_s = bf16_g1 + bf16_g2 + bf16_g3
-            b_fp8_gemm_time_s = f8_g1 + f8_g2 + f8_g3
+            b_bf16_gemm_time_s = bf16_g1
+            b_fp8_gemm_time_s = f8_g1
             rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
             rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
 
@@ -357,39 +234,32 @@ def run(
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
         if do_benchmarks:
             # create the model
-            if enable_fusion_modeling:
-                m_orig = LNLinearSigmoid(K_val, N_val).cuda().bfloat16()
-            else:
-                m_orig = (
-                    nn.Sequential(nn.Linear(K_val, N_val, bias=False)).cuda().bfloat16()
-                )
+            m_orig = (
+                nn.Sequential(nn.Linear(K_val, N_val, bias=False)).cuda().bfloat16()
+            )
             x = torch.randn(
                 M_val, K_val, dtype=torch.bfloat16, device="cuda"
             ).requires_grad_()
 
-            # get the gradient of the right shape
-            grad_output = torch.randn(M_val, N_val, dtype=torch.bfloat16, device="cuda")
-
             # get the bf16 gpu kernel time
             torch._dynamo.reset()
             m_bf16 = torch.compile(copy.deepcopy(m_orig))
-            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x, grad_output)
+            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x)
 
             # get the float8 dynamic scaling gpu kernel time
-
             torch._dynamo.reset()
-            if float8_recipe_name is not None:
-                config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
-                m_fp8_dyn = convert_to_float8_training(
-                    copy.deepcopy(m_orig), config=config
-                )
-            else:
-                assert mx_recipe_name is not None
-                config = MXLinearConfig.from_recipe_name(mx_recipe_name)
-                m_fp8_dyn = copy.deepcopy(m_orig)
-                quantize_(m_fp8_dyn, config=config)
+
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerRow(),
+                # for now, use TORCH. In the future might be interesting
+                # to benchmark AUTO and FBGEMM.
+                kernel_preference=KernelPreference.TORCH,
+            )
+            m_fp8_dyn = copy.deepcopy(m_orig)
+            quantize_(m_fp8_dyn, config)
+
             m_fp8_dyn = torch.compile(m_fp8_dyn)
-            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, grad_output)
+            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x)
 
         results.append(
             [
