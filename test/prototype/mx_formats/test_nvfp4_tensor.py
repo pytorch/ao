@@ -532,6 +532,16 @@ def test_nvfp4_matmul_with_amax(
 def test_nvfp4_to_copy():
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
-    torch.ops.aten._to_copy(
-        NVFP4Tensor.to_nvfp4(torch.randn((32, 128))), dtype=torch.bfloat16
-    )
+    x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
+    y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
+    assert torch.equal(x.qdata, y.qdata)
+    assert torch.equal(x._scale_e4m3, y._scale_e4m3)
+    assert x._per_tensor_scale is None
+    assert y._per_tensor_scale is None
+    assert x._act_per_tensor_scale is None
+    assert y._act_per_tensor_scale is None
+    assert x._block_size == y._block_size
+    assert x.use_triton_kernel == y.use_triton_kernel
+    assert x.act_quant_kwargs == y.act_quant_kwargs
+    assert x.dtype == torch.float32
+    assert y.dtype == torch.bfloat16
