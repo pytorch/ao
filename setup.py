@@ -491,7 +491,9 @@ def get_extensions():
         os.path.join(extensions_dir, "rocm", "swizzle"),
     ]
     if rocm_tiled_layout_supported:
-        rocm_source_dirs.append(os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"))
+        rocm_source_dirs.append(
+            os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
+        )
     if rocm_sparse_marlin_supported:
         rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
