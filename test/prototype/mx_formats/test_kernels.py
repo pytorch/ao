@@ -35,7 +35,6 @@ from torchao.prototype.mx_formats.kernels import (
     get_bits,
     pack_uint4,
     pack_uint6,
-    triton_f4_to_bf16,
     triton_f6_e2m3_to_bf16,
     triton_f6_e3m2_to_bf16,
     triton_to_mxfp8_dim1,
@@ -325,17 +324,6 @@ def test_fp4_pack_unpack():
     orig_vals_f4_packed_unpacked = unpack_uint4(orig_vals_f4_packed)
     orig_vals_dq = f4_unpacked_to_f32(orig_vals_f4_packed_unpacked)
     assert torch.all(orig_vals_dq == orig_vals)
-
-
-# TODO(future PR): fix or delete this test
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(is_sm_at_least_89(), reason="broken on CUDA capability 8.9+")
-def test_fp4_triton_unscaled_cast():
-    packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
-    f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
-    f32_triton = triton_f4_to_bf16(packed_vals).to(torch.float)
-    assert torch.all(torch.eq(f32_ref, f32_triton))
 
 
 # TODO(future PR): fix or delete this test
