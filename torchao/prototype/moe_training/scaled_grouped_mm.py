@@ -13,6 +13,7 @@ from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
+    fbgemm_mxfp8_grouped_mm_2d_3d,
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
@@ -277,52 +278,43 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         offs: Optional[torch.Tensor] = None,
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
-        emulated: bool = True,
+        emulated: bool = False,
     ) -> torch.Tensor:
         # torchao _scaled_grouped_mm only supports A=2D and B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
         assert block_size == 32, "Only block_size=32 is supported"
-        assert emulated, "Only emulated mxfp8 grouped gemm is supported"
-
-        # Cast to mxpf8 across dim -1.
-        # A_mx shape: (M, K)
-        # A_scale shape: (M, K//block_size)
-        A_scale, A_mx = to_mx(A, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
-
-        # Cast B_t per-expert to mxfp8 across dim1.
-        # B_t_mx shape: (E, K, N)
-        # B_t_scale shape: (E, K//block_size, N)
-
-        # To cast B_t per-expert to mxfp8 across dim1, we transpose the experts, cast along dim -1, then untranspose.
-        # B_mx shape: (E, N, K)
-        # B_scale shape: (E, N, K//block_size)
-        B_scales_dim2, B_mx_dim2 = to_mx(
-            B_t.transpose(-2, -1),  # (E,K,N) -> (E,N,K)
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-        )
-
-        # B_t_mx shape: (E, K, N)
-        # B_t_scale shape: (E, K//block_size, N)
-        B_t_scales_dim1 = B_scales_dim2.transpose(
-            -2, -1
-        )  # (E,N,K//block_size) -> (E,K//block_size,N)
-        B_t_mx_dim1 = B_mx_dim2.transpose(-2, -1)  # (E,N,K) -> (E,K,N)
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B_t, offs)
         ctx.block_size = block_size
         ctx.out_dtype = out_dtype
+        ctx.emulated = emulated
 
-        # Perform scaled grouped GEMM and return result.
+        # A_mx shape: (M, K)
+        # A_scale shape: (M, K//block_size)
+        A_scale, A_mx = to_mx(A, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+
+        # B_mx shape: (E, N, K)
+        # B_scale shape: (E, N, K//block_size)
+        B_scales, B_mx = to_mx(
+            B_t.transpose(-2, -1),
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+        )
+
         # output = input @ weight.T
         # output shape: (M, N)
-        out = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+        mxfp8_2d_3d_grouped_mm = (
+            _emulated_mxfp8_scaled_grouped_mm_2d_3d
+            if emulated
+            else fbgemm_mxfp8_grouped_mm_2d_3d
+        )
+        out = mxfp8_2d_3d_grouped_mm(
             A_mx,
             A_scale,
-            B_t_mx_dim1,
-            B_t_scales_dim1,
+            B_mx,
+            B_scales,
             offs=offs,
             block_size=block_size,
             out_dtype=out_dtype,
@@ -334,6 +326,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         A, B_t, offs = ctx.saved_tensors
         block_size = ctx.block_size
         out_dtype = ctx.out_dtype
+        emulated = ctx.emulated
 
         # grad_out_mx shape: (M, N)
         # grad_out_scale shape: (M, N//block_size)
@@ -343,23 +336,24 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # B_mx shape: (E, K, N)
         # B_scale shape: (E, K, N//block_size)
-        B_t_scale_dim2, B_t_mx_dim2 = to_mx(
+        B_scales, B_mx = to_mx(
+            # TODO: can we support non-contiguous input tensor in to_mx to eliminate this inefficiency?
             B_t.contiguous(),
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
         )
-        B_scale_dim1 = B_t_scale_dim2.transpose(
-            -2, -1
-        )  # (E,K,N//block_size) -> (E,N//block_size,K)
-        B_mx_dim1 = B_t_mx_dim2.transpose(-2, -1)  # (E,K,N) -> (E,N,K)
 
-        # Compute grad_A.
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
-        grad_A = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+        mxfp8_2d_3d_grouped_mm = (
+            _emulated_mxfp8_scaled_grouped_mm_2d_3d
+            if emulated
+            else fbgemm_mxfp8_grouped_mm_2d_3d
+        )
+        grad_A = mxfp8_2d_3d_grouped_mm(
             grad_out_mx,
             grad_out_scale,
-            B_mx_dim1,
-            B_scale_dim1,
+            B_mx,
+            B_scales,
             offs=offs,
             out_dtype=out_dtype,
         )
@@ -367,25 +361,28 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # grad_out_t_mx shape: (N, M)
         # grad_out_t_scales shape: (N, M//block_size)
         grad_out_t_scales, grad_out_t_mx = to_mx(
-            grad_out.transpose(-2, -1).contiguous(),  # (M,N) -> (N,M)
+            # TODO: can we support non-contiguous input tensor in to_mx to eliminate this inefficiency?
+            grad_out.transpose(-2, -1).contiguous(),
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
         )
 
+        # Transpose A so we can scale along the M dimension, then un-transpose.
+        # A_t_mx shape: (K, M)
+        # A_t_scales shape: (K, M//block_size)
         A_t_scales, A_t_mx = to_mx(
-            A.transpose(-2, -1).contiguous(),  # (M,K) -> (K,M)
+            A.transpose(-2, -1).contiguous(),
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
         )
-        A_scales = A_t_scales.transpose(
-            -2, -1
-        )  # (K,M//block_size) -> (M//block_size,K)
-        A_mx = A_t_mx.transpose(-2, -1)  # (K,M) -> (M,K)
 
-        # Compute grad_B = grad_output_t @ A
+        # A_mx shape = (M, K)
+        A_mx = A_t_mx.transpose(-2, -1)
+
+        # A_scales shape = (M//block_size, K)
+        A_scales = A_t_scales.transpose(-2, -1)
+
         # grad_B_t = scaled grouped mm of (N,M) @ (M,K) = (E,N,K)
-        # grad_B = grad_B_t.transpose(-2, -1) = (E,K,N)
-
         grad_B = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
             grad_out_t_mx,
             grad_out_t_scales,
@@ -393,7 +390,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             A_scales,
             offs=offs,
         )
-        # In forward we receive pre-transposed weights B_t as input
+
+        # grad_B shape =  (E,K,N)
         grad_B_t = grad_B.transpose(-2, -1)
 
         return grad_A, grad_B_t, None, None, None
@@ -402,12 +400,30 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     A_mx: torch.Tensor,
     A_scale: torch.Tensor,
-    B_t_mx: torch.Tensor,
-    B_t_scale: torch.Tensor,
+    B_mx: torch.Tensor,
+    B_scale: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = 32,
 ) -> torch.Tensor:
+    assert A_mx.ndim == 2, f"A must be 2D, got {A_mx.ndim}"
+    assert B_mx.ndim == 3, f"B must be 3D, got {B_mx.ndim}"
+    assert A_scale.shape[0] == A_mx.shape[0], (
+        f"A_scale must have same M dim as A_mx, got A={A_mx.shape} and A_scale={A_scale.shape}"
+    )
+    assert A_scale.shape[1] == A_mx.shape[1] // block_size, (
+        f"A_scale dim1 should be size K//block_size, got A={A_mx.shape} and A_scale={A_scale.shape}"
+    )
+    assert B_scale.shape[0] == B_mx.shape[0], (
+        f"B_scale must have same E dim as B_mx, got B={B_mx.shape} and B_scale={B_scale.shape}"
+    )
+    assert B_scale.shape[1] == B_mx.shape[1], (
+        f"B_scale must have same N dim as B_mx, got B={B_mx.shape} and B_scale={B_scale.shape}"
+    )
+    assert B_scale.shape[2] == B_mx.shape[2] // block_size, (
+        f"B_scale dim2 should be size K//block_size, got B={B_mx.shape} and B_scale={B_scale.shape}"
+    )
+
     # Dequantize input
     # A_mx shape: (M, K)
     # A_scale shape: (M, K//block_size)
@@ -427,14 +443,10 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     A = A.reshape(A_orig_shape)
 
     # Dequantize weights
-    # B_t_mx shape: (E, K, N)
-    # B_t_scale shape: (E, K//block_size, N)
-    E, K, N = B_t_mx.shape
-
     # Tranpose to get block_size on rightmost dim
     # B_mx shape: (E, N, K)
     # B_scale shape: (E, N, K//block_size)
-    B_mx, B_scale = B_t_mx.transpose(-2, -1), B_t_scale.transpose(-2, -1)
+    E, N, K = B_mx.shape
 
     # Reshape to be able to do per-scaling group multiplication
     # B_mx shape: (E, N, K//block_size, block_size)
