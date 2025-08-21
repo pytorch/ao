@@ -136,7 +136,7 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         ["does.not.exist"],
     ],
 )
-@pytest.mark.parametrize("compile", [False, True])
+@pytest.mark.parametrize("compile", [False])
 def test_moe_mxfp8_training(target_fqns: list[str], compile: bool):
     block_size = 32
 

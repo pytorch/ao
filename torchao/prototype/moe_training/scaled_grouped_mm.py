@@ -13,6 +13,7 @@ from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
+    fbgemm_mxfp8_grouped_mm_2d_3d,
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
@@ -283,7 +284,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
         assert block_size == 32, "Only block_size=32 is supported"
-        assert emulated, "Only emulated mxfp8 grouped gemm is supported"
 
         # Cast to mxpf8 across dim -1.
         # A_mx shape: (M, K)
@@ -314,11 +314,17 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ctx.save_for_backward(A, B_t, offs)
         ctx.block_size = block_size
         ctx.out_dtype = out_dtype
+        ctx.emulated = emulated
 
         # Perform scaled grouped GEMM and return result.
         # output = input @ weight.T
         # output shape: (M, N)
-        out = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+        mxfp8_2d_3d_grouped_mm = (
+            _emulated_mxfp8_scaled_grouped_mm_2d_3d
+            if emulated
+            else fbgemm_mxfp8_grouped_mm_2d_3d
+        )
+        out = mxfp8_2d_3d_grouped_mm(
             A_mx,
             A_scale,
             B_t_mx_dim1,
@@ -334,6 +340,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         A, B_t, offs = ctx.saved_tensors
         block_size = ctx.block_size
         out_dtype = ctx.out_dtype
+        emulated = ctx.emulated
 
         # grad_out_mx shape: (M, N)
         # grad_out_scale shape: (M, N//block_size)
@@ -355,7 +362,12 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # Compute grad_A.
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
-        grad_A = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+        mxfp8_2d_3d_grouped_mm = (
+            _emulated_mxfp8_scaled_grouped_mm_2d_3d
+            if emulated
+            else fbgemm_mxfp8_grouped_mm_2d_3d
+        )
+        grad_A = mxfp8_2d_3d_grouped_mm(
             grad_out_mx,
             grad_out_scale,
             B_mx_dim1,
@@ -385,7 +397,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # Compute grad_B = grad_output_t @ A
         # grad_B_t = scaled grouped mm of (N,M) @ (M,K) = (E,N,K)
         # grad_B = grad_B_t.transpose(-2, -1) = (E,K,N)
-
         grad_B = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
             grad_out_t_mx,
             grad_out_t_scales,

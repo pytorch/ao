@@ -230,25 +230,27 @@ def compute_reference_forward(
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
     offs = generate_jagged_offs(num_experts, M)
-    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
+    x_ref, w_ref, offs_ref = x.clone(), w.clone(), offs.clone()
 
     # Quantize inputs to mxpf8 for emulated mxfp8 scaled grouped mm
     block_size = 32
-    x_scale, x_mx = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+    x_scale, x_fp8 = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
 
     # To cast B_t per-expert to mxfp8 across dim1, we transpose the experts, cast along dim -1, then untranspose.
-    w_scale, w_mx = to_mx(
-        w_t.transpose(-2, -1).contiguous(),
+    w_scale, w_fp8 = to_mx(
+        w,
         elem_dtype=torch.float8_e4m3fn,
         block_size=block_size,
     )
-    w_t_scale, w_t_mx = w_scale.transpose(-2, -1), w_mx.transpose(-2, -1)
+    w_t_scale, w_t_fp8 = w_scale.transpose(-2, -1), w_fp8.transpose(-2, -1)
 
-    ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
+    ref_out = torch._grouped_mm(
+        x_ref, w_ref.transpose(-2, -1), offs=offs_ref, out_dtype=torch.bfloat16
+    )
     out = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
-        x_mx, x_scale, w_t_mx, w_t_scale, offs=offs, out_dtype=torch.bfloat16
+        x_fp8, x_scale, w_t_fp8, w_t_scale, offs=offs, out_dtype=torch.bfloat16
     )
 
     sqnr = compute_error(ref_out, out)
@@ -314,9 +316,14 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):
 
     block_size = 32
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    w_t = torch.randn(
-        num_experts, K, N, dtype=torch.bfloat16, device="cuda", requires_grad=True
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
     )
+    w_t = w.transpose(-2, -1).requires_grad_(True)
     offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
     x_ref, w_t_ref, offs_ref = (
         x.clone().detach().requires_grad_(True),
