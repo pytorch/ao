@@ -638,7 +638,7 @@ def quantize_and_upload(model_id, quant):
         server_model_performance=""
         if is_mobile
         else _server_model_performance.format(
-            base_model=model_id, quantized_model=quantized_model_id
+            base_model=model_id, quantized_model=quantized_model_id, quant=quant
         ),
         # mobile specific recipes
         untied_model=untied_model_path if is_mobile else model_id,
