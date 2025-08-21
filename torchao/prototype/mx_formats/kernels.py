@@ -1454,6 +1454,49 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         padded_cols = n_col_blocks * 4
 
         return scale_tensor.new_empty((padded_rows, padded_cols))
+
+    @triton.jit
+    def fp32_cast_to_fp4x2_triton_kernel(
+        x_ptr,
+        q_ptr,
+        stride_xm,
+        stride_xn,
+        M,
+        N,
+    ):
+        pid_m = tl.program_id(1)
+        pid_n = tl.program_id(0)
+
+        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
+        offs_n = pid_n * 64 + tl.arange(0, 64)[None, :]
+        mask = None
+        other = None
+        x = tl.load(
+            x_ptr + offs_m * stride_xm + offs_n * stride_xn, mask=mask, other=other
+        )  # [128, 64]
+        x_blocks = x.to(tl.float32).reshape(128, 4, 16)  # [128, 4, 16]
+
+        # Convert to FP4
+        x_fp4x2 = convert_fp32_to_fp4_packed(x_blocks.reshape(128, 32, 2).split())
+        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
+        offs_n = pid_n * 32 + tl.arange(0, 32)[None, :]
+        tl.store(q_ptr + offs_m * (N // 2) + offs_n, x_fp4x2, mask=None)
+
+    def triton_fp32_cast_to_fp4x2(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        M, N = x.shape
+        assert N % 16 == 0, "N must be divisible by 16 for NVFP4 quantization"
+        xq = x.new_empty(M, N // 2, dtype=torch.uint8)
+        grid = (triton.cdiv(N, 64), triton.cdiv(M, 128))
+        fp32_cast_to_fp4x2_triton_kernel[grid](
+            x,
+            xq,
+            x.stride(0),
+            x.stride(1),
+            M,
+            N,
+        )
+
+        return xq.view(torch.uint8)
 else:
 
     def triton_to_mxfp8_dim1(

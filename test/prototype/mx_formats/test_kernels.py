@@ -561,3 +561,38 @@ def test_cuda_mx_dim1_invalid_block_size():
             scale_dim_x=1,
             scale_dim_y=invalid_block_size,
         )
+
+
+def _fp32_to_fp4_reference(
+    data_hp: torch.Tensor,
+) -> torch.Tensor:
+    # works
+    data_hp = data_hp.float()
+    data_lp = f32_to_f4_unpacked(data_hp)
+
+    # does not work
+    # data_lp = f32_to_f4_unpacked(data_hp.float())
+
+    data_lp = pack_uint4(data_lp)
+    return data_lp
+
+
+# TODO add skips
+def test_fp32_cast_to_fp4x2():
+    from torchao.prototype.mx_formats.kernels import triton_fp32_cast_to_fp4x2
+
+    M, K = 16, 16
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    # make x's range be the representable range of fp4
+    x = x * 6.0
+
+    data_ref = _fp32_to_fp4_reference(x)
+    # print(2, x[0])
+    data = triton_fp32_cast_to_fp4x2(x)
+    # print(3, x[0])
+    # print(0, x)
+    # print(1, data_ref, data_ref.shape)
+    # print(2, data, data.shape)
+    torch.testing.assert_close(data_ref, data)
+    assert data.shape == (M, K // 2)
+    print("done")
