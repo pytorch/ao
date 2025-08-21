@@ -1,4 +1,4 @@
 from .api import GroupwiseLutWeightConfig
-from .codebook_quantized_tensor import GroupwiseLutQuantizedTensor
+from .codebook_quantized_tensor import CodebookQuantizedPackedTensor
 
-__all__ = ["GroupwiseLutQuantizedTensor", "GroupwiseLutWeightConfig"]
+__all__ = ["CodebookQuantizedPackedTensor", "GroupwiseLutWeightConfig"]
