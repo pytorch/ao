@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List, Tuple
+import enum
+from typing import List, Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -17,6 +18,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
+from torchao.quantization.utils import _get_per_token_block_size
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
@@ -25,11 +27,20 @@ from torchao.utils import (
 
 __all__ = [
     "IntxUnpackedTensor",
+    "ActivationQuantization",
 ]
 
 aten = torch.ops.aten
 
 _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
+
+
+class ActivationQuantization(enum.Enum):
+    """
+    DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN
+    """
+
+    DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN = "dynamic_int8_asymmetric_per_token"
 
 
 class IntxUnpackedTensor(TorchAOBaseTensor):
@@ -55,12 +66,27 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype: this determines the quant_min/quant_max of the qdata (can be torch.int1, ..., torch.int8)
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
         dtype: the dtype of the dequantized Tensor
+        activation_quantization: Optional[ActivationQuantization], how to apply activation quantization during linear.  Use None for weight-only quantization
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
-    tensor_attribute_names = ["target_dtype", "block_size", "dtype"]
+    tensor_attribute_names = [
+        "target_dtype",
+        "block_size",
+        "dtype",
+        "activation_quantization",
+    ]
 
-    def __new__(cls, qdata, scale, zero_point, target_dtype, block_size, dtype):
+    def __new__(
+        cls,
+        qdata,
+        scale,
+        zero_point,
+        target_dtype,
+        block_size,
+        dtype,
+        activation_quantization,
+    ):
         kwargs = {}
         kwargs["device"] = qdata.device
         kwargs["dtype"] = dtype
@@ -76,6 +102,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype,
         block_size,
         dtype,
+        activation_quantization,
     ):
         assert qdata.dtype == torch.int8, (
             f"qdata dtype must be int8, but got {qdata.dtype}"
@@ -109,9 +136,10 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
 
         self.target_dtype = target_dtype
         self.block_size = block_size
+        self.activation_quantization = activation_quantization
 
     def _quantization_type(self):
-        return f"target_dtype={self.target_dtype}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}"
+        return f"target_dtype={self.target_dtype}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}, activation_quantization={self.activation_quantization}"
 
     def _has_float_zero_point(self) -> bool:
         return self.zero_point.dtype in _FLOAT_TYPES
@@ -130,6 +158,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             self.target_dtype,
             self.block_size,
             dtype,
+            self.activation_quantization,
         )
 
     @classmethod
@@ -140,6 +169,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         *,
         mapping_type: MappingType = MappingType.SYMMETRIC,
+        activation_quantization: Optional[ActivationQuantization] = None,
     ):
         """
         Create an IntxUnpackedTensor from a high-precision tensor
@@ -152,12 +182,8 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             target_dtype=torch.int8,
             quant_min=qmin,
             quant_max=qmax,
+            zero_point_dtype=torch.int8,
         )
-        if zero_point.dtype == torch.int32:
-            int8_min, int8_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
-            assert zero_point.min().item() >= int8_min
-            assert zero_point.max().item() <= int8_max
-            zero_point = zero_point.to(torch.int8)
         qdata = quantize_affine(
             hp_tensor,
             block_size,
@@ -174,6 +200,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             target_dtype=target_dtype,
             block_size=block_size,
             dtype=hp_tensor.dtype,
+            activation_quantization=activation_quantization,
         )
 
     def dequantize(self):
@@ -200,10 +227,26 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    if isinstance(input_tensor, IntxUnpackedTensor):
-        input_tensor = input_tensor.dequantize()
-    if isinstance(weight_tensor, IntxUnpackedTensor):
-        weight_tensor = weight_tensor.dequantize()
+    assert isinstance(weight_tensor, IntxUnpackedTensor)
+
+    # Apply dynamic activation quant
+    if weight_tensor.activation_quantization is not None:
+        if (
+            weight_tensor.activation_quantization
+            == ActivationQuantization.DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN
+        ):
+            input_tensor = IntxUnpackedTensor.from_hp(
+                hp_tensor=input_tensor,
+                block_size=_get_per_token_block_size(input_tensor),
+                target_dtype=torch.int8,
+                mapping_type=MappingType.ASYMMETRIC,
+            ).dequantize()
+        else:
+            raise NotImplementedError(
+                f"activation_quantization={weight_tensor.activation_quantization} is not supported"
+            )
+
+    weight_tensor = weight_tensor.dequantize()
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
@@ -268,6 +311,7 @@ def _(func, types, args, kwargs):
         self.target_dtype,
         new_block_size,
         self.dtype,
+        self.activation_quantization,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -276,4 +320,4 @@ IntxUnpackedTensor.__module__ = "torchao.quantization"
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with IntxUnpackedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([IntxUnpackedTensor])
+    torch.serialization.add_safe_globals([IntxUnpackedTensor, ActivationQuantization])

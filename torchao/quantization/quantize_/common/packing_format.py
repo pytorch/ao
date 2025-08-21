@@ -40,3 +40,8 @@ class PackingFormat(str, Enum):
     Unpacked means the subbyte quantized data is stored as int8
     """
     UNPACKED_TO_INT8 = "unpacked_to_int8"
+
+    """
+    Tile packed means the tiling used by CPU kernels
+    """
+    TILE_PACKED = "tile_packed"
