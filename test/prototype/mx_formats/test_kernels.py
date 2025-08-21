@@ -585,5 +585,5 @@ def test_fp32_cast_to_fp4x2():
 
     data_ref = _fp32_to_fp4_reference(x)
     data = triton_fp32_cast_to_fp4x2(x)
-    torch.testing.assert_close(data_ref, data)
+    torch.testing.assert_close(data_ref, data, atol=0, rtol=0)
     assert data.shape == (M, K // 2)
