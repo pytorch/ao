@@ -6,8 +6,8 @@
 ######################################################################
 #
 # To run these unit tests, use the following command:
-#
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp.py
+# cd ao/test/prototype/moe_training
+# torchrun --nproc_per_node=8 test_fsdp.py
 #
 #######################################################################
 
