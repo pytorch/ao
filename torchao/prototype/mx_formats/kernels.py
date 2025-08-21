@@ -1480,7 +1480,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         x_fp4x2 = convert_fp32_to_fp4_packed(x_blocks.reshape(128, 32, 2).split())
         offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
         offs_n = pid_n * 32 + tl.arange(0, 32)[None, :]
-        tl.store(q_ptr + offs_m * (N // 2) + offs_n, x_fp4x2, mask=None)
+        mask = (offs_m < M) & (offs_n < N // 2)
+        tl.store(q_ptr + offs_m * (N // 2) + offs_n, x_fp4x2, mask=mask)
 
     def triton_fp32_cast_to_fp4x2(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         M, N = x.shape
