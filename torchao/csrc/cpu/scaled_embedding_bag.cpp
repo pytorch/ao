@@ -20,13 +20,11 @@ static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn *x) {
 #endif
 
 template <typename index_t>
-inline void _scaled_embedding_bag_krnl(const int64_t bs_begin, const int64_t bs_end,
-                               const int64_t num_emb, const int64_t emb_dim,
-                               const index_t last_offset,
-                               const index_t *indices, const index_t *offsets,
-                               const at::Float8_e4m3fn *weight,
-                               const double scale, float *result,
-                               const int64_t num_batch) {
+inline void _scaled_embedding_bag_krnl(
+    const int64_t bs_begin, const int64_t bs_end, const int64_t num_emb,
+    const int64_t emb_dim, const index_t last_offset, const index_t *indices,
+    const index_t *offsets, const at::Float8_e4m3fn *weight, const double scale,
+    float *result, const int64_t num_batch) {
 #if defined(CPU_CAPABILITY_AVX512)
   if (emb_dim % 128 == 0) {
     constexpr int64_t block_dim = 128;
@@ -87,8 +85,9 @@ inline void _scaled_embedding_bag_krnl(const int64_t bs_begin, const int64_t bs_
 #endif
   for (int64_t b = bs_begin; b < bs_end; ++b) {
     int64_t start_idx = offsets[b];
-    int64_t end_idx =
-        ((b + 1) == num_batch && last_offset != -1) ? last_offset : offsets[b + 1];
+    int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
+                          ? last_offset
+                          : offsets[b + 1];
     for (int64_t d = 0; d < emb_dim; d++) {
       int64_t idx = indices[start_idx] * emb_dim;
       float value = float(weight[idx + d]);
@@ -105,8 +104,9 @@ inline void _scaled_embedding_bag_krnl(const int64_t bs_begin, const int64_t bs_
 
 template <typename index_t, typename data_t>
 void _scaled_embedding_bag(float *o_ptr, data_t *w_ptr, index_t *indices_ptr,
-                      index_t *offsets_ptr, int64_t num_batch, int64_t emb_dim,
-                      index_t last_offset, double w_scale, double o_scale) {
+                           index_t *offsets_ptr, int64_t num_batch,
+                           int64_t emb_dim, index_t last_offset, double w_scale,
+                           double o_scale) {
   constexpr int64_t b_block = 512;
   const int64_t n_b_blocks = (num_batch - 1) / b_block + 1;
   w_scale /= o_scale;
@@ -118,17 +118,19 @@ void _scaled_embedding_bag(float *o_ptr, data_t *w_ptr, index_t *indices_ptr,
       const int64_t bs_end = std::min(num_batch, (b + 1) * b_block);
       float *r = &o_ptr[b * b_block * num_emb * emb_dim + n * emb_dim];
       // avoid offsets not include last batch
-      _scaled_embedding_bag_krnl(bs_begin, bs_end, num_emb, emb_dim, last_offset,
-                         indices_ptr, offsets_ptr, w_ptr, w_scale, r, num_batch);
+      _scaled_embedding_bag_krnl(bs_begin, bs_end, num_emb, emb_dim,
+                                 last_offset, indices_ptr, offsets_ptr, w_ptr,
+                                 w_scale, r, num_batch);
     }
   }
 }
 
 at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
-                              const at::Tensor &indices,
-                              const at::Tensor &offsets,
-                              const at::Tensor &w_scales, double o_scale,
-                              const int64_t mode, bool include_last_offset) {
+                                      const at::Tensor &indices,
+                                      const at::Tensor &offsets,
+                                      const at::Tensor &w_scales,
+                                      double o_scale, const int64_t mode,
+                                      bool include_last_offset) {
   // Only support include_last_offset == True and mode ==
   // at::native::EmbeddingBagMode::SUM
   // TODO: Support more case
@@ -146,8 +148,9 @@ at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
 
   TORCH_CHECK(indices.is_contiguous() && offsets.is_contiguous(),
               "_scaled_embedding_bag: only accept contiguous input");
-  TORCH_CHECK(offsets.scalar_type() == index_type,
-              "_scaled_embedding_bag: index and offset must be of the same type");
+  TORCH_CHECK(
+      offsets.scalar_type() == index_type,
+      "_scaled_embedding_bag: index and offset must be of the same type");
   TORCH_CHECK(qweight.is_contiguous(),
               "_scaled_embedding_bag: only accept contiguous weight");
   TORCH_CHECK(qweight.dim() == 2,
