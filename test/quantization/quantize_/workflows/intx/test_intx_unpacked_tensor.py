@@ -26,12 +26,10 @@ from torchao.quantization import (
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quantize_.common import PackingFormat
 from torchao.quantization.utils import compute_error
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
-)
+from torchao.utils import torch_version_at_least
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 class TestIntxUnpackedTensor(TestCase):
     def setUp(self):
         self.config = IntxWeightOnlyConfig(

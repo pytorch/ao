@@ -118,6 +118,7 @@ from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
+    quantize_affine,
 )
 from .subclass import (
     QuantizedLinearWeightBase,
@@ -797,7 +798,6 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     act_mapping_type = config.act_mapping_type
     layout = config.layout
     packing_format = config.packing_format
-    compute_target = config.compute_target
 
     assert weight.dim() == 2, (
         f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
