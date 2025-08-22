@@ -1932,6 +1932,26 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_infer_fp8_int4_config(self):
+        """
+        Test that fake quantize configs are correctly inferred from
+        `Float8DynamicActivationInt4WeightConfig`.
+        """
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        base_config = Float8DynamicActivationInt4WeightConfig()
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
+        self.assertEqual(act_config.dtype, torch.float8_e4m3fn)
+        self.assertIsInstance(act_config.granularity, PerRow)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int4)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertTrue(weight_config.is_symmetric)
+
 
 instantiate_parametrized_tests(TestQAT)
 

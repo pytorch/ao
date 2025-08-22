@@ -382,7 +382,7 @@ def _infer_fake_quantize_configs(
         )
         weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
-            group_size=base_config.group_size,
+            group_size=128,
             is_symmetric=True,
         )
     else:
