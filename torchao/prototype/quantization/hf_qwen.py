@@ -14,7 +14,7 @@ USER_ID = "liangel"
 MODEL_NAME = model_id.split("/")[-1]
 save_to = f"{USER_ID}/{MODEL_NAME}-INT4"
 print("about to push to hub")
-quantized_model.push_to_hub(save_to, safe_serialization=False)
+quantized_model.push_to_hub(save_to, safe_serialization=True)
 tokenizer.push_to_hub(save_to)
 
 # Manual Testing
