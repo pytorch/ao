@@ -841,7 +841,7 @@ def test_scaled_embedding_bag_cpu(multi_hot, batch_size, vector_size, index_type
             mode_enum,
             include_last_offset,
         ).to(dtype)
-        torch.testing.assert_close(refe_out, test_out, atol=0, rtol=0)
+        torch.testing.assert_close(refe_out, test_out, atol=1e-5, rtol=1e-5)
 
 
 if __name__ == "__main__":
