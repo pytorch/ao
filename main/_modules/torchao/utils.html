@@ -777,19 +777,21 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">parse_version</span><span class="p">(</span><span class="n">version_string</span><span class="p">):</span>
-    <span class="c1"># Extract just the X.Y.Z part from the version string</span>
-    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+\.\d+\.\d+)&quot;</span><span class="p">,</span> <span class="n">version_string</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse version string representing pre-release with -1</span>
+
+<span class="sd">    Examples: &quot;2.5.0.dev20240708+cu121&quot; -&gt; [2, 5, -1], &quot;2.5.0&quot; -&gt; [2, 5, 0]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Check for pre-release indicators</span>
+    <span class="n">is_prerelease</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(git|dev)&quot;</span><span class="p">,</span> <span class="n">version_string</span><span class="p">))</span>
+    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+)\.(\d+)\.(\d+)&quot;</span><span class="p">,</span> <span class="n">version_string</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
-        <span class="n">version</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-        <span class="k">return</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">version</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)]</span>
+        <span class="n">major</span><span class="p">,</span> <span class="n">minor</span><span class="p">,</span> <span class="n">patch</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">match</span><span class="o">.</span><span class="n">groups</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">is_prerelease</span><span class="p">:</span>
+            <span class="n">patch</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">major</span><span class="p">,</span> <span class="n">minor</span><span class="p">,</span> <span class="n">patch</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid version string format: </span><span class="si">{</span><span class="n">version_string</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">compare_versions</span><span class="p">(</span><span class="n">v1</span><span class="p">,</span> <span class="n">v2</span><span class="p">):</span>
-    <span class="n">v1_parts</span> <span class="o">=</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">v1</span><span class="p">)</span>
-    <span class="n">v2_parts</span> <span class="o">=</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">v2</span><span class="p">)</span>
-    <span class="k">return</span> <span class="p">(</span><span class="n">v1_parts</span> <span class="o">&gt;</span> <span class="n">v2_parts</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">v1_parts</span> <span class="o">&lt;</span> <span class="n">v2_parts</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">is_fbcode</span><span class="p">():</span>
@@ -797,7 +799,11 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">torch_version_at_least</span><span class="p">(</span><span class="n">min_version</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">is_fbcode</span><span class="p">()</span> <span class="ow">or</span> <span class="n">compare_versions</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">,</span> <span class="n">min_version</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">is_fbcode</span><span class="p">():</span>
+        <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="c1"># Parser for local identifiers</span>
+    <span class="k">return</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">min_version</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="n">version_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -1514,13 +1520,13 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">check_cpu_version</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;2.6.0&quot;</span><span class="p">):</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">):</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span>
-    <span class="k">return</span> <span class="n">device</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">and</span> <span class="n">compare_versions</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">device</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">and</span> <span class="n">torch_version_at_least</span><span class="p">(</span><span class="n">version</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">check_xpu_version</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;2.8.0&quot;</span><span class="p">):</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">):</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span>
-    <span class="k">return</span> <span class="n">device</span> <span class="o">==</span> <span class="s2">&quot;xpu&quot;</span> <span class="ow">and</span> <span class="n">compare_versions</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">device</span> <span class="o">==</span> <span class="s2">&quot;xpu&quot;</span> <span class="ow">and</span> <span class="n">torch_version_at_least</span><span class="p">(</span><span class="n">version</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">ceil_div</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
