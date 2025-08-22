@@ -523,3 +523,25 @@ def test_nvfp4_matmul_with_amax(
     assert sqnr >= SQNR_THRESHOLD, (
         f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, mm_config={mm_config}, compile={compile}, bias={bias}"
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_to_copy():
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
+    y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
+    assert torch.equal(x.qdata, y.qdata)
+    assert torch.equal(x._scale_e4m3, y._scale_e4m3)
+    assert x._per_tensor_scale is None
+    assert y._per_tensor_scale is None
+    assert x._act_per_tensor_scale is None
+    assert y._act_per_tensor_scale is None
+    assert x._block_size == y._block_size
+    assert x.use_triton_kernel == y.use_triton_kernel
+    assert x.act_quant_kwargs == y.act_quant_kwargs
+    assert x.dtype == torch.float32
+    assert y.dtype == torch.bfloat16
