@@ -344,7 +344,7 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        if torch_version_at_least("2.8.0"):
+        if torch_version_at_least("2.9.0.dev"):
             from statistics import median
 
             res = benchmarker.benchmark_gpu(
