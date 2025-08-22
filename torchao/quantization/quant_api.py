@@ -76,6 +76,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     IntxUnpackedTensor,
+    Int4XPUTensorIntZP,
     QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.transform_module import (
@@ -518,7 +519,6 @@ def quantize_(
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
     filter_fn = _is_linear if filter_fn is None else filter_fn
-
     if isinstance(config, ModuleFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
@@ -1078,6 +1078,12 @@ def _int4_weight_only_quantize_tensor(weight, config):
             new_weight = Int4MarlinSparseTensor.from_hp(
                 weight,
                 block_size,
+            )
+            return new_weight
+        elif packing_format == PackingFormat.INT4_XPU_INT_ZP:
+            new_weight = Int4XPUTensorIntZP.from_hp(
+                weight,
+                block_size
             )
             return new_weight
         else:

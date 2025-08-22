@@ -93,6 +93,7 @@ from .quantize_.workflows import (
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4XPUTensorIntZP,
     IntxUnpackedTensor,
 )
 from .smoothquant import (
