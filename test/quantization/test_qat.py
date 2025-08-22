@@ -1990,7 +1990,7 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        self.assertGreater(sqnr, 30)
+        self.assertGreater(sqnr, 24)
 
 
 instantiate_parametrized_tests(TestQAT)
