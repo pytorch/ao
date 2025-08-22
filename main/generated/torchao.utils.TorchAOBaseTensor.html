@@ -487,12 +487,12 @@ tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)</p>
 <dt>class variables to define to simplify implmentation of tensor subclasses:</dt><dd><dl class="simple">
 <dt><cite>tensor_data_names</cite> (List[str]): list of names of all requires tensor_data, order should match</dt><dd><p>the <cite>__init__</cite> list of tensor subclass</p>
 </dd>
-<dt><cite>tensor_attribute_names</cite> (List[str]): list of names of non-Tensor attributes,</dt><dd><p>order should match the <cite>__init__</cite> list of tensor subclass, following all the <cite>tensor_data_names</cite> arguments</p>
-</dd>
 </dl>
-<p><cite>optional_tensor_data_names</cite> (List[str]): it’s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional
-<cite>optional_tensor_attribute_names</cite> (List[str]): it’s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional
-Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)</p>
+<p><cite>optional_tensor_data_names</cite> (List[str]): it’s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor attributes, when defined, this will be a list of names of Tensors that can be optional
+<cite>tensor_attribute_names</cite> (List[str]): list of names of non-Tensor attributes,</p>
+<blockquote>
+<div><p>order should match the <cite>__init__</cite> list of tensor subclass, following all the <cite>tensor_data_names</cite> arguments and <cite>optional_tensor_data_names</cite></p>
+</div></blockquote>
 </dd>
 </dl>
 <p>If <cite>tensor_data_names</cite> and <cite>tensor_attribute_names</cite> are defined, there are some additional
@@ -508,40 +508,31 @@ functions that will be added, this includes:
 </div></blockquote>
 <p><cite>__repr__</cite>: the string representation of the subclassed tensor instance
 <cite>_same_metadata</cite>: returns whether the metadata is the same between two instances of cls
-<cite>__setstate__</cite>: when loading a serialized tensor subclass checkpoints, it sets the new
-optional tensor and tensor attribute that is saved in the old checkpoint to None,
-to maintain BC of old checkpoints when we add new optional tensor data or attributes to
-the tensor subclass
 torch ops: torch.Tensor.contiguous
 aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, <a href="#id9"><span class="problematic" id="id10">aten.copy_</span></a>.default, aten._to_copy.default (enables t.to)</p>
 <p class="rubric">Example</p>
 <dl>
 <dt>class MyTensor(torch.Tensor):</dt><dd><p>tensor_data_names = [“a”, “b”]
-tensor_attribute_names = [“c”, “d”]
-optional_tensor_data_names = [“e”, “f”]
-optional_tensor_attribute_names = [“g”, “h”]</p>
+optional_tensor_data_names = [“c”, “d”]
+tensor_attribute_names = [“e”, “f”]</p>
 <dl class="simple">
 <dt>def __new__(</dt><dd><p>cls,
 a: Tensor,
 b: Tensor,
-c: int,
-d: str,
-e: Optional[Tensor] = None,
-f: Optional[Tensor] = None,
-g: Optional[int] = None,
-h: Optional[int] = None,</p>
+c: Optional[Tensor],
+d: Optional[Tensor],
+e: int,
+f: str</p>
 </dd>
 <dt>):</dt><dd><p>pass</p>
 </dd>
 <dt>def __init__(</dt><dd><p>self,
 a: Tensor,
 b: Tensor,
-c: int,
-d: str
-e: Optional[Tensor] = None,
-f: Optional[Tensor] = None,
-g: Optional[int] = None,
-h: Optional[int] = None,</p>
+c: Optional[Tensor],
+d: Optional[Tensor],
+e: int,
+f: str</p>
 </dd>
 <dt>):</dt><dd><p>pass</p>
 </dd>
