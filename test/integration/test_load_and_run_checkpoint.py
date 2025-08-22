@@ -12,9 +12,15 @@ from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
 )
-from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 from torchao.utils import is_fbcode, is_sm_at_least_90
+
+if is_fbcode():
+    # don't import from transformer internally, since some imports might be missing
+    pass
+else:
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+
 
 # please check model card for how to generate these models
 
