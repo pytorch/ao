@@ -310,10 +310,10 @@ def nvfp4_to_copy(func, types, args, kwargs):
 
     if dtype is not None:
         res = NVFP4Tensor(
+            tensor.qdata,
             tensor._scale_e4m3,
             tensor._per_tensor_scale,
             tensor._act_per_tensor_scale,
-            tensor._data,
             tensor._block_size,
             dtype,
             tensor._is_swizzled_scales,

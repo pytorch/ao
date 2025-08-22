@@ -10,20 +10,20 @@ import torch
 import triton
 import triton.language as tl
 
+from torchao.prototype.moe_training.utils import (
+    _is_column_major,
+    _is_row_major,
+)
+
 fp8_gemm_configs_max_autotune = [
-    # Small
-    triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 64}, num_warps=2),
-    # Medium
-    triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 128}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 256}, num_warps=8),
-    # Large
-    triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64}, num_warps=8),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128}, num_warps=8),
-    triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 256}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128}, num_warps=4),
-    triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128}, num_warps=8),
+    triton.Config(
+        {"BLOCK_SIZE_M": block_size, "BLOCK_SIZE_N": block_size},
+        num_warps=num_warps,
+        num_stages=num_stages,
+    )
+    for block_size in [64, 128, 256]
+    for num_warps in [4, 8]
+    for num_stages in [2, 4]
 ]
 
 # For fast compile times during development.
@@ -57,6 +57,7 @@ def blockwise_fp8_gemm_1x128_128x128_kernel(
     M,
     N: tl.constexpr,
     K: tl.constexpr,
+    out_dtype: tl.constexpr,
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     BLOCK_SIZE_K: tl.constexpr,
@@ -81,18 +82,16 @@ def blockwise_fp8_gemm_1x128_128x128_kernel(
     a_s_base_ptr = a_s_ptr + offs_m * a_s_stride_dim_0
     b_s_base_ptr = b_s_ptr + (offs_n // BLOCK_SIZE_K) * b_s_stride_dim_1
     accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
+    b_mask = (offs_k[:, None] < K) & (offs_n[None, :] < N)
     for k in range(0, k_num_blocks):
-        a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
         a = tl.load(a_ptrs, mask=a_mask, other=0.0)
-
-        b_mask = (offs_k[:, None] < K) & (offs_n[None, :] < N)
         b = tl.load(b_ptrs, mask=b_mask, other=0.0)
 
         # Reciprocal scales to scale back to dynamic range of output dtype
         a_s = tl.load(a_s_base_ptr + k * a_s_stride_dim_1)
         b_s = tl.load(b_s_base_ptr + k * b_s_stride_dim_0)
-
-        accumulator += tl.dot(a, b) * a_s[:, None] * b_s[None, :]
+        accumulator += tl.dot(a, b) * a_s[:, None] * b_s
 
         a_ptrs += BLOCK_SIZE_K * a_stride_dim_1
         b_ptrs += BLOCK_SIZE_K * b_stride_dim_0
@@ -109,14 +108,22 @@ def blockwise_fp8_gemm_1x128_128x128(
     b: torch.Tensor,  # (K, N)
     b_s: torch.Tensor,  # (K // block_size, N // block_size)
     block_size: int = 128,
+    out_dtype: torch.dtype = torch.float32,
 ):
     # 'a' must be in row-major layout, 'b' must be in column-major layout
-    assert a.is_contiguous() and not b.is_contiguous()
-    assert a_s.is_contiguous() and b_s.is_contiguous()
+    assert _is_row_major(a) and _is_column_major(b), (
+        "a must be row-major, b must be column-major"
+    )
+
+    # a_scales must be row-major, b_scales must be column-major
+    assert _is_row_major(a_s) and _is_column_major(b_s), (
+        "a_s must be row-major, b_s must be column-major"
+    )
+
     M = a.size(0)
     K = a.size(1)
     N = b.size(1)
-    c = a.new_empty(M, N, dtype=torch.bfloat16)
+    c = a.new_empty(M, N, dtype=out_dtype)
     grid = lambda META: (
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
@@ -140,6 +147,7 @@ def blockwise_fp8_gemm_1x128_128x128(
         M,
         N,
         K,
+        out_dtype=out_dtype,
         BLOCK_SIZE_K=block_size,
     )
     return c
@@ -217,6 +225,7 @@ def blockwise_fp8_gemm_1x128_128x1(
     b: torch.Tensor,  # (K, N)
     b_s: torch.Tensor,  # (K // block_size, N) reciprocals of scales
     block_size: int = 128,
+    out_dtype: torch.dtype = torch.float32,
 ):
     # 'a' must be in row-major layout, 'b' must be in column-major layout
     assert a.is_contiguous() and not b.is_contiguous()
@@ -224,7 +233,7 @@ def blockwise_fp8_gemm_1x128_128x1(
     M = a.size(0)
     K = a.size(1)
     N = b.size(1)
-    c = a.new_empty(M, N, dtype=torch.bfloat16)
+    c = a.new_empty(M, N, dtype=out_dtype)
     grid = lambda META: (
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
@@ -674,8 +683,10 @@ def fp8_blockwise_weight_quant_transposed_rhs(
     M, N = x.size()
     y = torch.empty(N, M, dtype=dtype, device=x.device)
     y = y.as_strided(y.size(), (1, y.size(0)))  # Column major
-    s = x.new_empty(
-        triton.cdiv(N, block_size), triton.cdiv(M, block_size), dtype=torch.float32
+    n_blocks, m_blocks = triton.cdiv(N, block_size), triton.cdiv(M, block_size)
+    s = x.new_empty(n_blocks, m_blocks, dtype=torch.float32).as_strided(
+        (n_blocks, m_blocks),  # shape
+        (1, n_blocks),  # stride
     )
     grid = lambda meta: (
         triton.cdiv(M, meta["BLOCK_SIZE"]),

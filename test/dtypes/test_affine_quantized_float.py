@@ -14,7 +14,8 @@ from typing import Tuple
 import pytest
 import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
-from torch.profiler import ProfilerActivity, profile
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
 from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl, preprocess_scale
@@ -36,6 +37,7 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_float8,
     choose_qparams_affine,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -732,20 +734,13 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self.assertEqual(result.shape, expected_shape)
 
     @torch.no_grad()
-    @unittest.skip("test is flaky in CI, will turn on a bit later")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
         not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
     )
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    @common_utils.parametrize(
-        "torch_compile_mode",
-        [
-            "default",
-            "reduce-overhead",
-        ],
-    )
-    def test_expected_kernels_on_gpu(self, granularity, torch_compile_mode):
+    @common_utils.parametrize("float8_config_version", [1, 2])
+    def test_expected_kernels_on_gpu(self, granularity, float8_config_version):
         """
         Verify that float8 quantization + torch.compile results in the
         expected number of kernels in the GPU trace.
@@ -756,57 +751,52 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
         )
+        if float8_config_version == 1:
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, version=1
+            )
+        else:
+            assert float8_config_version == 2
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity,
+                version=2,
+                kernel_preference=KernelPreference.TORCH,
+            )
         quantize_(
             m,
-            Float8DynamicActivationFloat8WeightConfig(
-                granularity=granularity, version=1
-            ),
+            config,
         )
 
-        m = torch.compile(m, mode=torch_compile_mode)
+        m = torch.compile(m)
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        out, code = run_and_get_code(m, x)
 
-        # warm up
-        _ = m(x)
-        # capture trace
-        with profile(activities=[ProfilerActivity.CUDA]) as prof:
-            _ = m(x)
-
-        cuda_kernel_events = [x for x in prof.key_averages() if x.cuda_time > 0]
-
-        if granularity == PerTensor():
+        # triton kernel call looks like:
+        #   triton_per_fused__scaled_mm__to_copy_abs_amax_clamp_clone_div_expand_permute_transpose_unsqueeze_view_0.run(arg3_1, buf1, buf2, 128, 256, stream=stream0)
+        # scaled_mm call looks like:
+        #   extern_kernels._scaled_mm(buf1, reinterpret_tensor(arg0_1, (256, 512), (1, 256), 0), buf2, reinterpret_tensor(arg1_1, (1, 512), (1, 1), 0), arg2_1, out_dtype=torch.bfloat16, use_fast_accum=True, out=buf3)
+        if granularity == PerRow():
+            # one triton kernel for quantizing the activation
+            FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(
+                code[0]
+            )
+            # one scaled_mm call
+            FileCheck().check("def call(").check_count(
+                "._scaled_mm(", 1, exactly=True
+            ).run(code[0])
+        else:
+            assert granularity == PerTensor(), "unsupported"
+            # three triton kernels for quantizing the activation:
             # kernel 1: x_max_tmp = max(x, ...)
             # kernel 2: x_max = max(x_max_tmp)
             # kernel 3: x_float8 = to_float8(x, x_max)
-            # kernel 4: gemm
-            if torch_compile_mode == "default":
-                assert len(cuda_kernel_events) == 4, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
-            elif torch_compile_mode == "reduce-overhead":
-                # two extra kernels with reduce-overhead:
-                # void at::native::(anonymous namespace)::multi_tensor...
-                # void at::native::vectorized_elementwise_kernel<2, at...
-                # TODO(future): debug and remove these
-                assert len(cuda_kernel_events) == 6, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
-        else:
-            assert granularity == PerRow()
-            # kernel 1: x_float8 = to_float8(x)
-            # kernel 2: gemm
-            if torch_compile_mode == "default":
-                assert len(cuda_kernel_events) == 2, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
-            elif torch_compile_mode == "reduce-overhead":
-                # two extra kernels with reduce-overhead:
-                # void at::native::(anonymous namespace)::multi_tensor...
-                # void at::native::vectorized_elementwise_kernel<2, at...
-                # TODO(future): debug and remove these
-                assert len(cuda_kernel_events) == 4, (
-                    f"too many cuda kernels: {cuda_kernel_events}"
-                )
+            FileCheck().check("def call(").check_count(".run(", 3, exactly=True).run(
+                code[0]
+            )
+            # one scaled_mm call
+            FileCheck().check("def call(").check_count(
+                "._scaled_mm(", 1, exactly=True
+            ).run(code[0])
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
