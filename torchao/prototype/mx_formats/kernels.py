@@ -1487,7 +1487,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         Output: a uint8 tensor with shape (M, N // 2), with the values being the result
           of casting each original value to fp4_e2m1, and then packing fp4x2
 
-        TODO(future PR): optimize performance
+        TODO(future PR): optimize performance, lowest hanging fruit is we want
+          to add an e8m0 scale and scale the incoming tensor inside of this kernel
         TODO(future PR): better checks for shapes, etc
         TODO(future PR): integrate into training/inference
         TODO(future PR): integrate with compile, ideally allowing fusion
@@ -1523,6 +1524,9 @@ else:
     def triton_quantize_nvfp4(
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs torch version 2.8+ and triton")
+
+    def triton_fp32_cast_to_fp4x2(x: torch.Tensor) -> torch.Tensor:
         raise AssertionError("needs torch version 2.8+ and triton")
 
 
