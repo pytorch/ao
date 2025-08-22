@@ -29,22 +29,22 @@ __all__ = [
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
     "TorchAOBaseTensor",
+    "is_MI300",
+    "is_sm_at_least_89",
+    "is_sm_at_least_90",
+    "is_package_at_least",
+    "DummyModule",
+    # Deprecated
     "TORCH_VERSION_AT_LEAST_2_2",
     "TORCH_VERSION_AT_LEAST_2_3",
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
     "TORCH_VERSION_AT_LEAST_2_6",
     "TORCH_VERSION_AT_LEAST_2_7",
-    # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
     "TORCH_VERSION_AFTER_2_5",
-    "is_MI300",
-    "is_sm_at_least_89",
-    "is_sm_at_least_90",
-    "is_package_at_least",
-    "DummyModule",
 ]
 
 
