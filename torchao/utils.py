@@ -517,21 +517,12 @@ def _implements_common_tensor_ops(cls):
             getattr(self, a_name) == getattr(src, a_name)
             for a_name in self.tensor_attribute_names
         )
-
-        _optional_attr_match = True
-        if hasattr(self, "optional_tensor_attribute_names"):
-            _optional_attr_match = all(
-                getattr(self, a_name) == getattr(src, a_name)
-                for a_name in self.optional_tensor_attribute_names
-            )
-
         return (
             type(self) == type(src)
             and self.shape == src.shape
             and _tensor_shape_match
             and _optional_tensor_shape_match
             and _attr_match
-            and _optional_attr_match
         )
 
     @implements(aten.copy_.default)
@@ -558,58 +549,28 @@ def _implements_common_tensor_ops(cls):
             tensors = [
                 getattr(self, name).to(device) for name in self.tensor_data_names
             ]
-            optional_tensors = []
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
-                        optional_tensors.append(maybe_tensor.to(device))
+                        tensors.append(maybe_tensor.to(device))
                     else:
-                        optional_tensors.append(None)
+                        tensors.append(None)
 
             # change device
             tensor_attributes = [
                 getattr(self, attr_name) if attr_name != "device" else device
                 for attr_name in self.tensor_attribute_names
             ]
-            optional_tensor_attributes = []
-            if hasattr(self, "optional_tensor_attribute_names"):
-                optional_tensor_attributes = [
-                    getattr(self, attr_name) if attr_name != "device" else device
-                    for attr_name in self.optional_tensor_attribute_names
-                ]
-
             t = self.__class__(
                 *tensors,
                 *tensor_attributes,
-                *optional_tensors,
-                *optional_tensor_attributes,
             )
             return return_and_correct_aliasing(func, args, kwargs, t)
 
         raise NotImplementedError(
             "Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
         )
-
-
-def _torchao_base_tensor__setstate__(self, state):
-    assert hasattr(self, "tensor_data_names") and hasattr(
-        self, "tensor_attribute_names"
-    )
-    torch._utils._set_obj_state(self, state)
-    for optional_tensor_data_name in getattr(self, "optional_tensor_data_names", []):
-        if optional_tensor_data_name not in self.__dict__ and not hasattr(
-            self, optional_tensor_data_name
-        ):
-            setattr(self, optional_tensor_data_name, None)
-
-    for optional_tensor_attribute_name in getattr(
-        self, "optional_tensor_attribute_names", []
-    ):
-        if optional_tensor_attribute_name not in self.__dict__ and not hasattr(
-            self, optional_tensor_attribute_name
-        ):
-            setattr(self, optional_tensor_attribute_name, None)
 
 
 def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
@@ -764,13 +725,10 @@ class TorchAOBaseTensor(torch.Tensor):
 
     class variables to define to simplify implmentation of tensor subclasses:
        `tensor_data_names` (List[str]): list of names of all requires tensor_data, order should match
-          the `__init__` list of tensor subclass
+        the `__init__` list of tensor subclass
+       `optional_tensor_data_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor attributes, when defined, this will be a list of names of Tensors that can be optional
        `tensor_attribute_names` (List[str]): list of names of non-Tensor attributes,
-            order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments
-       `optional_tensor_data_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional
-       `optional_tensor_attribute_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional
-       Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)
-
+         order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments and `optional_tensor_data_names`
 
     If `tensor_data_names` and `tensor_attribute_names` are defined, there are some additional
     functions that will be added, this includes:
@@ -781,31 +739,23 @@ class TorchAOBaseTensor(torch.Tensor):
         recreate a new subclassed Tensor with the transformed tensor data
     `__repr__`: the string representation of the subclassed tensor instance
     `_same_metadata`: returns whether the metadata is the same between two instances of cls
-    `__setstate__`: when loading a serialized tensor subclass checkpoints, it sets the new
-    optional tensor and tensor attribute that is saved in the old checkpoint to None,
-    to maintain BC of old checkpoints when we add new optional tensor data or attributes to
-    the tensor subclass
     torch ops: torch.Tensor.contiguous
     aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)
 
     Example:
         class MyTensor(torch.Tensor):
             tensor_data_names = ["a", "b"]
-            tensor_attribute_names = ["c", "d"]
-            optional_tensor_data_names = ["e", "f"]
-            optional_tensor_attribute_names = ["g", "h"]
-
+            optional_tensor_data_names = ["c", "d"]
+            tensor_attribute_names = ["e", "f"]
 
             def __new__(
                 cls,
                 a: Tensor,
                 b: Tensor,
-                c: int,
-                d: str,
-                e: Optional[Tensor] = None,
-                f: Optional[Tensor] = None,
-                g: Optional[int] = None,
-                h: Optional[int] = None,
+                c: Optional[Tensor],
+                d: Optional[Tensor],
+                e: int,
+                f: str
             ):
                 pass
 
@@ -813,12 +763,10 @@ class TorchAOBaseTensor(torch.Tensor):
                 self,
                 a: Tensor,
                 b: Tensor,
-                c: int,
-                d: str
-                e: Optional[Tensor] = None,
-                f: Optional[Tensor] = None,
-                g: Optional[int] = None,
-                h: Optional[int] = None,
+                c: Optional[Tensor],
+                d: Optional[Tensor],
+                e: int,
+                f: str
             ):
                 pass
 
@@ -832,11 +780,9 @@ class TorchAOBaseTensor(torch.Tensor):
         if cls not in cls._ATEN_OP_OR_TORCH_FN_TABLE:
             cls._ATEN_OP_OR_TORCH_FN_TABLE[cls] = {}
 
-        # define the common ops and __set_state__ for BC
-        # if the tensor_data_names and tensor_attribute_names are defined
+        # define the common ops if the tensor_data_names and tensor_attribute_names are defined
         if hasattr(cls, "tensor_data_names") and hasattr(cls, "tensor_attribute_names"):
             cls._implements_common_tensor_ops()
-            cls.__setstate__ = _torchao_base_tensor__setstate__
 
         # inherit the torch function and dispatch implementations from direct parent classes
         # e.g. for `class C(B, A)`, C.__bases__ == (B, A)
@@ -865,82 +811,47 @@ class TorchAOBaseTensor(torch.Tensor):
                     if maybe_tensor is not None:
                         tensor_data_names.append(tensor_data_name)
 
-            attrs = [getattr(self, attr) for attr in self.tensor_attribute_names]
-            if hasattr(self, "optional_tensor_attribute_names"):
-                attrs += [
-                    getattr(self, attr) for attr in self.optional_tensor_attribute_names
-                ]
-
             # TODO(future PR): also return names of tensor attributes for easier
             # debugging
-            return tensor_data_names, attrs
+            return tensor_data_names, [
+                getattr(self, attr) for attr in self.tensor_attribute_names
+            ]
         raise NotImplementedError(
-            "Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"
+            "Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
         )
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        if hasattr(cls, "tensor_data_names") and hasattr(cls, "tensor_attribute_names"):
-            required_tensors = [
-                tensor_data_dict[name] for name in cls.tensor_data_names
-            ]
-            optional_tensors = []
-            if hasattr(cls, "optional_tensor_data_names"):
-                for tensor_data_name in cls.optional_tensor_data_names:
-                    if tensor_data_name in tensor_data_dict:
-                        optional_tensors.append(tensor_data_dict[tensor_data_name])
-                    else:
-                        optional_tensors.append(None)
-
-            required_attributes = tensor_attributes[: len(cls.tensor_attribute_names)]
-            optional_attributes = []
-            if hasattr(cls, "optional_tensor_attribute_names"):
-                optional_attributes = tensor_attributes[
-                    len(cls.tensor_attribute_names) :
-                ]
-
-            return cls(
-                *required_tensors,
-                *required_attributes,
-                *optional_tensors,
-                *optional_attributes,
-            )
-        raise NotImplementedError(
-            "Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"
-        )
+        tensors = [tensor_data_dict[name] for name in cls.tensor_data_names]
+        if hasattr(cls, "optional_tensor_data_names"):
+            for tensor_data_name in cls.optional_tensor_data_names:
+                if tensor_data_name in tensor_data_dict:
+                    tensors.append(tensor_data_dict[tensor_data_name])
+                else:
+                    tensors.append(None)
+        return cls(*tensors, *tensor_attributes)
 
     def _apply_fn_to_data(self, fn):
         if hasattr(self, "tensor_data_names") and hasattr(
             self, "tensor_attribute_names"
         ):
-            required_tensors = [
-                fn(getattr(self, attr)) for attr in self.tensor_data_names
-            ]
-            optional_tensors = []
+            tensors = [fn(getattr(self, attr)) for attr in self.tensor_data_names]
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
-                        optional_tensors.append(fn(maybe_tensor))
+                        tensors.append(fn(maybe_tensor))
                     else:
-                        optional_tensors.append(None)
+                        tensors.append(None)
 
-            required_attributes = [
+            tensor_attributes = [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
-            optional_attributes = []
-            if hasattr(self, "optional_tensor_attribute_names"):
-                optional_attributes = [
-                    getattr(self, attr) for attr in self.optional_tensor_attribute_names
-                ]
-
             return self.__class__(
-                *required_tensors,
-                *required_attributes,
-                *optional_tensors,
-                *optional_attributes,
+                *tensors,
+                *tensor_attributes,
             )
 
         raise NotImplementedError(
@@ -952,29 +863,19 @@ class TorchAOBaseTensor(torch.Tensor):
             self, "tensor_attribute_names"
         ):
             repr_str = ""
-            # required tensor data
             repr_str += f"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}"
             for tensor_data_name in self.tensor_data_names[1:]:
                 repr_str += f", {tensor_data_name}={getattr(self, tensor_data_name)}"
-
-            # required attributes
-            for tensor_attribute_name in self.tensor_attribute_names:
-                repr_str += (
-                    f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
-                )
-
-            # optional tensor data
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     repr_str += (
                         f", {tensor_data_name}={getattr(self, tensor_data_name)}"
                     )
 
-            # optional tensor attributes
-            if hasattr(self, "optional_tensor_attribute_names"):
-                for tensor_attribute_name in self.optional_tensor_attribute_names:
-                    repr_str += f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
-
+            for tensor_attribute_name in self.tensor_attribute_names:
+                repr_str += (
+                    f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
+                )
             return f"{self.__class__.__name__}({repr_str})"
 
         raise NotImplementedError(
