@@ -30,7 +30,7 @@ class MOEFeedForwardAOQuantizable(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         batch_size = x.shape[0]
         x = x.view(-1, self.hidden_dim)  # x: [T, D]
-        scores = self.router(x)  # [T, E]
+        scores = self.router(x)[0]  # [T, E]
         scores = F.softmax(scores, dim=-1)
         scores, expert_indices = torch.topk(
             scores, self.top_k, dim=-1
