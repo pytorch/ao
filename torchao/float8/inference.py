@@ -113,6 +113,8 @@ def addmm_float8_unwrapped_inference(
             use_fast_accum=use_fast_accum,
         )
         return output + bias
+    print("printing")
+    print(a_data, b_data, a_scale, b_scale)
     return torch._scaled_mm(
         a_data,
         b_data,
