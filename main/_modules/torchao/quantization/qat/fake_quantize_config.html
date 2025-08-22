@@ -811,7 +811,7 @@
         <span class="p">)</span>
         <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span>
-            <span class="n">group_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
+            <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
