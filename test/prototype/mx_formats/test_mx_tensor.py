@@ -380,14 +380,12 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
     else:
         raise AssertionError("unsupported")
     block_size = 4
-    use_fp4_custom_triton_dequant_kernel = False
     tensor_mx = MXTensor(
         data_bits,
         scale_e8m0,
         elem_dtype,
         block_size,
         torch.float,
-        use_fp4_custom_triton_dequant_kernel,
         MXGemmKernelChoice.EMULATED,
         pack_fp6,
         None,
@@ -427,14 +425,10 @@ def test_block_sizes(elem_dtype, B):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("fp4_triton", [False, True])
-def test_transpose(elem_dtype, fp4_triton):
+def test_transpose(elem_dtype):
     """
     Verify that transposing an MX tensor works
     """
-    if elem_dtype != torch.float4_e2m1fn_x2 and fp4_triton:
-        pytest.skip("unsupported configuration")
-
     M, K = 128, 256
     block_size = 32
     tensor_hp = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -442,7 +436,6 @@ def test_transpose(elem_dtype, fp4_triton):
         tensor_hp,
         elem_dtype,
         block_size,
-        use_fp4_custom_triton_dequant_kernel=fp4_triton,
     )
     tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()
 
@@ -510,7 +503,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
-    use_fp4_custom_triton_dequant_kernel = False
     pack_fp6 = False
     x_mx_dq = to_dtype(
         x_mx.qdata,
@@ -518,7 +510,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx._elem_dtype,
         x_mx._block_size,
         hp_dtype,  # noqa: E501
-        use_fp4_custom_triton_dequant_kernel,
         pack_fp6,
     )
     x_mx_c_dq = to_dtype_c(
@@ -527,7 +518,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
         hp_dtype,
-        use_fp4_custom_triton_dequant_kernel,
         pack_fp6,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)

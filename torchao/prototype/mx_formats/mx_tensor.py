@@ -53,7 +53,6 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
     pack_uint6,
-    triton_f4_to_scaled_bf16,
     triton_f6_e2m3_to_scaled_bf16,
     triton_f6_e3m2_to_scaled_bf16,
     unpack_uint4,
@@ -77,7 +76,6 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     elem_dtype: Union[torch.dtype, str] = torch.float8_e4m3fn
     block_size: int = 32
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
-    use_fp4_custom_triton_dequant_kernel: bool = False
     gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
     pack_fp6: bool = False
 
@@ -349,7 +347,6 @@ def to_dtype(
     elem_dtype,
     block_size,
     target_dtype,
-    use_fp4_custom_triton_dequant_kernel,
     pack_fp6,
 ):
     orig_shape = data_lp.shape
@@ -392,25 +389,15 @@ def to_dtype(
             data_hp = f6_e3m2_unpacked_to_f32(data_lp)
             data_hp = data_hp.to(target_dtype).reshape(orig_shape)
     elif elem_dtype == torch.float4_e2m1fn_x2:
-        if use_fp4_custom_triton_dequant_kernel:
-            data_hp_rescaled = triton_f4_to_scaled_bf16(
-                data_lp,
-                scale_e8m0,
-                block_size,
-            )
-            if is_transposed:
-                data_hp_rescaled = data_hp_rescaled.t()
-            return data_hp_rescaled.to(target_dtype)
-        else:
-            # fp4
-            f4_unpacked = unpack_uint4(data_lp)
-            # for now we only have a cast to f32
-            # TODO(future PR): add cast directly to bf16
-            f32 = f4_unpacked_to_f32(f4_unpacked)
-            data_hp = f32.to(target_dtype)
-            # manually adjust shape to account for the unpacking
-            # TODO(future PR): clean up the shape code and remove the hack
-            # below
+        # fp4
+        f4_unpacked = unpack_uint4(data_lp)
+        # for now we only have a cast to f32
+        # TODO(future PR): add cast directly to bf16
+        f32 = f4_unpacked_to_f32(f4_unpacked)
+        data_hp = f32.to(target_dtype)
+        # manually adjust shape to account for the unpacking
+        # TODO(future PR): clean up the shape code and remove the hack
+        # below
         orig_shape = (*orig_shape[:-1], orig_shape[-1] * 2)
     else:
         raise AssertionError("unsupported")
@@ -469,7 +456,6 @@ class MXTensor(TorchAOBaseTensor):
         "_elem_dtype",
         "_block_size",
         "_orig_dtype",
-        "_use_fp4_custom_triton_dequant_kernel",
         "_gemm_kernel_choice",
         "_pack_fp6",
         "act_quant_kwargs",
@@ -482,7 +468,6 @@ class MXTensor(TorchAOBaseTensor):
         elem_dtype,
         block_size,
         orig_dtype,
-        use_fp4_custom_triton_dequant_kernel,
         gemm_kernel_choice,
         pack_fp6,
         act_quant_kwargs,
@@ -551,9 +536,6 @@ class MXTensor(TorchAOBaseTensor):
         self._elem_dtype = elem_dtype
         self._block_size = block_size
         self._orig_dtype = orig_dtype
-        self._use_fp4_custom_triton_dequant_kernel = (
-            use_fp4_custom_triton_dequant_kernel
-        )
         self._gemm_kernel_choice = gemm_kernel_choice
         self._pack_fp6 = pack_fp6
         self.act_quant_kwargs = act_quant_kwargs
@@ -587,7 +569,6 @@ class MXTensor(TorchAOBaseTensor):
             self._elem_dtype,
             self._block_size,
             target_dtype,
-            self._use_fp4_custom_triton_dequant_kernel,
             self._pack_fp6,
         )
 
@@ -598,7 +579,6 @@ class MXTensor(TorchAOBaseTensor):
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
-        use_fp4_custom_triton_dequant_kernel: bool = False,
         # TODO(future PR): switch default gemm to cublas
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
         pack_fp6: bool = False,
@@ -617,7 +597,6 @@ class MXTensor(TorchAOBaseTensor):
                 elem_dtype,
                 block_size,
                 data_hp.dtype,
-                use_fp4_custom_triton_dequant_kernel,
                 gemm_kernel_choice,
                 pack_fp6,
                 act_quant_kwargs,
@@ -636,7 +615,6 @@ class MXTensor(TorchAOBaseTensor):
             elem_dtype,
             block_size,
             data_hp.dtype,
-            use_fp4_custom_triton_dequant_kernel,
             gemm_kernel_choice,
             pack_fp6,
             act_quant_kwargs,
