@@ -17,8 +17,8 @@ from torchao.prototype.custom_fp_utils import (
     _floatx_unpacked_to_f32,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
@@ -821,7 +821,7 @@ def _(uint8_data):
     return torch.empty(*out_shape, device=uint8_data.device, dtype=torch.uint8)
 
 
-if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
+if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton

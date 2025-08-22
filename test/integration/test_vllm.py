@@ -17,9 +17,9 @@ import pytest
 import torch
 
 from packaging import version
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import torch_version_at_least
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not torch_version_at_least("2.8.0"):
     pytest.skip("Requires PyTorch 2.8 or higher", allow_module_level=True)
 
 
