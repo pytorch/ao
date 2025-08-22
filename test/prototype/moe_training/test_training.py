@@ -136,7 +136,8 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         ["does.not.exist"],
     ],
 )
-def test_moe_mxfp8_training(target_fqns: list[str]):
+@pytest.mark.parametrize("compile", [False, True])
+def test_moe_mxfp8_training(target_fqns: list[str], compile: bool):
     block_size = 32
 
     # Token groups must be divisible by 32 for mxfp8
@@ -177,6 +178,11 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
         model,
         target_fqns=target_fqns,
     )
+
+    if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
 
     # inputs
     batch, seq = 8, 2048
