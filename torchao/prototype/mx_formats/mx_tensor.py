@@ -139,7 +139,6 @@ def to_mx(
     Takes a high precision tensor and converts to MX scale and raw data, in
     naive layout (scale and raw data are separate tensors).
     """
-
     assert data_hp.dtype in (
         torch.bfloat16,
         torch.float,
