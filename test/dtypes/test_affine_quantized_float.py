@@ -14,7 +14,8 @@ from typing import Tuple
 import pytest
 import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
-from torch.profiler import ProfilerActivity, profile
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
 from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl, preprocess_scale
@@ -766,32 +767,36 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             config,
         )
 
-        m = torch.compile(m, mode="default")
+        m = torch.compile(m)
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        out, code = run_and_get_code(m, x)
 
-        # warm up
-        _ = m(x)
-        # capture trace
-        with profile(activities=[ProfilerActivity.CUDA]) as prof:
-            _ = m(x)
-
-        cuda_kernel_events = [x for x in prof.key_averages() if x.cuda_time > 0]
-
-        if granularity == PerTensor():
+        # triton kernel call looks like:
+        #   triton_per_fused__scaled_mm__to_copy_abs_amax_clamp_clone_div_expand_permute_transpose_unsqueeze_view_0.run(arg3_1, buf1, buf2, 128, 256, stream=stream0)
+        # scaled_mm call looks like:
+        #   extern_kernels._scaled_mm(buf1, reinterpret_tensor(arg0_1, (256, 512), (1, 256), 0), buf2, reinterpret_tensor(arg1_1, (1, 512), (1, 1), 0), arg2_1, out_dtype=torch.bfloat16, use_fast_accum=True, out=buf3)
+        if granularity == PerRow():
+            # one triton kernel for quantizing the activation
+            FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(
+                code[0]
+            )
+            # one scaled_mm call
+            FileCheck().check("def call(").check_count(
+                "._scaled_mm(", 1, exactly=True
+            ).run(code[0])
+        else:
+            assert granularity == PerTensor(), "unsupported"
+            # three triton kernels for quantizing the activation:
             # kernel 1: x_max_tmp = max(x, ...)
             # kernel 2: x_max = max(x_max_tmp)
             # kernel 3: x_float8 = to_float8(x, x_max)
-            # kernel 4: gemm
-            assert len(cuda_kernel_events) == 4, (
-                f"too many cuda kernels: {cuda_kernel_events}"
+            FileCheck().check("def call(").check_count(".run(", 3, exactly=True).run(
+                code[0]
             )
-        else:
-            assert granularity == PerRow()
-            # kernel 1: x_float8 = to_float8(x)
-            # kernel 2: gemm
-            assert len(cuda_kernel_events) == 2, (
-                f"too many cuda kernels: {cuda_kernel_events}"
-            )
+            # one scaled_mm call
+            FileCheck().check("def call(").check_count(
+                "._scaled_mm(", 1, exactly=True
+            ).run(code[0])
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
