@@ -43,4 +43,4 @@ jobs:
         pip install .
         HF_MODEL_ID=${{ github.event.inputs.hf_model_id }}
         cd .github/scripts/torchao_model_releases
-        ./release.sh --model_id $HF_MODEL_ID
+        ./release.sh --model_id $HF_MODEL_ID --push_to_hub
