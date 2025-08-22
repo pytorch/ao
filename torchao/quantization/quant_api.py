@@ -2011,6 +2011,31 @@ def _uintx_weight_only_transform(
     return module
 
 
+def _adjust_scale_dtype_in_intx_unpacked_tensor(
+    intx_unpacked_tensor: IntxUnpackedTensor,
+    hp_tensor: torch.Tensor,
+    scale_dtype: torch.dtype,
+) -> None:
+    """
+    Adjusts the scale_dtype on IntxUnpackedTensor.
+    Updating the scale dtype requires updating the qdata because qdata is calculated after the scale.
+    This is used in IntxWeightOnlyConfig and Int8DynamicActivationIntxWeightConfig to make
+    version=2 and version=1 numerically equivalent when the scale_dtype differs from the input dtype
+    """
+    assert isinstance(intx_unpacked_tensor, IntxUnpackedTensor)
+    intx_unpacked_tensor.scale = intx_unpacked_tensor.scale.to(scale_dtype)
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[intx_unpacked_tensor.target_dtype]
+    intx_unpacked_tensor.qdata = quantize_affine(
+        hp_tensor,
+        intx_unpacked_tensor.block_size,
+        intx_unpacked_tensor.scale,
+        intx_unpacked_tensor.zero_point,
+        output_dtype=torch.int8,
+        quant_min=qmin,
+        quant_max=qmax,
+    )
+
+
 @dataclass
 class IntxWeightOnlyConfig(AOBaseConfig):
     """
@@ -2085,7 +2110,10 @@ def _intx_weight_only_quantize_tensor(weight, config):
                 mapping_type=mapping_type,
             )
             if scale_dtype is not None and scale_dtype != weight.dtype:
-                new_weight.scale = new_weight.scale.to(scale_dtype).to(weight.dtype)
+                _adjust_scale_dtype_in_intx_unpacked_tensor(
+                    new_weight, weight, scale_dtype
+                )
+
             return new_weight
         else:
             raise ValueError(f"Unsupported packing format: {packing_format}")
