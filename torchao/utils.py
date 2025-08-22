@@ -145,6 +145,11 @@ def get_available_devices():
         devices.append("mps")
     return devices
 
+def auto_detect_device():
+    if torch.accelerator.is_available()
+        return torch.accelerator.current_accelerator()
+    else:
+        return "cpu"
 
 def get_compute_capability():
     if torch.cuda.is_available():
