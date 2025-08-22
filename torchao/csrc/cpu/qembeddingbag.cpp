@@ -25,7 +25,8 @@ inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
                                const index_t last_offset,
                                const index_t *indices, const index_t *offsets,
                                const at::Float8_e4m3fn *weight,
-                               const double scale, float *result) {
+                               const double scale, float *result,
+                               const int64_t num_batch) {
 #if defined(CPU_CAPABILITY_AVX512)
   if (emb_dim % 128 == 0) {
     constexpr int64_t block_dim = 128;
@@ -34,7 +35,7 @@ inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
     for (int64_t b = bs_begin; b < bs_end; ++b) {
       __m512 x0, x1, x2, x3, x4, x5, x6, x7;
       int64_t start_idx = offsets[b];
-      int64_t end_idx = ((b + 1) == bs_end && last_offset != -1)
+      int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
                             ? last_offset
                             : offsets[b + 1];
       for (int64_t block_id = 0; block_id < num_blocks; block_id++) {
@@ -87,7 +88,7 @@ inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
   for (int64_t b = bs_begin; b < bs_end; ++b) {
     int64_t start_idx = offsets[b];
     int64_t end_idx =
-        ((b + 1) == bs_end && last_offset != -1) ? last_offset : offsets[b + 1];
+        ((b + 1) == num_batch && last_offset != -1) ? last_offset : offsets[b + 1];
     for (int64_t d = 0; d < emb_dim; d++) {
       int64_t idx = indices[start_idx] * emb_dim;
       float value = float(weight[idx + d]);
@@ -118,7 +119,7 @@ void qembeddingbagcat(float *o_ptr, data_t *w_ptr, index_t *indices_ptr,
       float *r = &o_ptr[b * b_block * num_emb * emb_dim + n * emb_dim];
       // avoid offsets not include last batch
       qembeddingbag_kern(bs_begin, bs_end, num_emb, emb_dim, last_offset,
-                         indices_ptr, offsets_ptr, w_ptr, w_scale, r);
+                         indices_ptr, offsets_ptr, w_ptr, w_scale, r, num_batch);
     }
   }
 }
