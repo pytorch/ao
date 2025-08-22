@@ -9,8 +9,6 @@ from typing import Optional
 import torch
 from torch import Tensor
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define(
     "quant_llm_linear(int EXPONENT, int MANTISSA, Tensor _in_feats, Tensor _weights, Tensor _scales, int splitK) -> Tensor"
@@ -77,20 +75,14 @@ lib.define(
 
 def register_custom_op(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.register_fake(f"{name}")(func)
-        else:
-            return torch.library.impl_abstract(f"{name}")(func)
+        return torch.library.register_fake(f"{name}")(func)
 
     return decorator
 
 
 def register_custom_op_impl(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.custom_op(f"{name}", mutates_args=())(func)
-        else:
-            return torch.library.impl(f"{name}", "CUDA")(func)
+        return torch.library.custom_op(f"{name}", mutates_args=())(func)
 
     return decorator
 

@@ -15,11 +15,13 @@ from torchao.prototype.mx_formats.constants import (
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4MMConfig,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    QuantizeTensorToNVFP4Kwargs,
+)
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
-    is_sm_at_least_90,
     is_sm_at_least_100,
 )
 
@@ -277,12 +279,12 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
     # Test that the sliced tensor shares storage with original for data
     # (Note: scales might not share storage due to swizzled layout complexity)
-    assert sliced_tensor._data.data_ptr() == tensor._data.data_ptr()
+    assert sliced_tensor.qdata.data_ptr() == tensor.qdata.data_ptr()
 
     # Test full-width column slicing (should maintain views)
     full_width_slice = tensor[:, 0:K]
     assert full_width_slice._scale_e4m3.data_ptr() == tensor._scale_e4m3.data_ptr()
-    assert full_width_slice._data.data_ptr() == tensor._data.data_ptr()
+    assert full_width_slice.qdata.data_ptr() == tensor.qdata.data_ptr()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -305,8 +307,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert "_is_swizzled_scales" in ctx
-    assert ctx["_is_swizzled_scales"] == True
+    assert NVFP4Tensor.tensor_attribute_names[2] == "_is_swizzled_scales"
+    assert ctx[2] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -400,8 +402,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     torch.testing.assert_close(
         nvfp4_pt._scale_e4m3.flatten(), nvfp4_triton._scale_e4m3.flatten()
     )
-    pt_unpacked = unpack_uint4(nvfp4_pt._data)
-    triton_unpacked = unpack_uint4(nvfp4_triton._data)
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
+    triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
     torch.testing.assert_close(
         pt_unpacked,
         triton_unpacked,
@@ -449,7 +451,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
 @pytest.mark.skipif(
-    not is_sm_at_least_90(), reason="CUDA capability >= 9.0 required for fp8e4nv"
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
 )
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
@@ -492,19 +494,21 @@ def test_nvfp4_matmul_with_amax(
 
     a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
+    act_quant_kwargs = None
+    if mm_config == NVFP4MMConfig.DYNAMIC:
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
-        mm_config=mm_config,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        mm_config=mm_config,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
+        act_quant_kwargs=act_quant_kwargs,
     )
 
     func = torch.compile(F.linear, fullgraph=True) if compile else F.linear

@@ -7,6 +7,7 @@
 import json
 import os
 import tempfile
+import warnings
 from dataclasses import dataclass
 from unittest import mock
 
@@ -15,7 +16,6 @@ import torch
 
 from torchao.core.config import (
     AOBaseConfig,
-    VersionMismatchError,
     config_from_dict,
     config_to_dict,
 )
@@ -39,7 +39,6 @@ from torchao.quantization.quant_api import (
     UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 # Define test configurations as fixtures
 configs = [
@@ -85,10 +84,8 @@ configs = [
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step=AWQStep.PREPARE_FOR_LOADING),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
+    FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256]),
 ]
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    configs += [FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256])]
 
 
 # Create ids for better test naming
@@ -151,7 +148,9 @@ def test_reconstructable_dict_file_round_trip(config):
 # Define a dummy config in a non-allowed module
 @dataclass
 class DummyNonAllowedConfig(AOBaseConfig):
-    VERSION = 2
+    # NOTE: must be `version: int` (with type annotations) to
+    # overload the version variable from AOBaseConfig
+    version: int = 2
     value: int = 42
 
 
@@ -172,11 +171,11 @@ def test_disallowed_modules():
         reconstructed = config_from_dict(reconstructable)
         assert isinstance(reconstructed, DummyNonAllowedConfig)
         assert reconstructed.value == 42
-        assert reconstructed.VERSION == 2
+        assert reconstructed.version == 2
 
 
 def test_version_mismatch():
-    """Test that version mismatch raises an error during reconstruction."""
+    """Test that version mismatch prints a warning during reconstruction."""
     # Create a config
     dummy_config = DummyNonAllowedConfig()
     reconstructable = config_to_dict(dummy_config)
@@ -186,17 +185,19 @@ def test_version_mismatch():
 
     # Patch to allow the module but should still fail due to version mismatch
     with mock.patch("torchao.core.config.ALLOWED_AO_MODULES", {__name__}):
-        with pytest.raises(
-            VersionMismatchError,
-            match="Version mismatch for DummyNonAllowedConfig: stored version 1 != current version 2",
-        ):
+        with warnings.catch_warnings(record=True) as caught_warnings:
             config_from_dict(reconstructable)
+            assert any(
+                "Stored version is not the same as current default version of the config"
+                in str(w.message)
+                for w in caught_warnings
+            ), "Didn't get expected warning message for version mismatch"
 
 
 def test_default_version():
     """Making sure the default version for a new config inheriting from AOBaseConfig is always 1
-    because it's the default VERSION that all children has when they haven't explicitly
-    defined a VERSION class variable
+    because it's the default version that all children has when they haven't explicitly
+    defined a version class variable
     """
 
     @dataclass
@@ -204,7 +205,7 @@ def test_default_version():
         pass
 
     config = DummyConfig()
-    assert config.VERSION == 1, "Default version must be 1"
+    assert config.version == 1, "Default version must be 1"
 
 
 if __name__ == "__main__":

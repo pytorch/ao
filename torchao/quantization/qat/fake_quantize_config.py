@@ -6,14 +6,22 @@
 
 import abc
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch
 
+from torchao.core.config import AOBaseConfig
+from torchao.float8.config import e4m3_dtype
+from torchao.float8.inference import (
+    FP8Granularity,
+    _normalize_granularity,
+)
 from torchao.quantization.granularity import (
     Granularity,
     PerAxis,
     PerGroup,
+    PerRow,
+    PerTensor,
     PerToken,
 )
 from torchao.quantization.quant_primitives import (
@@ -23,6 +31,9 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
+from torchao.utils import _is_float8_type
+
+from .utils import _log_deprecation_warning
 
 
 class FakeQuantizeConfigBase(abc.ABC):
@@ -34,9 +45,43 @@ class FakeQuantizeConfigBase(abc.ABC):
 
 
 @dataclass
+class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for float8 fake quantization, targeting :class:`~torchao.quantization.Float8Tensor`.
+
+    Args:
+       dtype (torch.dtype): the dtype for float8 Tensor
+       granularity (FP8Granularity): the granularity for the Tensor, currently either PerRow() or PerTensor()
+       hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
+       hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
+    """
+
+    dtype: torch.dtype = e4m3_dtype
+    granularity: FP8Granularity = PerRow()
+    hp_value_lb: Optional[float] = None
+    hp_value_ub: Optional[float] = None
+
+    def __post_init__(self):
+        """
+        Verify dtype and granularity are the ones we support.
+        """
+        if not _is_float8_type(self.dtype):
+            raise ValueError(f"{self.dtype} is not a float8 dtype")
+        if isinstance(self.granularity, type):
+            raise ValueError(
+                "Please specify the granularity object instead of the class, e.g. PerRow() instead of PerRow"
+            )
+        if type(self.granularity) not in [PerRow, PerTensor]:
+            raise ValueError(
+                f"Expected PerRow or PerTensor granularity, got {self.granularity}"
+            )
+
+
+@dataclass
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
-    Config for how to fake quantize weights or activations.
+    Config for how to fake quantize weights or activations,
+    targeting integer dtypes up to torch.int8.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -131,6 +176,14 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         # Dynamic is not compatible with range learning
         if is_dynamic and range_learning:
             raise ValueError("`is_dynamic` is not compatible with `range_learning`")
+
+        self.__post_init__()
+
+    def __post_init__(self):
+        """
+        For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630.
+        """
+        pass
 
     def _get_granularity(
         self,
@@ -258,4 +311,80 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
 
 # For BC
-FakeQuantizeConfig = IntxFakeQuantizeConfig
+class FakeQuantizeConfig(IntxFakeQuantizeConfig):
+    """
+    (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizeConfig` instead.
+    """
+
+    def __post_init__(self):
+        _log_deprecation_warning(self)
+
+
+# TODO: rewrite using registration API?
+def _infer_fake_quantize_configs(
+    base_config: AOBaseConfig,
+) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
+    """
+    Given a base post-training quantization (PTQ) config, infer the corresponding
+    `FakeQuantizeConfigBase`s for both the activations and the weights.
+    This is called during the prepare phase of QAT.
+
+    Return a 2-tuple of (activation_config, weight_config) for fake quantization.
+    """
+    # avoid circular imports
+    from torchao.quantization import (
+        Float8DynamicActivationFloat8WeightConfig,
+        Float8DynamicActivationInt4WeightConfig,
+        Int4WeightOnlyConfig,
+        Int8DynamicActivationInt4WeightConfig,
+    )
+
+    if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
+        act_config = IntxFakeQuantizeConfig(
+            dtype=torch.int8,
+            granularity="per_token",
+            is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=torch.int4,
+            group_size=base_config.group_size,
+            is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
+        )
+    elif isinstance(base_config, Int4WeightOnlyConfig):
+        if base_config.version != 2:
+            raise ValueError(f"Only version 2 of {type(base_config)} is supported")
+        act_config = None
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=torch.int4,
+            group_size=base_config.group_size,
+            is_symmetric=True,
+        )
+    elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig):
+        if base_config.version != 2:
+            raise ValueError(f"Only version 2 of {type(base_config)} is supported")
+        (act_granularity, weight_granularity) = _normalize_granularity(
+            base_config.granularity
+        )
+        act_config = Float8FakeQuantizeConfig(
+            dtype=base_config.activation_dtype,
+            granularity=act_granularity,
+            hp_value_lb=base_config.activation_value_lb,
+            hp_value_ub=base_config.activation_value_ub,
+        )
+        weight_config = Float8FakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=weight_granularity,
+        )
+    elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig):
+        act_config = Float8FakeQuantizeConfig(
+            dtype=torch.float8_e4m3fn,
+            granularity=PerRow(),
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=torch.int4,
+            group_size=base_config.group_size,
+            is_symmetric=True,
+        )
+    else:
+        raise ValueError("Unexpected base config: %s" % base_config)
+    return (act_config, weight_config)

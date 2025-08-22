@@ -33,7 +33,6 @@ class TestUtils(unittest.TestCase):
         self.test_params = {
             "name": "test_model",
             "high_precision_dtype": "torch.bfloat16",
-            "use_torch_compile": True,
             "torch_compile_mode": "max-autotune",
             "device": "cpu",
             "model_type": "linear",
@@ -57,7 +56,6 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(config.k, 1024)
         self.assertEqual(config.n, 1024)
         self.assertEqual(config.high_precision_dtype, torch.bfloat16)
-        self.assertEqual(config.use_torch_compile, True)
         self.assertEqual(config.torch_compile_mode, "max-autotune")
         self.assertEqual(config.device, "cpu")
         self.assertEqual(config.model_type, "linear")
@@ -76,7 +74,7 @@ class TestUtils(unittest.TestCase):
         result = BenchmarkResult(config=config)
 
         self.assertEqual(result.config, config)
-        self.assertEqual(result.model_inference_time_in_ms, 0.0)
+        self.assertEqual(result.quantized_model_compiled_inference_time_in_ms, 0.0)
 
     def test_get_default_device(self):
         # Test CPU fallback

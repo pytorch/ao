@@ -8,6 +8,7 @@ import importlib
 import itertools
 import re
 import time
+import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
@@ -140,9 +141,8 @@ def get_available_devices():
         devices.append("cuda")
     elif torch.xpu.is_available():
         devices.append("xpu")
-    if TORCH_VERSION_AT_LEAST_2_5:
-        if torch.mps.is_available():
-            devices.append("mps")
+    if torch.mps.is_available():
+        devices.append("mps")
     return devices
 
 
@@ -203,7 +203,7 @@ def _register_custom_op(lib, inductor_decomposed=True):
 
         # after this, `_the_op_that_needs_to_be_preserved` will be preserved as
         # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after
-        # torch.export.export / torch._export.export_for_training
+        # torch.export.export
 
     """
     from torch._inductor.decomposition import register_decomposition
@@ -215,37 +215,31 @@ def _register_custom_op(lib, inductor_decomposed=True):
     )
 
     def decorator(fn):
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._library.infer_schema import infer_schema
+        from torch._library.infer_schema import infer_schema
 
-            assert not any(c in fn.__name__ for c in ".<>"), (
-                f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
-            )
-            op_name = fn.__name__
-            if op_name[0] == "_":
-                op_name = op_name[1:]
-            schema = op_name + infer_schema(fn, mutates_args={})
-            lib.define(schema)
-            lib.impl(op_name, fn, dispatch_key)
+        assert not any(c in fn.__name__ for c in ".<>"), (
+            f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
+        )
+        op_name = fn.__name__
+        if op_name[0] == "_":
+            op_name = op_name[1:]
+        schema = op_name + infer_schema(fn, mutates_args={})
+        lib.define(schema)
+        lib.impl(op_name, fn, dispatch_key)
 
-            lib_namespace = lib.ns
-            op = getattr(getattr(torch.ops, lib_namespace), op_name)
-            if inductor_decomposed:
-                register_decomposition([op])(fn)
-            return op
-        else:
-            return fn
+        lib_namespace = lib.ns
+        op = getattr(getattr(torch.ops, lib_namespace), op_name)
+        if inductor_decomposed:
+            register_decomposition([op])(fn)
+        return op
 
     return decorator
 
 
 def _register_meta_op(lib, op_name):
     def decorator(fn):
-        if TORCH_VERSION_AT_LEAST_2_5:
-            op = lib.impl(op_name, fn, "Meta")
-            return op
-        else:
-            return fn
+        op = lib.impl(op_name, fn, "Meta")
+        return op
 
     return decorator
 
@@ -377,13 +371,59 @@ def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
 
-TORCH_VERSION_AT_LEAST_2_8 = torch_version_at_least("2.8.0")
-TORCH_VERSION_AT_LEAST_2_7 = torch_version_at_least("2.7.0")
-TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
-TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
-TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
-TORCH_VERSION_AT_LEAST_2_3 = torch_version_at_least("2.3.0")
-TORCH_VERSION_AT_LEAST_2_2 = torch_version_at_least("2.2.0")
+def _deprecated_torch_version_at_least(version_str: str) -> str:
+    """
+    Wrapper for existing TORCH_VERSION_AT_LEAST* variables that will log
+    a deprecation warning if the variable is used.
+    """
+    version_str_var_name = "_".join(version_str.split(".")[:2])
+    deprecation_msg = f"TORCH_VERSION_AT_LEAST_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
+    return _BoolDeprecationWrapper(
+        torch_version_at_least(version_str),
+        deprecation_msg,
+    )
+
+
+def _deprecated_torch_version_after(version_str: str) -> str:
+    """
+    Wrapper for existing TORCH_VERSION_AFTER* variables that will log
+    a deprecation warning if the variable is used.
+    """
+    bool_value = is_fbcode() or version("torch") >= version_str
+    version_str_var_name = "_".join(version_str.split(".")[:2])
+    deprecation_msg = f"TORCH_VERSION_AFTER_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
+    return _BoolDeprecationWrapper(bool_value, deprecation_msg)
+
+
+class _BoolDeprecationWrapper:
+    """
+    A deprecation wrapper that logs a warning when the given bool value is accessed.
+    """
+
+    def __init__(self, bool_value: bool, msg: str):
+        self.bool_value = bool_value
+        self.msg = msg
+
+    def __bool__(self):
+        warnings.warn(self.msg)
+        return self.bool_value
+
+    def __eq__(self, other):
+        return bool(self) == bool(other)
+
+
+# Deprecated, use `torch_version_at_least` directly instead
+TORCH_VERSION_AT_LEAST_2_8 = _deprecated_torch_version_at_least("2.8.0")
+TORCH_VERSION_AT_LEAST_2_7 = _deprecated_torch_version_at_least("2.7.0")
+TORCH_VERSION_AT_LEAST_2_6 = _deprecated_torch_version_at_least("2.6.0")
+TORCH_VERSION_AT_LEAST_2_5 = _deprecated_torch_version_at_least("2.5.0")
+TORCH_VERSION_AT_LEAST_2_4 = _deprecated_torch_version_at_least("2.4.0")
+TORCH_VERSION_AT_LEAST_2_3 = _deprecated_torch_version_at_least("2.3.0")
+TORCH_VERSION_AT_LEAST_2_2 = _deprecated_torch_version_at_least("2.2.0")
+TORCH_VERSION_AFTER_2_5 = _deprecated_torch_version_after("2.5.0.dev")
+TORCH_VERSION_AFTER_2_4 = _deprecated_torch_version_after("2.4.0.dev")
+TORCH_VERSION_AFTER_2_3 = _deprecated_torch_version_after("2.3.0.dev")
+TORCH_VERSION_AFTER_2_2 = _deprecated_torch_version_after("2.2.0.dev")
 
 
 """
@@ -435,7 +475,20 @@ def _implements_common_tensor_ops(cls):
     aten = torch.ops.aten
 
     @implements(
-        [aten.detach.default, aten.clone.default, aten.alias.default, aten.contiguous]
+        [
+            torch.Tensor.contiguous,
+        ]
+    )
+    def _(func, types, args, kwargs):
+        return args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs))
+
+    @implements(
+        [
+            aten.detach.default,
+            aten.clone.default,
+            aten.alias.default,
+            aten.contiguous.default,
+        ]
     )
     def _(func, types, args, kwargs):
         return return_and_correct_aliasing(
@@ -450,6 +503,16 @@ def _implements_common_tensor_ops(cls):
             getattr(self, t_name).shape == getattr(src, t_name).shape
             for t_name in self.tensor_data_names
         )
+        _optional_tensor_shape_match = True
+        if hasattr(self, "optional_tensor_data_names"):
+            # either both are None or both are not Tensors and the shape match
+            _optional_tensor_shape_match = all(
+                getattr(self, t_name).shape == getattr(src, t_name).shape
+                if getattr(self, t_name) is not None
+                else getattr(src, t_name) is None
+                for t_name in self.optional_tensor_data_names
+            )
+
         _attr_match = all(
             getattr(self, a_name) == getattr(src, a_name)
             for a_name in self.tensor_attribute_names
@@ -458,6 +521,7 @@ def _implements_common_tensor_ops(cls):
             type(self) == type(src)
             and self.shape == src.shape
             and _tensor_shape_match
+            and _optional_tensor_shape_match
             and _attr_match
         )
 
@@ -485,6 +549,14 @@ def _implements_common_tensor_ops(cls):
             tensors = [
                 getattr(self, name).to(device) for name in self.tensor_data_names
             ]
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    maybe_tensor = getattr(self, tensor_data_name)
+                    if maybe_tensor is not None:
+                        tensors.append(maybe_tensor.to(device))
+                    else:
+                        tensors.append(None)
+
             # change device
             tensor_attributes = [
                 getattr(self, attr_name) if attr_name != "device" else device
@@ -565,9 +637,8 @@ def _register_layout(tensor_class: Callable, layout_class: Callable):
         tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] = (
             tensor_impl_class.from_plain
         )
-        if TORCH_VERSION_AT_LEAST_2_5:
-            # Allow serialization to work for models uses this tensor impl subclass
-            torch.serialization.add_safe_globals([layout_class, tensor_impl_class])
+        # Allow serialization to work for models uses this tensor impl subclass
+        torch.serialization.add_safe_globals([layout_class, tensor_impl_class])
         return tensor_impl_class
 
     return decorator
@@ -652,6 +723,53 @@ class TorchAOBaseTensor(torch.Tensor):
             tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
             tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
 
+    class variables to define to simplify implmentation of tensor subclasses:
+       `tensor_data_names` (List[str]): list of names of all requires tensor_data, order should match
+        the `__init__` list of tensor subclass
+       `optional_tensor_data_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor attributes, when defined, this will be a list of names of Tensors that can be optional
+       `tensor_attribute_names` (List[str]): list of names of non-Tensor attributes,
+         order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments and `optional_tensor_data_names`
+
+    If `tensor_data_names` and `tensor_attribute_names` are defined, there are some additional
+    functions that will be added, this includes:
+    `__tensor_flatten__`: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data,
+        second element is a list of non-Tensor attributes
+    `__tensor_unflatten__`: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor
+    `_apply_fn_to_data`: takes a function (Tensor -> Tensor),  applies function to all tensor data and
+        recreate a new subclassed Tensor with the transformed tensor data
+    `__repr__`: the string representation of the subclassed tensor instance
+    `_same_metadata`: returns whether the metadata is the same between two instances of cls
+    torch ops: torch.Tensor.contiguous
+    aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)
+
+    Example:
+        class MyTensor(torch.Tensor):
+            tensor_data_names = ["a", "b"]
+            optional_tensor_data_names = ["c", "d"]
+            tensor_attribute_names = ["e", "f"]
+
+            def __new__(
+                cls,
+                a: Tensor,
+                b: Tensor,
+                c: Optional[Tensor],
+                d: Optional[Tensor],
+                e: int,
+                f: str
+            ):
+                pass
+
+            def __init__(
+                self,
+                a: Tensor,
+                b: Tensor,
+                c: Optional[Tensor],
+                d: Optional[Tensor],
+                e: int,
+                f: str
+            ):
+                pass
+
     """
 
     @classmethod
@@ -686,7 +804,16 @@ class TorchAOBaseTensor(torch.Tensor):
         if hasattr(self, "tensor_data_names") and hasattr(
             self, "tensor_attribute_names"
         ):
-            return self.tensor_data_names, [
+            tensor_data_names = self.tensor_data_names.copy()
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    maybe_tensor = getattr(self, tensor_data_name)
+                    if maybe_tensor is not None:
+                        tensor_data_names.append(tensor_data_name)
+
+            # TODO(future PR): also return names of tensor attributes for easier
+            # debugging
+            return tensor_data_names, [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
         raise NotImplementedError(
@@ -698,6 +825,12 @@ class TorchAOBaseTensor(torch.Tensor):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         tensors = [tensor_data_dict[name] for name in cls.tensor_data_names]
+        if hasattr(cls, "optional_tensor_data_names"):
+            for tensor_data_name in cls.optional_tensor_data_names:
+                if tensor_data_name in tensor_data_dict:
+                    tensors.append(tensor_data_dict[tensor_data_name])
+                else:
+                    tensors.append(None)
         return cls(*tensors, *tensor_attributes)
 
     def _apply_fn_to_data(self, fn):
@@ -705,6 +838,14 @@ class TorchAOBaseTensor(torch.Tensor):
             self, "tensor_attribute_names"
         ):
             tensors = [fn(getattr(self, attr)) for attr in self.tensor_data_names]
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    maybe_tensor = getattr(self, tensor_data_name)
+                    if maybe_tensor is not None:
+                        tensors.append(fn(maybe_tensor))
+                    else:
+                        tensors.append(None)
+
             tensor_attributes = [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
@@ -725,6 +866,12 @@ class TorchAOBaseTensor(torch.Tensor):
             repr_str += f"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}"
             for tensor_data_name in self.tensor_data_names[1:]:
                 repr_str += f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    repr_str += (
+                        f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+                    )
+
             for tensor_attribute_name in self.tensor_attribute_names:
                 repr_str += (
                     f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
@@ -764,11 +911,6 @@ def fill_defaults(args, n, defaults_tail):
     for i in range(len(args), n):
         r.append(defaults_tail[i - n + len(defaults_tail)])
     return r
-
-
-## Deprecated, will be deleted in the future
-def _torch_version_at_least(min_version):
-    return is_fbcode() or version("torch") >= min_version
 
 
 # Supported AMD GPU Models and their LLVM gfx Codes:
@@ -855,12 +997,6 @@ def check_xpu_version(device, version="2.8.0"):
 
 def ceil_div(a, b):
     return (a + b - 1) // b
-
-
-TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = _torch_version_at_least("2.2.0.dev")
 
 
 def is_package_at_least(package_name: str, min_version: str):

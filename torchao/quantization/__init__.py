@@ -46,6 +46,7 @@ from .quant_api import (
     FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -88,7 +89,11 @@ from .quant_primitives import (
     quantize_affine,
 )
 from .quantize_.workflows import (
+    Float8Tensor,
+    Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
+    Int4Tensor,
+    IntxUnpackedTensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -140,6 +145,7 @@ __all__ = [
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
     "Int4WeightOnlyConfig",
+    "Float8DynamicActivationInt4WeightConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
@@ -153,7 +159,11 @@ __all__ = [
     "ModuleFqnToConfig",
     "FbgemmConfig",
     # tensor subclasses
+    "Int4Tensor",
     "Int4PreshuffledTensor",
+    "Int4MarlinSparseTensor",
+    "IntxUnpackedTensor",
+    "Float8Tensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",

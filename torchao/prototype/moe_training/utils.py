@@ -9,7 +9,7 @@ from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 
 # --- float8 rowwise scaling ---
-def _to_2d_jagged_float8_tensor_colwise(
+def torch_to_float8_per_group_colwise(
     A_col_major: torch.Tensor,
     offs: torch.Tensor,
     target_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -78,7 +78,7 @@ def _to_2d_jagged_float8_tensor_colwise(
     return A_fp8_col_major, A_scales
 
 
-def _to_2d_jagged_float8_tensor_rowwise(
+def torch_to_float8_per_group_rowwise(
     x: torch.Tensor,
     offs: torch.Tensor,
     target_dtype: torch.dtype,
@@ -143,6 +143,42 @@ def _to_2d_jagged_float8_tensor_rowwise(
         next_scale_idx += subtensor_scales.numel()
 
     return x_fp8, x_scales
+
+
+def torch_to_3d_rowwise_float8_transpose_rhs(
+    input_hp_t: torch.Tensor,  # (E, K, N)
+    target_dtype: torch.dtype = torch.float8_e4m3fn,
+    round_scales_to_power_of_2: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    This function converts the 3D input tensor to a float8 tensor, with scales computed along logical columns
+    on a per-expert basis. Output will be in column-major memory layout.
+
+    Args:
+        x (torch.Tensor): The input tensor to be converted to a float8 tensor. Shape (E, K, N).
+
+    Returns:
+        A tuple containing the float8 tensor and the scales used for the conversion.
+        Output shape: (E, N, K)
+        Scales shape: (E, 1, K
+    """
+    assert _is_column_major(input_hp_t), "input tensor must be column-major"
+    input_hp = input_hp_t.transpose(-2, -1)  # (E, N, K)
+    scales = tensor_to_scale(
+        input_hp,
+        target_dtype,
+        scaling_granularity=ScalingGranularity.AXISWISE,
+        axiswise_dim=-2,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )  # (E, 1, K)
+
+    # Apply scales to tensor and convert to float8.
+    tensor_scaled = input_hp.to(torch.float32) * scales
+    float8_tensor = to_fp8_saturated(tensor_scaled, target_dtype)
+
+    # To column major
+    float8_tensor = float8_tensor.transpose(-2, -1).contiguous().transpose(-2, -1)
+    return float8_tensor, scales
 
 
 # --- mxfp8 scaling ---
@@ -254,7 +290,21 @@ def _is_column_major(x: torch.Tensor) -> bool:
         A boolean indicating whether the input tensor is column-major.
     """
     assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
-    return x.stride(-2) == 1 and x.stride(-1) > 1
+    return x.stride(-2) == 1
+
+
+def _is_row_major(x: torch.Tensor) -> bool:
+    """
+    This function checks if the input tensor is row-major.
+
+    Args:
+        x (torch.Tensor): The input tensor to be checked.
+
+    Returns:
+        A boolean indicating whether the input tensor is row-major.
+    """
+    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
+    return x.stride(-1) == 1
 
 
 def generate_jagged_offs(E, M, multiple_of=16, dtype=torch.int32, device="cuda"):

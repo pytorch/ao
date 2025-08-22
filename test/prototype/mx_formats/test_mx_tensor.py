@@ -73,9 +73,9 @@ def _test_mx(
     # verify that if data.shape is (M, K) then scale.shape is (M, K // block_size)
     prev_dims, K = data_hp.shape[:-1], data_hp.shape[-1]
     if elem_dtype is torch.float4_e2m1fn_x2:
-        assert data_mx._data.shape == (*prev_dims, K // 2)
+        assert data_mx.qdata.shape == (*prev_dims, K // 2)
     else:
-        assert data_mx._data.shape == (*prev_dims, K)
+        assert data_mx.qdata.shape == (*prev_dims, K)
     assert data_mx._scale_e8m0.shape == (*prev_dims, K // block_size)
 
 
@@ -148,8 +148,8 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    assert torch.isnan(data_mx._data[0])
-    assert torch.all(data_mx._data[1:] == 0)
+    assert torch.isnan(data_mx.qdata[0])
+    assert torch.all(data_mx.qdata[1:] == 0)
     # fp32 denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -170,7 +170,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -191,7 +191,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # fp32 some denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -222,7 +222,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 some denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -253,7 +253,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # zero
     data_hp = torch.tensor([0] * 32, dtype=torch.uint32).view(torch.float32)
     ground_truth_scale = torch.tensor([0], dtype=torch.uint8).view(torch.float8_e8m0fnu)
@@ -264,7 +264,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # fp32 normal
     # fmt: off
     data_hp = torch.tensor(
@@ -295,7 +295,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 normal
     # fmt: off
     data_hp = torch.tensor(
@@ -326,7 +326,7 @@ def test_to_mx_rceil():
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
-    torch.testing.assert_close(data_mx._data, ground_truth_fp8)
+    torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -382,14 +382,15 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
     block_size = 4
     use_fp4_custom_triton_dequant_kernel = False
     tensor_mx = MXTensor(
-        scale_e8m0,
         data_bits,
+        scale_e8m0,
         elem_dtype,
         block_size,
         torch.float,
         use_fp4_custom_triton_dequant_kernel,
         MXGemmKernelChoice.EMULATED,
         pack_fp6,
+        None,
     )
     tensor_hp = tensor_mx.to_dtype(torch.float)
     assert torch.all(torch.isnan(tensor_hp.flatten()[0:4]))
@@ -473,7 +474,7 @@ def test_fp6_packing(elem_dtype, pack_fp6):
     else:
         expected_packed_shape = x.shape
 
-    assert x_mx._data.shape == expected_packed_shape
+    assert x_mx.qdata.shape == expected_packed_shape
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -505,14 +506,14 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         atol=0,
         rtol=0,
     )
-    torch.testing.assert_close(x_mx._data, x_mx_c._data, atol=0, rtol=0)
+    torch.testing.assert_close(x_mx.qdata, x_mx_c.qdata, atol=0, rtol=0)
 
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
     use_fp4_custom_triton_dequant_kernel = False
     pack_fp6 = False
     x_mx_dq = to_dtype(
-        x_mx._data,
+        x_mx.qdata,
         x_mx._scale_e8m0,
         x_mx._elem_dtype,
         x_mx._block_size,
@@ -521,7 +522,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         pack_fp6,
     )
     x_mx_c_dq = to_dtype_c(
-        x_mx_c._data,
+        x_mx_c.qdata,
         x_mx_c._scale_e8m0,
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
@@ -888,12 +889,12 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
     # Test that the sliced tensor shares storage with original for data
     # (Note: scales might not share storage due to swizzled layout complexity)
-    assert sliced_tensor._data.data_ptr() == tensor._data.data_ptr()
+    assert sliced_tensor.qdata.data_ptr() == tensor.qdata.data_ptr()
 
     # Test full-width column slicing (should maintain views)
     full_width_slice = tensor[:, 0:K]
     assert full_width_slice._scale_e4m3.data_ptr() == tensor._scale_e4m3.data_ptr()
-    assert full_width_slice._data.data_ptr() == tensor._data.data_ptr()
+    assert full_width_slice.qdata.data_ptr() == tensor.qdata.data_ptr()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -916,8 +917,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert "_is_swizzled_scales" in ctx
-    assert ctx["_is_swizzled_scales"] == True
+    assert NVFP4Tensor.tensor_attribute_names[2] == "_is_swizzled_scales"
+    assert ctx[2] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -1011,8 +1012,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     torch.testing.assert_close(
         nvfp4_pt._scale_e4m3.flatten(), nvfp4_triton._scale_e4m3.flatten()
     )
-    pt_unpacked = unpack_uint4(nvfp4_pt._data)
-    triton_unpacked = unpack_uint4(nvfp4_triton._data)
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
+    triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
     torch.testing.assert_close(
         pt_unpacked,
         triton_unpacked,
