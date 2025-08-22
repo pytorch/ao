@@ -186,103 +186,60 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             tensor_data_names = ["qdata"]
             tensor_attribute_names = ["attr", "device"]
 
-            def __new__(cls, qdata, attr, device):
+            def __new__(cls, qdata, attr, device=None):
                 shape = qdata.shape
                 if device is None:
                     device = qdata.device
                 kwargs = {"device": device}
                 return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-            def __init__(self, qdata, attr, device):
+            def __init__(self, qdata, attr, device=None):
                 self.qdata = qdata
                 self.attr = attr
 
         l = torch.nn.Linear(2, 3)
-        l.weight = torch.nn.Parameter(MyTensor(l.weight, "attr", None))
+        l.weight = torch.nn.Parameter(MyTensor(l.weight, "attr"))
         lp_tensor = l.weight
 
         another_tensor = torch.nn.Linear(2, 3).weight
         # attribute has to be the same
-        lp_tensor_for_copy = MyTensor(another_tensor, "attr", None)
+        lp_tensor_for_copy = MyTensor(another_tensor, "attr")
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
     @skip_if_no_cuda()
     def test_default_impls_with_optional_data(self):
         class MyTensorWithOptionalData(TorchAOBaseTensor):
             tensor_data_names = ["qdata"]
-            tensor_attribute_names = ["attr", "device"]
             optional_tensor_data_names = ["zero_point"]
+            tensor_attribute_names = ["attr", "device"]
 
-            def __new__(cls, qdata, attr, device, zero_point=None):
+            def __new__(cls, qdata, zero_point=None, attr=1.0, device=None):
                 shape = qdata.shape
                 if device is None:
                     device = qdata.device
                 kwargs = {"device": device}
                 return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-            def __init__(self, qdata, attr, device, zero_point=None):
+            def __init__(self, qdata, zero_point=None, attr=1.0, device=None):
                 self.qdata = qdata
-                self.attr = attr
                 self.zero_point = zero_point
+                self.attr = attr
 
         # test both the optional Tensor is None
         # and not None
         l = torch.nn.Linear(2, 3)
-        lp_tensor = MyTensorWithOptionalData(l.weight, "attr", None, None)
+        lp_tensor = MyTensorWithOptionalData(l.weight, None, "attr")
         l = torch.nn.Linear(2, 3)
-        lp_tensor_for_copy = MyTensorWithOptionalData(l.weight, "attr", None, None)
+        lp_tensor_for_copy = MyTensorWithOptionalData(l.weight, None, "attr")
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
         l = torch.nn.Linear(2, 3)
         lp_tensor = MyTensorWithOptionalData(
-            l.weight, "attr", None, torch.zeros_like(l.weight)
+            l.weight, torch.zeros_like(l.weight), "attr"
         )
         l = torch.nn.Linear(2, 3)
         lp_tensor_for_copy = MyTensorWithOptionalData(
-            l.weight, "attr", None, torch.zeros_like(l.weight)
-        )
-        self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
-
-    @skip_if_no_cuda()
-    def test_default_impls_with_optional_attr(self):
-        class MyTensorWithOptionalData(TorchAOBaseTensor):
-            tensor_data_names = ["qdata"]
-            tensor_attribute_names = ["attr", "device"]
-            optional_tensor_data_names = ["zero_point"]
-            optional_tensor_attribute_names = ["optional_attr"]
-
-            def __new__(cls, qdata, attr, device, zero_point=None, optional_attr=None):
-                shape = qdata.shape
-                if device is None:
-                    device = qdata.device
-                kwargs = {"device": device}
-                return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-
-            def __init__(
-                self, qdata, attr, device, zero_point=None, optional_attr=None
-            ):
-                self.qdata = qdata
-                self.attr = attr
-                self.zero_point = zero_point
-                self.optional_attr = optional_attr
-
-        # test both the optional Tensor is None
-        # and not None
-        l = torch.nn.Linear(2, 3)
-        lp_tensor = MyTensorWithOptionalData(l.weight, "attr", None, zero_point=None)
-        l = torch.nn.Linear(2, 3)
-        lp_tensor_for_copy = MyTensorWithOptionalData(
-            l.weight, "attr", None, zero_point=None
-        )
-        self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
-
-        l = torch.nn.Linear(2, 3)
-        lp_tensor = MyTensorWithOptionalData(
-            l.weight, "attr", None, zero_point=None, optional_attr="value"
-        )
-        l = torch.nn.Linear(2, 3)
-        lp_tensor_for_copy = MyTensorWithOptionalData(
-            l.weight, "attr", None, zero_point=None, optional_attr="value"
+            l.weight, torch.zeros_like(l.weight), "attr"
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
