@@ -527,7 +527,7 @@ def test_nvfp4_matmul_with_amax(
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_to_copy():
     from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
