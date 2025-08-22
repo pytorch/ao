@@ -11,8 +11,7 @@ on:
       - 'gh/**'
   pull_request:
     branches:
-      - main
-      - 'gh/**'
+      - ciflow/xpu/*
 
 concurrency:
   group: xpu_ci_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
