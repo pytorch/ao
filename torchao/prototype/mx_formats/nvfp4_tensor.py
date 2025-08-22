@@ -310,10 +310,10 @@ def nvfp4_to_copy(func, types, args, kwargs):
 
     if dtype is not None:
         res = NVFP4Tensor(
+            tensor.qdata,
             tensor._scale_e4m3,
             tensor._per_tensor_scale,
             tensor._act_per_tensor_scale,
-            tensor._data,
             tensor._block_size,
             dtype,
             tensor._is_swizzled_scales,
@@ -765,6 +765,7 @@ def _nvfp4_quantize(
     assert data_hp.is_contiguous(), "Only support contiguous data for now"
     assert block_size == 16, "NVFP4 requires block_size=16"
 
+    orig_dtype = data_hp.dtype
     orig_shape = data_hp.shape
     # Convert to float32 early for consistent precision with Triton implementation
     data_hp = data_hp.float().reshape(orig_shape[0], -1, block_size)
@@ -776,9 +777,9 @@ def _nvfp4_quantize(
     out_scales = None
     if per_tensor_scale is None:
         # We are doing single level scaling
-        block_scale_fp8 = torch.clamp(block_scale, min=E4M3_EPS, max=F8E4M3_MAX)
-        if not skip_dtype_cast_and_packing:
-            block_scale_fp8 = block_scale_fp8.to(torch.float8_e4m3fn)
+        block_scale_fp8 = torch.clamp(block_scale, min=E4M3_EPS, max=F8E4M3_MAX).to(
+            torch.float8_e4m3fn
+        )
         block_scale_fp32 = block_scale_fp8.to(torch.float32)
         data_scaled = data_hp / block_scale_fp32.unsqueeze(-1)
         out_scales = block_scale_fp8
@@ -791,9 +792,7 @@ def _nvfp4_quantize(
         scaled_block_scales = block_scale_fp32 / per_tensor_scale
         scaled_block_scales_fp8 = torch.clamp(
             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
-        )
-        if not skip_dtype_cast_and_packing:
-            scaled_block_scales_fp8 = scaled_block_scales_fp8.to(torch.float8_e4m3fn)
+        ).to(torch.float8_e4m3fn)
         scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
         # We "temporarily" dequant the scaled_block_scales_fp32 to get the per_tensor_scale
         # To apply to data
@@ -804,7 +803,7 @@ def _nvfp4_quantize(
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
     if skip_dtype_cast_and_packing:
-        return out_scales, data_scaled
+        return out_scales.to(torch.float32), data_scaled.to(orig_dtype)
     else:
         data_lp = f32_to_f4_unpacked(data_scaled)
         # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'

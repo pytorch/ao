@@ -26,14 +26,14 @@ from torchao.prototype.mx_formats.mx_linear import (
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -57,7 +57,7 @@ elem_dtypes = (
         # only test one type of mixed-dtype overrides, to save testing time
         (torch.float8_e4m3fn, torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2),
     ]
-    if TORCH_VERSION_AT_LEAST_2_8
+    if torch_version_at_least("2.8.0")
     else [
         # test each dtype
         (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn),
@@ -276,7 +276,7 @@ def test_linear_compile(
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
     if recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
-        if not TORCH_VERSION_AT_LEAST_2_8:
+        if not torch_version_at_least("2.8.0"):
             pytest.skip("torch.compile requires PyTorch 2.8+")
         if not is_sm_at_least_100():
             pytest.skip("CUDA capability >= 10.0 required for MX gemms")

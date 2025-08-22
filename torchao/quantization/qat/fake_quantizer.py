@@ -112,6 +112,9 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
         )
 
         block_size = 16
+        original_shape = x.shape
+        if x.dim() == 3:
+            x = x.view(-1, x.shape[-1])
         if self.config.use_per_tensor_scale:
             tensor_amax = torch.max(torch.abs(x))
             per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
@@ -126,7 +129,7 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
             skip_dtype_cast_and_packing=True,
         )
         if self.config.use_per_tensor_scale:
-            scale *= per_tensor_scale
+            scale = scale * per_tensor_scale
         assert q.dtype == x.dtype
         assert scale.dtype == torch.float32
 
@@ -135,7 +138,7 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
         q = q.view(M, K // block_size, block_size)
         scale = scale.view(M, K // block_size, 1)
         dq = q * scale
-        return dq.view(x.shape)
+        return dq.view(original_shape).to(x.dtype)
 
 
 class IntxFakeQuantizer(FakeQuantizerBase):

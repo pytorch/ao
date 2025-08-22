@@ -388,7 +388,7 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
         prof, n_iter, num_leaf_tensors=0
     )
     # there is only 1 key, aten::mm or aten::_scaled_mm, with unit nanoseconds
-    assert len(data) == 1
+    assert len(data) == 1, f"unexpected data: {data}"
     key, value = next(iter(data.items()))
     assert key in (
         "aten::mm",

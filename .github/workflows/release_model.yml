@@ -1,0 +1,46 @@
+name: Release Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      hf_model_id:
+        description: 'Model ID for huggingface model to quantize, e.g. google/gemma-3-4b-it'
+        required: true
+        type: string
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: H100
+            runs-on: linux.aws.h100
+            torch-spec: '--pre torch torchvision torchaudio fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.4"
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 90
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: ${{ matrix.gpu-arch-type }}
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
+      script: |
+        conda create -n venv python=3.9 -y
+        conda activate venv
+        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        python -m pip install --upgrade pip
+        pip install uv
+        pip install ${{ matrix.torch-spec }}
+        uv pip install -r dev-requirements.txt
+        pip install .
+        HF_MODEL_ID=${{ github.event.inputs.hf_model_id }}
+        cd .github/scripts/torchao_model_releases
+        ./release.sh --model_id $HF_MODEL_ID

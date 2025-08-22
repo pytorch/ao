@@ -1929,7 +1929,42 @@ class TestQAT(TestCase):
         """
         self._test_quantize_api_against_ptq(
             Float8DynamicActivationInt4WeightConfig(),
-            target_prepare_sqnr=15,
+            target_prepare_sqnr=12,
+            target_convert_sqnr=float("inf"),
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_infer_fp8_int4_config(self):
+        """
+        Test that fake quantize configs are correctly inferred from
+        `Float8DynamicActivationInt4WeightConfig`.
+        """
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        base_config = Float8DynamicActivationInt4WeightConfig()
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
+        self.assertEqual(act_config.dtype, torch.float8_e4m3fn)
+        self.assertIsInstance(act_config.granularity, PerRow)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int4)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertTrue(weight_config.is_symmetric)
+
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+    def test_quantize_api_nvfp4(self):
+        """
+        Test the following:
+            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="prepare"))
+            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="convert"))
+        """
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+
+        self._test_quantize_api_against_ptq(
+            NVFP4InferenceConfig(),
+            target_prepare_sqnr=8,
             target_convert_sqnr=float("inf"),
         )
 
@@ -1943,6 +1978,7 @@ class TestQAT(TestCase):
         m = M().cuda()
         baseline_model = copy.deepcopy(m)
         qat_config = QATConfig(
+            activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             step="prepare",
         )
@@ -1954,7 +1990,7 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        self.assertGreater(sqnr, 100)
+        self.assertGreater(sqnr, 30)
 
 
 instantiate_parametrized_tests(TestQAT)

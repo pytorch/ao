@@ -29,22 +29,22 @@ __all__ = [
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
     "TorchAOBaseTensor",
+    "is_MI300",
+    "is_sm_at_least_89",
+    "is_sm_at_least_90",
+    "is_package_at_least",
+    "DummyModule",
+    # Deprecated
     "TORCH_VERSION_AT_LEAST_2_2",
     "TORCH_VERSION_AT_LEAST_2_3",
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
     "TORCH_VERSION_AT_LEAST_2_6",
     "TORCH_VERSION_AT_LEAST_2_7",
-    # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
     "TORCH_VERSION_AFTER_2_5",
-    "is_MI300",
-    "is_sm_at_least_89",
-    "is_sm_at_least_90",
-    "is_package_at_least",
-    "DummyModule",
 ]
 
 
@@ -348,19 +348,21 @@ def _is_float8_type(dtype: torch.dtype) -> bool:
 
 
 def parse_version(version_string):
-    # Extract just the X.Y.Z part from the version string
-    match = re.match(r"(\d+\.\d+\.\d+)", version_string)
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
+    """
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
     if match:
-        version = match.group(1)
-        return [int(x) for x in version.split(".")]
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
     else:
         raise ValueError(f"Invalid version string format: {version_string}")
-
-
-def compare_versions(v1, v2):
-    v1_parts = parse_version(v1)
-    v2_parts = parse_version(v2)
-    return (v1_parts > v2_parts) - (v1_parts < v2_parts)
 
 
 def is_fbcode():
@@ -368,7 +370,11 @@ def is_fbcode():
 
 
 def torch_version_at_least(min_version):
-    return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
+    if is_fbcode():
+        return True
+
+    # Parser for local identifiers
+    return parse_version(torch.__version__) >= parse_version(min_version)
 
 
 def _deprecated_torch_version_at_least(version_str: str) -> str:
@@ -738,6 +744,7 @@ class TorchAOBaseTensor(torch.Tensor):
     `_apply_fn_to_data`: takes a function (Tensor -> Tensor),  applies function to all tensor data and
         recreate a new subclassed Tensor with the transformed tensor data
     `__repr__`: the string representation of the subclassed tensor instance
+    `_same_metadata`: returns whether the metadata is the same between two instances of cls
     torch ops: torch.Tensor.contiguous
     aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)
 
@@ -985,13 +992,13 @@ def is_sm_at_least_100():
 def check_cpu_version(device, version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "cpu" and compare_versions(torch.__version__, version) >= 0
+    return device == "cpu" and torch_version_at_least(version)
 
 
 def check_xpu_version(device, version="2.8.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "xpu" and compare_versions(torch.__version__, version) >= 0
+    return device == "xpu" and torch_version_at_least(version)
 
 
 def ceil_div(a, b):

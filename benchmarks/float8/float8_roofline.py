@@ -166,6 +166,8 @@ def get_gemm_times(
         if torch.version.hip and torch.cuda.is_available() and is_MI300():
             e4m3_dtype = torch.float8_e4m3fnuz
         d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
+        # TODO(future PR): create more realistic tensors here for more accurate
+        # gemm benchmarking
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
         if float8_recipe_name == "tensorwise":
