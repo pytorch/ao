@@ -96,6 +96,22 @@ def test_realistic_numerics(elem_dtype, scale_calculation_mode):
     _test_mx(data, elem_dtype, block_size, scale_calculation_mode)
 
 
+def test_fp4_triton_cast_does_not_change_numerics():
+    # TODO(before land): proper skips
+    # TODO(before land): test rank 3
+    data = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+    data_mx_ref = MXTensor.to_mx(
+        data, torch.float4_e2m1fn_x2, 32, use_fp32_to_fp4_triton_kernel=False
+    )
+    data_mx = MXTensor.to_mx(
+        data, torch.float4_e2m1fn_x2, 32, use_fp32_to_fp4_triton_kernel=True
+    )
+    torch.testing.assert_close(data_mx_ref.qdata, data_mx.qdata, atol=0, rtol=0)
+    torch.testing.assert_close(
+        data_mx_ref._scale_e8m0, data_mx._scale_e8m0, atol=0, rtol=0
+    )
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_all_zeros(elem_dtype):

@@ -55,6 +55,7 @@ from torchao.prototype.mx_formats.kernels import (
     pack_uint6,
     triton_f6_e2m3_to_scaled_bf16,
     triton_f6_e3m2_to_scaled_bf16,
+    triton_fp32_cast_to_fp4x2,
     unpack_uint4,
 )
 from torchao.quantization.quantize_.common import (
@@ -134,6 +135,7 @@ def to_mx(
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     pack_fp6: bool = False,
+    use_fp32_to_fp4_triton_kernel: bool = False,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -309,13 +311,17 @@ def to_mx(
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == torch.float4_e2m1fn_x2:
-        # can't reshape at the end without handling it in the packing code,
-        # punt until later since we'll need to rethink the torch.compile
-        # approach for fp4x2 in any case
-        data_lp = data_lp.reshape(orig_shape)
-        data_lp = f32_to_f4_unpacked(data_lp)
-        orig_shape = [*orig_shape[:-1], orig_shape[-1] // 2]
-        data_lp = pack_uint4(data_lp)
+        if use_fp32_to_fp4_triton_kernel:
+            data_lp = data_lp.reshape(orig_shape)
+            data_lp = triton_fp32_cast_to_fp4x2(data_lp)
+        else:
+            # can't reshape at the end without handling it in the packing code,
+            # punt until later since we'll need to rethink the torch.compile
+            # approach for fp4x2 in any case
+            data_lp = data_lp.reshape(orig_shape)
+            data_lp = f32_to_f4_unpacked(data_lp)
+            orig_shape = [*orig_shape[:-1], orig_shape[-1] // 2]
+            data_lp = pack_uint4(data_lp)
     else:
         raise AssertionError("unsupported")
 
@@ -583,9 +589,15 @@ class MXTensor(TorchAOBaseTensor):
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
         pack_fp6: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
+        use_fp32_to_fp4_triton_kernel: bool = False,
     ):
         scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
+            data_hp,
+            elem_dtype,
+            block_size,
+            scaling_mode,
+            pack_fp6,
+            use_fp32_to_fp4_triton_kernel,
         )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
