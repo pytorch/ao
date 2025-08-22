@@ -16,14 +16,14 @@ from torchao.utils import TorchAOBaseTensor, torch_version_at_least
 class TestTorchVersion(unittest.TestCase):
     def test_torch_version_at_least(self):
         test_cases = [
-            ("2.5.0a0+git9f17037", "2.5.0", True),
-            ("2.5.0a0+git9f17037", "2.4.0", True),
-            ("2.5.0.dev20240708+cu121", "2.5.0", True),
-            ("2.5.0.dev20240708+cu121", "2.4.0", True),
-            ("2.5.0", "2.4.0", True),
-            ("2.5.0", "2.5.0", True),
-            ("2.4.0", "2.4.0", True),
-            ("2.4.0", "2.5.0", False),
+            ("2.5.0a0+git9f17037", "2.5.0", False),  # [2, 5, -1] < [2, 5, 0]
+            ("2.5.0a0+git9f17037", "2.4.0", True),  # [2, 5, -1] > [2, 4, 0]
+            ("2.5.0.dev20240708+cu121", "2.5.0", False),  # [2, 5, -1] < [2, 5, 0]
+            ("2.5.0.dev20240708+cu121", "2.4.0", True),  # [2, 5, -1] > [2, 4, 0]
+            ("2.5.0", "2.4.0", True),  # [2, 5, 0] > [2, 4, 0]
+            ("2.5.0", "2.5.0", True),  # [2, 5, 0] >= [2, 5, 0]
+            ("2.4.0", "2.4.0", True),  # [2, 4, 0] >= [2, 4, 0]
+            ("2.4.0", "2.5.0", False),  # [2, 4, 0] < [2, 5, 0]
         ]
 
         for torch_version, compare_version, expected_result in test_cases:
