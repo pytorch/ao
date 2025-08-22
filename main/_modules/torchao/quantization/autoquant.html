@@ -773,8 +773,7 @@
         <span class="n">graph</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">CUDAGraph</span><span class="p">()</span>
         <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">graph</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">):</span>
             <span class="n">op</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-        <span class="c1"># TODO: update to 2.8.0 after https://github.com/pytorch/ao/pull/2786 is landed</span>
-        <span class="k">if</span> <span class="n">torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.9.0&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.8.0&quot;</span><span class="p">):</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">statistics</span><span class="w"> </span><span class="kn">import</span> <span class="n">median</span>
 
             <span class="n">res</span> <span class="o">=</span> <span class="n">benchmarker</span><span class="o">.</span><span class="n">benchmark_gpu</span><span class="p">(</span>
