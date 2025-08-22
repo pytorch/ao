@@ -39,7 +39,6 @@ from torchao.testing.utils import skip_if_xpu
 _SEED = 1234
 torch.manual_seed(_SEED)
 
-_GPU_IS_AVAILABLE = True if torch.cuda.is_available() or torch.xpu.is_available() else False
 _DEVICE = auto_detect_device()
 
 # Helper function to run a function twice
@@ -573,8 +572,9 @@ class TestQuantPrimitives(unittest.TestCase):
         eps = torch.finfo(torch.float32).eps
         self.assertEqual(scale, eps)
 
-    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
-    @skip_if_xpu()
+    @unittest.skipIf(
+        not torch.cuda.is_available(), "skipping when cuda is not available"
+    )
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
         weight = torch.randn(1024, 1024).to(device=_DEVICE)
