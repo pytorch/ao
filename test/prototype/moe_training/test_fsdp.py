@@ -51,8 +51,6 @@ except ImportError:
     (MoEScalingType.MXFP8, 28.0)
 ])
 def test_moe_float8_training_fsdp(recipe: MoEScalingType, min_out_sqnr: float):
-# def test_moe_float8_training_fsdp():
-    print(f"recipe: {recipe}")
     assert torch.cuda.is_available()
 
     # setup distributed for fsdp
@@ -88,7 +86,6 @@ def test_moe_float8_training_fsdp(recipe: MoEScalingType, min_out_sqnr: float):
             if target_fqn in cur_fqn:
                 return True
         return False
-    print("quantizing...")
     # quantize test model
     config = MoETrainingConfig(recipe)
     # config = MoETrainingConfig()
