@@ -31,7 +31,8 @@ from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
 from torchao.quantization.quant_api import quantize_
 
-from .testing_utils import _validate_model_conversion
+from testing_utils import _validate_model_conversion
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 
 # this test requires torchtitan
 try:
@@ -45,7 +46,13 @@ except ImportError:
     )
 
 
-def test_moe_float8_training_fsdp():
+@pytest.mark.parametrize("recipe, min_out_sqnr", [
+    (MoEScalingType.FP8_ROWWISE, 29.0),
+    (MoEScalingType.MXFP8, 28.0)
+])
+def test_moe_float8_training_fsdp(recipe: MoEScalingType, min_out_sqnr: float):
+# def test_moe_float8_training_fsdp():
+    print(f"recipe: {recipe}")
     assert torch.cuda.is_available()
 
     # setup distributed for fsdp
@@ -81,9 +88,10 @@ def test_moe_float8_training_fsdp():
             if target_fqn in cur_fqn:
                 return True
         return False
-
+    print("quantizing...")
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(recipe)
+    # config = MoETrainingConfig()
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -109,7 +117,6 @@ def test_moe_float8_training_fsdp():
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    min_out_sqnr = 29.0
     assert out_sqnr.item() >= min_out_sqnr, (
         f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
     )
