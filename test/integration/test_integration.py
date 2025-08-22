@@ -76,13 +76,13 @@ from torchao.quantization.utils import (
 )
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
     benchmark_model,
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -1883,7 +1883,7 @@ class TestAOTI(unittest.TestCase):
         model(x)
 
         api(model)
-        if not TORCH_VERSION_AT_LEAST_2_7:
+        if not torch_version_at_least("2.7.0"):
             unwrap_tensor_subclass(model)
 
         # running model
@@ -1942,7 +1942,7 @@ class TestExport(unittest.TestCase):
         model(x)
 
         api(model)
-        if not TORCH_VERSION_AT_LEAST_2_7:
+        if not torch_version_at_least("2.7.0"):
             unwrap_tensor_subclass(model)
 
         # running model

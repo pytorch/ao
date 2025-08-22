@@ -15,7 +15,7 @@ from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import (
     _int8_sdpa_init,
     custom_pass,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 class SelfAttnLikeModule(torch.nn.Module):
@@ -149,7 +149,8 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
     @skipIfRocm
     @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
+        not torch_version_at_least("2.7.0"),
+        reason="int8 sdpa requires torch 2.7 or later",
     )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
