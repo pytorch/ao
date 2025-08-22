@@ -23,7 +23,6 @@ from torchao.dtypes import (
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization import quantize_, to_linear_activation_quantized
 from torchao.quantization.granularity import (
-    PerAxis,
     PerTensor,
 )
 from torchao.quantization.observer import (
@@ -37,7 +36,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyMultiLinearModel
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import is_sm_at_least_90
 
 
@@ -107,7 +106,7 @@ def _apply_static_quant_transform(
     weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
 
     def weight_quant_func(weight):
-        block_size = (1, weight.shape[1])
+        block_size = weight.shape
         if target_dtype == torch.uint8:
             return to_affine_quantized_intx_static(
                 weight, weight_scale, weight_zero_point, block_size, target_dtype
@@ -174,7 +173,7 @@ class QuantizedLinear(torch.nn.Module):
         self.act_scale, self.act_zero_point = act_obs.calculate_qparams()
         weight_scale, weight_zero_point = weight_obs.calculate_qparams()
         assert weight.dim() == 2
-        block_size = (1, weight.shape[1])
+        block_size = weight.shape
         self.target_dtype = target_dtype
         self.bias = bias
         if self.target_dtype == torch.uint8:
@@ -247,7 +246,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     torch.manual_seed(0)
 
     dtype = torch.bfloat16
-    m = ToyMultiLinearModel().eval().to(dtype).to("cuda")
+    m = ToyTwoLinearModel(64, 32, 64).eval().to(dtype).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
     example_inputs = m.example_inputs(dtype=dtype, device="cuda")
@@ -266,7 +265,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     weight_obs = AffineQuantizedMinMaxObserver(
         mapping_type,
         target_dtype,
-        granularity=PerAxis(axis=0),
+        granularity=PerTensor(),
         eps=torch.finfo(torch.float32).eps,
         scale_dtype=torch.float32,
         zero_point_dtype=torch.float32,

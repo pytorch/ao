@@ -37,27 +37,29 @@ class ToySingleLinearModel(torch.nn.Module):
         return x
 
 
-class ToyMultiLinearModel(torch.nn.Module):
-    def __init__(self, m=512, n=256, k=128, has_bias=True):
+class ToyTwoLinearModel(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, has_bias=False):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=has_bias)
-        self.linear2 = torch.nn.Linear(n, k, bias=has_bias)
-        self.linear3 = torch.nn.Linear(k, 64, bias=has_bias)
+        self.linear1 = torch.nn.Linear(input_dim, hidden_dim, bias=has_bias)
+        self.linear2 = torch.nn.Linear(hidden_dim, output_dim, bias=has_bias)
 
     def example_inputs(
-        self, batch_size=1, sequence_length=10, dtype=torch.float32, device="cpu"
+        self, batch_size=1, sequence_length=None, dtype=torch.float32, device="cpu"
     ):
-        return [
+        if sequence_length is not None:
+            return [
+                torch.randn(1, self.linear1.in_features, dtype=dtype, device=device)
+                for _ in range(batch_size)
+            ]
+        return (
             torch.randn(
-                1, sequence_length, self.linear1.in_features, dtype=dtype, device=device
-            )
-            for _ in range(batch_size)
-        ]
+                batch_size, self.linear1.in_features, dtype=dtype, device=device
+            ),
+        )
 
     def forward(self, x):
         x = self.linear1(x)
         x = self.linear2(x)
-        x = self.linear3(x)
         return x
 
 
@@ -197,7 +199,7 @@ def create_model_and_input_data(
         m, k, n (int): dimensions of the model and input data
     """
     if model_type == "linear":
-        model = ToyMultiLinearModel(k, n, high_precision_dtype).to(device)
+        model = ToyTwoLinearModel(k, n, high_precision_dtype).to(device)
         input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string

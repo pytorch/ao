@@ -44,7 +44,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyMultiLinearModel
+from torchao.testing.model_architectures import ToyTwoLinearModel
 
 
 class ObservedLinear(torch.nn.Linear):
@@ -122,9 +122,7 @@ def _apply_awq_transform(
                 weight, weight_scale, weight_zero_point, block_size, target_dtype
             )
         elif target_dtype == torch.float8_e4m3fn:
-            scale_2d = (
-                weight_scale.view(1, -1) if weight_scale.dim() == 1 else weight_scale
-            )
+            scale_2d = weight_scale.view(-1, 1)
             return to_affine_quantized_floatx_static(
                 weight,
                 scale_2d,
@@ -171,7 +169,7 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     torch.manual_seed(0)
 
     dtype = torch.bfloat16
-    m = ToyMultiLinearModel().eval().to(dtype).to("cuda")
+    m = ToyTwoLinearModel(64, 32, 64).eval().to(dtype).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
     example_inputs = m.example_inputs(dtype=dtype, device="cuda")

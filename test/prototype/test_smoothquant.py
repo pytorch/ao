@@ -22,7 +22,7 @@ from torchao.quantization.utils import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,
 )
-from torchao.testing.model_architectures import ToyMultiLinearModel
+from torchao.testing.model_architectures import ToyTwoLinearModel
 
 
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
@@ -161,7 +161,7 @@ class TestSmoothQuant(unittest.TestCase):
         sequence_length = 5
 
         # Create two identical models for comparison
-        m = ToyMultiLinearModel(*layer_dims).eval().to(input_dtype).to(device)
+        m = ToyTwoLinearModel(*layer_dims).eval().to(input_dtype).to(device)
         m_save_load = deepcopy(m)
 
         # Generate calibration dataset

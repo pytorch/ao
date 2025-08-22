@@ -8,14 +8,14 @@ import copy
 import torch
 
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.testing.model_architectures import ToyMultiLinearModel
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import benchmark_model
 
 # ================
 # | Set up model |
 # ================
 
-model = ToyMultiLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
+model = ToyTwoLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
 
 # Optional: compile model for faster inference and generation
 model = torch.compile(model, mode="max-autotune", fullgraph=True)
