@@ -796,7 +796,7 @@ EMBEDINGBAG_TEST_PARAMS = list(
 
 
 @pytest.mark.skipif(
-    "CPU" not in torch._C._dispatch_dump("torchao::qembeddingbag"),
+    "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
     reason="cpp kernels not built",
 )
 @pytest.mark.parametrize(
@@ -804,7 +804,7 @@ EMBEDINGBAG_TEST_PARAMS = list(
     EMBEDINGBAG_TEST_PARAMS,
     ids=str,
 )
-def test_embeddingbag_cpu(multi_hot, batch_size, vector_size, index_type):
+def test_scaled_embedding_bag_cpu(multi_hot, batch_size, vector_size, index_type):
     qtype = torch.float8_e4m3fn
     dtype = torch.float32
     weight_scale = torch.tensor([2.0])
@@ -832,7 +832,7 @@ def test_embeddingbag_cpu(multi_hot, batch_size, vector_size, index_type):
 
     with torch.no_grad():
         refe_out = m.forward(indices, offsets) * weight_scale
-        test_out = torch.ops.torchao.qembeddingbag(
+        test_out = torch.ops.torchao._scaled_embedding_bag(
             fp8_weight,
             indices,
             offsets,

@@ -20,7 +20,7 @@ static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn *x) {
 #endif
 
 template <typename index_t>
-inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
+inline void _scaled_embedding_bag_krnl(const int64_t bs_begin, const int64_t bs_end,
                                const int64_t num_emb, const int64_t emb_dim,
                                const index_t last_offset,
                                const index_t *indices, const index_t *offsets,
@@ -104,7 +104,7 @@ inline void qembeddingbag_kern(const int64_t bs_begin, const int64_t bs_end,
 }
 
 template <typename index_t, typename data_t>
-void qembeddingbagcat(float *o_ptr, data_t *w_ptr, index_t *indices_ptr,
+void _scaled_embedding_bag(float *o_ptr, data_t *w_ptr, index_t *indices_ptr,
                       index_t *offsets_ptr, int64_t num_batch, int64_t emb_dim,
                       index_t last_offset, double w_scale, double o_scale) {
   constexpr int64_t b_block = 512;
@@ -118,13 +118,13 @@ void qembeddingbagcat(float *o_ptr, data_t *w_ptr, index_t *indices_ptr,
       const int64_t bs_end = std::min(num_batch, (b + 1) * b_block);
       float *r = &o_ptr[b * b_block * num_emb * emb_dim + n * emb_dim];
       // avoid offsets not include last batch
-      qembeddingbag_kern(bs_begin, bs_end, num_emb, emb_dim, last_offset,
+      _scaled_embedding_bag_krnl(bs_begin, bs_end, num_emb, emb_dim, last_offset,
                          indices_ptr, offsets_ptr, w_ptr, w_scale, r, num_batch);
     }
   }
 }
 
-at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
+at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
                               const at::Tensor &indices,
                               const at::Tensor &offsets,
                               const at::Tensor &w_scales, double o_scale,
@@ -133,9 +133,9 @@ at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
   // at::native::EmbeddingBagMode::SUM
   // TODO: Support more case
   TORCH_CHECK(include_last_offset,
-              "qembeddingbag: only suppport include_last_offset");
+              "_scaled_embedding_bag: only suppport include_last_offset");
   TORCH_CHECK(mode == at::native::EmbeddingBagMode::SUM,
-              "qembeddingbag: only suppport sum mode");
+              "_scaled_embedding_bag: only suppport sum mode");
   int64_t batch_size =
       include_last_offset ? offsets.size(0) - 1 : offsets.size(0);
   int64_t emb_dim = qweight.size(1);
@@ -145,15 +145,15 @@ at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
   float w_scale = w_scales.data_ptr<float>()[0];
 
   TORCH_CHECK(indices.is_contiguous() && offsets.is_contiguous(),
-              "qembeddingbag: only accept contiguous input");
+              "_scaled_embedding_bag: only accept contiguous input");
   TORCH_CHECK(offsets.scalar_type() == index_type,
-              "qembeddingbag: index and offset must be of the same type");
+              "_scaled_embedding_bag: index and offset must be of the same type");
   TORCH_CHECK(qweight.is_contiguous(),
-              "qembeddingbag: only accept contiguous weight");
+              "_scaled_embedding_bag: only accept contiguous weight");
   TORCH_CHECK(qweight.dim() == 2,
-              "qembeddingbag: only accept weight with dim == 2");
+              "_scaled_embedding_bag: only accept weight with dim == 2");
   TORCH_CHECK(qweight.scalar_type() == c10::ScalarType::Float8_e4m3fn,
-              "qembeddingbag: only support e4m3fn weight")
+              "_scaled_embedding_bag: only support e4m3fn weight")
   // handle last offsets
   int64_t last_offset = indices.numel();
 
@@ -164,7 +164,7 @@ at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
     index_t *indices_ptr = indices.data_ptr<index_t>();
     index_t *offsets_ptr = offsets.data_ptr<index_t>();
     float *output_ptr = output.data_ptr<float>();
-    qembeddingbagcat<index_t, at::Float8_e4m3fn>(
+    _scaled_embedding_bag<index_t, at::Float8_e4m3fn>(
         output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size, emb_dim,
         last_offset, w_scale, o_scale);
   });
@@ -174,7 +174,7 @@ at::Tensor qembeddingbag_impl(const at::Tensor &qweight,
 } // anonymous namespace
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::qembeddingbag", &qembeddingbag_impl);
+  m.impl("torchao::_scaled_embedding_bag", &_scaled_embedding_bag_impl);
 }
 
 } // namespace torchao
