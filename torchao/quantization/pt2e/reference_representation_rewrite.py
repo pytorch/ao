@@ -255,9 +255,9 @@ def _qdq_dynamic_quantized_linear_4bit_groupwise(
     )
 
     assert group_size > 0, "Group size must be positive"
-    assert (
-        weight_i4.shape[1] % group_size == 0
-    ), "Weight must be divisible by group_size"
+    assert weight_i4.shape[1] % group_size == 0, (
+        "Weight must be divisible by group_size"
+    )
     assert weight_i4.dim() == 2, "Weight must be 2D tensor"
     block_size = (1, group_size)
     weight_fp32 = torch.ops.torchao.dequantize_affine(
