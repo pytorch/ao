@@ -22,7 +22,7 @@ jobs:
     # Don't run on forked repos or empty test matrix
     # if: github.repository_owner == 'pytorch' && toJSON(fromJSON(inputs.test-matrix).include) != '[]'
     timeout-minutes: 60
-    runs-on: ao-pvc
+    runs-on: linux.idc.xpu
     env:
       DOCKER_IMAGE: ghcr.io/pytorch/ci-image:pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
       TEST_COMMAND: .github/scripts/ci_test_xpu.sh
