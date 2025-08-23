@@ -24,12 +24,13 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerGroup
+from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quantize_.common import PackingFormat
 from torchao.quantization.utils import compute_error
 from torchao.utils import torch_version_at_least
 
 
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
 class TestIntxUnpackedTensor(TestCase):
     def setUp(self):
         self.config = IntxWeightOnlyConfig(
@@ -192,7 +193,6 @@ class TestIntxUnpackedTensor(TestCase):
         activations = torch.randn(1, 512, dtype=torch.float32)
 
         packing_format = PackingFormat.UNPACKED_TO_INT8
-        compute_target = None
 
         quantize_(
             model,
@@ -200,7 +200,6 @@ class TestIntxUnpackedTensor(TestCase):
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
                 packing_format=packing_format,
-                compute_target=compute_target,
                 version=2,
             ),
         )
@@ -248,6 +247,92 @@ class TestIntxUnpackedTensor(TestCase):
             model2.load_state_dict(state_dict, assign=True)
             actual = model2(activations)
             self.assertTrue(torch.allclose(expected, actual))
+
+    @parameterized.expand(
+        [
+            param(
+                weight_dtype=weight_dtype,
+                group_size=group_size,
+                mapping_type=mapping_type,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
+            for group_size in [32, 64, 128]
+            for mapping_type in [MappingType.SYMMETRIC]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_qat_int8_dyn_act_intx_weight_config(
+        self, weight_dtype, group_size, mapping_type, scale_dtype, model_dtype
+    ):
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int8, "per_token", is_symmetric=False, scale_precision=scale_dtype
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            weight_dtype,
+            group_size=group_size,
+            mapping_type=mapping_type,
+            scale_precision=scale_dtype,
+        )
+        qat_config_prepare = QATConfig(
+            activation_config=activation_config,
+            weight_config=weight_config,
+            step="prepare",
+        )
+        qat_config_convert = QATConfig(
+            step="convert",
+        )
+        quant_config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=weight_config.dtype,
+            weight_granularity=PerGroup(group_size),
+            weight_mapping_type=mapping_type,
+            weight_scale_dtype=scale_dtype,
+            packing_format=PackingFormat.UNPACKED_TO_INT8,
+            version=2,
+        )
+
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+            torch.nn.Linear(k1, k0),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        quantize_(model, qat_config_prepare)
+        prepared_out = model(activations)
+
+        quantize_(model, qat_config_convert)
+        converted_out = model(activations)
+
+        quantize_(
+            model,
+            quant_config,
+        )
+        quantizeed_out = model(activations)
+
+        sqnr = compute_error(prepared_out, converted_out).item()
+        sqnr = compute_error(prepared_out, quantizeed_out).item()
+
+        if model_dtype == scale_dtype:
+            self.assertTrue(
+                sqnr == float("inf"),
+                f"Got SQNR of {sqnr} between prepared and quantized",
+            )
+        else:
+            # There is slight difference in how v2 does dynamic activation quantization
+            # It uses the model_dtype, whereas v1 always uses float32
+            self.assertTrue(
+                sqnr > 35, f"Got SQNR of {sqnr} between prepared and quantized"
+            )
 
     @parameterized.expand(
         [
@@ -320,12 +405,12 @@ class TestIntxUnpackedTensor(TestCase):
         out_v2 = model(activations)
         sqnr = compute_error(out_v1, out_v2).item()
 
-        if scale_dtype == torch.float32 and model_dtype == torch.float32:
+        if model_dtype == torch.float32 and model_dtype == torch.float32:
             self.assertTrue(sqnr == float("inf"), f"Got SQNR of {sqnr}")
         else:
             # There is slight difference in how v2 does dynamic activation quantization
-            # for non-float32 tensors
-            self.assertTrue(sqnr > 30, f"Got SQNR of {sqnr}")
+            # It uses the model_dtype, whereas v1 always uses float32
+            self.assertTrue(sqnr > 35, f"Got SQNR of {sqnr}")
 
 
 if __name__ == "__main__":

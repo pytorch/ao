@@ -55,7 +55,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype: this determines the quant_min/quant_max of the qdata (can be torch.int1, ..., torch.int8)
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
         dtype: the dtype of the dequantized Tensor
-        apply_activation_quantization: bool, whether to apply activation quantization to the dequantized Tensor.  Use False for weight-only quantization
+        apply_int8_act_asym_per_token_quant: bool, whether to apply activation quantization to the dequantized Tensor during linear.  Use False for weight-only quantization
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
@@ -63,7 +63,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         "target_dtype",
         "block_size",
         "dtype",
-        "apply_activation_quantization",
+        "apply_int8_act_asym_per_token_quant",
     ]
 
     def __new__(
@@ -74,7 +74,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype,
         block_size,
         dtype,
-        apply_activation_quantization,
+        apply_int8_act_asym_per_token_quant,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -91,7 +91,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype,
         block_size,
         dtype,
-        apply_activation_quantization,
+        apply_int8_act_asym_per_token_quant,
     ):
         assert qdata.dtype == torch.int8, (
             f"qdata dtype must be int8, but got {qdata.dtype}"
@@ -125,10 +125,10 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
 
         self.target_dtype = target_dtype
         self.block_size = block_size
-        self.apply_activation_quantization = apply_activation_quantization
+        self.apply_int8_act_asym_per_token_quant = apply_int8_act_asym_per_token_quant
 
     def _quantization_type(self):
-        return f"target_dtype={self.target_dtype}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}, apply_activation_quantization={self.apply_activation_quantization}"
+        return f"target_dtype={self.target_dtype}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}, apply_int8_act_asym_per_token_quant={self.apply_int8_act_asym_per_token_quant}"
 
     def _has_float_zero_point(self) -> bool:
         return self.zero_point.dtype in _FLOAT_TYPES
@@ -147,7 +147,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             self.target_dtype,
             self.block_size,
             dtype,
-            self.apply_activation_quantization,
+            self.apply_int8_act_asym_per_token_quant,
         )
 
     @classmethod
@@ -158,7 +158,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         *,
         mapping_type: MappingType = MappingType.SYMMETRIC,
-        apply_activation_quantization: bool = False,
+        apply_int8_act_asym_per_token_quant: bool = False,
     ):
         """
         Create an IntxUnpackedTensor from a high-precision tensor
@@ -189,7 +189,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             target_dtype=target_dtype,
             block_size=block_size,
             dtype=hp_tensor.dtype,
-            apply_activation_quantization=apply_activation_quantization,
+            apply_int8_act_asym_per_token_quant=apply_int8_act_asym_per_token_quant,
         )
 
     def dequantize(self):
@@ -219,7 +219,7 @@ def _(func, types, args, kwargs):
     assert isinstance(weight_tensor, IntxUnpackedTensor)
 
     # Apply dynamic activation quant
-    if weight_tensor.apply_activation_quantization:
+    if weight_tensor.apply_int8_act_asym_per_token_quant:
         input_tensor = IntxUnpackedTensor.from_hp(
             hp_tensor=input_tensor,
             block_size=_get_per_token_block_size(input_tensor),
@@ -292,7 +292,7 @@ def _(func, types, args, kwargs):
         self.target_dtype,
         new_block_size,
         self.dtype,
-        self.apply_activation_quantization,
+        self.apply_int8_act_asym_per_token_quant,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
