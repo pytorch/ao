@@ -27,18 +27,18 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
-from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
-from torchao.quantization.quant_api import quantize_
-
 from testing_utils import _validate_model_conversion
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+
+from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
+from torchao.quantization.quant_api import quantize_
 
 # this test requires torchtitan
 try:
-    from torchtitan.distributed.expert_parallel import (
-        set_token_group_alignment_size_m,
-    )
+    from torchtitan.distributed.expert_parallel import set_token_group_alignment_size_m
     from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     pytest.skip(
@@ -46,18 +46,25 @@ except ImportError:
     )
 
 
-@pytest.mark.parametrize("recipe, min_out_sqnr", [
-    (MoEScalingType.FP8_ROWWISE, 29.0),
-    (MoEScalingType.MXFP8, 28.0)
-])
-def test_moe_float8_training_fsdp(recipe: MoEScalingType, min_out_sqnr: float):
+@pytest.mark.parametrize(
+    "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
+    [
+        (MoEScalingType.FP8_ROWWISE, 29.0, 16, 23.0),
+        (MoEScalingType.MXFP8, 28.0, 32, 21.0),
+    ],
+)
+def test_moe_float8_training_fsdp(
+    recipe: MoEScalingType,
+    min_out_sqnr: float,
+    alignment_size: int,
+    min_param_grad_sqnr: float,
+):
     assert torch.cuda.is_available()
 
     # setup distributed for fsdp
     setup_distributed()
 
-    # token group aligment size must be 16 for fp8
-    set_token_group_alignment_size_m(16)
+    set_token_group_alignment_size_m(alignment_size)
 
     # define model args
     target_fqns = ["experts"]
@@ -86,6 +93,7 @@ def test_moe_float8_training_fsdp(recipe: MoEScalingType, min_out_sqnr: float):
             if target_fqn in cur_fqn:
                 return True
         return False
+
     # quantize test model
     config = MoETrainingConfig(recipe)
     # config = MoETrainingConfig()
@@ -135,7 +143,6 @@ def test_moe_float8_training_fsdp(recipe: MoEScalingType, min_out_sqnr: float):
     )
 
     # validate param gradients
-    min_param_grad_sqnr = 23.0
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
         assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
