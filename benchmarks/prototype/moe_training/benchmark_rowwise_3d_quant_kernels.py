@@ -16,6 +16,7 @@ from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
+    triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
 )
 from torchao.prototype.moe_training.utils import (
     torch_to_3d_rowwise_float8_transpose_rhs,
@@ -37,9 +38,11 @@ class ExperimentConfig:
 @dataclass(frozen=True)
 class ExperimentResult:
     torch_time_us: float
-    triton_time_us: float
+    triton_atomic_time_us: float
+    triton_reduction_time_us: float
     torch_mem_bw_gbps: float
-    triton_mem_bw_gbps: float
+    triton_atomic_mem_bw_gbps: float
+    triton_reduction_mem_bw_gbps: float
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ def get_configs() -> List[ExperimentConfig]:
         (128, 5120, 8192),  # w2
     ]
     high_precision_dtypes = [torch.bfloat16]
-    power_of_2_scales = [True, False]
+    power_of_2_scales = [True]
     configs = []
     for input_shape, high_precision_dtype, power_of_2_scale in itertools.product(
         input_shapes, high_precision_dtypes, power_of_2_scales
@@ -94,8 +97,16 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         )
         return out
 
-    def run_triton(input_tensor: torch.Tensor):
+    def run_triton_atomic(input_tensor: torch.Tensor):
         out = triton_fp8_rowwise_3d_transpose_rhs(
+            input_tensor,
+            output_dtype=torch.float8_e4m3fn,
+            round_scales_to_power_of_2=config.power_of_2_scales,
+        )
+        return out
+
+    def run_triton_reduction(input_tensor: torch.Tensor):
+        out = triton_fp8_rowwise_3d_transpose_rhs_fused_reduction(
             input_tensor,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=config.power_of_2_scales,
@@ -110,10 +121,19 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         input_tensor,
     )
 
-    # bench triton
-    warmup(run_triton, input_tensor)
-    triton_time_us = benchmark_cuda_function_in_microseconds(
-        run_triton,
+    # bench triton atomic method
+    run_triton_atomic_c = torch.compile(run_triton_atomic)
+    warmup(run_triton_atomic_c, input_tensor)
+    triton_atomic_time_us = benchmark_cuda_function_in_microseconds(
+        run_triton_atomic_c,
+        input_tensor,
+    )
+
+    # bench triton reduction method
+    run_triton_reduction_c = torch.compile(run_triton_reduction)
+    warmup(run_triton_reduction_c, input_tensor)
+    triton_reduction_time_us = benchmark_cuda_function_in_microseconds(
+        run_triton_reduction_c,
         input_tensor,
     )
 
@@ -129,13 +149,20 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     # Both torch.compile codegen and the triton kernel read the input tensor twice
     # (once for scale calculations, once for scaling + casting).
     torch_mem_bw_gbps = ((read_bytes * 2 + write_bytes) / 1e9) / (torch_time_us / 1e6)
-    triton_mem_bw_gbps = ((read_bytes * 2 + write_bytes) / 1e9) / (triton_time_us / 1e6)
+    triton_atomic_mem_bw_gbps = ((read_bytes * 2 + write_bytes) / 1e9) / (
+        triton_atomic_time_us / 1e6
+    )
+    triton_reduction_mem_bw_gbps = ((read_bytes * 2 + write_bytes) / 1e9) / (
+        triton_reduction_time_us / 1e6
+    )
 
     return ExperimentResult(
         torch_time_us=torch_time_us,
-        triton_time_us=triton_time_us,
+        triton_atomic_time_us=triton_atomic_time_us,
+        triton_reduction_time_us=triton_reduction_time_us,
         torch_mem_bw_gbps=torch_mem_bw_gbps,
-        triton_mem_bw_gbps=triton_mem_bw_gbps,
+        triton_atomic_mem_bw_gbps=triton_atomic_mem_bw_gbps,
+        triton_reduction_mem_bw_gbps=triton_reduction_mem_bw_gbps,
     )
 
 
@@ -144,10 +171,13 @@ def print_results(experiments: List[Experiment]):
         "input_shape",
         "power_of_2_scales",
         "torch_time_us",
-        "triton_time_us",
+        "triton_atomic_time_us",
+        "triton_reduction_time_us",
         "torch_mem_bw_gbps",
-        "triton_mem_bw_gbps",
-        "triton_speedup",
+        "triton_atomic_mem_bw_gbps",
+        "triton_reduction_mem_bw_gbps",
+        "triton_atomic_speedup",
+        "triton_reduction_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -157,10 +187,13 @@ def print_results(experiments: List[Experiment]):
                 input_shape,
                 experiment.config.power_of_2_scales,
                 experiment.result.torch_time_us,
-                experiment.result.triton_time_us,
+                experiment.result.triton_atomic_time_us,
+                experiment.result.triton_reduction_time_us,
                 round(experiment.result.torch_mem_bw_gbps, 3),
-                round(experiment.result.triton_mem_bw_gbps, 3),
-                f"{experiment.result.torch_time_us / experiment.result.triton_time_us:.2f}x",
+                round(experiment.result.triton_atomic_mem_bw_gbps, 3),
+                round(experiment.result.triton_reduction_mem_bw_gbps, 3),
+                f"{experiment.result.torch_time_us / experiment.result.triton_atomic_time_us:.2f}x",
+                f"{experiment.result.torch_time_us / experiment.result.triton_reduction_time_us:.2f}x",
             ]
         )
     print(tabulate(rows, headers=headers))

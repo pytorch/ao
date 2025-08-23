@@ -15,6 +15,7 @@ if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9
 
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
+    triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
 )
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
@@ -128,7 +129,7 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
 
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
-def test_fp8_rowwise_3d_transpose_rhs(round_scales_to_power_of_2: bool):
+def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     device = "cuda"
     experts, n, k = 8, 4 * 5120, 5120
 
@@ -148,6 +149,41 @@ def test_fp8_rowwise_3d_transpose_rhs(round_scales_to_power_of_2: bool):
     ref_scales = ref_scales.squeeze(1)
 
     triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs(
+        x,
+        output_dtype=torch.float8_e4m3fn,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
+    assert ref_scales.stride() == triton_scales.stride(), "scale strides not equal"
+    assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
+
+    assert ref_fp8.shape == triton_fp8.shape, "output shapes not equal"
+    assert ref_fp8.stride() == triton_fp8.stride(), "output strides not equal"
+    assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool):
+    device = "cuda"
+    experts, n, k = 8, 4 * 5120, 5120
+
+    # Example expert weights as it comes into forward transposed
+    torch.manual_seed(0)
+    x = torch.randn((experts, n, k), dtype=torch.bfloat16, device=device).transpose(
+        -2, -1
+    )
+
+    # Compute reference with torch impl
+    ref_fp8, ref_scales = torch_to_3d_rowwise_float8_transpose_rhs(
+        x,
+        target_dtype=torch.float8_e4m3fn,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    # Torch impl keeps empty scaled dim, so we squeeze it out to be consistent with triton impl
+    ref_scales = ref_scales.squeeze(1)
+
+    triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs_fused_reduction(
         x,
         output_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
