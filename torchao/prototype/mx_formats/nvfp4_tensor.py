@@ -79,10 +79,12 @@ class NVFP4Tensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "_scale_e4m3"]
-    optional_tensor_data_names = ["_per_tensor_scale", "_act_per_tensor_scale"]
     tensor_attribute_names = [
         "_block_size",
         "_orig_dtype",
+    ]
+    optional_tensor_data_names = ["_per_tensor_scale", "_act_per_tensor_scale"]
+    optional_tensor_attribute_names = [
         "_is_swizzled_scales",
         "use_triton_kernel",
         "act_quant_kwargs",
@@ -92,10 +94,10 @@ class NVFP4Tensor(TorchAOBaseTensor):
         cls,
         qdata,
         blockwise_scales,
-        per_tensor_scale,
-        act_per_tensor_scale,
         block_size,
         orig_dtype,
+        per_tensor_scale,
+        act_per_tensor_scale,
         is_swizzled_scales=False,
         use_triton_kernel=False,
         act_quant_kwargs=None,
@@ -116,13 +118,13 @@ class NVFP4Tensor(TorchAOBaseTensor):
             requires_grad=False,
         )
 
-        self._scale_e4m3 = blockwise_scales
-        self._is_swizzled_scales = is_swizzled_scales
-        self._per_tensor_scale = per_tensor_scale
-        self._act_per_tensor_scale = act_per_tensor_scale
         self.qdata = qdata
+        self._scale_e4m3 = blockwise_scales
         self._block_size = block_size
         self._orig_dtype = orig_dtype
+        self._per_tensor_scale = per_tensor_scale
+        self._act_per_tensor_scale = act_per_tensor_scale
+        self._is_swizzled_scales = is_swizzled_scales
         self.use_triton_kernel = use_triton_kernel
         self.act_quant_kwargs = act_quant_kwargs
         return self
@@ -184,10 +186,10 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return NVFP4Tensor(
             data_lp,
             blockwise_scales,
-            per_tensor_scale,
-            act_per_tensor_scale,
             block_size,
             data_hp.dtype,
+            per_tensor_scale,
+            act_per_tensor_scale,
             is_swizzled_scales,
             use_triton_kernel,
             act_quant_kwargs,
@@ -312,10 +314,10 @@ def nvfp4_to_copy(func, types, args, kwargs):
         res = NVFP4Tensor(
             tensor.qdata,
             tensor._scale_e4m3,
-            tensor._per_tensor_scale,
-            tensor._act_per_tensor_scale,
             tensor._block_size,
             dtype,
+            tensor._per_tensor_scale,
+            tensor._act_per_tensor_scale,
             tensor._is_swizzled_scales,
             tensor.use_triton_kernel,
             tensor.act_quant_kwargs,
@@ -513,10 +515,10 @@ def nvfp4_slice(func, types, args, kwargs):
     result = NVFP4Tensor(
         sliced_data,
         sliced_scale,
-        x._per_tensor_scale,
-        x._act_per_tensor_scale,
         x._block_size,
         x._orig_dtype,
+        x._per_tensor_scale,
+        x._act_per_tensor_scale,
         x._is_swizzled_scales,
         x.use_triton_kernel,
         x.act_quant_kwargs,
@@ -532,10 +534,10 @@ def nvfp4_t(func, types, args, kwargs):
     new = NVFP4Tensor(
         old.qdata.t(),
         old._scale_e4m3,
-        old._per_tensor_scale,
-        old._act_per_tensor_scale,
         old._block_size,
         old._orig_dtype,
+        old._per_tensor_scale,
+        old._act_per_tensor_scale,
         old._is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
@@ -552,10 +554,10 @@ def nvfp4_view_op(func, types, args, kwargs):
     return NVFP4Tensor(
         new_data,
         args[0]._scale_e4m3,
-        args[0]._per_tensor_scale,
-        args[0]._act_per_tensor_scale,
         args[0]._block_size,
         args[0]._orig_dtype,
+        args[0]._per_tensor_scale,
+        args[0]._act_per_tensor_scale,
         args[0]._is_swizzled_scales,
         args[0].use_triton_kernel,
         args[0].act_quant_kwargs,
