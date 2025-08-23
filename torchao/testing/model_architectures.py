@@ -11,14 +11,55 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# TODO: Refactor torchao and tests to use these models
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
+class ToySingleLinearModel(torch.nn.Module):
+    """Single linear for m * k * n problem size"""
+
+    def __init__(
+        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
+    ):
         super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
+        self.m = m
+        self.dtype = dtype
+        self.device = device
+        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
+            dtype=self.dtype, device=self.device
+        )
+
+    def example_inputs(self):
+        return (
+            torch.randn(
+                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear(x)
+        return x
+
+
+class ToyTwoLinearModel(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, has_bias=False):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(input_dim, hidden_dim, bias=has_bias)
+        self.linear2 = torch.nn.Linear(hidden_dim, output_dim, bias=has_bias)
+
+    def example_inputs(
+        self, batch_size=1, sequence_length=None, dtype=torch.float32, device="cpu"
+    ):
+        if sequence_length is not None:
+            return [
+                torch.randn(1, self.linear1.in_features, dtype=dtype, device=device)
+                for _ in range(batch_size)
+            ]
+        return (
+            torch.randn(
+                batch_size, self.linear1.in_features, dtype=dtype, device=device
+            ),
+        )
 
     def forward(self, x):
         x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -179,7 +220,7 @@ def create_model_and_input_data(
         m, k, n (int): dimensions of the model and input data
     """
     if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
+        model = ToyTwoLinearModel(k, n, high_precision_dtype).to(device)
         input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string

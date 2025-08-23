@@ -9,7 +9,10 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from torchao.testing.model_architectures import create_model_and_input_data
+from torchao.testing.model_architectures import (
+    ToyTwoLinearModel,
+    create_model_and_input_data,
+)
 from torchao.utils import get_available_devices
 
 
@@ -20,11 +23,12 @@ class TestModels(unittest.TestCase):
         if device == "cuda" and not torch.cuda.is_available():
             self.skipTest("CUDA not available")
 
-        model, input_data = create_model_and_input_data(
-            "linear", 10, 64, 32, device=device
-        )
+        model = ToyTwoLinearModel(64, 32, 16).to(device)
+        input_data = torch.randn(1, 10, 64, device=device)
+        input_data = input_data.to(model.linear1.weight.dtype)
+
         output = model(input_data)
-        self.assertEqual(output.shape, (10, 32))
+        self.assertEqual(output.shape, (1, 10, 16))
 
     @parameterized.expand([(device,) for device in get_available_devices()])
     def test_ln_linear_activation_model(self, device):
@@ -44,9 +48,7 @@ class TestModels(unittest.TestCase):
         if device == "cuda" and not torch.cuda.is_available():
             self.skipTest("CUDA not available")
 
-        model, input_data = create_model_and_input_data(
-            "transformer_block", 10, 64, 32, device=device
-        )
+        model, input_data = create_model_and_input_data("transformer_block", 10, 64, 32)
         output = model(input_data)
         self.assertEqual(output.shape, (10, 16, 64))
 
