@@ -14,7 +14,6 @@ from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales,
-    triton_fp8_per_group_rowwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
@@ -174,8 +173,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_A: grad_output @ B
         #
-        # grad_output shape: (M, N)
-        # grad_output_scale shape: (M, 1)
+        # grad_output shape: (Mg, N)
+        # grad_output_scale shape: (Mg, 1)
         grad_output_scales = tensor_to_scale(
             grad_output,
             torch.float8_e4m3fn,
@@ -226,17 +225,22 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_B: grad_output_t @ A
-        grad_output_t_fp8_row_major, grad_output_t_scales = (
-            triton_fp8_per_group_rowwise_scales(
-                grad_output.transpose(-2, -1),
-                offs,
-                torch.float8_e4m3fn,
-                round_scales_to_power_of_2=True,
-            )
+        # Use transpose method to avoid uncoalesced memory accesses.
+        grad_out_fp8_colwise, grad_out_scales = triton_fp8_per_group_colwise_scales(
+            grad_output.t()
+            .contiguous()
+            .t(),  # Quantization is over 2x faster when input is col major, even with this transformation
+            offs,
+            torch.float8_e4m3fn,
+            round_scales_to_power_of_2=True,
         )
+        grad_output_t_fp8_row_major = grad_out_fp8_colwise.t()
+        grad_output_t_scales = grad_out_scales.t()
 
         A_fp8_col_major, A_scales = triton_fp8_per_group_colwise_scales(
-            A,
+            A.t()
+            .contiguous()
+            .t(),  # Quantization is over 2x faster when input is col major, even with this transformation
             offs,
             torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
