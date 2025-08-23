@@ -49,7 +49,7 @@ def get_configs() -> List[ExperimentConfig]:
     # Llama4 shapes
     A_shapes = [(16640, 5120)]
     B_shapes = [(1, 8192, 5120), (4, 8192, 5120), (16, 8192, 5120), (64, 8192, 5120)]
-    recipes = [MoEScalingType.FP8_ROWWISE]
+    recipes = [MoEScalingType.FP8_ROWWISE, MoEScalingType.MXFP8]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for A_shape, B_shape, recipe, high_precision_dtype in itertools.product(
