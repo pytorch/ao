@@ -907,7 +907,7 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert NVFP4Tensor.tensor_attribute_names[2] == "_is_swizzled_scales"
+    assert NVFP4Tensor.optional_tensor_attribute_names[0] == "_is_swizzled_scales"
     assert ctx[2] == True
 
     # Test deserialization
