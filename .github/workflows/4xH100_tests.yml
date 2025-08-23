@@ -44,6 +44,6 @@ jobs:
         pip install uv
         pip install ${{ matrix.torch-spec }}
         uv pip install -r dev-requirements.txt
-        uv pip install vllm
         pip install .
         ./test/float8/test_everything_multi_gpu.sh
+        ./test/prototype/mx_formats/test_mx_dtensor.sh

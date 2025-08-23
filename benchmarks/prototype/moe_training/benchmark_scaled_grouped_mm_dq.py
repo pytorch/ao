@@ -6,15 +6,17 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 import argparse
 import itertools
-import time
 from dataclasses import dataclass
 from typing import List
 
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
+from utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 device = torch.device("cuda")
 
@@ -27,11 +29,14 @@ class ExperimentConfig:
     high_precision_dtype: torch.dtype
     A_shape: tuple[int]
     B_shape: tuple[int]
+    recipe: MoEScalingType
 
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    time_us: float
+    bf16_us: float
+    scaled_us: float
+    scaled_speedup: float
 
 
 @dataclass(frozen=True)
@@ -41,19 +46,23 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    A_shapes = [(2**8, 8192), (2**12, 8192), (2**16, 8192)]
-    B_shapes = [(4, 8192, 8192), (8, 8192, 8192), (16, 8192, 8192)]
+    # Llama4 shapes
+    A_shapes = [(16640, 5120)]
+    B_shapes = [(16, 8192, 5120)]
+    recipes = [MoEScalingType.MXFP8, MoEScalingType.FP8_ROWWISE]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
-    for A_shape, B_shape, high_precision_dtype in itertools.product(
+    for A_shape, B_shape, recipe, high_precision_dtype in itertools.product(
         A_shapes,
         B_shapes,
+        recipes,
         high_precision_dtypes,
     ):
         configs.append(
             ExperimentConfig(
                 A_shape=A_shape,
                 B_shape=B_shape,
+                recipe=recipe,
                 high_precision_dtype=high_precision_dtype,
             )
         )
@@ -83,39 +92,64 @@ def run_experiment(
     # - the transposed tensor in col-major format with groups along the row dimension,
     #    which represents the right operand.
     n_groups = config.B_shape[0]
-    group_size = A.shape[0] // n_groups
-    offs = torch.arange(
-        group_size,
-        group_size * n_groups + 1,
-        group_size,
-        device=device,
-        dtype=torch.int32,
+    Mg = A.shape[0]
+    token_group_alignment_size = 32 if config.recipe == MoEScalingType.MXFP8 else 16
+    offs = generate_jagged_offs(n_groups, Mg, multiple_of=token_group_alignment_size)
+
+    labels = torch.ones(
+        (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
     )
 
-    def warmup(func, *args, **kwargs):
-        for _ in range(10):
-            func(*args, **kwargs)
-
-    def forward_backward(A, B_t, offs):
-        out = _scaled_grouped_mm(
+    # benchmark bf16 grouped mm
+    bf16_us = bench_fwd_bwd_microseconds(
+        torch._grouped_mm,
+        A,
+        B_t,
+        offs,
+        labels=labels,
+        use_compile=args.compile,
+        fullgraph=False,
+    )
+    if args.profile:
+        profile_fwd_bwd(
+            torch._grouped_mm,
             A,
             B_t,
-            offs=offs,
-            out_dtype=torch.bfloat16,
+            offs,
+            labels=labels,
+            use_compile=args.compile,
+            fullgraph=False,
+            profile_name="bf16_profile",
         )
-        out.sum().backward()
-        torch.cuda.synchronize()
 
-    # benchmark torch
-    torch_func = torch.compile(forward_backward) if args.compile else forward_backward
-    warmup(torch_func, A, B_t, offs)
-    start_time_ns = time.perf_counter_ns()
-    torch_func(A, B_t, offs)
-    torch_time_ns = time.perf_counter_ns() - start_time_ns
-    time_us = torch_time_ns / 1e3
+    # benchmark scaled grouped mm with dynamic fp8 rowwise quant
+    scaled_us = bench_fwd_bwd_microseconds(
+        _scaled_grouped_mm,
+        A,
+        B_t,
+        offs,
+        scaling_type=config.recipe,
+        labels=labels,
+        use_compile=args.compile,
+        fullgraph=False,
+    )
+    if args.profile:
+        profile_fwd_bwd(
+            _scaled_grouped_mm,
+            A,
+            B_t,
+            offs,
+            scaling_type=config.recipe,
+            labels=labels,
+            use_compile=args.compile,
+            profile_name="scaled_profile",
+            fullgraph=False,
+        )
 
     return ExperimentResult(
-        time_us=round(time_us, 3),
+        bf16_us=round(bf16_us, 3),
+        scaled_us=round(scaled_us, 3),
+        scaled_speedup=round(bf16_us / scaled_us, 3),
     )
 
 
@@ -123,7 +157,10 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "A_shape",
         "B_shape",
-        "time_us",
+        "recipe",
+        "bf16_time_us",
+        "scaled_time_us",
+        "scaled_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -133,7 +170,10 @@ def print_results(experiments: List[Experiment]):
             [
                 A_shape,
                 B_shape,
-                experiment.result.time_us,
+                experiment.config.recipe,
+                experiment.result.bf16_us,
+                experiment.result.scaled_us,
+                f"{experiment.result.scaled_speedup}x",
             ]
         )
     print(tabulate(rows, headers=headers))
@@ -154,5 +194,6 @@ def main(args: argparse.Namespace):
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--compile", action="store_true")
+    arg_parser.add_argument("--profile", action="store_true")
     args = arg_parser.parse_args()
     main(args)

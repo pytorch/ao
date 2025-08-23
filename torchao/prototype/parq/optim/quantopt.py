@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import json
 from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
@@ -14,10 +13,8 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
-import torchao.prototype.parq as parq
-
 from ..quant import Quantizer
-from ..utils import HAS_DTENSOR, instantiate_module, is_dtensor
+from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
 if HAS_DTENSOR:
@@ -136,6 +133,14 @@ class QuantOptimizer(Optimizer):
 
         return _filter_fn
 
+    @torch._disable_dynamo
+    def state_dict(self) -> dict[str, Any]:
+        return self.base_optimizer.state_dict()
+
+    @torch._disable_dynamo
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        self.base_optimizer.load_state_dict(state_dict)
+
     @torch.no_grad()
     def step(self, closure: Optional[Callable[[], float]] = None) -> Optional[float]:
         """Performs a single optimization step.
@@ -174,16 +179,8 @@ class QuantOptimizer(Optimizer):
 
         for group in self.regularized_param_groups():
             # Override quantizer if specified in the group
-            if "quant_cls" in group:
-                quant_cls = instantiate_module(
-                    f"{parq.__name__}.quant", group["quant_cls"]
-                )
-                quant_kwargs = (
-                    json.loads(group["quant_kwargs"]) if "quant_kwargs" in group else {}
-                )
-                quantizer = quant_cls(**quant_kwargs)
-            else:
-                quantizer = self.quantizer
+            quantizer = group.get("quantizer", self.quantizer)
+            assert isinstance(quantizer, Quantizer), f"Invalid {quantizer=}"
 
             # AProx in practice: ensure shrinkage coefficient >= 1
             group["cumu_lr"] += group["lr"]

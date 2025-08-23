@@ -67,9 +67,9 @@ from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -203,7 +203,7 @@ class TestQuantFlow(TestCase):
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "only works for torch 2.8+")
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "only works for torch 2.8+")
     def test_int4_wo_quant_save_load(self):
         m = ToyTwoLinearModel(64, 32, 64).eval().cpu()
 

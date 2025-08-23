@@ -62,3 +62,5 @@ ${CMAKE_OUT}/test_embedding
 ${CMAKE_OUT}/test_weight_packing
 ${CMAKE_OUT}/test_qmatmul
 ${CMAKE_OUT}/test_lut
+${CMAKE_OUT}/test_bitpack_fallback_compatibility
+${CMAKE_OUT}/test_embedding_lut

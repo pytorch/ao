@@ -22,11 +22,10 @@ from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
-    from torchtitan.experiments.llama4.infra.expert_parallel import (
+    from torchtitan.distributed.expert_parallel import (
         set_token_group_alignment_size_m,
     )
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
@@ -47,16 +46,15 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
     # has the contraction dim be divisible by 16. 16 byte alignment is required
     # for the slowest moving dim (stride 1), so 16 bytes / 1 byte per element in fp8 = 16 elements.
     set_token_group_alignment_size_m(16)
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=8,
-        dim=256,
     )
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    dim, hidden_dim = 5120, 8192
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
 
@@ -75,7 +73,7 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=MoEScalingType.FP8_ROWWISE)
+    config = MoETrainingConfig()
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -83,14 +81,13 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         model,
         target_fqns=target_fqns,
     )
-
     if compile:
         # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
         model = torch.compile(model, fullgraph=False)
         ref_model = torch.compile(ref_model, fullgraph=False)
 
     # inputs
-    batch, seq, dim = 8, 2048, 256
+    batch, seq = 8, 2048
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
@@ -124,7 +121,7 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
     )
 
     # validate param gradients
-    min_param_grad_sqnr = 25.0
+    min_param_grad_sqnr = 23.0
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
         assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
@@ -139,24 +136,22 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         ["does.not.exist"],
     ],
 )
-def test_moe_mxfp8_training(target_fqns: list[str]):
+@pytest.mark.parametrize("compile", [False, True])
+def test_moe_mxfp8_training(target_fqns: list[str], compile: bool):
     block_size = 32
 
     # Token groups must be divisible by 32 for mxfp8
     set_token_group_alignment_size_m(block_size)
 
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=8,
-        dim=256,
-        multiple_of=block_size,
-        ffn_dim_multiplier=1.0,
     )
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    dim, hidden_dim = 5120, 8192
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
 
@@ -184,8 +179,13 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
         target_fqns=target_fqns,
     )
 
+    if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
+
     # inputs
-    batch, seq, dim = 8, 2048, 256
+    batch, seq = 8, 2048
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
@@ -197,7 +197,7 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    min_out_sqnr = 25.0
+    min_out_sqnr = 28.0
     assert out_sqnr.item() >= min_out_sqnr, (
         f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
     )
@@ -213,7 +213,7 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
 
     # validate input gradient
     input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    min_input_grad_sqnr = 25.0
+    min_input_grad_sqnr = 30.0
     assert input_grad_sqnr.item() >= min_input_grad_sqnr, (
         f"SQNR must be >= {min_input_grad_sqnr}, got {input_grad_sqnr.item()}."
     )

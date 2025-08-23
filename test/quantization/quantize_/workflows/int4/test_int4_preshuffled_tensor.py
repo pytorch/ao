@@ -22,9 +22,9 @@ from torchao.quantization import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     _is_fbgemm_genai_gpu_available,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
@@ -33,13 +33,13 @@ BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     version=2,
 )
 
+# only 128 group_size is supported
 FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
-    group_size=128,
     packing_format="preshuffled",
 )
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
 @unittest.skipIf(

@@ -51,3 +51,4 @@ jobs:
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
         python test/quantization/quantize_/workflows/float8/test_float8_tensor.py
         ./test/float8/test_everything_single_gpu.sh
+        pytest test/prototype/mx_formats/ -s

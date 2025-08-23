@@ -29,7 +29,7 @@ from torchao.quantization.pt2e.quantize_pt2e import (
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 class PT2EQuantizationTestCase(QuantizationTestCase):
@@ -132,7 +132,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
         return m
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class PT2ENumericDebuggerTestCase(TestCase):
     """
     Base test case class for PT2E numeric debugger tests containing common utility functions
