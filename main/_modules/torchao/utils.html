@@ -952,12 +952,21 @@
             <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">a_name</span><span class="p">)</span> <span class="o">==</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">a_name</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">a_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
         <span class="p">)</span>
+
+        <span class="n">_optional_attr_match</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="n">_optional_attr_match</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span>
+                <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">a_name</span><span class="p">)</span> <span class="o">==</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">a_name</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">a_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
+            <span class="p">)</span>
+
         <span class="k">return</span> <span class="p">(</span>
             <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">==</span> <span class="nb">type</span><span class="p">(</span><span class="n">src</span><span class="p">)</span>
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">shape</span>
             <span class="ow">and</span> <span class="n">_tensor_shape_match</span>
             <span class="ow">and</span> <span class="n">_optional_tensor_shape_match</span>
             <span class="ow">and</span> <span class="n">_attr_match</span>
+            <span class="ow">and</span> <span class="n">_optional_attr_match</span>
         <span class="p">)</span>
 
     <span class="nd">@implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
@@ -984,28 +993,58 @@
             <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span>
             <span class="p">]</span>
+            <span class="n">optional_tensors</span> <span class="o">=</span> <span class="p">[]</span>
             <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">maybe_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_data_name</span><span class="p">)</span>
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                        <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">maybe_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">))</span>
+                        <span class="n">optional_tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">maybe_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">))</span>
                     <span class="k">else</span><span class="p">:</span>
-                        <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+                        <span class="n">optional_tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
 
             <span class="c1"># change device</span>
             <span class="n">tensor_attributes</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">attr_name</span> <span class="o">!=</span> <span class="s2">&quot;device&quot;</span> <span class="k">else</span> <span class="n">device</span>
                 <span class="k">for</span> <span class="n">attr_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">]</span>
+            <span class="n">optional_tensor_attributes</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+                <span class="n">optional_tensor_attributes</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">attr_name</span> <span class="o">!=</span> <span class="s2">&quot;device&quot;</span> <span class="k">else</span> <span class="n">device</span>
+                    <span class="k">for</span> <span class="n">attr_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
+                <span class="p">]</span>
+
             <span class="n">t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
                 <span class="o">*</span><span class="n">tensors</span><span class="p">,</span>
                 <span class="o">*</span><span class="n">tensor_attributes</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">optional_tensors</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">optional_tensor_attributes</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
             <span class="s2">&quot;Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it&quot;</span>
         <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_torchao_base_tensor__setstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
+    <span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_utils</span><span class="o">.</span><span class="n">_set_obj_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">optional_tensor_data_name</span> <span class="ow">in</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="k">if</span> <span class="n">optional_tensor_data_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_data_name</span>
+        <span class="p">):</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_data_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">optional_tensor_attribute_name</span> <span class="ow">in</span> <span class="nb">getattr</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">,</span> <span class="p">[]</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">optional_tensor_attribute_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_attribute_name</span>
+        <span class="p">):</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_attribute_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_dispatch__torch_function__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
@@ -1160,10 +1199,13 @@
 
 <span class="sd">    class variables to define to simplify implmentation of tensor subclasses:</span>
 <span class="sd">       `tensor_data_names` (List[str]): list of names of all requires tensor_data, order should match</span>
-<span class="sd">        the `__init__` list of tensor subclass</span>
-<span class="sd">       `optional_tensor_data_names` (List[str]): it&#39;s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor attributes, when defined, this will be a list of names of Tensors that can be optional</span>
+<span class="sd">          the `__init__` list of tensor subclass</span>
 <span class="sd">       `tensor_attribute_names` (List[str]): list of names of non-Tensor attributes,</span>
-<span class="sd">         order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments and `optional_tensor_data_names`</span>
+<span class="sd">            order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments</span>
+<span class="sd">       `optional_tensor_data_names` (List[str]): it&#39;s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional</span>
+<span class="sd">       `optional_tensor_attribute_names` (List[str]): it&#39;s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional</span>
+<span class="sd">       Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)</span>
+
 
 <span class="sd">    If `tensor_data_names` and `tensor_attribute_names` are defined, there are some additional</span>
 <span class="sd">    functions that will be added, this includes:</span>
@@ -1174,23 +1216,31 @@
 <span class="sd">        recreate a new subclassed Tensor with the transformed tensor data</span>
 <span class="sd">    `__repr__`: the string representation of the subclassed tensor instance</span>
 <span class="sd">    `_same_metadata`: returns whether the metadata is the same between two instances of cls</span>
+<span class="sd">    `__setstate__`: when loading a serialized tensor subclass checkpoints, it sets the new</span>
+<span class="sd">    optional tensor and tensor attribute that is saved in the old checkpoint to None,</span>
+<span class="sd">    to maintain BC of old checkpoints when we add new optional tensor data or attributes to</span>
+<span class="sd">    the tensor subclass</span>
 <span class="sd">    torch ops: torch.Tensor.contiguous</span>
 <span class="sd">    aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        class MyTensor(torch.Tensor):</span>
 <span class="sd">            tensor_data_names = [&quot;a&quot;, &quot;b&quot;]</span>
-<span class="sd">            optional_tensor_data_names = [&quot;c&quot;, &quot;d&quot;]</span>
-<span class="sd">            tensor_attribute_names = [&quot;e&quot;, &quot;f&quot;]</span>
+<span class="sd">            tensor_attribute_names = [&quot;c&quot;, &quot;d&quot;]</span>
+<span class="sd">            optional_tensor_data_names = [&quot;e&quot;, &quot;f&quot;]</span>
+<span class="sd">            optional_tensor_attribute_names = [&quot;g&quot;, &quot;h&quot;]</span>
+
 
 <span class="sd">            def __new__(</span>
 <span class="sd">                cls,</span>
 <span class="sd">                a: Tensor,</span>
 <span class="sd">                b: Tensor,</span>
-<span class="sd">                c: Optional[Tensor],</span>
-<span class="sd">                d: Optional[Tensor],</span>
-<span class="sd">                e: int,</span>
-<span class="sd">                f: str</span>
+<span class="sd">                c: int,</span>
+<span class="sd">                d: str,</span>
+<span class="sd">                e: Optional[Tensor] = None,</span>
+<span class="sd">                f: Optional[Tensor] = None,</span>
+<span class="sd">                g: Optional[int] = None,</span>
+<span class="sd">                h: Optional[int] = None,</span>
 <span class="sd">            ):</span>
 <span class="sd">                pass</span>
 
@@ -1198,10 +1248,12 @@
 <span class="sd">                self,</span>
 <span class="sd">                a: Tensor,</span>
 <span class="sd">                b: Tensor,</span>
-<span class="sd">                c: Optional[Tensor],</span>
-<span class="sd">                d: Optional[Tensor],</span>
-<span class="sd">                e: int,</span>
-<span class="sd">                f: str</span>
+<span class="sd">                c: int,</span>
+<span class="sd">                d: str</span>
+<span class="sd">                e: Optional[Tensor] = None,</span>
+<span class="sd">                f: Optional[Tensor] = None,</span>
+<span class="sd">                g: Optional[int] = None,</span>
+<span class="sd">                h: Optional[int] = None,</span>
 <span class="sd">            ):</span>
 <span class="sd">                pass</span>
 
@@ -1215,9 +1267,11 @@
         <span class="k">if</span> <span class="bp">cls</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_OR_TORCH_FN_TABLE</span><span class="p">:</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_OR_TORCH_FN_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
 
-        <span class="c1"># define the common ops if the tensor_data_names and tensor_attribute_names are defined</span>
+        <span class="c1"># define the common ops and __set_state__ for BC</span>
+        <span class="c1"># if the tensor_data_names and tensor_attribute_names are defined</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span><span class="p">):</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_implements_common_tensor_ops</span><span class="p">()</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="n">__setstate__</span> <span class="o">=</span> <span class="n">_torchao_base_tensor__setstate__</span>
 
         <span class="c1"># inherit the torch function and dispatch implementations from direct parent classes</span>
         <span class="c1"># e.g. for `class C(B, A)`, C.__bases__ == (B, A)</span>
@@ -1246,47 +1300,82 @@
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                         <span class="n">tensor_data_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tensor_data_name</span><span class="p">)</span>
 
+            <span class="n">attrs</span> <span class="o">=</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+                <span class="n">attrs</span> <span class="o">+=</span> <span class="p">[</span>
+                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
+                <span class="p">]</span>
+
             <span class="c1"># TODO(future PR): also return names of tensor attributes for easier</span>
             <span class="c1"># debugging</span>
-            <span class="k">return</span> <span class="n">tensor_data_names</span><span class="p">,</span> <span class="p">[</span>
-                <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
-            <span class="p">]</span>
+            <span class="k">return</span> <span class="n">tensor_data_names</span><span class="p">,</span> <span class="n">attrs</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="s2">&quot;Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it&quot;</span>
+            <span class="s2">&quot;Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it&quot;</span>
         <span class="p">)</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span> <span class="n">tensor_data_dict</span><span class="p">,</span> <span class="n">tensor_attributes</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span>
     <span class="p">):</span>
-        <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span><span class="n">tensor_data_dict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">]</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
-            <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="n">tensor_data_dict</span><span class="p">:</span>
-                    <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tensor_data_dict</span><span class="p">[</span><span class="n">tensor_data_name</span><span class="p">])</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="o">*</span><span class="n">tensors</span><span class="p">,</span> <span class="o">*</span><span class="n">tensor_attributes</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="n">required_tensors</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">tensor_data_dict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">tensor_data_names</span>
+            <span class="p">]</span>
+            <span class="n">optional_tensors</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="n">tensor_data_dict</span><span class="p">:</span>
+                        <span class="n">optional_tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tensor_data_dict</span><span class="p">[</span><span class="n">tensor_data_name</span><span class="p">])</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">optional_tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+
+            <span class="n">required_attributes</span> <span class="o">=</span> <span class="n">tensor_attributes</span><span class="p">[:</span> <span class="nb">len</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">tensor_attribute_names</span><span class="p">)]</span>
+            <span class="n">optional_attributes</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+                <span class="n">optional_attributes</span> <span class="o">=</span> <span class="n">tensor_attributes</span><span class="p">[</span>
+                    <span class="nb">len</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">tensor_attribute_names</span><span class="p">)</span> <span class="p">:</span>
+                <span class="p">]</span>
+
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+                <span class="o">*</span><span class="n">required_tensors</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">required_attributes</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">optional_tensors</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">optional_attributes</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="s2">&quot;Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
         <span class="p">):</span>
-            <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span><span class="n">fn</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">))</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">]</span>
+            <span class="n">required_tensors</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">fn</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">))</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span>
+            <span class="p">]</span>
+            <span class="n">optional_tensors</span> <span class="o">=</span> <span class="p">[]</span>
             <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">maybe_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_data_name</span><span class="p">)</span>
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                        <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fn</span><span class="p">(</span><span class="n">maybe_tensor</span><span class="p">))</span>
+                        <span class="n">optional_tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fn</span><span class="p">(</span><span class="n">maybe_tensor</span><span class="p">))</span>
                     <span class="k">else</span><span class="p">:</span>
-                        <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+                        <span class="n">optional_tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
 
-            <span class="n">tensor_attributes</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">required_attributes</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">]</span>
+            <span class="n">optional_attributes</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+                <span class="n">optional_attributes</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
+                <span class="p">]</span>
+
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-                <span class="o">*</span><span class="n">tensors</span><span class="p">,</span>
-                <span class="o">*</span><span class="n">tensor_attributes</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">required_tensors</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">required_attributes</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">optional_tensors</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">optional_attributes</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
@@ -1298,19 +1387,29 @@
             <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
         <span class="p">):</span>
             <span class="n">repr_str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+            <span class="c1"># required tensor data</span>
             <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
                 <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_data_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_data_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+
+            <span class="c1"># required attributes</span>
+            <span class="k">for</span> <span class="n">tensor_attribute_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span><span class="p">:</span>
+                <span class="n">repr_str</span> <span class="o">+=</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+
+            <span class="c1"># optional tensor data</span>
             <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">repr_str</span> <span class="o">+=</span> <span class="p">(</span>
                         <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_data_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_data_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
                     <span class="p">)</span>
 
-            <span class="k">for</span> <span class="n">tensor_attribute_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span><span class="p">:</span>
-                <span class="n">repr_str</span> <span class="o">+=</span> <span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="p">)</span>
+            <span class="c1"># optional tensor attributes</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">tensor_attribute_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span><span class="p">:</span>
+                    <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+
             <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">repr_str</span><span class="si">}</span><span class="s2">)&quot;</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
