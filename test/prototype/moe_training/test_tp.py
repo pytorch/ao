@@ -7,7 +7,7 @@
 #
 # To run these unit tests, use the following command:
 #
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_tp.py
+# torchrun --nproc_per_node=2 --local-ranks-filter=0 -m pytest test_tp.py
 #
 #######################################################################
 
@@ -67,8 +67,7 @@ except ImportError:
     "target_fqns",
     [
         ["experts"],
-        # TODO: investigate hang when shared_expert is converted
-        # ["experts,shared_expert"],
+        ["experts,shared_expert"],
     ],
 )
 def test_moe_float8_training_tp(target_fqns: list[str]):

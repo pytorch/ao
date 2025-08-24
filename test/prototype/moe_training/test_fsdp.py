@@ -7,7 +7,7 @@
 #
 # To run these unit tests, use the following command:
 #
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp.py
+# torchrun --nproc_per_node=2 --local-ranks-filter=0 -m pytest test_fsdp.py
 #
 #######################################################################
 
@@ -45,7 +45,14 @@ except ImportError:
     )
 
 
-def test_moe_float8_training_fsdp():
+@pytest.mark.parametrize(
+    "target_fqns",
+    [
+        ["experts"],
+        ["experts,shared_expert"],
+    ],
+)
+def test_moe_float8_training_fsdp(target_fqns: list[str]):
     assert torch.cuda.is_available()
 
     # setup distributed for fsdp
@@ -55,7 +62,6 @@ def test_moe_float8_training_fsdp():
     set_token_group_alignment_size_m(16)
 
     # define model args
-    target_fqns = ["experts"]
     model_args = MoEArgs(
         num_experts=8,
     )
