@@ -458,39 +458,45 @@ and dispatching to these implementations.
 """
 
 
-def _implements(cls, aten_ops_or_torch_fns):
-    """Use this decorator to implement a function for an aten ops in __torch_dispatch__
-    (if user passed in a list of ops)
-    or torch function in __torch_function__ (if user passed in a single object)
-
-    class MyTensor(torch.Tensor):
-        ...
-        implements = classmethod(_implements)
-
-    implements = MyTensor.implements
-
-    @implements(torch.nn.functional.linear):
-    def _(func, types, args, kwargs):
-        ...
-
-    """
-    if not hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE"):
-        cls._ATEN_OP_OR_TORCH_FN_TABLE = {}
-
-    if cls not in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        cls._ATEN_OP_OR_TORCH_FN_TABLE[cls] = {}
-
-    if not isinstance(aten_ops_or_torch_fns, (list, tuple)):
-        aten_ops_or_torch_fns = [aten_ops_or_torch_fns]
+def _implements(cls, aten_ops):
+    """Decorator to implement aten ops for __torch_dispatch__."""
+    if not hasattr(cls, "_ATEN_OP_TABLE"):
+        cls._ATEN_OP_TABLE = {}
+    if cls not in cls._ATEN_OP_TABLE:
+        cls._ATEN_OP_TABLE[cls] = {}
+    if not isinstance(aten_ops, (list, tuple)):
+        aten_ops = [aten_ops]
 
     def decorator(func):
-        for op in aten_ops_or_torch_fns:
+        for op in aten_ops:
 
-            @functools.wraps(op)
-            def wrapper(f, types, args, kwargs):
-                return func(f, types, args, kwargs)
+            @functools.wraps(func)
+            def wrapper(f, types, args, kwargs, _func=func):
+                return _func(f, types, args, kwargs)
 
-            cls._ATEN_OP_OR_TORCH_FN_TABLE[cls][op] = wrapper
+            cls._ATEN_OP_TABLE[cls][op] = wrapper
+        return func
+
+    return decorator
+
+
+def _implements_torch_function(cls, torch_fns):
+    """Decorator to implement __torch_function__."""
+    if not hasattr(cls, "_TORCH_FN_TABLE"):
+        cls._TORCH_FN_TABLE = {}
+    if cls not in cls._TORCH_FN_TABLE:
+        cls._TORCH_FN_TABLE[cls] = {}
+    if not isinstance(torch_fns, (list, tuple)):
+        torch_fns = [torch_fns]
+
+    def decorator(func):
+        for fn in torch_fns:
+
+            @functools.wraps(func)
+            def wrapper(f, types, args, kwargs, _func=func):
+                return _func(f, types, args, kwargs)
+
+            cls._TORCH_FN_TABLE[cls][fn] = wrapper
         return func
 
     return decorator
@@ -648,12 +654,11 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
     """
     kwargs = {} if kwargs is None else kwargs
     if (
-        hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE")
-        and cls in cls._ATEN_OP_OR_TORCH_FN_TABLE
-        and func in cls._ATEN_OP_OR_TORCH_FN_TABLE[cls]
+        hasattr(cls, "_TORCH_FN_TABLE")
+        and cls in cls._TORCH_FN_TABLE
+        and func in cls._TORCH_FN_TABLE[cls]
     ):
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, types, args, kwargs)
-
+        return cls._TORCH_FN_TABLE[cls][func](func, types, args, kwargs)
     with torch._C.DisableTorchFunctionSubclass():
         return func(*args, **kwargs)
 
@@ -667,11 +672,11 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
         __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     """
     if (
-        hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE")
-        and cls in cls._ATEN_OP_OR_TORCH_FN_TABLE
-        and func in cls._ATEN_OP_OR_TORCH_FN_TABLE[cls]
+        hasattr(cls, "_ATEN_OP_TABLE")
+        and cls in cls._ATEN_OP_TABLE
+        and func in cls._ATEN_OP_TABLE[cls]
     ):
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, types, args, kwargs)
+        return cls._ATEN_OP_TABLE[cls][func](func, types, args, kwargs)
 
     arg_types = tuple(type(arg) for arg in args)
     kwarg_types = {k: type(arg) for k, arg in kwargs.items()}
@@ -850,11 +855,14 @@ class TorchAOBaseTensor(torch.Tensor):
 
     @classmethod
     def __init_subclass__(cls, **kwargs):
-        if not hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE"):
-            cls._ATEN_OP_OR_TORCH_FN_TABLE = {}
-
-        if cls not in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-            cls._ATEN_OP_OR_TORCH_FN_TABLE[cls] = {}
+        if not hasattr(cls, "_ATEN_OP_TABLE"):
+            cls._ATEN_OP_TABLE = {}
+        if not hasattr(cls, "_TORCH_FN_TABLE"):
+            cls._TORCH_FN_TABLE = {}
+        if cls not in cls._ATEN_OP_TABLE:
+            cls._ATEN_OP_TABLE[cls] = {}
+        if cls not in cls._TORCH_FN_TABLE:
+            cls._TORCH_FN_TABLE[cls] = {}
 
         # define the common ops and __set_state__ for BC
         # if the tensor_data_names and tensor_attribute_names are defined
@@ -865,12 +873,13 @@ class TorchAOBaseTensor(torch.Tensor):
         # inherit the torch function and dispatch implementations from direct parent classes
         # e.g. for `class C(B, A)`, C.__bases__ == (B, A)
         for parent in cls.__bases__:
-            if parent in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-                cls._ATEN_OP_OR_TORCH_FN_TABLE[cls].update(
-                    cls._ATEN_OP_OR_TORCH_FN_TABLE[parent]
-                )
+            if hasattr(cls, "_ATEN_OP_TABLE") and parent in cls._ATEN_OP_TABLE:
+                cls._ATEN_OP_TABLE[cls].update(cls._ATEN_OP_TABLE[parent])
+            if hasattr(cls, "_TORCH_FN_TABLE") and parent in cls._TORCH_FN_TABLE:
+                cls._TORCH_FN_TABLE[cls].update(cls._TORCH_FN_TABLE[parent])
 
     implements = classmethod(_implements)
+    implements_torch_function = classmethod(_implements_torch_function)
     _implements_common_tensor_ops = classmethod(_implements_common_tensor_ops)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
