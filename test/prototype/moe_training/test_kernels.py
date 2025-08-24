@@ -32,26 +32,67 @@ from torchao.testing.utils import skip_if_rocm
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
-    # tests case where rowwise scales are computed for multiple distinct subtensors,
+    # Tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
     device = "cuda"
     m, k, n_groups = 256, 256, 4
-    x = torch.randn(m, k * n_groups, device=device)
-    colwise_offs = torch.arange(k, k * n_groups + 1, k, device=device)
+    x = torch.randn(k, m * n_groups, device=device)
+    colwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
 
-    # compute reference with torch impl
+    # Torch reference impl
     ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
         x,
         colwise_offs,
         target_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
+
+    # Triton kernel
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_rowwise_scales(
         x,
         colwise_offs,
         output_dtype=torch.float8_e4m3fn,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
+
+    assert torch.eq(ref_fp8_data, kernel_fp8_data).all(), "fp8 data not equal"
+    assert torch.eq(ref_scales, kernel_scales).all(), "scales not equal"
+    assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+def test_row_major_with_jagged_rowwise_scales_transpose_method(
+    round_scales_to_power_of_2: bool,
+):
+    # tests case where rowwise scales are computed for multiple distinct subtensors,
+    # with end boundary of each group is determine by their end column indexes (offsets).
+    device = "cuda"
+    m, k, n_groups = 256, 256, 4
+    grad_out = torch.randn(m * n_groups, k, device=device)
+    colwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
+    grad_out_t = grad_out.t()
+
+    # compute reference with torch impl
+    ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
+        grad_out_t,
+        colwise_offs,
+        target_dtype=torch.float8_e4m3fn,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+
+    # Transpose method requires grad_out to be column major, then we compute per group
+    # colwise scales writing to column major, then transpose outputs back to the desired
+    # shape and row major format.
+    kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
+        grad_out.t().contiguous().t(),
+        colwise_offs,
+        output_dtype=torch.float8_e4m3fn,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    kernel_fp8_data = kernel_fp8_data.t()  # (mg, n) -> (n, mg)
+    kernel_scales = kernel_scales.t()  # (1, n * n_groups) -> (n * n_groups, 1)
+
     assert torch.eq(ref_fp8_data, kernel_fp8_data).all(), "fp8 data not equal"
     assert torch.eq(ref_scales, kernel_scales).all(), "scales not equal"
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
