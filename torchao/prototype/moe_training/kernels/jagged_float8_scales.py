@@ -31,8 +31,8 @@ FP8_DTYPE_MAP = {
     torch.float64: tl.float64,
 }
 
-block_sizes = [1, 16, 32, 64]
-block_sizes_iter = [64, 128, 256]
+block_sizes = [32]  # [16, 32, 64]
+block_sizes_iter = [128]  # [64, 128, 256]
 num_warps = [4]
 num_stages = [3]
 kernel_configs_2D = [
