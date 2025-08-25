@@ -1,5 +1,5 @@
-from .intx_unpacked_tensor import IntxUnpackedTensor
+from .intx_unpacked_to_int8_tensor import IntxUnpackedToInt8Tensor
 
 __all__ = [
-    "IntxUnpackedTensor",
+    "IntxUnpackedToInt8Tensor",
 ]
