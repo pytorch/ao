@@ -19,7 +19,7 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "Int4TinyGemmCpuTensor",
+    "Int4XPUTensorIntZP",
 ]
 
 aten = torch.ops.aten
