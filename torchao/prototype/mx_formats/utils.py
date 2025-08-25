@@ -99,3 +99,76 @@ def _to_blocked_single(scales: Tensor) -> Tensor:
     assert scales.shape == (128, 4)
     scales_tiled = scales.view(4, 32, 4)  # view as 4 - (32, 4) tiles
     return scales_tiled.transpose(0, 1).reshape(32, 16)  # Interleave tiles
+
+
+def to_blocked_per_group_2d(
+    x_scales: Tensor, group_offs: Tensor, Mg: int, K: int, block_size: int = 32
+) -> Tensor:
+    """
+    Convert scales to blocked format for a 2D tensor (input activations / token groups)
+
+    Args:
+        x_scales: Tensor with per group scales in blocked format concatenated into one tensor.
+        group_offs: Tensor of shape (num_groups,) which contains the end index of each group along the Mg dimension.
+        Mg: total size of all groups summed together
+        K: K dim size
+
+    Returns:
+        blocked_scales: Tensor
+        start_row_after_padding: Tensor of shape (num_groups,) which contains the start row after padding for each group.
+    """
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import _to_blocked
+
+    assert x_scales.ndim == 2, "x_scales must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported for now"
+    blocked_scales_list = []
+    start_row_after_padding_list = [0]
+    group_start_idx = 0
+    for i, group_end_idx in enumerate(group_offs.tolist()):
+        group_size = group_end_idx - group_start_idx
+        prev_start_row_after_padding = start_row_after_padding_list[i]
+        if group_size == 0:
+            start_row_after_padding_list.append(prev_start_row_after_padding)
+            continue
+
+        # Convert group scales to blocked format
+        group_scales = x_scales[group_start_idx:group_end_idx]
+        group_scales_blocked = _to_blocked(group_scales)
+        blocked_scales_list.append(group_scales_blocked)
+
+        # Calculate the start row after padding
+        scaling_groups_per_row = K // block_size
+        rows_for_group = group_scales_blocked.numel() // scaling_groups_per_row
+        new_start_row = prev_start_row_after_padding + rows_for_group
+        start_row_after_padding_list.append(new_start_row)
+
+        # Update next group start index
+        group_start_idx = group_end_idx
+
+    blocked_scales = torch.cat(blocked_scales_list, dim=0).contiguous()
+    blocked_scales = blocked_scales.reshape(-1, K // 32)
+    start_row_after_padding = torch.tensor(
+        start_row_after_padding_list, device=x_scales.device, dtype=torch.int64
+    )
+    return blocked_scales, start_row_after_padding
+
+
+def to_blocked_per_group_3d(weight_scales: Tensor) -> Tensor:
+    """
+    Convert scales to blocked format for each group for a 3D tensor (expert weights)
+
+    Args:
+        scales: Tensor of shape (E, N, K//block_size)
+        group_offs: Tensor of shape (num_groups,) which contains the end index of each group along the
+    """
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import _to_blocked
+
+    blocked_scales_list = []
+    num_groups = weight_scales.shape[0]
+    for i in range(num_groups):
+        group_scales = weight_scales[i]
+        group_scales_blocked = _to_blocked(group_scales)
+        blocked_scales_list.append(group_scales_blocked)
+    weight_scales_blocked = torch.stack(blocked_scales_list, dim=0).contiguous()
+    weight_scales_blocked = weight_scales_blocked.reshape(num_groups, -1)
+    return weight_scales_blocked

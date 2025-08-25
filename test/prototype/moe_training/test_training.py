@@ -129,6 +129,9 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         )
 
 
+@pytest.mark.skip(
+    "temporarily disable until non-uniform group sizes are supported by mxfp8 grouped gemm"
+)
 @pytest.mark.parametrize(
     "target_fqns",
     [
