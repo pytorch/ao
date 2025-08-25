@@ -27,7 +27,7 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
-from testing_utils import _validate_model_conversion
+from .testing_utils import _validate_model_conversion
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
