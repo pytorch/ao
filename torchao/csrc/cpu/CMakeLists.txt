@@ -25,11 +25,18 @@ option(TORCHAO_ENABLE_ARM_I8MM "Enable ARM 8-bit Integer Matrix Multiply instruc
 option(TORCHAO_BUILD_TESTS "Build tests" OFF)
 option(TORCHAO_BUILD_BENCHMARKS "Build tests" OFF)
 
+# Set default compiler options
+add_compile_options("-fPIC" "-Wall" "-Werror" "-Wno-deprecated" "-Wno-shorten-64-to-32")
+
 if (NOT TARGET cpuinfo)
+    cmake_policy(PUSH)
+    cmake_policy(VERSION 3.5)  # cpuinfo requires CMake 3.5
+
     # For some reason cpuinfo package has unused functions/variables
     # TODO (T215533422): fix upstream
     add_compile_options(-Wno-unused-function -Wno-unused-variable)
-    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+    # set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     include(FetchContent)
     set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
     set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "" FORCE)
@@ -40,22 +47,8 @@ if (NOT TARGET cpuinfo)
     )
     FetchContent_MakeAvailable(
         cpuinfo)
-endif()
 
-if (TORCHAO_BUILD_KLEIDIAI)
-    if (NOT TARGET kleidiai)
-        include(FetchContent)
-        # KleidiAI is an open-source library that provides optimized
-        # performance-critical routines, also known as micro-kernels, for artificial
-        # intelligence (AI) workloads tailored for Arm® CPUs.
-        set(KLEIDIAI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(KLEIDIAI_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-        FetchContent_Declare(kleidiai
-            GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
-            GIT_TAG v1.12.0
-        )
-        FetchContent_MakeAvailable(kleidiai)
-    endif()
+    cmake_policy(POP)
 endif()
 
 if (TORCHAO_BUILD_TESTS)
@@ -87,7 +80,6 @@ if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
 endif()
 
 # Set default compiler options
-add_compile_options("-Wall" "-Werror" "-Wno-deprecated" "-Wno-shorten-64-to-32")
 
 include(CMakePrintHelpers)
 include(${CMAKE_CURRENT_SOURCE_DIR}/shared_kernels/Utils.cmake)
@@ -95,6 +87,9 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/shared_kernels/Utils.cmake)
 message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
+
+# Build fallback kernels
+add_subdirectory(torch_free_kernels/fallback)
 
 # Build cpu/aarch64 kernels
 if(TORCHAO_BUILD_CPU_AARCH64)
@@ -105,23 +100,11 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(STATUS "Add aarch64 linux compiler options")
         add_compile_options(
-            "-fPIC"
             "-Wno-error=unknown-pragmas"
             "-Wno-array-parameter"
             "-Wno-maybe-uninitialized"
             "-Wno-sign-compare"
         )
-
-        # Since versions are hierarchical (each includes features from prior versions):
-        # - dotprod is included by default in armv8.4-a and later
-        # - i8mm is included by default in armv8.6-a and later
-        if(TORCHAO_ENABLE_ARM_I8MM)
-            message(STATUS "Using armv8.6-a (includes 'i8mm' and 'dotprod' flags)")
-            add_compile_options("-march=armv8.6-a")
-        elseif(TORCHAO_ENABLE_ARM_NEON_DOT)
-            message(STATUS "Using armv8.4-a (includes '+dotprod' flag)")
-            add_compile_options("-march=armv8.4-a")
-        endif()
     endif()
 
     if(TORCHAO_ENABLE_ARM_NEON_DOT)
@@ -133,19 +116,30 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     if(TORCHAO_ENABLE_ARM_I8MM)
         message(STATUS "Building with ARM I8MM support")
         add_compile_definitions(TORCHAO_ENABLE_ARM_I8MM)
+        add_compile_options("-march=armv8.6-a")
     endif()
 
     if(TORCHAO_BUILD_KLEIDIAI)
         message(STATUS "Building with Arm KleidiAI library")
         add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
+        if (NOT TARGET kleidiai)
+            include(FetchContent)
+            # KleidiAI is an open-source library that provides optimized
+            # performance-critical routines, also known as micro-kernels, for artificial
+            # intelligence (AI) workloads tailored for Arm® CPUs.
+            set(KLEIDIAI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            set(KLEIDIAI_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+            FetchContent_Declare(kleidiai
+                GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
+                GIT_TAG v1.12.0
+            )
+            FetchContent_MakeAvailable(kleidiai)
+        endif()
     endif()
 
     # Defines torchao_kernels_aarch64
     add_subdirectory(torch_free_kernels/aarch64)
 endif()
-
-# Build fallback kernels
-add_subdirectory(torch_free_kernels/fallback)
 
 # Build ATen ops
 if(TORCHAO_BUILD_ATEN_OPS)
@@ -181,7 +175,7 @@ if(TORCHAO_BUILD_ATEN_OPS)
     target_link_libraries(torchao_ops_aten PRIVATE cpuinfo)
     target_include_directories(torchao_ops_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
     target_link_libraries(torchao_ops_aten PRIVATE "${TORCH_LIBRARIES}")
-    target_compile_definitions(torchao_ops_aten PRIVATE USE_ATEN=1)
+    target_compile_definitions(torchao_ops_aten PRIVATE TORCHAO_SHARED_KERNELS_BUILD_ATEN=1)
 
     if (TORCHAO_BUILD_TESTS)
         add_subdirectory(shared_kernels/tests)
@@ -223,7 +217,7 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     list(TRANSFORM _torchao_op_srcs_executorch PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     add_library(torchao_ops_executorch STATIC ${_torchao_op_srcs_executorch})
 
-    target_compile_definitions(torchao_ops_executorch PRIVATE USE_EXECUTORCH=1)
+    target_compile_definitions(torchao_ops_executorch PRIVATE TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH=1)
 
     # This links to ExecuTorch
     target_link_torchao_parallel_backend(torchao_ops_executorch executorch)

@@ -27,11 +27,11 @@ void check_embedding_inputs(
     int& group_size) {
   TORCHAO_CHECK(
       packed_weight_qvals.dim() == 1, "packed_weight_qvals must be 1D");
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       packed_weight_qvals.dtype() == torch::kInt8,
       "packed_weight_qvals must be byte");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       (embedding_dim * weight_nbit) % 8 == 0,
       "embedding_dim * weight_nbit must be a multiple of 8");
@@ -53,11 +53,11 @@ void check_embedding_inputs(
               /*max_value_chunk_size=*/128),
       "packed_weights are not compatible with the kernel");
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       weight_scales.dtype() == torch::kFloat32,
       "weight_scales must be float32");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(weight_scales.dim() == 2, "weight_scales must be 2D");
   TORCHAO_CHECK(
       weight_scales.size(0) == num_embeddings,
@@ -71,10 +71,10 @@ void check_embedding_inputs(
   group_size = embedding_dim / num_groups;
   TORCHAO_CHECK(group_size % 32 == 0, "group_size must be a multiple of 32");
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       weight_zeros.dtype() == torch::kInt8, "weight_zeros must be int8");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(weight_zeros.dim() == 2, "weight_zeros must be 2D");
   TORCHAO_CHECK(
       weight_zeros.size(0) == weight_scales.size(0) &&
@@ -88,7 +88,7 @@ void check_embedding_inputs(
       "indices must be int32 or int64");
 }
 
-#if defined(USE_ATEN) || defined(USE_EXECUTORCH)
+#if defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) || defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
 template <int weight_nbit>
 Tensor embedding_out_cpu(
     const Tensor& packed_weight_qvals,
@@ -149,9 +149,9 @@ Tensor embedding_out_cpu(
 
   return out;
 }
-#endif // defined(USE_ATEN) || defined(USE_EXECUTORCH)
+#endif // defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) || defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor embedding_cpu(
     const Tensor& packed_weight_qvals,
@@ -171,9 +171,9 @@ Tensor embedding_cpu(
       output_tensor);
   return output_tensor;
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
   TORCHAO_CHECK(weight_qvals.dim() == 2, "weight_qvals must be 2D");
@@ -213,9 +213,9 @@ Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
 
   return out;
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor pack_embedding_meta(const Tensor& weight_qvals) {
   TORCHAO_CHECK(weight_qvals.dim() == 2, "weight_qvals must be 2D");
@@ -229,9 +229,9 @@ Tensor pack_embedding_meta(const Tensor& weight_qvals) {
              torchao::ops::PackedWeightsHeader::size() +
              (num_embeddings * packed_embedding_dim), options);
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#if defined(USE_ATEN) || defined(USE_EXECUTORCH)
+#if defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) || defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
 template <int weight_nbit>
 Tensor shared_embedding_out_cpu(
     const Tensor& packed_weights,
@@ -242,10 +242,10 @@ Tensor shared_embedding_out_cpu(
     Tensor& out) {
   // Check packed_weights are from linear op
   TORCHAO_CHECK(packed_weights.dim() == 1, "packed_weights must be 1D");
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       packed_weights.dtype() == torch::kInt8, "packed_weights must be int8");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       packed_weights.size(0) >= torchao::ops::PackedWeightsHeader::size(),
       "packed_weights is not big enough to read the header.");
@@ -308,7 +308,7 @@ Tensor shared_embedding_out_cpu(
   return out;
 }
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor shared_embedding_cpu(
     const Tensor& packed_weights,
@@ -321,6 +321,6 @@ Tensor shared_embedding_cpu(
       packed_weights, group_size, n, k, indices, output_tensor);
   return output_tensor;
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#endif // defined(USE_ATEN) || defined(USE_EXECUTORCH)
+#endif // defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) || defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
