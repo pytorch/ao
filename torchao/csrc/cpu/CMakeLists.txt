@@ -26,7 +26,19 @@ option(TORCHAO_BUILD_TESTS "Build tests" OFF)
 option(TORCHAO_BUILD_BENCHMARKS "Build tests" OFF)
 
 # Set default compiler options
-add_compile_options("-fPIC" "-Wall" "-Werror" "-Wno-deprecated" "-Wno-shorten-64-to-32")
+add_compile_options("-fPIC" "-Wall" "-Werror" "-Wno-deprecated")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_compile_options(
+        "-Wno-error=unknown-pragmas"
+        "-Wno-array-parameter"
+        "-Wno-maybe-uninitialized"
+        "-Wno-sign-compare"
+    )
+elseif (APPLE)
+    add_compile_options("-Wno-shorten-64-to-32")
+endif()
+
+
 
 if (NOT TARGET cpuinfo)
     cmake_policy(PUSH)
@@ -95,17 +107,6 @@ add_subdirectory(torch_free_kernels/fallback)
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
-
-    # Set aarch64 compiler options
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        message(STATUS "Add aarch64 linux compiler options")
-        add_compile_options(
-            "-Wno-error=unknown-pragmas"
-            "-Wno-array-parameter"
-            "-Wno-maybe-uninitialized"
-            "-Wno-sign-compare"
-        )
-    endif()
 
     if(TORCHAO_ENABLE_ARM_NEON_DOT)
         message(STATUS "Building with ARM NEON dot product support")
