@@ -66,15 +66,13 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
-from torchao.quantization.quantize_.common import (
-    KernelPreference,
-    PackingFormat,
-)
+from torchao.quantization.quantize_.common import KernelPreference, PackingFormat
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4TensorCoreTilePackedTensor,
     IntxUnpackedTensor,
     QuantizeTensorToFloat8Kwargs,
 )
@@ -93,35 +91,16 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
-from .granularity import (
-    Granularity,
-    PerAxis,
-    PerGroup,
-    PerRow,
-    PerTensor,
-)
+from .GPTQ import Int4WeightOnlyGPTQQuantizer
+from .granularity import Granularity, PerAxis, PerGroup, PerRow, PerTensor
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .linear_quant_modules import (
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightQuantizer,
-)
-from .qat import (
-    intx_quantization_aware_training,
-)
-from .quant_primitives import (
-    _DTYPE_TO_QVALUE_BOUNDS,
-    MappingType,
-    ZeroPointDomain,
-)
-from .subclass import (
-    QuantizedLinearWeightBase,
-)
+from .linear_quant_modules import Int4WeightOnlyQuantizer, Int8DynActInt4WeightQuantizer
+from .qat import intx_quantization_aware_training
+from .quant_primitives import _DTYPE_TO_QVALUE_BOUNDS, MappingType, ZeroPointDomain
+from .subclass import QuantizedLinearWeightBase
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
@@ -1080,6 +1059,12 @@ def _int4_weight_only_quantize_tensor(weight, config):
                 block_size,
             )
             return new_weight
+        elif packing_format == PackingFormat.TENSOR_CORE_TILE_PACKED:
+            new_weight = Int4TensorCoreTilePackedTensor.from_hp(
+                weight,
+                block_size,
+            )
+            return new_weight
         else:
             raise ValueError(f"Unsupported packing format: {packing_format}")
 
@@ -1454,10 +1439,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
+    warnings.warn(
+        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()""")
+    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()"""
+    )
 
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
@@ -2008,7 +1995,10 @@ class IntxWeightOnlyConfig(AOBaseConfig):
             assert self.granularity.axis == 0, (
                 f"axis must be 0 with PerAxis, but got {self.granularity.axis}"
             )
-        assert self.mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC], (
+        assert self.mapping_type in [
+            MappingType.ASYMMETRIC,
+            MappingType.SYMMETRIC,
+        ], (
             f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
         )
 
