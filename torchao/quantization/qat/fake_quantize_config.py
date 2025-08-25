@@ -80,7 +80,7 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
 @dataclass
 class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     """
-    Config for fake quantizing weights or activations to NVIDIA's NVFP4 format
+    (Prototype) Config for fake quantizing weights or activations to NVIDIA's NVFP4 format
     according to https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/.
 
     Fake quantization numerics follow `NVFP4Tensor` closely: https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/nvfp4_tensor.py.

@@ -97,7 +97,7 @@ class Float8FakeQuantizer(FakeQuantizerBase):
 
 class NVFP4FakeQuantizer(FakeQuantizerBase):
     """
-    Generic module for applying NVFP4 fake quantization to a tensor, as specified in the config.
+    (Prototype) Generic module for applying NVFP4 fake quantization to a tensor, as specified in the config.
     """
 
     def __init__(self, config: NVFP4FakeQuantizeConfig):

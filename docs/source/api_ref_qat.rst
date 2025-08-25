@@ -27,7 +27,6 @@ Custom QAT APIs
     FakeQuantizeConfigBase
     IntxFakeQuantizeConfig
     Float8FakeQuantizeConfig
-    NVFP4FakeQuantizeConfig
     FakeQuantizedLinear
     FakeQuantizedEmbedding
     FakeQuantizerBase
@@ -63,3 +62,5 @@ Prototype
     :nosignatures:
 
     initialize_fake_quantizers
+    NVFP4FakeQuantizeConfig
+    NVFP4FakeQuantizer
