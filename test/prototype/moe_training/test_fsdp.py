@@ -45,6 +45,12 @@ except ImportError:
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
     )
 
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 
 @pytest.mark.parametrize(
     "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
