@@ -20,7 +20,6 @@ from torch import distributed as dist
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
 from torch.nn import functional as F
-from torchao.testing.utils import skip_if_rocm
 
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
@@ -46,7 +45,13 @@ except ImportError:
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
     )
 
-@skip_if_rocm()
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
+
 @pytest.mark.parametrize(
     "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
     [
