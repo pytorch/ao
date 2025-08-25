@@ -30,7 +30,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
     Tensor Attributes:
-        qdata: preshuffled and packed int4 weight for tinygemm, always viewed as a 2D (N, K/2) tensor, last dimension is packed
+        qdata: packed int4 weigh, always viewed as a 2D (N, K/2) tensor, last dimension is packed
                preshuffling is specific to CPU kernels, see Note below.
         scale: (K/group_size, N), dtype is the same as the original Tensor dtype
         zero_point: (K/group_size, N)
@@ -64,7 +64,6 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
         self.scale = scale
         self.zero_point = zero_point
         self.block_size = block_size
-        #self.shape = shape
 
     def _quantization_type(self):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
