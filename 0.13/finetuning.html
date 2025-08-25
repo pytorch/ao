@@ -1,0 +1,1152 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>(Part 2) Fine-tuning with QAT, QLoRA, and float8 &mdash; torchao 0.13 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="(Part 3) Serving on vLLM, SGLang, ExecuTorch" href="serving.html" />
+    <link rel="prev" title="(Part 1) Pre-training with float8" href="pretraining.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Learn
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started">
+                  <span class=dropdown-title>Get Started</span>
+                  <p>Run PyTorch locally or get started quickly with one of the supported cloud platforms</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                  <p>Whats new in PyTorch tutorials</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                  <p>Familiarize yourself with PyTorch concepts and modules</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                  <p>Bite-size, ready-to-deploy PyTorch code examples</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                  <p>Master PyTorch basics with our engaging YouTube tutorial series</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Ecosystem
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem">
+                  <span class="dropdown-title">Tools</span>
+                  <p>Learn about the tools and frameworks in the PyTorch Ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class=dropdown-title>Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class=dropdown-title>Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2024">
+                  <span class="dropdown-title">Contributor Awards - 2024</span>
+                  <p>Award winners announced at this year's PyTorch Conference</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                  <p>Build innovative and privacy-aware AI experiences for edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch-overview">
+                  <span class="dropdown-title">ExecuTorch</span>
+                  <p>End-to-end solution for enabling on-device inference capabilities across mobile and edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch/stable/index.html">
+                  <span class="dropdown-title">ExecuTorch Docs</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p>Explore the documentation for comprehensive guidance on how to use PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/pytorch-domains">
+                  <span class="dropdown-title">PyTorch Domains</span>
+                  <p>Read the PyTorch Domains documentation to learn more about domain-specific libraries</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Blogs & News 
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">PyTorch Blog</span>
+                  <p>Catch up on the latest technical news and happenings</p>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/community-blog">
+                  <span class="dropdown-title">Community Blog</span>
+                  <p>Stories from the PyTorch ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/videos">
+                  <span class="dropdown-title">Videos</span>
+                  <p>Learn about the latest PyTorch tutorials, new, and more </p>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                  <p>Stay up-to-date with the latest updates</p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                About
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn more about the PyTorch Foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact-us">
+                  <span class="dropdown-title">Contact Us</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown">
+              <a href="https://pytorch.org/join" data-cta="join">
+                Become a Member
+              </a>
+            </div>
+          </li>
+          <li>
+           <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="github-icon">
+             </a>
+           </div>
+          </li>
+          <!--- TODO: This block adds the search icon to the nav bar. We will enable it later. 
+          <li>
+            <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="search-icon">
+             </a>
+            </div>
+          </li>
+          --->
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+    <div class="version">
+        <a href='https://pytorch.org/ao/versions.html'>0.13 &#x25BC</a>
+    </div>
+    
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quantization_overview.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html">torchao.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>(Part 2) Fine-tuning with QAT, QLoRA, and float8</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="_sources/finetuning.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id="
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="part-2-fine-tuning-with-qat-qlora-and-float8">
+<h1>(Part 2) Fine-tuning with QAT, QLoRA, and float8<a class="headerlink" href="#part-2-fine-tuning-with-qat-qlora-and-float8" title="Permalink to this heading">¶</a></h1>
+<p>TorchAO provides an end-to-end pre-training, fine-tuning, and serving
+model optimization flow by leveraging our quantization and sparsity
+techniques integrated into our partner frameworks. This is part 2 of 3
+such tutorials showcasing this end-to-end flow, focusing on the
+fine-tuning step.</p>
+<img alt="_images/e2e_flow_part2.png" src="_images/e2e_flow_part2.png" />
+<p>Fine-tuning is an important step for adapting your pre-trained model
+to more domain-specific data. In this tutorial, we demonstrate 3 model
+optimization techniques that can be applied to your model during fine-tuning:</p>
+<p>1. <strong>Quantization-Aware Training (QAT)</strong>, for adapting your model to
+quantization numerics during fine-tuning, with the goal of mitigating
+quantization degradations in your fine-tuned model when it is quantized
+eventually, e.g. in the serving step. Check out <a class="reference external" href="https://pytorch.org/blog/quantization-aware-training/">our blog</a>
+and <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/README.md">README</a> for more details!</p>
+<p>2. <strong>Quantized Low-Rank Adaptation (QLoRA)</strong>, for reducing the resource
+requirement of fine-tuning by introducing small, trainable low-rank
+matrices and freezing the original pre-trained checkpoint, a type of
+Parameter-Efficient Fine-Tuning (PEFT). Please refer to the <a class="reference external" href="https://arxiv.org/pdf/2305.14314">original
+paper</a> for more details.</p>
+<p>3. <strong>Float8 Quantized Fine-tuning</strong>, for speeding up fine-tuning by
+dynamically quantizing high precision weights and activations to float8,
+similar to <a class="reference external" href="pretraining.html">pre-training in float8</a>.</p>
+<section id="quantization-aware-training-qat">
+<h2>Quantization-Aware Training (QAT)<a class="headerlink" href="#quantization-aware-training-qat" title="Permalink to this heading">¶</a></h2>
+<p>The goal of Quantization-Aware Training is to adapt the model to
+quantization numerics during training or fine-tuning, so as to mitigate
+the inevitable quantization degradation when the model is actually
+quantized eventually, presumably during the serving step after fine-tuning.
+TorchAO’s QAT support has been used successfully for the recent release of
+the <a class="reference external" href="https://ai.meta.com/blog/meta-llama-quantized-lightweight-models/">Llama-3.2 quantized 1B/3B</a>
+and the <a class="reference external" href="https://github.com/meta-llama/PurpleLlama/blob/main/Llama-Guard3/8B/MODEL_CARD.md">LlamaGuard-3-8B</a> models to improve the quality of the quantized models.</p>
+<p>TorchAO’s QAT support involves two separate steps: prepare and convert.
+The prepare step “fake” quantizes activations and/or weights during
+training, which means, the high precision values (e.g. bf16) are mapped
+to their corresponding quantized values <em>without</em> actually casting them
+to the target lower precision dtype (e.g. int4). The convert step,
+applied after training, replaces “fake” quantization operations in the
+model with “real” quantization that does perform the dtype casting:</p>
+<img alt="_images/qat_diagram.png" src="_images/qat_diagram.png" />
+<p>There are multiple options for using TorchAO’s QAT for fine-tuning:</p>
+<ol class="arabic simple">
+<li><p>Use our integration with <a class="reference external" href="https://github.com/pytorch/torchtune">TorchTune</a></p></li>
+<li><p>Use our integration with <a class="reference external" href="https://github.com/axolotl-ai-cloud/axolotl">Axolotl</a></p></li>
+<li><p>Directly use our QAT APIs with your own training loop</p></li>
+</ol>
+<section id="option-1-torchtune-qat-integration">
+<h3>Option 1: TorchTune QAT Integration<a class="headerlink" href="#option-1-torchtune-qat-integration" title="Permalink to this heading">¶</a></h3>
+<p>TorchAO’s QAT support is integrated into TorchTune’s distributed fine-tuning recipe.
+Instead of the following command, which applies full distributed fine-tuning without QAT:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Regular fine-tuning without QAT</span>
+<span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">full_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_full</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span>
+</pre></div>
+</div>
+<p>Users can run the following equivalent command instead. Note that specifying the quantizer
+is optional:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fine-tuning with QAT, by default:</span>
+<span class="c1">#   activations are fake quantized to asymmetric per token int8</span>
+<span class="c1">#   weights are fake quantized to symmetric per group int4</span>
+<span class="c1">#   configurable through &quot;quantizer._component_&quot; in the command</span>
+<span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">qat_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qat_full</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span>
+</pre></div>
+</div>
+<p>After fine-tuning, users can quantize and evaluate the resulting model as follows.
+This is the same whether or not QAT was used during the fine-tuning process:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Quantize model weights to int4</span>
+<span class="n">tune</span> <span class="n">run</span> <span class="n">quantize</span> <span class="o">--</span><span class="n">config</span> <span class="n">quantization</span> \
+    <span class="n">model</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">llama3_2</span><span class="o">.</span><span class="n">llama3_2_3b</span> \
+    <span class="n">checkpointer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">FullModelHFCheckpointer</span> \
+    <span class="s1">&#39;checkpointer.checkpoint_files=[model-00001-of-00002.safetensors,model-00002-of-00002.safetensors]&#39;</span> \
+    <span class="n">checkpointer</span><span class="o">.</span><span class="n">model_type</span><span class="o">=</span><span class="n">LLAMA3</span> \
+    <span class="n">quantizer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">Int8DynActInt4WeightQuantizer</span> \
+    <span class="n">quantizer</span><span class="o">.</span><span class="n">groupsize</span><span class="o">=</span><span class="mi">32</span>
+
+<span class="c1"># Evaluate the int4 model on hellaswag and wikitext</span>
+<span class="n">tune</span> <span class="n">run</span> <span class="n">eleuther_eval</span> <span class="o">--</span><span class="n">config</span> <span class="n">eleuther_evaluation</span> \
+    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span> \
+    <span class="s1">&#39;tasks=[hellaswag, wikitext]&#39;</span> \
+    <span class="n">model</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">llama3_2</span><span class="o">.</span><span class="n">llama3_2_3b</span> \
+    <span class="n">checkpointer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">FullModelTorchTuneCheckpointer</span> \
+    <span class="s1">&#39;checkpointer.checkpoint_files=[model-00001-of-00002-8da4w.ckpt]&#39;</span> \
+    <span class="n">checkpointer</span><span class="o">.</span><span class="n">model_type</span><span class="o">=</span><span class="n">LLAMA3</span> \
+    <span class="n">tokenizer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">llama3</span><span class="o">.</span><span class="n">llama3_tokenizer</span> \
+    <span class="n">tokenizer</span><span class="o">.</span><span class="n">path</span><span class="o">=/</span><span class="n">tmp</span><span class="o">/</span><span class="n">Meta</span><span class="o">-</span><span class="n">Llama</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="mi">8</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">/</span><span class="n">original</span><span class="o">/</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">model</span> \
+    <span class="n">quantizer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">Int8DynActInt4WeightQuantizer</span> \
+    <span class="n">quantizer</span><span class="o">.</span><span class="n">groupsize</span><span class="o">=</span><span class="mi">32</span>
+</pre></div>
+</div>
+<p>This should print the following after fine-tuning:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>|  Tasks  |Version|Filter|n-shot| Metric |   |Value |   |Stderr|
+|---------|------:|------|------|--------|---|-----:|---|-----:|
+|hellaswag|      1|none  |None  |acc     |↑  |0.5021|±  |0.0050|
+|         |       |none  |None  |acc_norm|↑  |0.6797|±  |0.0047|
+
+| Tasks  |Version|Filter|n-shot|    Metric     |   | Value |   |Stderr|
+|--------|------:|------|------|---------------|---|------:|---|------|
+|wikitext|      2|none  |None  |bits_per_byte  |↓  | 0.6965|±  |   N/A|
+|        |       |none  |None  |byte_perplexity|↓  | 1.6206|±  |   N/A|
+|        |       |none  |None  |word_perplexity|↓  |13.2199|±  |   N/A|
+</pre></div>
+</div>
+<p>You can compare these values with and without QAT to see how much QAT helped mitigate quantization degradation!
+For example, when fine-tuning Llama-3.2-3B on the
+<a class="reference external" href="https://huggingface.co/datasets/OpenAssistant/oasst1">OpenAssistant Conversations (OASST1)</a>
+dataset, we find that the quantized model achieved 3.4% higher accuracy
+with QAT than without, recovering 69.8% of the overall accuracy degradation
+from quantization:</p>
+<img alt="_images/qat_eval.png" src="_images/qat_eval.png" />
+<p>In addition to vanilla QAT as in the above example, TorchAO’s QAT can also be composed with LoRA to yield a <a class="reference external" href="https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700">1.89x training speedup</a> and lower memory usage by 36.1%. This is implemented in TorchTune’s <a class="reference external" href="https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py">QAT + LoRA fine-tuning recipe</a>, which can be run using the following command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fine-tuning with QAT + LoRA</span>
+<span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">qat_lora_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qat_lora</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span>
+</pre></div>
+</div>
+<p>For more details about how QAT is set up in TorchTune, please refer to <a class="reference external" href="https://docs.pytorch.org/torchtune/main/tutorials/qat_finetune.html">this tutorial</a>.</p>
+</section>
+<section id="option-2-axolotl-qat-integration">
+<h3>Option 2: Axolotl QAT Integration<a class="headerlink" href="#option-2-axolotl-qat-integration" title="Permalink to this heading">¶</a></h3>
+<p>Axolotl also recently added a QAT fine-tuning recipe that leverages TorchAO’s QAT support.
+To get started, try fine-tuning Llama-3.2-3B with QAT using the following command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">axolotl</span> <span class="n">train</span> <span class="n">examples</span><span class="o">/</span><span class="n">llama</span><span class="o">-</span><span class="mi">3</span><span class="o">/</span><span class="mi">3</span><span class="n">b</span><span class="o">-</span><span class="n">qat</span><span class="o">-</span><span class="n">fsdp2</span><span class="o">.</span><span class="n">yaml</span>
+<span class="c1"># once training is complete, perform the quantization step</span>
+
+<span class="n">axolotl</span> <span class="n">quantize</span> <span class="n">examples</span><span class="o">/</span><span class="n">llama</span><span class="o">-</span><span class="mi">3</span><span class="o">/</span><span class="mi">3</span><span class="n">b</span><span class="o">-</span><span class="n">qat</span><span class="o">-</span><span class="n">fsdp2</span><span class="o">.</span><span class="n">yaml</span>
+<span class="c1"># you should now have a quantized model saved in ./outputs/qat_out/quatized</span>
+</pre></div>
+</div>
+<p>Please refer to the <a class="reference external" href="https://docs.axolotl.ai/docs/qat.html">Axolotl QAT documentation</a> for full details.</p>
+</section>
+<section id="option-3-torchao-qat-api">
+<h3>Option 3: TorchAO QAT API<a class="headerlink" href="#option-3-torchao-qat-api" title="Permalink to this heading">¶</a></h3>
+<p>If you prefer to use a different training framework or your own custom training loop,
+you can call TorchAO’s QAT APIs directly to transform the model before fine-tuning.
+These APIs are what the TorchTune and Axolotl QAT integrations call under the hood.</p>
+<p>In this example, we will fine-tune a mini version of Llama3 on a single GPU:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchtune.models.llama3</span><span class="w"> </span><span class="kn">import</span> <span class="n">llama3</span>
+
+<span class="c1"># Set up a smaller version of llama3 to fit in a single A100 GPU</span>
+<span class="c1"># For smaller GPUs, adjust the model attributes accordingly</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_model</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">llama3</span><span class="p">(</span>
+        <span class="n">vocab_size</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
+        <span class="n">num_layers</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+        <span class="n">num_heads</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+        <span class="n">num_kv_heads</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+        <span class="n">embed_dim</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+        <span class="n">max_seq_len</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+
+<span class="c1"># Example training loop</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">train_loop</span><span class="p">(</span><span class="n">m</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">momentum</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">weight_decay</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
+    <span class="n">loss_fn</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">CrossEntropyLoss</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+        <span class="n">example</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">))</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+        <span class="n">target</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">4096</span><span class="p">))</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="n">example</span><span class="p">)</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">loss_fn</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+        <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Next, run the prepare step, which fake quantizes the model. In this example,
+we use int8 per token dynamic activations and int4 symmetric per group weights
+as our quantization scheme. Note that although we are targeting lower integer
+precisions, training still performs arithmetic in higher float precision (float32)
+because we are not actually casting the fake quantized values.</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">QATConfig</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">()</span>
+
+<span class="c1"># prepare: swap `torch.nn.Linear` -&gt; `FakeQuantizedLinear`</span>
+<span class="n">base_config</span> <span class="o">=</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">))</span>
+
+<span class="c1"># fine-tune</span>
+<span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>After fine-tuning, we end up with a model in the original high precision.
+This fine-tuned model has the exact same structure as the original model.
+The only difference is the QAT fine-tuned model has weights that are more
+attuned to quantization, which will be beneficial later during inference.
+The next step is to actually quantize the model:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
+
+<span class="c1"># convert: swap `FakeQuantizedLinear` -&gt; `torch.nn.Linear`, then quantize using `base_config`</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;convert&quot;</span><span class="p">))</span>
+
+<span class="c1"># inference or generate</span>
+</pre></div>
+</div>
+<p>Now our model is ready for serving, and will typically have higher quantized
+accuracy than if we did not apply the prepare step (fake quantization) during
+fine-tuning.</p>
+<p>For full details of using TorchAO’s QAT API, please refer to the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/README.md">QAT README</a>.</p>
+<details>
+<summary><a>Alternative Legacy API</a></summary><p>The above <cite>quantize_</cite> API is the recommended flow for using TorchAO QAT.
+We also offer an alternative legacy “quantizer” API for specific quantization
+schemes, but these are not customizable unlike the above example.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynActInt4WeightQATQuantizer</span>
+<span class="n">qat_quantizer</span> <span class="o">=</span> <span class="n">Int8DynActInt4WeightQATQuantizer</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+
+<span class="c1"># prepare: insert fake quantization ops</span>
+<span class="c1"># swaps `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear`</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">qat_quantizer</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+
+<span class="c1"># train</span>
+<span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+
+<span class="c1"># convert: transform fake quantization ops into actual quantized ops</span>
+<span class="c1"># swaps `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">qat_quantizer</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+</pre></div>
+</div>
+</details></section>
+</section>
+<section id="quantized-low-rank-adaptation-qlora">
+<h2>Quantized Low-Rank Adaptation (QLoRA)<a class="headerlink" href="#quantized-low-rank-adaptation-qlora" title="Permalink to this heading">¶</a></h2>
+<p>Low-Rank Adaptation (LoRA) refers to freezing the original model,
+and instead training a set of new “adapter” parameters that are a
+small fraction of the original parameters, thereby significantly
+reducing the memory footprint during training. QLoRA is an extension
+of LoRA that additionally quantizes the frozen original model
+parameters to 4-bits, thereby further reducing the memory footprint.</p>
+<p>TorchAO offers an implementation of the NF4 data type proposed in
+the original <a class="reference external" href="https://arxiv.org/pdf/2305.14314">QLoRA paper</a>.
+This implementation expresses NF4 as a tensor subclass through the
+<a class="reference external" href="https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.NF4Tensor.html">NF4Tensor</a>,
+which composes cleanly with other PyTorch features like <cite>torch.compile</cite>
+and FSDP2. Users can convert a high precision tensor to NF4 simply
+by calling <a class="reference external" href="https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.to_nf4.html">torchao.dtypes.to_nf4</a>.
+For example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">FrozenNF4Linear</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">quantization_kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">in_dim</span><span class="p">,</span> <span class="n">out_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="n">bias</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="c1"># No need to train these in QLoRA</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">nf4_weight</span> <span class="o">=</span> <span class="n">to_nf4</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">quantization_kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">nf4_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>QLoRA need not work with NF4 specifically, though NF4 has been
+shown to achieve competitive results compared to bf16 baselines
+while significantly reducing the memory required for training.
+This technique can also compose with other lower bit dtypes
+such as regular INT4 or even newer <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats">MXFP4 or NVFP4</a>
+targeting Blackwell GPUs to reap similar memory benefits with
+varying tradeoffs.</p>
+<section id="option-1-torchtune-integration">
+<h3>Option 1: TorchTune Integration<a class="headerlink" href="#option-1-torchtune-integration" title="Permalink to this heading">¶</a></h3>
+<p>TorchTune incorporates the <cite>NF4Tensor</cite> in its QLoRA fine-tuning
+recipe through their implementation of <a class="reference external" href="https://github.com/pytorch/torchtune/blob/a6290a5b40758f13bca61c386bc8756a49ef417e/torchtune/modules/peft/lora.py#L19">LoRALinear</a>.
+You can also try it out by running the following command,
+or refer to their <a class="reference external" href="https://docs.pytorch.org/torchtune/stable/tutorials/qlora_finetune.html">QLoRA tutorial</a>
+for more details.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="n">lora_finetune_single_device</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qlora_single_device</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+</section>
+<section id="option-2-huggingface-peft-integration">
+<h3>Option 2: HuggingFace PEFT Integration<a class="headerlink" href="#option-2-huggingface-peft-integration" title="Permalink to this heading">¶</a></h3>
+<p><a class="reference external" href="https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization">HuggingFace PEFT</a>
+also has a limited version of QLoRA leveraging TorchAO’s INT8
+quantization, though INT4 or NF4 are not supported yet. Users
+can invoke this functionality by preparing their models as follows.
+For full details, please refer to <a class="reference external" href="https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization">this tutorial</a>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoraConfig</span><span class="p">,</span> <span class="n">get_peft_model</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">TorchAoConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8WeightOnlyConfig</span>
+
+<span class="n">base_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span>
+    <span class="n">quantization_config</span><span class="o">=</span><span class="n">TorchAoConfig</span><span class="p">(</span><span class="n">Int8WeightOnlyConfig</span><span class="p">()),</span>
+<span class="p">)</span>
+<span class="n">peft_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_peft_model</span><span class="p">(</span><span class="n">base_model</span><span class="p">,</span> <span class="n">peft_config</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="float8-quantized-fine-tuning">
+<h2>Float8 Quantized Fine-tuning<a class="headerlink" href="#float8-quantized-fine-tuning" title="Permalink to this heading">¶</a></h2>
+<p>Similar to <a class="reference external" href="pretraining.html">pre-training</a>, we can also
+leverage float8 in fine-tuning for higher training throughput
+with no accuracy degradation and no increase in memory usage.
+Float8 training is integrated into TorchTune’s distributed
+full fine-tuning recipe, leveraging the same APIs as our
+integration with TorchTitan. Users can invoke this fine-tuning
+recipe as follows:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">full_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_full</span>
+  <span class="n">enable_fp8_training</span><span class="o">=</span><span class="n">true</span> \
+  <span class="n">fp8_recipe_name</span><span class="o">=</span><span class="n">tensorwise</span> \
+  <span class="nb">compile</span><span class="o">=</span><span class="kc">True</span>
+</pre></div>
+</div>
+<p>Initial experiments saw up to 16.5% throughput improvement
+for fine-tuning Llama3.2-3B in float8:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">experiment_name</span>         <span class="n">tok</span><span class="o">/</span><span class="n">s</span>                 <span class="n">peak_mem_reserved</span>
+<span class="o">----------------------</span>  <span class="o">-------------------</span>   <span class="o">-------------------</span>
+<span class="n">bf16</span>                    <span class="mf">6502.143</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="o">%</span><span class="p">)</span>    <span class="mf">30.090</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_noname</span>              <span class="mf">7205.386</span> <span class="p">(</span><span class="o">+</span><span class="mf">10.816</span><span class="o">%</span><span class="p">)</span>   <span class="mf">30.010</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.266</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_tensorwise</span>          <span class="mf">7222.198</span> <span class="p">(</span><span class="o">+</span><span class="mf">11.074</span><span class="o">%</span><span class="p">)</span>   <span class="mf">30.010</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.266</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_rowwise</span>             <span class="mf">6387.968</span> <span class="p">(</span><span class="o">-</span><span class="mf">1.756</span><span class="o">%</span><span class="p">)</span>    <span class="mf">29.158</span> <span class="p">(</span><span class="o">-</span><span class="mf">3.096</span><span class="o">%</span><span class="p">)</span>
+<span class="n">fp8_rowwise_with_gw_hp</span>  <span class="mf">7573.698</span> <span class="p">(</span><span class="o">+</span><span class="mf">16.480</span><span class="o">%</span><span class="p">)</span>   <span class="mf">29.516</span> <span class="p">(</span><span class="o">-</span><span class="mf">1.908</span><span class="o">%</span><span class="p">)</span>
+
+<span class="n">experiment_name</span>         <span class="n">hellaswag_acc</span>    <span class="n">wikitext_word_perplexity</span>
+<span class="o">----------------------</span>  <span class="o">---------------</span>  <span class="o">--------------------------</span>
+<span class="n">bf16</span>                    <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.407</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>
+<span class="n">fp8_noname</span>              <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.414</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.007</span><span class="p">)</span>
+<span class="n">fp8_tensorwise</span>          <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.412</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.005</span><span class="p">)</span>
+<span class="n">fp8_rowwise</span>             <span class="mf">0.533</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.420</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.013</span><span class="p">)</span>
+<span class="n">fp8_rowwise_with_gw_hp</span>  <span class="mf">0.534</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.001</span><span class="p">)</span>   <span class="mf">12.416</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.009</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Please refer to the <a class="reference external" href="pretraining.html">pre-training</a> tutorial for more details.</p>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="serving.html" class="btn btn-neutral float-right" title="(Part 3) Serving on vLLM, SGLang, ExecuTorch" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="pretraining.html" class="btn btn-neutral" title="(Part 1) Pre-training with float8" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2024-present, torchao Contributors.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a><ul>
+<li><a class="reference internal" href="#quantization-aware-training-qat">Quantization-Aware Training (QAT)</a><ul>
+<li><a class="reference internal" href="#option-1-torchtune-qat-integration">Option 1: TorchTune QAT Integration</a></li>
+<li><a class="reference internal" href="#option-2-axolotl-qat-integration">Option 2: Axolotl QAT Integration</a></li>
+<li><a class="reference internal" href="#option-3-torchao-qat-api">Option 3: TorchAO QAT API</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#quantized-low-rank-adaptation-qlora">Quantized Low-Rank Adaptation (QLoRA)</a><ul>
+<li><a class="reference internal" href="#option-1-torchtune-integration">Option 1: TorchTune Integration</a></li>
+<li><a class="reference internal" href="#option-2-huggingface-peft-integration">Option 2: HuggingFace PEFT Integration</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#float8-quantized-fine-tuning">Float8 Quantized Fine-tuning</a></li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+         <script src="_static/jquery.js"></script>
+         <script src="_static/underscore.js"></script>
+         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="_static/doctools.js"></script>
+         <script src="_static/clipboard.min.js"></script>
+         <script src="_static/copybutton.js"></script>
+         <script src="_static/design-tabs.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+<!-- Disabling "auto-collapsing" of sections on the left side bar. Replace script with commented out sections to reenable. -->
+<!--  -->
+<script script type="text/javascript">
+    var collapsedSections = []
+</script>
+
+ 
+<script type="text/javascript">
+  $(document).ready(function () {
+    // Patch the "GitHub" link at the top of the page
+    // to point to the torchao repo.
+    var overwrite = function (_) {
+      if ($(this).length > 0) {
+        $(this)[0].href = "https://github.com/pytorch/ao"
+      }
+    }
+    // PC
+    $(".main-menu a:contains('GitHub')").each(overwrite);
+    // Mobile
+    e$(".mobile-menu a:contains('Github')").each(overwrite);
+  });
+</script>
+
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+           <li class="resources-mobile-menu-title">
+             <a>Learn</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/get-started">Get Started</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials">Tutorials</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+             </li>
+           </ul>
+           <li class="resources-mobile-menu-title">
+             <a>Ecosystem</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/ecosystem">Tools</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/#community-module">Community</a>
+             </li>
+             <li>
+               <a href="https://discuss.pytorch.org/">Forums</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/resources">Developer Resources</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2024</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Edge</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/edge">About PyTorch Edge</a>
+             </li>
+             
+             <li>
+               <a href="https://pytorch.org/executorch-overview">ExecuTorch</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/executorch/stable/index.html">ExecuTorch Documentation</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Docs</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/pytorch-domains">PyTorch Domains</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            <a>Blog & News</a>
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/blog/">PyTorch Blog</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/community-blog">Community Blog</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/videos">Videos</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/newsletter">Newsletter</a>
+             </li>
+          </ul>
+          
+          <li class="resources-mobile-menu-title">
+            <a>About</a>
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/governing-board">Governing Board</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/staff">Staff</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/contact-us">Contact Us</a>
+            </li>
+          </ul>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>
