@@ -62,5 +62,3 @@ Prototype
     :nosignatures:
 
     initialize_fake_quantizers
-    NVFP4FakeQuantizeConfig
-    NVFP4FakeQuantizer

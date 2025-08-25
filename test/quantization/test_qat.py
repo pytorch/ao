@@ -50,7 +50,6 @@ from torchao.quantization.qat.embedding import (
 from torchao.quantization.qat.fake_quantize_config import (
     Float8FakeQuantizeConfig,
     IntxFakeQuantizeConfig,
-    NVFP4FakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
     Float8FakeQuantizer,
@@ -1974,6 +1973,8 @@ class TestQAT(TestCase):
         """
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
+        from torchao.prototype.qat import NVFP4FakeQuantizeConfig
+
         torch.manual_seed(self.SEED)
         m = M().cuda()
         baseline_model = copy.deepcopy(m)

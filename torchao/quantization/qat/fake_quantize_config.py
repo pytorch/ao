@@ -78,22 +78,6 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
 
 
 @dataclass
-class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
-    """
-    (Prototype) Config for fake quantizing weights or activations to NVIDIA's NVFP4 format
-    according to https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/.
-
-    Fake quantization numerics follow `NVFP4Tensor` closely: https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/nvfp4_tensor.py.
-
-    Args:
-        use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
-            after the initial fp8 (e4m3) block-wise scaling (default True)
-    """
-
-    use_per_tensor_scale: bool = True
-
-
-@dataclass
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
@@ -336,7 +320,6 @@ class FakeQuantizeConfig(IntxFakeQuantizeConfig):
         _log_deprecation_warning(self)
 
 
-# TODO: rewrite using registration API?
 def _infer_fake_quantize_configs(
     base_config: AOBaseConfig,
 ) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
@@ -347,10 +330,14 @@ def _infer_fake_quantize_configs(
 
     Return a 2-tuple of (activation_config, weight_config) for fake quantization.
     """
+    # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
     from torchao.prototype.mx_formats import (
         NVFP4InferenceConfig,
         NVFP4MMConfig,
+    )
+    from torchao.prototype.qat import (
+        NVFP4FakeQuantizeConfig,
     )
     from torchao.quantization import (
         Float8DynamicActivationFloat8WeightConfig,
