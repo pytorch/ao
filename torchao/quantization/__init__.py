@@ -163,7 +163,7 @@ __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
-     "Int4XPUTensorIntZP",
+    "Int4XPUTensorIntZP",
     "IntxUnpackedTensor",
     "Float8Tensor",
     # smooth quant - subject to change
