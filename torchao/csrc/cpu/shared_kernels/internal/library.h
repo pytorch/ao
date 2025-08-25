@@ -4,8 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
-#if defined(USE_ATEN) && !defined(USE_EXECUTORCH)
-#pragma message("USE_ATEN")
+#if defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) && !defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
+#pragma message("TORCHAO_SHARED_KERNELS_BUILD_ATEN")
 #include <torch/library.h>
 #include <torch/script.h>
 #include <torch/torch.h>
@@ -15,8 +15,8 @@ using Tensor = at::Tensor;
 #define TORCHAO_CHECK(cond, msg) TORCH_CHECK(cond, msg)
 #define TORCHAO_RESIZE_TENSOR(tensor, ...) tensor.resize_({__VA_ARGS__})
 
-#elif defined(USE_EXECUTORCH) && !defined(USE_ATEN)
-#pragma message("USE_EXECUTORCH")
+#elif defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH) && !defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN)
+#pragma message("TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH")
 #include <executorch/extension/kernel_util/make_boxed_from_unboxed_functor.h>
 #include <executorch/runtime/kernel/kernel_includes.h>
 #include <executorch/runtime/core/exec_aten/util/tensor_util.h>
@@ -28,8 +28,8 @@ using RuntimeContext = torch::executor::KernelRuntimeContext;
 #define TORCHAO_RESIZE_TENSOR(tensor, ...) \
   ET_CHECK_MSG(torch::executor::resize_tensor(tensor, {__VA_ARGS__}) == torch::executor::Error::Ok, "resize failed")
 
-#elif !defined(USE_EXECUTORCH) && !defined(USE_ATEN)
-#pragma message("Neither USE_ATEN or USE_EXECUTORCH defined")
+#elif !defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH) && !defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN)
+#pragma message("Neither TORCHAO_SHARED_KERNELS_BUILD_ATEN or TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH defined")
 #include <stdexcept>
 
 #define TORCHAO_CHECK(cond, message)   \
@@ -38,5 +38,5 @@ using RuntimeContext = torch::executor::KernelRuntimeContext;
   }
 
 #else
-#error "Cannot define both USE_ATEN or USE_EXECUTORCH"
+#error "Cannot define both TORCHAO_SHARED_KERNELS_BUILD_ATEN or TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH"
 #endif

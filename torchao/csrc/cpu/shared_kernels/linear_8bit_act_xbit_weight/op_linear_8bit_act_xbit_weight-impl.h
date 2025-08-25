@@ -15,7 +15,7 @@
 
 namespace {
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor pack_weights_cpu(
     const Tensor& weight_qvals,
@@ -106,9 +106,9 @@ Tensor pack_weights_cpu(
 
   return packed_weights;
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor pack_weights_meta(
     const Tensor& weight_qvals,
@@ -146,9 +146,9 @@ Tensor pack_weights_meta(
       torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
   return torch::empty({static_cast<int64_t>(packed_weight_data_size)}, options);
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#if defined(USE_ATEN) || defined(USE_EXECUTORCH)
+#if defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) || defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
 template <int weight_nbit>
 Tensor linear_out_cpu(
     const Tensor& activations,
@@ -161,10 +161,10 @@ Tensor linear_out_cpu(
   TORCHAO_CHECK(k >= 1, "k must be >= 1");
   TORCHAO_CHECK(group_size >= 1, "group_size must be >= 1");
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       activations.dtype() == torch::kFloat32, "activations must be float32");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
   TORCHAO_CHECK(activations.dim() == 2, "activations must be 2D");
   int m = activations.size(0);
@@ -172,18 +172,18 @@ Tensor linear_out_cpu(
   TORCHAO_CHECK(
       k == k_, "activation shape is incompatible with packed weights.");
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(out.dtype() == torch::kFloat32, "out must be float32");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
   // Explicit cast from int64_t to int is required for Executorch
   TORCHAO_RESIZE_TENSOR(out, {(int)m, (int)n});
 
   TORCHAO_CHECK(packed_weights.dim() == 1, "packed_weights must be 1D");
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       packed_weights.dtype() == torch::kInt8, "packed_weights must be int8");
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
   TORCHAO_CHECK(
       packed_weights.size(0) >= torchao::ops::PackedWeightsHeader::size(),
       "packed_weights is not big enough to read the header.");
@@ -210,9 +210,9 @@ Tensor linear_out_cpu(
 
   return out;
 }
-#endif // defined(USE_ATEN) || defined(USE_EXECUTORCH)
+#endif // defined(TORCHAO_SHARED_KERNELS_BUILD_ATEN) || defined(TORCHAO_SHARED_KERNELS_BUILD_EXECUTORCH)
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor linear_cpu(
     const Tensor& activations,
@@ -225,9 +225,9 @@ Tensor linear_cpu(
       activations, packed_weights, group_size, n, k, output_tensor);
   return output_tensor;
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor pack_weights_with_lut_cpu(
     const Tensor& weight_qval_idxs,
@@ -324,9 +324,9 @@ Tensor pack_weights_with_lut_cpu(
 
   return packed_weights;
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
-#ifdef USE_ATEN
+#ifdef TORCHAO_SHARED_KERNELS_BUILD_ATEN
 template <int weight_nbit>
 Tensor pack_weights_with_lut_meta(
     const Tensor& weight_qval_idxs,
@@ -361,6 +361,6 @@ Tensor pack_weights_with_lut_meta(
       torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
   return torch::empty({static_cast<int64_t>(packed_weight_data_size)}, options);
 }
-#endif // USE_ATEN
+#endif // TORCHAO_SHARED_KERNELS_BUILD_ATEN
 
 } // namespace

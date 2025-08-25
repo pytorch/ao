@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 // test pack with cpp unpack with arm_neon
 #include <gtest/gtest.h>
-#include <torchao/csrc/cpu/torch_free_kernels/aarch64/tests/test_utils.h>
+#include <torchao/csrc/cpu/torch_free_kernels/test_utils.h>
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/bitpack.h>
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/uint1.h>
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/uint2.h>
