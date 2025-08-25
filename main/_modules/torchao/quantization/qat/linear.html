@@ -521,7 +521,9 @@
 
         <span class="c1"># initialize weight fake quantizer</span>
         <span class="k">if</span> <span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_config</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_config</span><span class="p">,</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
+                <span class="n">weight_config</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerGroup</span>
+            <span class="p">):</span>
                 <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight_config</span><span class="o">.</span><span class="n">group_size</span>
                 <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">in_features</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
                     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>

@@ -749,7 +749,6 @@
         <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
 
 
-<span class="c1"># TODO: rewrite using registration API?</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_infer_fake_quantize_configs</span><span class="p">(</span>
     <span class="n">base_config</span><span class="p">:</span> <span class="n">AOBaseConfig</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">],</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]]:</span>
@@ -760,7 +759,15 @@
 
 <span class="sd">    Return a 2-tuple of (activation_config, weight_config) for fake quantization.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># TODO: rewrite using registration API so we don&#39;t need to import here</span>
     <span class="c1"># avoid circular imports</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.mx_formats</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">NVFP4InferenceConfig</span><span class="p">,</span>
+        <span class="n">NVFP4MMConfig</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">,</span>
+    <span class="p">)</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span>
         <span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
@@ -814,6 +821,17 @@
             <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">NVFP4InferenceConfig</span><span class="p">):</span>
+        <span class="c1"># Note: today the PTQ config does not allow the user to specify</span>
+        <span class="c1"># `per_tensor_scales` due to serialization concerns. In the future</span>
+        <span class="c1"># we may add a way to compute these dynamically (for activations),</span>
+        <span class="c1"># but for now QAT will mimic the existing behavior of not having</span>
+        <span class="c1"># `per_tensor_scales` (subject to change)</span>
+        <span class="k">if</span> <span class="n">NVFP4MMConfig</span><span class="o">.</span><span class="n">DYNAMIC</span><span class="p">:</span>
+            <span class="n">act_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Unexpected base config: </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">base_config</span><span class="p">)</span>
     <span class="k">return</span> <span class="p">(</span><span class="n">act_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
