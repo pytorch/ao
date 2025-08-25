@@ -151,14 +151,14 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @skipIfRocm
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"),
-        reason="int8 sdpa requires torch 2.7 or later",
+        reason="qsdpa requires torch 2.7 or later",
     )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
     @config.patch({"freezing": True})
-    def _test_sdpa_int8_rewriter(self):
+    def _test_qsdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -213,9 +213,7 @@ if HAS_CPU:
 
     class SDPAPatternRewriterCpuTests(TestSDPAPatternRewriterTemplate):
         device = "cpu"
-        test_sdpa_int8_rewriter_cpu = (
-            TestSDPAPatternRewriterTemplate._test_sdpa_int8_rewriter
-        )
+        test_qsdpa_rewriter_cpu = TestSDPAPatternRewriterTemplate._test_qsdpa_rewriter
 
 
 if __name__ == "__main__":
