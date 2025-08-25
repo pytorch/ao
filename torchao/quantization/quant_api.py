@@ -1081,10 +1081,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             )
             return new_weight
         elif packing_format == PackingFormat.INT4_XPU_INT_ZP:
-            new_weight = Int4XPUTensorIntZP.from_hp(
-                weight,
-                block_size
-            )
+            new_weight = Int4XPUTensorIntZP.from_hp(weight, block_size)
             return new_weight
         else:
             raise ValueError(f"Unsupported packing format: {packing_format}")

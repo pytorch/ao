@@ -78,7 +78,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
             f"Expecting 2D tensor on XPU, but got: {w.shape} on {w.device.type}"
         )
         assert len(block_size) == w.ndim
-       
+
         original_shape = w.shape
         mapping_type = MappingType.ASYMMETRIC
         target_dtype = torch.int32
@@ -110,9 +110,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
         assert int_data.dtype == torch.int32, (
             "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
         )
-        packed_weight = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(
-                torch.uint8
-        )
+        packed_weight = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(
             packed_weight.contiguous(), 8
         )

@@ -40,6 +40,6 @@ class PackingFormat(str, Enum):
     Unpacked means the subbyte quantized data is stored as int8
     """
     UNPACKED_TO_INT8 = "unpacked_to_int8"
-    
+
     "int4_xpu_int_zp is referring to the format used by int4 weight-only quantization on XPU with int zero point, which is a groupwise quantization format."
     INT4_XPU_INT_ZP = "int4_xpu_int_zp"
