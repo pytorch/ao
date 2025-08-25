@@ -2509,7 +2509,6 @@ at::Tensor _qscaled_dot_product_cpu(
 #ifdef CPU_CAPABILITY_AVX512
       if (at::native::cpublas::could_pack(dtype)) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
-          std::cout << "int8_sdpa_fused_kernel" << std::endl;
           int8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, q_zp,
@@ -2520,7 +2519,6 @@ at::Tensor _qscaled_dot_product_cpu(
           return output.transpose(1, 2);
       } else {
 #endif // CPU_CAPABILITY_AVX512
-          std::cout << "int8_sdpa_math_kernel" << std::endl;
           return int8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, q_zp,
@@ -2536,7 +2534,6 @@ at::Tensor _qscaled_dot_product_cpu(
 // CPUBLAS_BRGEMM_F8F8F32 is defined if FP8 BRGEMM is supported in PyTorch CPUBlas.
       if (at::native::cpublas::could_pack(dtype)) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
-          std::cout << "fp8_sdpa_fused_kernel" << std::endl;
           fp8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, k_scale,
@@ -2545,7 +2542,6 @@ at::Tensor _qscaled_dot_product_cpu(
           return output.transpose(1, 2);
       } else {
 #endif // CPU_CAPABILITY_AVX512 && CPUBLAS_BRGEMM_F8F8F32
-          std::cout << "fp8_sdpa_math_kernel" << std::endl;
           return fp8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, k_scale,
