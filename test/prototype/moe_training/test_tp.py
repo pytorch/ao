@@ -86,7 +86,7 @@ def test_moe_float8_training_tp(
     recipe: MoEScalingType,
     min_out_sqnr: float,
     alignment_size: int,
-    min_param_grad_sqnr: float
+    min_param_grad_sqnr: float,
 ):
     assert torch.cuda.is_available()
 
