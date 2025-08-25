@@ -22,10 +22,7 @@ from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
 from torch.nn import functional as F
 
-from benchmarks.prototype.moe_training.utils import (
-    bench_fwd_bwd_microseconds,
-    profile_fwd_bwd,
-)
+from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
