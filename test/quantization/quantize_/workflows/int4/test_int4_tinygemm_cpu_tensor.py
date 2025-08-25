@@ -43,7 +43,7 @@ class TestInt4TinyGemmCpuTensor(TestCase):
             ((2, 32, 128), 256, 12),
         ],
     )
-    @parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
     @parametrize("group_size", [32, 64, 128])
     def test_linear(self, sizes, dtype, group_size):
         device = "cpu"
@@ -59,7 +59,7 @@ class TestInt4TinyGemmCpuTensor(TestCase):
         quantized_and_compiled = compiled_linear(input)
         self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
 
-    @parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
     def test_module_path(self, dtype):
         linear = torch.nn.Linear(128, 256, dtype=dtype)
         quantize_(linear, get_config(group_size=128))
