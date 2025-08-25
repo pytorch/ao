@@ -89,6 +89,7 @@ GITHUB_LABEL_TO_CATEGORY = {
     "topic: performance": "Performance",
     "topic: documentation": "Documentation",
     "topic: for developer": "Developers",
+    "topic: not user facing": "Not User Facing",
 }
 
 
@@ -123,6 +124,7 @@ def clean_release_notes():
         "Performance": [],
         "Documentation": [],
         "Developers": [],
+        "Not User Facing": [],
     }
     with open(input_file, "r") as in_f, open(output_file, "a") as out_f:
         for line in in_f.readlines():
@@ -195,8 +197,6 @@ def get_commit_category(
     pr_number = parse_pr_number(commit_line)
     if pr_number in pr_number_to_label:
         label = pr_number_to_label[pr_number]
-        if label == "topic: not user facing":
-            return None
         if label in GITHUB_LABEL_TO_CATEGORY:
             return GITHUB_LABEL_TO_CATEGORY[label]
     elif any(x in commit_line.lower() for x in ["revert", "version.txt"]):
