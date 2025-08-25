@@ -93,6 +93,7 @@ from .quantize_.workflows import (
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4TinyGemmCpuTensor,
     IntxUnpackedTensor,
 )
 from .smoothquant import (
@@ -164,6 +165,7 @@ __all__ = [
     "Int4MarlinSparseTensor",
     "IntxUnpackedTensor",
     "Float8Tensor",
+    "Int4TinyGemmCpuTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
