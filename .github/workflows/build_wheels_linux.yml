@@ -22,7 +22,7 @@ on:
 
 jobs:
   generate-matrix:
-    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@torchao-release0.13
     with:
       package-type: wheel
       os: linux
@@ -38,7 +38,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@torchao-release0.13
     with:
       # Set the ref to an empty string instead of the default nightly because
       # torchao doesn't have nightly branch setup yet, instead the build is
