@@ -568,7 +568,7 @@ After that you can run the model in a mobile app (see [Running in a mobile app](
 """
 
 
-def quantize_and_upload(model_id, quant):
+def quantize_and_upload(model_id, quant, push_to_hub):
     _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
         weight_granularity=PerGroup(32),
@@ -579,7 +579,9 @@ def quantize_and_upload(model_id, quant):
         granularity=PerAxis(0),
     )
     quant_to_config = {
-        "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+        "FP8": Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(), kernel_preference="torch"
+        ),
         "INT4": Int4WeightOnlyConfig(group_size=128),
         "INT8-INT4": ModuleFqnToConfig(
             {
@@ -657,9 +659,13 @@ def quantize_and_upload(model_id, quant):
     card = ModelCard(content)
 
     # Push to hub
-    quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
-    tokenizer.push_to_hub(quantized_model_id)
-    card.push_to_hub(quantized_model_id)
+    if push_to_hub:
+        quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
+        tokenizer.push_to_hub(quantized_model_id)
+        card.push_to_hub(quantized_model_id)
+    else:
+        quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
+        tokenizer.save_pretrained(quantized_model_id)
 
     # Manual Testing
     prompt = "Hey, are you conscious? Can you talk to me?"
@@ -700,5 +706,11 @@ if __name__ == "__main__":
         type=str,
         help="Quantization method. Options are FP8, INT4, INT8_INT4, AWQ-INT4",
     )
+    parser.add_argument(
+        "--push_to_hub",
+        action="store_true",
+        default=False,
+        help="Flag to indicate whether push to huggingface hub or not",
+    )
     args = parser.parse_args()
-    quantize_and_upload(args.model_id, args.quant)
+    quantize_and_upload(args.model_id, args.quant, args.push_to_hub)
