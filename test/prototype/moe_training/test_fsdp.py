@@ -96,7 +96,6 @@ def test_moe_float8_training_fsdp(
 
     # quantize test model
     config = MoETrainingConfig(recipe)
-    # config = MoETrainingConfig()
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
