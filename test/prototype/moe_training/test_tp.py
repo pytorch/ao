@@ -42,7 +42,10 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
 from torchao.quantization.quant_api import quantize_
 
 from .testing_utils import _validate_model_conversion
@@ -71,11 +74,24 @@ except ImportError:
         # ["experts,shared_expert"],
     ],
 )
-def test_moe_float8_training_tp(target_fqns: list[str]):
+@pytest.mark.parametrize(
+    "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
+    [
+        (MoEScalingType.FP8_ROWWISE, 29.0, 16, 23.0),
+        (MoEScalingType.MXFP8, 28.0, 32, 21.0),
+    ],
+)
+def test_moe_float8_training_tp(
+    target_fqns: list[str],
+    recipe: MoEScalingType,
+    min_out_sqnr: float,
+    alignment_size: int,
+    min_param_grad_sqnr: float
+):
     assert torch.cuda.is_available()
 
     # token group aligment size must be 16 for fp8
-    set_token_group_alignment_size_m(16)
+    set_token_group_alignment_size_m(alignment_size)
 
     # setup distributed for tp
     mesh = setup_distributed()
@@ -108,7 +124,7 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
         return False
 
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -154,7 +170,6 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    min_out_sqnr = 29.0
     assert out_sqnr.item() >= min_out_sqnr, (
         f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
     )
@@ -176,7 +191,6 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
     )
 
     # validate param gradients
-    min_param_grad_sqnr = 23.0
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
         assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
