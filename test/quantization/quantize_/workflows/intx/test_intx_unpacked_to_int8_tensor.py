@@ -31,7 +31,7 @@ from torchao.utils import torch_version_at_least
 
 
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
-class TestIntxUnpackedTensor(TestCase):
+class TestIntxUnpackedToInt8Tensor(TestCase):
     def setUp(self):
         self.config = IntxWeightOnlyConfig(
             weight_dtype=torch.int4,

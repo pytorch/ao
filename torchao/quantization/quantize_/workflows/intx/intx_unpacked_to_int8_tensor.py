@@ -24,7 +24,7 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "IntxUnpackedTensor",
+    "IntxUnpackedToInt8Tensor",
 ]
 
 aten = torch.ops.aten
@@ -32,7 +32,7 @@ aten = torch.ops.aten
 _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
 
 
-class IntxUnpackedTensor(TorchAOBaseTensor):
+class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
     """
     intx quantization with unpacked format.  Subbyte quantized data is represented as int8.
     The range of the quantized values are restricted to the quant_min and quant_max of the target_dtype, e.g.,
@@ -138,7 +138,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         device = kwargs.pop("device")
         dtype = kwargs.pop("dtype")
         assert dtype in _FLOAT_TYPES
-        return IntxUnpackedTensor(
+        return IntxUnpackedToInt8Tensor(
             self.qdata.to(device),
             self.scale.to(device=device, dtype=dtype),
             self.zero_point.to(device=device, dtype=dtype)
@@ -161,7 +161,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         apply_int8_act_asym_per_token_quant: bool = False,
     ):
         """
-        Create an IntxUnpackedTensor from a high-precision tensor
+        Create an IntxUnpackedToInt8Tensor from a high-precision tensor
         """
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
         scale, zero_point = choose_qparams_affine(
@@ -182,7 +182,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
             quant_min=qmin,
             quant_max=qmax,
         )
-        return IntxUnpackedTensor(
+        return IntxUnpackedToInt8Tensor(
             qdata=qdata,
             scale=scale,
             zero_point=zero_point,
@@ -206,7 +206,7 @@ class IntxUnpackedTensor(TorchAOBaseTensor):
         )
 
 
-implements = IntxUnpackedTensor.implements
+implements = IntxUnpackedToInt8Tensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -216,11 +216,11 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    assert isinstance(weight_tensor, IntxUnpackedTensor)
+    assert isinstance(weight_tensor, IntxUnpackedToInt8Tensor)
 
     # Apply dynamic activation quant
     if weight_tensor.apply_int8_act_asym_per_token_quant:
-        input_tensor = IntxUnpackedTensor.from_hp(
+        input_tensor = IntxUnpackedToInt8Tensor.from_hp(
             hp_tensor=input_tensor,
             block_size=_get_per_token_block_size(input_tensor),
             target_dtype=torch.int8,
@@ -249,7 +249,7 @@ def _(func, types, args, kwargs):
 
     # Slicing must be compatible with the block size to make sense on the quantized tensor
     # In particular both start and end must be a multiple of block_size[dim]
-    # Otherwise the sliced tensor cannot be represented as a IntxUnpackedTensor
+    # Otherwise the sliced tensor cannot be represented as a IntxUnpackedToInt8Tensor
     # For example, if block_size = 4, we might have:
     #
     # qdata: i i i i | i i i i
@@ -261,7 +261,7 @@ def _(func, types, args, kwargs):
     #
     # But then the block_size for the first two qdata in the slice is 2
     # and remaining blocks have size 4.  This cannot be represented
-    # with the metadata we store in an IntxUnpackedTensor, which requires uniform blocking
+    # with the metadata we store in an IntxUnpackedToInt8Tensor, which requires uniform blocking
 
     assert start % self.block_size[dim] == 0, (
         f"slice args are incompatible with blocking: start={start} must be divisible by block_size[dim]={self.block_size[dim]}"
@@ -285,7 +285,7 @@ def _(func, types, args, kwargs):
         new_block_size.append(qdata.shape[i] // n_blocks)
     new_block_size = tuple(new_block_size)
 
-    new = IntxUnpackedTensor(
+    new = IntxUnpackedToInt8Tensor(
         qdata,
         scale,
         zero_point,
@@ -297,7 +297,7 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
-IntxUnpackedTensor.__module__ = "torchao.quantization"
+IntxUnpackedToInt8Tensor.__module__ = "torchao.quantization"
 
-# Allow a model with IntxUnpackedTensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([IntxUnpackedTensor])
+# Allow a model with IntxUnpackedToInt8Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([IntxUnpackedToInt8Tensor])
