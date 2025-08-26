@@ -16,6 +16,13 @@ import os
 
 import pytest
 import torch
+
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
@@ -34,6 +41,7 @@ except ImportError:
         "torch version is too old, these tests require nightly build. Skipping MoE training tests.",
         allow_module_level=True,
     )
+
 
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
