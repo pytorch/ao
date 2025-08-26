@@ -306,6 +306,7 @@ def _(func, types, args, kwargs):
             input_scale = input_tensor.scale
             w_scale = weight_tensor.scale
 
+            print(_is_rowwise_scaled(weight_tensor))
             # Handle rowwise scaling
             if _is_rowwise_scaled(weight_tensor):
                 assert _is_rowwise_scaled(input_tensor), (

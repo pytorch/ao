@@ -73,8 +73,8 @@ def load_tensor_subclass_dict(file_path: str):
 
             result[tensor_name] = Float8Tensor(
                 qdata=tensor_tensors["qdata"].to(tensor_metadata["qdata_device"]),
-                scale=tensor_tensors["scale"].to(tensor_metadata["scale_device"]).T,
-                block_size=tensor_metadata.get("block_size"),
+                scale=tensor_tensors["scale"].to(tensor_metadata["scale_device"]),
+                block_size=json.loads(tensor_metadata.get("block_size")),
                 mm_config=mm_config,
                 hp_value_lb=hp_value_lb,
                 hp_value_ub=hp_value_ub,
