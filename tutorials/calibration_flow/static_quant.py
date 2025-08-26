@@ -23,6 +23,7 @@ from torchao.dtypes import (
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization import quantize_, to_linear_activation_quantized
 from torchao.quantization.granularity import (
+    PerAxis,
     PerTensor,
 )
 from torchao.quantization.observer import (
@@ -106,7 +107,7 @@ def _apply_static_quant_transform(
     weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
 
     def weight_quant_func(weight):
-        block_size = weight.shape
+        block_size = (1, weight.shape[1])
         if target_dtype == torch.uint8:
             return to_affine_quantized_intx_static(
                 weight, weight_scale, weight_zero_point, block_size, target_dtype
@@ -173,7 +174,7 @@ class QuantizedLinear(torch.nn.Module):
         self.act_scale, self.act_zero_point = act_obs.calculate_qparams()
         weight_scale, weight_zero_point = weight_obs.calculate_qparams()
         assert weight.dim() == 2
-        block_size = weight.shape
+        block_size = (1, weight.shape[1])
         self.target_dtype = target_dtype
         self.bias = bias
         if self.target_dtype == torch.uint8:
@@ -249,7 +250,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     m = ToyTwoLinearModel(64, 32, 64).eval().to(dtype).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
-    example_inputs = m.example_inputs(dtype=dtype, device="cuda")
+    example_inputs = m.example_inputs()
     print("example inputs shape:", example_inputs[0].shape)
 
     m_bf16 = torch.compile(m_bf16, mode="max-autotune")
@@ -265,7 +266,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     weight_obs = AffineQuantizedMinMaxObserver(
         mapping_type,
         target_dtype,
-        granularity=PerTensor(),
+        granularity=PerAxis(axis=0),
         eps=torch.finfo(torch.float32).eps,
         scale_dtype=torch.float32,
         zero_point_dtype=torch.float32,
