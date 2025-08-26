@@ -128,6 +128,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                         for op_name in [
                             "qscaled_dot_product",
                             "cpp_fused_quantize_per_tensor",
+                            "cpp_fused__unsafe_view_quantize_per_tensor",
                         ]
                     )
                 )
