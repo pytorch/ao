@@ -19,6 +19,7 @@ ALLOWED_QUANT_DTYPES = {
 }
 ALLOWED_GRANUALARITY = {"PerRow": PerRow()}
 
+
 def load_tensor_subclass_dict(file_path: str):
     """
     Load a dictionary of tensor subclasses from a safetensors file.
@@ -72,7 +73,7 @@ def load_tensor_subclass_dict(file_path: str):
 
             result[tensor_name] = Float8Tensor(
                 qdata=tensor_tensors["qdata"].to(tensor_metadata["qdata_device"]),
-                scale=tensor_tensors["scale"].to(tensor_metadata["scale_device"]),
+                scale=tensor_tensors["scale"].to(tensor_metadata["scale_device"]).T,
                 block_size=tensor_metadata.get("block_size"),
                 mm_config=mm_config,
                 hp_value_lb=hp_value_lb,
@@ -126,8 +127,6 @@ def create_metadata_for_tensor_subclass(
                     "cuda:0" if value.device == torch.device("cuda:0") else "cpu"
                 )
             elif item == "scale":
-                print(value.shape)
-                print(value.stride())
                 tensors_dict["scale"] = value
                 metadata["scale_device"] = (
                     "cuda:0" if value.device == torch.device("cuda:0") else "cpu"
@@ -158,8 +157,6 @@ def save_tensor_subclass_dict(
 
     for tensor_name, tensor in tensor_dict.items():
         # TODO: handle case where tensor is a plain tensor
-        if tensor.shape == torch.Size([256, 1]):
-            print("here")
         if tensor.__class__.__name__ == "Tensor":
             tensors_dict = {"data": tensor}
             metadata = {"tensor_type": "Tensor"}
