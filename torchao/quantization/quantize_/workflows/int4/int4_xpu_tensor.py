@@ -30,8 +30,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
     Tensor Attributes:
-        qdata: packed int4 weigh, always viewed as a 2D (N, K/2) tensor, last dimension is packed
-               preshuffling is specific to CPU kernels, see Note below.
+        qdata: packed int4 weigh, always viewed as a 2D (N, K/2) tensor
         scale: (K/group_size, N), dtype is the same as the original Tensor dtype
         zero_point: (K/group_size, N)
 
@@ -108,7 +107,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
             quant_max,
         )
         assert int_data.dtype == torch.int32, (
-            "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
+            "torch.ops.aten._convert_weight_to_int4pack expects `int32` dtype"
         )
         packed_weight = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(
