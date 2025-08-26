@@ -23,9 +23,6 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quantize_.common import PackingFormat
-from torchao.quantization.quantize_.workflows import (
-    ComputeTarget,
-)
 from torchao.quantization.utils import compute_error
 
 
@@ -37,10 +34,10 @@ def _get_accuracy_test_cases():
 
     PACKING_FORMATS = [
         (PackingFormat.UNPACKED_TO_INT8, None),
-        (PackingFormat.OPAQUE, ComputeTarget.ATEN),
-        (PackingFormat.OPAQUE, ComputeTarget.TORCHAO_AUTO),
-        (PackingFormat.OPAQUE, ComputeTarget.TORCHAO_LOWBIT),
-        (PackingFormat.OPAQUE, ComputeTarget.TORCHAO_KLEIDIAI),
+        (PackingFormat.OPAQUE, "aten"),
+        (PackingFormat.OPAQUE, "torchao_auto"),
+        (PackingFormat.OPAQUE, "torchao_lowbit"),
+        (PackingFormat.OPAQUE, "torchao_kleidiai"),
     ]
 
     WEIGHT_DTYPES = [
@@ -71,9 +68,7 @@ def _get_accuracy_test_cases():
         weight_granularity,
     ):
         # ATEN restrictions
-        if (packing_format == PackingFormat.OPAQUE) and (
-            compute_target == ComputeTarget.ATEN
-        ):
+        if (packing_format == PackingFormat.OPAQUE) and (compute_target == "aten"):
             if weight_dtype != torch.int4:
                 return False
             if weight_mapping_type == MappingType.ASYMMETRIC:
@@ -83,7 +78,7 @@ def _get_accuracy_test_cases():
 
         # TORCHAO_KLEIDIAI restrictions
         if (packing_format == PackingFormat.OPAQUE) and (
-            compute_target == ComputeTarget.TORCHAO_KLEIDIAI
+            compute_target == "torchao_kleidiai"
         ):
             if weight_dtype != torch.int4:
                 return False
@@ -221,7 +216,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
                 packing_format=PackingFormat.OPAQUE,
-                compute_target=ComputeTarget.TORCHAO_AUTO,
+                compute_target="torchao_auto",
                 version=2,
             ),
         )
@@ -254,8 +249,8 @@ class TestIntxOpaqueTensor(TestCase):
         [
             param(packing_format=pf, compute_target=ct)
             for (pf, ct) in [
-                (PackingFormat.OPAQUE, ComputeTarget.TORCHAO_AUTO),
-                (PackingFormat.OPAQUE, ComputeTarget.ATEN),
+                (PackingFormat.OPAQUE, "torchao_auto"),
+                (PackingFormat.OPAQUE, "aten"),
             ]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
@@ -317,7 +312,7 @@ class TestIntxOpaqueTensor(TestCase):
 
         base_config = Int8DynamicActivationIntxWeightConfig(
             packing_format=PackingFormat.OPAQUE,
-            compute_target=ComputeTarget.TORCHAO_AUTO,
+            compute_target="torchao_auto",
             version=2,
         )
         moe_config = MoEQuantConfig(

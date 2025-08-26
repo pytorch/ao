@@ -12,7 +12,6 @@ from .int4.int4_tensor import (
     Int4Tensor,
 )
 from .intx.intx_opaque_tensor import (
-    ComputeTarget,
     IntxOpaqueTensor,
 )
 from .intx.intx_unpacked_to_int8_tensor import (
@@ -26,6 +25,5 @@ __all__ = [
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "IntxOpaqueTensor",
-    "ComputeTarget",
     "IntxUnpackedToInt8Tensor",
 ]

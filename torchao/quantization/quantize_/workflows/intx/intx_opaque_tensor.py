@@ -121,24 +121,26 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         self.compute_target = compute_target
 
     def _quantization_type(self):
-        return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}"
+        return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device} compute_target={self.compute_target}"
 
     def to(self, *args, **kwargs):
         raise NotImplementedError("to() is not implemented for IntxOpaqueTensor")
 
     @classmethod
-    def from_intx_unpacked_tensor(
+    def from_intx_unpacked_to_int8_tensor(
         cls,
         tensor: IntxUnpackedToInt8Tensor,
         *,
         bias: Optional[torch.Tensor] = None,
-        compute_target: ComputeTarget = ComputeTarget.TORCHAO_AUTO,
+        compute_target: ComputeTarget | str = ComputeTarget.TORCHAO_AUTO,
     ):
         """
         Constructs a IntxOpaqueTensor from an IntxUnpackedToInt8Tensor.
         If bias is passed, bias is packed into the tensor.
         The compute_target indicates how the data is packed.
         """
+        if isinstance(compute_target, str):
+            compute_target = ComputeTarget[compute_target.upper()]
 
         # Extract data from IntxUnpackedToInt8Tensor
         assert tensor.apply_int8_act_asym_per_token_quant
