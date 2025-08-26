@@ -843,7 +843,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         # Create packed tensor
         if packing_format == PackingFormat.OPAQUE:
             assert compute_target is not None, (
-                "Must specify a compute target for PackingFormat.TILE_PACKED"
+                "Must specify a compute target for PackingFormat.OPAQUE"
             )
             new_weight = IntxOpaqueTensor.from_intx_unpacked_to_int8_tensor(
                 new_weight, bias=new_bias, compute_target=compute_target
