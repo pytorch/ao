@@ -22,7 +22,7 @@ from torchao.float8.inference import (
     preprocess_data,
     preprocess_scale,
 )
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
@@ -163,7 +163,7 @@ class Float8Tensor(TorchAOBaseTensor):
         return _dequantize_affine_float8(qdata, scale, output_dtype)
 
     @classmethod
-    def to_float8(
+    def from_hp(
         cls,
         hp_tensor: torch.Tensor,
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -177,18 +177,29 @@ class Float8Tensor(TorchAOBaseTensor):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
+        kernel_choice = None
         # for per row quantization and kernel_preference default setting, we'll use triton kernel for best performance
         if (
             kernel_preference == KernelPreference.AUTO
             and _is_fbgemm_genai_gpu_available()
-            and (
-                tuple(block_size)
-                == (1,) * (hp_tensor.ndim - 1) + (hp_tensor.shape[-1],)
-            )
+            and is_sm_at_least_90()
+            and isinstance(granularity, PerRow)
+            and float8_dtype == torch.float8_e4m3fn
+            and hp_value_lb is None
         ):
-            assert float8_dtype == torch.float8_e4m3fn, (
-                f"Only torch.float8_e4m3fn is supported, got: {float8_dtype}"
+            # optimized path for auto and per row quantization
+            kernel_choice = "triton"
+        elif kernel_preference == KernelPreference.FBGEMM and hp_value_lb is None:
+            assert _is_fbgemm_genai_gpu_available() and is_sm_at_least_90(), (
+                "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (> H100)"
             )
+            kernel_choice = "fbgemm"
+        else:
+            # fallback path for everything else will be torch
+            kernel_choice = "torch"
+
+        if kernel_choice == "triton":
+            assert hp_value_lb is None, f"{hp_value_lb=} is not supported"
             if hp_value_ub is not None:
                 maybe_hp_value_ub_tensor = torch.tensor(
                     hp_value_ub, dtype=torch.float, device=hp_tensor.device
@@ -202,7 +213,29 @@ class Float8Tensor(TorchAOBaseTensor):
             for i in range(hp_tensor.ndim):
                 scale_shape.append(hp_tensor.shape[i] // block_size[i])
             scale = scale.reshape(*scale_shape)
+        elif kernel_choice == "fbgemm":
+            assert hp_value_lb is None, f"{hp_value_lb=} is not supported"
+            if hp_value_ub is not None:
+                maybe_hp_value_ub_tensor = torch.tensor(
+                    hp_value_ub, dtype=torch.float, device=hp_tensor.device
+                )
+            else:
+                maybe_hp_value_ub_tensor = None
+            # not used
+            num_tokens = torch.empty([hp_tensor.size(0)], device=hp_tensor.device)
+            if isinstance(granularity, PerRow):
+                data, scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                    hp_tensor, num_tokens, scale_ub=maybe_hp_value_ub_tensor
+                )
+            else:
+                assert isinstance(granularity, PerTensor), (
+                    f"Expected per tensor, got {granularity}"
+                )
+                data, scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+                    hp_tensor, num_tokens, scale_ub=maybe_hp_value_ub_tensor
+                )
         else:
+            assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
             scale = _choose_scale_float8(
                 hp_tensor,
                 float8_dtype=float8_dtype,
