@@ -38,14 +38,33 @@ class ToySingleLinearModel(torch.nn.Module):
 
 
 class ToyTwoLinearModel(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, has_bias=False):
+    def __init__(
+        self,
+        input_dim,
+        hidden_dim,
+        output_dim,
+        has_bias=False,
+        dtype=torch.bfloat16,
+        device="cpu",
+    ):
         super().__init__()
-        self.linear1 = torch.nn.Linear(input_dim, hidden_dim, bias=has_bias)
-        self.linear2 = torch.nn.Linear(hidden_dim, output_dim, bias=has_bias)
+        self.dtype = dtype
+        self.device = device
+        self.linear1 = torch.nn.Linear(
+            input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device
+        )
+        self.linear2 = torch.nn.Linear(
+            hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
+        )
 
     def example_inputs(
-        self, batch_size=1, sequence_length=None, dtype=torch.float32, device="cpu"
+        self, batch_size=1, sequence_length=None, dtype=None, device=None
     ):
+        if dtype is None:
+            dtype = self.dtype
+        if device is None:
+            device = self.device
+
         if sequence_length is not None:
             return [
                 torch.randn(1, self.linear1.in_features, dtype=dtype, device=device)
