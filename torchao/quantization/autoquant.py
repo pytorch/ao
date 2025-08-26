@@ -34,6 +34,7 @@ from torchao.utils import (
     TorchAOBaseTensor,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 from .granularity import (
@@ -343,9 +344,17 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        res = benchmarker.benchmark_gpu(
-            lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-        )
+        if torch_version_at_least("2.9.0.dev"):
+            from statistics import median
+
+            res = benchmarker.benchmark_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="all"
+            )
+            res = median(res)
+        else:
+            res = benchmarker.benchmark_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+            )
     return res
 
 

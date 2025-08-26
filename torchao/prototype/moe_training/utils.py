@@ -290,7 +290,21 @@ def _is_column_major(x: torch.Tensor) -> bool:
         A boolean indicating whether the input tensor is column-major.
     """
     assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
-    return x.stride(-2) == 1 and x.stride(-1) > 1
+    return x.stride(-2) == 1
+
+
+def _is_row_major(x: torch.Tensor) -> bool:
+    """
+    This function checks if the input tensor is row-major.
+
+    Args:
+        x (torch.Tensor): The input tensor to be checked.
+
+    Returns:
+        A boolean indicating whether the input tensor is row-major.
+    """
+    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
+    return x.stride(-1) == 1
 
 
 def generate_jagged_offs(E, M, multiple_of=16, dtype=torch.int32, device="cuda"):

@@ -37,11 +37,13 @@ class PackingFormat(str, Enum):
     MARLIN_SPARSE = "marlin_sparse"
 
     """
-    Unpacked means the subbyte quantized data is stored as int8
+    Unpacked to int8 means the subbyte quantized data is stored as int8
     """
     UNPACKED_TO_INT8 = "unpacked_to_int8"
 
     """
-    int4_tinygemm_cpu is referring to the format used by int4 weight-only quantization on CPU, which is a groupwise quantization format.
+    Opaque packing format that's used for tensors that does not have a predefined packing format
+    (that may be decided on hardware, tensor shape, library availability etc.) and it's not
+    needed for the rest of the system to understand the specific format that's adopted.
     """
-    INT4_TINYGEMM_CPU = "int4_tinygemm_cpu"
+    OPAQUE = "opaque"

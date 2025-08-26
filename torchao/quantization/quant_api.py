@@ -1708,6 +1708,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             activation_granularity,
             hp_value_lb=activation_value_lb,
             hp_value_ub=activation_value_ub,
+            kernel_preference=kernel_preference,
         )
 
         quantized_weight = Float8Tensor.to_float8(

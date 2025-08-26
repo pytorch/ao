@@ -146,9 +146,6 @@ class MXLinearConfig(AOBaseConfig):
         MXFP8Dim1CastKernelChoice.TORCH
     )
 
-    # If True, uses a custom triton kernel for fp4 dequantize
-    use_fp4_custom_triton_dequant_kernel: bool = False
-
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
 
     def __post_init__(self):
@@ -217,8 +214,6 @@ class MXLinearConfig(AOBaseConfig):
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
         s += f", kernel={self.gemm_kernel_choice.value}"
         s += f", mxfp8_cast_kernel_choice={self.mxfp8_cast_kernel_choice.value}"
-        if self.use_fp4_custom_triton_dequant_kernel:
-            s += ", use_fp4_custom_triton_dequant_kernel=True"
         if self.scale_calculation_mode != ScaleCalculationMode.FLOOR:
             s += f", scale_calculation_mode={self.scale_calculation_mode}"
         return s
