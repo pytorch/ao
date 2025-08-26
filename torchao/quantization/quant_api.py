@@ -743,7 +743,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
     packing_format: PackingFormat = PackingFormat.UNPACKED_TO_INT8
 
-    # Used with PackingFormat.TILE_PACKED
+    # Used with PackingFormat.OPAQUE
     compute_target: Optional[str] = None
     version: int = 1
 
