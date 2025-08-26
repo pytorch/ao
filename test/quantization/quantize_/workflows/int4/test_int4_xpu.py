@@ -19,6 +19,9 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
 )
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+)
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     torch_version_at_least,
@@ -28,7 +31,8 @@ from torchao.utils import (
 def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
-        packing_format="int4_xpu_int_zp",
+        packing_format="plain",
+        zero_point_domain=ZeroPointDomain.INT,
         version=2,
     )
 
