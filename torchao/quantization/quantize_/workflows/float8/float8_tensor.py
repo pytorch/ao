@@ -300,6 +300,8 @@ def _(func, types, args, kwargs):
                 "Expected fbgemm_gpu_genai package to be installed"
             )
             assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
+            mm_config = weight_tensor.mm_config
+            assert mm_config is not None
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
@@ -315,6 +317,8 @@ def _(func, types, args, kwargs):
                     wq,
                     x_scale,
                     w_scale,
+                    bias=bias,
+                    use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
             else:
                 assert _is_tensorwise_scaled(weight_tensor)
@@ -323,9 +327,10 @@ def _(func, types, args, kwargs):
                     xq,
                     wq,
                     x_scale * w_scale,
+                    use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
-            if bias is not None:
-                res = res + bias
+                if bias is not None:
+                    res = res + bias
             return res
         else:
             assert kernel_choice == "torch"
