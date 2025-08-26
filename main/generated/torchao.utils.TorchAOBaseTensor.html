@@ -495,11 +495,11 @@ tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)</p>
 Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)</p>
 </dd>
 </dl>
-<p>If <cite>tensor_data_names</cite> and <cite>tensor_attribute_names</cite> are defined, there are some additional
+<p>If <cite>tensor_data_names</cite> (torch.Tensor data attribute names) and <cite>tensor_attribute_names</cite> (non-torch.Tensor attribute names) are defined, there are some additional
 functions that will be added, this includes:
 <cite>__tensor_flatten__</cite>: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data,</p>
 <blockquote>
-<div><p>second element is a list of non-Tensor attributes</p>
+<div><p>second element is a dict from attribute_name to non-Tensor attributes</p>
 </div></blockquote>
 <p><cite>__tensor_unflatten__</cite>: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor
 <cite>_apply_fn_to_data</cite>: takes a function (Tensor -&gt; Tensor),  applies function to all tensor data and</p>
