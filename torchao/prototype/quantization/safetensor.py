@@ -131,7 +131,6 @@ def create_metadata_for_tensor_subclass(
                 metadata["scale_device"] = (
                     "cuda:0" if value.device == torch.device("cuda:0") else "cpu"
                 )
-
             elif value:
                 metadata[item] = json.dumps(value)
 
@@ -156,7 +155,6 @@ def save_tensor_subclass_dict(
     combined_tensors_dict = {}
 
     for tensor_name, tensor in tensor_dict.items():
-        # TODO: handle case where tensor is a plain tensor
         if tensor.__class__.__name__ == "Tensor":
             tensors_dict = {"data": tensor}
             metadata = {"tensor_type": "Tensor"}
