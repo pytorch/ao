@@ -19,15 +19,16 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "Int4TinyGemmCpuTensor",
+    "OpaqueTensor",
 ]
 
 aten = torch.ops.aten
 
 
-class Int4TinyGemmCpuTensor(TorchAOBaseTensor):
+class OpaqueTensor(TorchAOBaseTensor):
     """
-    int4 weight-only quantization on CPU with tinygemm (groupwise quantization only)
+    int4 weight-only quantization on CPU with tinygemm (groupwise quantization only). The packing format is determined on ISA and shape.
+    This is an opaque tensor subclass, the packing format is not exposed to the rest of the system. See the note below for more details.
 
     Tensor Attributes:
         qdata: preshuffled and packed int4 weight for tinygemm, always viewed as a 2D (N, K/2) tensor, last dimension is packed
@@ -130,7 +131,7 @@ class Int4TinyGemmCpuTensor(TorchAOBaseTensor):
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
-        return Int4TinyGemmCpuTensor(
+        return OpaqueTensor(
             qdata=packed_weight,
             scale_and_zero=scale_and_zero,
             block_size=block_size,
@@ -138,7 +139,7 @@ class Int4TinyGemmCpuTensor(TorchAOBaseTensor):
         )
 
 
-implements = Int4TinyGemmCpuTensor.implements
+implements = OpaqueTensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -151,8 +152,8 @@ def _(func, types, args, kwargs):
     assert input_tensor.device.type == "cpu", (
         f"For CPU device only but got: {input_tensor.device}"
     )
-    assert isinstance(weight_tensor, Int4TinyGemmCpuTensor), (
-        f"Expected weight_tensor to be Int4TinyGemmCpuTensor, got: {type(weight_tensor)}"
+    assert isinstance(weight_tensor, OpaqueTensor), (
+        f"Expected weight_tensor to be OpaqueTensor, got: {type(weight_tensor)}"
     )
     assert weight_tensor.block_size[0] == 1, (
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
@@ -188,7 +189,7 @@ def _(func, types, args, kwargs):
     return y.to(orig_dtype)
 
 
-Int4TinyGemmCpuTensor.__module__ = "torchao.quantization"
+OpaqueTensor.__module__ = "torchao.quantization"
 
-# Allow a model with Int4TinyGemmCpuTensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Int4TinyGemmCpuTensor])
+# Allow a model with OpaqueTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([OpaqueTensor])

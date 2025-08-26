@@ -75,8 +75,8 @@ from torchao.quantization.quantize_.workflows import (
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
-    Int4TinyGemmCpuTensor,
     IntxUnpackedTensor,
+    OpaqueTensor,
     QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.transform_module import (
@@ -1081,8 +1081,8 @@ def _int4_weight_only_quantize_tensor(weight, config):
                 block_size,
             )
             return new_weight
-        elif packing_format == PackingFormat.INT4_TINYGEMM_CPU:
-            new_weight = Int4TinyGemmCpuTensor.from_hp(
+        elif packing_format == PackingFormat.OPAQUE:
+            new_weight = OpaqueTensor.from_hp(
                 weight,
                 block_size,
             )
