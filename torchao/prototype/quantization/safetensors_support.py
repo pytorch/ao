@@ -8,11 +8,8 @@ from torchao.float8.inference import Float8MMConfig
 from torchao.prototype.quantization.QuantizeTensorToFloat8KwargsJSON import (
     QuantizeTensorToFloat8KwargsJSONEncoder,
     config_from_dict,
-    ALLOWED_GRANUALARITY,
-    ALLOWED_QUANT_DTYPES,
 )
-from torchao.quantization import Float8Tensor, granularity
-from torchao.quantization.granularity import PerRow
+from torchao.quantization import Float8Tensor
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
     QuantizeTensorToFloat8Kwargs,
 )
