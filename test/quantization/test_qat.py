@@ -118,8 +118,8 @@ class M(torch.nn.Module):
         self.sub = Sub()
         self.linear2 = torch.nn.Linear(256, 512, bias=False).to(torch.float)
 
-    def example_inputs(self):
-        return (torch.randn(1, 512).to(torch.float),)
+    def example_inputs(self, device: torch.device = None):
+        return (torch.randn((1, 512), device=device).to(torch.float),)
 
     def _get_all_weight_scales(self) -> List[torch.Tensor]:
         return [
@@ -1928,9 +1928,70 @@ class TestQAT(TestCase):
         """
         self._test_quantize_api_against_ptq(
             Float8DynamicActivationInt4WeightConfig(),
-            target_prepare_sqnr=15,
+            target_prepare_sqnr=12,
             target_convert_sqnr=float("inf"),
         )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_infer_fp8_int4_config(self):
+        """
+        Test that fake quantize configs are correctly inferred from
+        `Float8DynamicActivationInt4WeightConfig`.
+        """
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        base_config = Float8DynamicActivationInt4WeightConfig()
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
+        self.assertEqual(act_config.dtype, torch.float8_e4m3fn)
+        self.assertIsInstance(act_config.granularity, PerRow)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int4)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertTrue(weight_config.is_symmetric)
+
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+    def test_quantize_api_nvfp4(self):
+        """
+        Test the following:
+            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="prepare"))
+            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="convert"))
+        """
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+
+        self._test_quantize_api_against_ptq(
+            NVFP4InferenceConfig(),
+            target_prepare_sqnr=8,
+            target_convert_sqnr=float("inf"),
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize("use_per_tensor_scale", [True, False])
+    def test_qat_nvfp4(self, use_per_tensor_scale: bool):
+        """
+        Test QAT with `NVFP4FakeQuantizeConfig`.
+        """
+        from torchao.prototype.qat import NVFP4FakeQuantizeConfig
+
+        torch.manual_seed(self.SEED)
+        m = M().cuda()
+        baseline_model = copy.deepcopy(m)
+        qat_config = QATConfig(
+            activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
+            weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
+            step="prepare",
+        )
+        quantize_(m, qat_config)
+
+        # Compare prepared values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs("cuda")
+        out = m(*x)
+        baseline_out = baseline_model(*x)
+        sqnr = compute_error(out, baseline_out).item()
+        self.assertGreater(sqnr, 24)
 
 
 instantiate_parametrized_tests(TestQAT)

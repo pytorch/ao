@@ -13,9 +13,10 @@ from .int4.int4_tensor import (
 )
 from .intx.intx_tile_packed_tensor import (
     IntxTilePackedTensor,
+    ComputeTarget,
 )
-from .intx.intx_unpacked_tensor import (
-    IntxUnpackedTensor,
+from .intx.intx_unpacked_to_int8_tensor import (
+    IntxUnpackedToInt8Tensor,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "Int4MarlinSparseTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
-    "IntxUnpackedTensor",
     "IntxTilePackedTensor",
+    "ComputeTarget",
+    "IntxUnpackedToInt8Tensor",
 ]

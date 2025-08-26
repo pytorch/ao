@@ -76,7 +76,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     IntxTilePackedTensor,
-    IntxUnpackedTensor,
+    IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.quantize_.workflows.intx import ComputeTarget
@@ -828,14 +828,13 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         assert act_mapping_type == MappingType.ASYMMETRIC
         assert packing_format in [
             PackingFormat.UNPACKED_TO_INT8,
-            PackingFormat.TILE_PACKED,
         ], f"Unsupported packing format: {packing_format}"
-        new_weight = IntxUnpackedTensor.from_hp(
+        new_weight = IntxUnpackedToInt8Tensor.from_hp(
             weight,
             block_size,
             weight_dtype,
             mapping_type=weight_mapping_type,
-            activation_quantization=ActivationQuantization.DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN,
+            apply_int8_act_asym_per_token_quant=True,
         )
         if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
             _adjust_scale_dtype_in_intx_unpacked_tensor(
@@ -1760,6 +1759,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             activation_granularity,
             hp_value_lb=activation_value_lb,
             hp_value_ub=activation_value_ub,
+            kernel_preference=kernel_preference,
         )
 
         quantized_weight = Float8Tensor.to_float8(
@@ -2030,17 +2030,17 @@ def _uintx_weight_only_transform(
 
 
 def _adjust_scale_dtype_in_intx_unpacked_tensor(
-    intx_unpacked_tensor: IntxUnpackedTensor,
+    intx_unpacked_tensor: IntxUnpackedToInt8Tensor,
     hp_tensor: torch.Tensor,
     scale_dtype: torch.dtype,
 ) -> None:
     """
-    Adjusts the scale_dtype on IntxUnpackedTensor.
+    Adjusts the scale_dtype on IntxUnpackedToInt8Tensor.
     Updating the scale dtype requires updating the qdata because qdata is calculated after the scale.
     This is used in IntxWeightOnlyConfig and Int8DynamicActivationIntxWeightConfig to make
     version=2 and version=1 numerically equivalent when the scale_dtype differs from the input dtype
     """
-    assert isinstance(intx_unpacked_tensor, IntxUnpackedTensor)
+    assert isinstance(intx_unpacked_tensor, IntxUnpackedToInt8Tensor)
     intx_unpacked_tensor.scale = intx_unpacked_tensor.scale.to(scale_dtype)
     qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[intx_unpacked_tensor.target_dtype]
     intx_unpacked_tensor.qdata = quantize_affine(
@@ -2121,7 +2121,7 @@ def _intx_weight_only_quantize_tensor(weight, config):
 
     if config.version == 2:
         if config.packing_format == PackingFormat.UNPACKED_TO_INT8:
-            new_weight = IntxUnpackedTensor.from_hp(
+            new_weight = IntxUnpackedToInt8Tensor.from_hp(
                 weight,
                 block_size,
                 weight_dtype,

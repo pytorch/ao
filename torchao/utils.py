@@ -29,22 +29,22 @@ __all__ = [
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
     "TorchAOBaseTensor",
+    "is_MI300",
+    "is_sm_at_least_89",
+    "is_sm_at_least_90",
+    "is_package_at_least",
+    "DummyModule",
+    # Deprecated
     "TORCH_VERSION_AT_LEAST_2_2",
     "TORCH_VERSION_AT_LEAST_2_3",
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
     "TORCH_VERSION_AT_LEAST_2_6",
     "TORCH_VERSION_AT_LEAST_2_7",
-    # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
     "TORCH_VERSION_AFTER_2_5",
-    "is_MI300",
-    "is_sm_at_least_89",
-    "is_sm_at_least_90",
-    "is_package_at_least",
-    "DummyModule",
 ]
 
 
@@ -348,19 +348,21 @@ def _is_float8_type(dtype: torch.dtype) -> bool:
 
 
 def parse_version(version_string):
-    # Extract just the X.Y.Z part from the version string
-    match = re.match(r"(\d+\.\d+\.\d+)", version_string)
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
+    """
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
     if match:
-        version = match.group(1)
-        return [int(x) for x in version.split(".")]
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
     else:
         raise ValueError(f"Invalid version string format: {version_string}")
-
-
-def compare_versions(v1, v2):
-    v1_parts = parse_version(v1)
-    v2_parts = parse_version(v2)
-    return (v1_parts > v2_parts) - (v1_parts < v2_parts)
 
 
 def is_fbcode():
@@ -368,7 +370,11 @@ def is_fbcode():
 
 
 def torch_version_at_least(min_version):
-    return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
+    if is_fbcode():
+        return True
+
+    # Parser for local identifiers
+    return parse_version(torch.__version__) >= parse_version(min_version)
 
 
 def _deprecated_torch_version_at_least(version_str: str) -> str:
@@ -517,12 +523,21 @@ def _implements_common_tensor_ops(cls):
             getattr(self, a_name) == getattr(src, a_name)
             for a_name in self.tensor_attribute_names
         )
+
+        _optional_attr_match = True
+        if hasattr(self, "optional_tensor_attribute_names"):
+            _optional_attr_match = all(
+                getattr(self, a_name) == getattr(src, a_name)
+                for a_name in self.optional_tensor_attribute_names
+            )
+
         return (
             type(self) == type(src)
             and self.shape == src.shape
             and _tensor_shape_match
             and _optional_tensor_shape_match
             and _attr_match
+            and _optional_attr_match
         )
 
     @implements(aten.copy_.default)
@@ -549,28 +564,58 @@ def _implements_common_tensor_ops(cls):
             tensors = [
                 getattr(self, name).to(device) for name in self.tensor_data_names
             ]
+            optional_tensors = []
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
-                        tensors.append(maybe_tensor.to(device))
+                        optional_tensors.append(maybe_tensor.to(device))
                     else:
-                        tensors.append(None)
+                        optional_tensors.append(None)
 
             # change device
             tensor_attributes = [
                 getattr(self, attr_name) if attr_name != "device" else device
                 for attr_name in self.tensor_attribute_names
             ]
+            optional_tensor_attributes = []
+            if hasattr(self, "optional_tensor_attribute_names"):
+                optional_tensor_attributes = [
+                    getattr(self, attr_name) if attr_name != "device" else device
+                    for attr_name in self.optional_tensor_attribute_names
+                ]
+
             t = self.__class__(
                 *tensors,
                 *tensor_attributes,
+                *optional_tensors,
+                *optional_tensor_attributes,
             )
             return return_and_correct_aliasing(func, args, kwargs, t)
 
         raise NotImplementedError(
             "Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
         )
+
+
+def _torchao_base_tensor__setstate__(self, state):
+    assert hasattr(self, "tensor_data_names") and hasattr(
+        self, "tensor_attribute_names"
+    )
+    torch._utils._set_obj_state(self, state)
+    for optional_tensor_data_name in getattr(self, "optional_tensor_data_names", []):
+        if optional_tensor_data_name not in self.__dict__ and not hasattr(
+            self, optional_tensor_data_name
+        ):
+            setattr(self, optional_tensor_data_name, None)
+
+    for optional_tensor_attribute_name in getattr(
+        self, "optional_tensor_attribute_names", []
+    ):
+        if optional_tensor_attribute_name not in self.__dict__ and not hasattr(
+            self, optional_tensor_attribute_name
+        ):
+            setattr(self, optional_tensor_attribute_name, None)
 
 
 def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
@@ -725,36 +770,48 @@ class TorchAOBaseTensor(torch.Tensor):
 
     class variables to define to simplify implmentation of tensor subclasses:
        `tensor_data_names` (List[str]): list of names of all requires tensor_data, order should match
-        the `__init__` list of tensor subclass
-       `optional_tensor_data_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor attributes, when defined, this will be a list of names of Tensors that can be optional
+          the `__init__` list of tensor subclass
        `tensor_attribute_names` (List[str]): list of names of non-Tensor attributes,
-         order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments and `optional_tensor_data_names`
+            order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments
+       `optional_tensor_data_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional
+       `optional_tensor_attribute_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional
+       Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)
 
-    If `tensor_data_names` and `tensor_attribute_names` are defined, there are some additional
+
+    If `tensor_data_names` (torch.Tensor data attribute names) and `tensor_attribute_names` (non-torch.Tensor attribute names) are defined, there are some additional
     functions that will be added, this includes:
     `__tensor_flatten__`: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data,
-        second element is a list of non-Tensor attributes
+        second element is a dict from attribute_name to non-Tensor attributes
     `__tensor_unflatten__`: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor
     `_apply_fn_to_data`: takes a function (Tensor -> Tensor),  applies function to all tensor data and
         recreate a new subclassed Tensor with the transformed tensor data
     `__repr__`: the string representation of the subclassed tensor instance
+    `_same_metadata`: returns whether the metadata is the same between two instances of cls
+    `__setstate__`: when loading a serialized tensor subclass checkpoints, it sets the new
+    optional tensor and tensor attribute that is saved in the old checkpoint to None,
+    to maintain BC of old checkpoints when we add new optional tensor data or attributes to
+    the tensor subclass
     torch ops: torch.Tensor.contiguous
     aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)
 
     Example:
         class MyTensor(torch.Tensor):
             tensor_data_names = ["a", "b"]
-            optional_tensor_data_names = ["c", "d"]
-            tensor_attribute_names = ["e", "f"]
+            tensor_attribute_names = ["c", "d"]
+            optional_tensor_data_names = ["e", "f"]
+            optional_tensor_attribute_names = ["g", "h"]
+
 
             def __new__(
                 cls,
                 a: Tensor,
                 b: Tensor,
-                c: Optional[Tensor],
-                d: Optional[Tensor],
-                e: int,
-                f: str
+                c: int,
+                d: str,
+                e: Optional[Tensor] = None,
+                f: Optional[Tensor] = None,
+                g: Optional[int] = None,
+                h: Optional[int] = None,
             ):
                 pass
 
@@ -762,10 +819,12 @@ class TorchAOBaseTensor(torch.Tensor):
                 self,
                 a: Tensor,
                 b: Tensor,
-                c: Optional[Tensor],
-                d: Optional[Tensor],
-                e: int,
-                f: str
+                c: int,
+                d: str
+                e: Optional[Tensor] = None,
+                f: Optional[Tensor] = None,
+                g: Optional[int] = None,
+                h: Optional[int] = None,
             ):
                 pass
 
@@ -779,9 +838,11 @@ class TorchAOBaseTensor(torch.Tensor):
         if cls not in cls._ATEN_OP_OR_TORCH_FN_TABLE:
             cls._ATEN_OP_OR_TORCH_FN_TABLE[cls] = {}
 
-        # define the common ops if the tensor_data_names and tensor_attribute_names are defined
+        # define the common ops and __set_state__ for BC
+        # if the tensor_data_names and tensor_attribute_names are defined
         if hasattr(cls, "tensor_data_names") and hasattr(cls, "tensor_attribute_names"):
             cls._implements_common_tensor_ops()
+            cls.__setstate__ = _torchao_base_tensor__setstate__
 
         # inherit the torch function and dispatch implementations from direct parent classes
         # e.g. for `class C(B, A)`, C.__bases__ == (B, A)
@@ -810,47 +871,88 @@ class TorchAOBaseTensor(torch.Tensor):
                     if maybe_tensor is not None:
                         tensor_data_names.append(tensor_data_name)
 
-            # TODO(future PR): also return names of tensor attributes for easier
-            # debugging
-            return tensor_data_names, [
-                getattr(self, attr) for attr in self.tensor_attribute_names
-            ]
+            attr_dict = {
+                attr: getattr(self, attr) for attr in self.tensor_attribute_names
+            }
+            if hasattr(self, "optional_tensor_attribute_names"):
+                attr_dict = attr_dict | {
+                    attr: getattr(self, attr)
+                    for attr in self.optional_tensor_attribute_names
+                }
+
+            return tensor_data_names, attr_dict
+
         raise NotImplementedError(
-            "Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
+            "Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"
         )
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        tensors = [tensor_data_dict[name] for name in cls.tensor_data_names]
-        if hasattr(cls, "optional_tensor_data_names"):
-            for tensor_data_name in cls.optional_tensor_data_names:
-                if tensor_data_name in tensor_data_dict:
-                    tensors.append(tensor_data_dict[tensor_data_name])
-                else:
-                    tensors.append(None)
-        return cls(*tensors, *tensor_attributes)
+        if hasattr(cls, "tensor_data_names") and hasattr(cls, "tensor_attribute_names"):
+            required_tensors = [
+                tensor_data_dict[name] for name in cls.tensor_data_names
+            ]
+            optional_tensor_dict = {}
+            if hasattr(cls, "optional_tensor_data_names"):
+                optional_tensor_dict = {
+                    tensor_data_name: tensor_data_dict.get(tensor_data_name, None)
+                    for tensor_data_name in cls.optional_tensor_data_names
+                }
+
+            required_attributes = [
+                tensor_attributes[name] for name in cls.tensor_attribute_names
+            ]
+            optional_attribute_dict = {}
+            if hasattr(cls, "optional_tensor_attribute_names"):
+                optional_attribute_dict = {
+                    name: tensor_attributes[name]
+                    for name in cls.optional_tensor_attribute_names
+                }
+
+            return cls(
+                *required_tensors,
+                *required_attributes,
+                **optional_tensor_dict,
+                **optional_attribute_dict,
+            )
+
+        raise NotImplementedError(
+            "Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"
+        )
 
     def _apply_fn_to_data(self, fn):
         if hasattr(self, "tensor_data_names") and hasattr(
             self, "tensor_attribute_names"
         ):
-            tensors = [fn(getattr(self, attr)) for attr in self.tensor_data_names]
+            required_tensors = [
+                fn(getattr(self, attr)) for attr in self.tensor_data_names
+            ]
+            optional_tensor_dict = {}
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
-                        tensors.append(fn(maybe_tensor))
+                        optional_tensor_dict[tensor_data_name] = fn(maybe_tensor)
                     else:
-                        tensors.append(None)
+                        optional_tensor_dict[tensor_data_name] = None
 
-            tensor_attributes = [
+            required_attributes = [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
+            optional_attribute_dict = {}
+            if hasattr(self, "optional_tensor_attribute_names"):
+                optional_attribute_dict = {
+                    attr_name: getattr(self, attr_name)
+                    for attr_name in self.optional_tensor_attribute_names
+                }
+
             return self.__class__(
-                *tensors,
-                *tensor_attributes,
+                *required_tensors,
+                *required_attributes,
+                **optional_tensor_dict,
+                **optional_attribute_dict,
             )
 
         raise NotImplementedError(
@@ -862,19 +964,29 @@ class TorchAOBaseTensor(torch.Tensor):
             self, "tensor_attribute_names"
         ):
             repr_str = ""
+            # required tensor data
             repr_str += f"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}"
             for tensor_data_name in self.tensor_data_names[1:]:
                 repr_str += f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+
+            # required attributes
+            for tensor_attribute_name in self.tensor_attribute_names:
+                repr_str += (
+                    f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
+                )
+
+            # optional tensor data
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     repr_str += (
                         f", {tensor_data_name}={getattr(self, tensor_data_name)}"
                     )
 
-            for tensor_attribute_name in self.tensor_attribute_names:
-                repr_str += (
-                    f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
-                )
+            # optional tensor attributes
+            if hasattr(self, "optional_tensor_attribute_names"):
+                for tensor_attribute_name in self.optional_tensor_attribute_names:
+                    repr_str += f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
+
             return f"{self.__class__.__name__}({repr_str})"
 
         raise NotImplementedError(
@@ -985,13 +1097,13 @@ def is_sm_at_least_100():
 def check_cpu_version(device, version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "cpu" and compare_versions(torch.__version__, version) >= 0
+    return device == "cpu" and torch_version_at_least(version)
 
 
 def check_xpu_version(device, version="2.8.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "xpu" and compare_versions(torch.__version__, version) >= 0
+    return device == "xpu" and torch_version_at_least(version)
 
 
 def ceil_div(a, b):

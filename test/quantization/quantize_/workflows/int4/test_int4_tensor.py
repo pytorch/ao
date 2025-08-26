@@ -16,10 +16,10 @@ from torch.testing._internal.common_utils import (
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8, is_sm_at_least_90
+from torchao.utils import is_sm_at_least_90, torch_version_at_least
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
 class TestInt4Tensor(TorchAOIntegrationTestCase):

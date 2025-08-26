@@ -37,11 +37,13 @@ class PackingFormat(str, Enum):
     MARLIN_SPARSE = "marlin_sparse"
 
     """
-    Unpacked means the subbyte quantized data is stored as int8
+    Unpacked to int8 means the subbyte quantized data is stored as int8
     """
     UNPACKED_TO_INT8 = "unpacked_to_int8"
 
     """
-    Tile packed means the tiling used by CPU kernels
+    Opaque packing format that's used for tensors that does not have a predefined packing format
+    (that may be decided on hardware, tensor shape, library availability etc.) and it's not
+    needed for the rest of the system to understand the specific format that's adopted.
     """
-    TILE_PACKED = "tile_packed"
+    OPAQUE = "opaque"
