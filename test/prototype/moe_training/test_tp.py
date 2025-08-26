@@ -16,6 +16,13 @@ import os
 
 import pytest
 import torch
+
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._tensor import DTensor
@@ -31,12 +38,6 @@ try:
 except ImportError:
     pytest.skip(
         "torch version is too old, these tests require nightly build. Skipping MoE training tests.",
-        allow_module_level=True,
-    )
-
-if torch.version.hip is not None:
-    pytest.skip(
-        "ROCm support for MoE quantization is under development",
         allow_module_level=True,
     )
 

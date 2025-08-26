@@ -16,6 +16,13 @@ import os
 
 import pytest
 import torch
+
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
@@ -43,12 +50,6 @@ try:
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
-
-if torch.version.hip is not None:
-    pytest.skip(
-        "ROCm support for MoE quantization is under development",
-        allow_module_level=True,
     )
 
 
