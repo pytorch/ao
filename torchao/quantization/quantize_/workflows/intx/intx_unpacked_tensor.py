@@ -18,7 +18,6 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     fill_defaults,
 )
@@ -274,6 +273,5 @@ def _(func, types, args, kwargs):
 
 IntxUnpackedTensor.__module__ = "torchao.quantization"
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with IntxUnpackedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([IntxUnpackedTensor])
+# Allow a model with IntxUnpackedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([IntxUnpackedTensor])

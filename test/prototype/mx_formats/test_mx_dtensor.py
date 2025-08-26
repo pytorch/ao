@@ -15,9 +15,9 @@ import os
 import pytest
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7, is_sm_at_least_100
+from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
-if not TORCH_VERSION_AT_LEAST_2_7:
+if not torch_version_at_least("2.7.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 from torch.distributed._tensor import DTensor, Shard, distribute_tensor

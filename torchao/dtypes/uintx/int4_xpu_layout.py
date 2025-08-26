@@ -20,8 +20,8 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     fill_defaults,
+    torch_version_at_least,
 )
 
 aten = torch.ops.aten
@@ -248,7 +248,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(_layout, Int4XPULayout)
 
-        if TORCH_VERSION_AT_LEAST_2_8:
+        if torch_version_at_least("2.8.0"):
             assert int_data.dtype == torch.int32, (
                 "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             )
