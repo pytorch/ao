@@ -27,7 +27,9 @@ class TestSafeTensors(TestCase):
         ref_output = model(*example_inputs)
 
         save_tensor_subclass_dict(model.state_dict(), "fp8_weights.safetensors")
-        reconstructed_dict = load_tensor_subclass_dict("fp8_weights.safetensors")
+        reconstructed_dict = load_tensor_subclass_dict(
+            "fp8_weights.safetensors", device="cuda"
+        )
 
         model = torch.nn.Sequential(
             torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
