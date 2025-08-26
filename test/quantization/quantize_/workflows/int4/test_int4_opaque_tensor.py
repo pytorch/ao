@@ -34,7 +34,7 @@ def get_config(group_size):
 
 
 @unittest.skipIf(not torch_version_at_least("2.6.0"), "Need pytorch 2.6+")
-class TestOpaqueTensor(TestCase):
+class TestInt4OpaqueTensor(TestCase):
     @parametrize(
         "sizes",
         [
@@ -65,7 +65,7 @@ class TestOpaqueTensor(TestCase):
         quantize_(linear, get_config(group_size=128))
         self.assertEqual(
             str(type(linear.weight)),
-            "<class 'torchao.quantization.OpaqueTensor'>",
+            "<class 'torchao.quantization.Int4OpaqueTensor'>",
         )
 
         with tempfile.NamedTemporaryFile() as f:
@@ -74,11 +74,11 @@ class TestOpaqueTensor(TestCase):
             state_dict = torch.load(f)
             self.assertEqual(
                 str(type(state_dict["weight"])),
-                "<class 'torchao.quantization.OpaqueTensor'>",
+                "<class 'torchao.quantization.Int4OpaqueTensor'>",
             )
 
 
-instantiate_parametrized_tests(TestOpaqueTensor)
+instantiate_parametrized_tests(TestInt4OpaqueTensor)
 
 
 if __name__ == "__main__":

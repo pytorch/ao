@@ -19,20 +19,20 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "OpaqueTensor",
+    "Int4OpaqueTensor",
 ]
 
 aten = torch.ops.aten
 
 
-class OpaqueTensor(TorchAOBaseTensor):
+class Int4OpaqueTensor(TorchAOBaseTensor):
     """
     int4 weight-only quantization on CPU with tinygemm (groupwise quantization only). The packing format is determined on ISA and shape.
     This is an opaque tensor subclass, the packing format is not exposed to the rest of the system. See the note below for more details.
 
     Tensor Attributes:
-        qdata: preshuffled and packed int4 weight for tinygemm, always viewed as a 2D (N, K/2) tensor, last dimension is packed
-               preshuffling is specific to CPU kernels, see Note below.
+        qdata: preshuffled and packed int4 weight for CPU tinygemm kernel, always viewed as a 2D (N, K/2) tensor, last dimension is packed
+               preshuffling is specific to CPU kernels based on ISA and shape, see Note below.
         scale_and_zero: (K/group_size, N, 2), dtype is the same as the original Tensor dtype
 
     Non-Tensor Attributes:
@@ -131,7 +131,7 @@ class OpaqueTensor(TorchAOBaseTensor):
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
-        return OpaqueTensor(
+        return Int4OpaqueTensor(
             qdata=packed_weight,
             scale_and_zero=scale_and_zero,
             block_size=block_size,
@@ -139,7 +139,7 @@ class OpaqueTensor(TorchAOBaseTensor):
         )
 
 
-implements = OpaqueTensor.implements
+implements = Int4OpaqueTensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -152,8 +152,8 @@ def _(func, types, args, kwargs):
     assert input_tensor.device.type == "cpu", (
         f"For CPU device only but got: {input_tensor.device}"
     )
-    assert isinstance(weight_tensor, OpaqueTensor), (
-        f"Expected weight_tensor to be OpaqueTensor, got: {type(weight_tensor)}"
+    assert isinstance(weight_tensor, Int4OpaqueTensor), (
+        f"Expected weight_tensor to be Int4OpaqueTensor, got: {type(weight_tensor)}"
     )
     assert weight_tensor.block_size[0] == 1, (
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
@@ -189,7 +189,7 @@ def _(func, types, args, kwargs):
     return y.to(orig_dtype)
 
 
-OpaqueTensor.__module__ = "torchao.quantization"
+Int4OpaqueTensor.__module__ = "torchao.quantization"
 
-# Allow a model with OpaqueTensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([OpaqueTensor])
+# Allow a model with Int4OpaqueTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int4OpaqueTensor])
