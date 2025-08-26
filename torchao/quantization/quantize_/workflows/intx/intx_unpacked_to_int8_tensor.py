@@ -5,8 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import enum
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing

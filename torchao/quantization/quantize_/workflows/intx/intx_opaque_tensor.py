@@ -13,18 +13,16 @@ import torch
 
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
-from torchao.quantization.quantize_.workflows.intx.intx_unpacked_tensor import (
-    ActivationQuantization,
-    IntxUnpackedTensor,
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
+    IntxUnpackedToInt8Tensor,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
     TorchAOBaseTensor,
+    torch_version_at_least,
 )
 
 __all__ = [
-    "IntxTilePackedTensor",
+    "IntxOpaqueTensor",
 ]
 
 aten = torch.ops.aten
@@ -58,7 +56,7 @@ class ComputeTarget(enum.Enum):
     TORCHAO_LOWBIT = "torchao_lowbit"
 
 
-class IntxTilePackedTensor(TorchAOBaseTensor):
+class IntxOpaqueTensor(TorchAOBaseTensor):
     """
     intx quantization with tile packed format for CPUs
 
@@ -126,27 +124,24 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}"
 
     def to(self, *args, **kwargs):
-        raise NotImplementedError("to() is not implemented for IntxTilePackedTensor")
+        raise NotImplementedError("to() is not implemented for IntxOpaqueTensor")
 
     @classmethod
     def from_intx_unpacked_tensor(
         cls,
-        tensor: IntxUnpackedTensor,
+        tensor: IntxUnpackedToInt8Tensor,
         *,
         bias: Optional[torch.Tensor] = None,
         compute_target: ComputeTarget = ComputeTarget.TORCHAO_AUTO,
     ):
         """
-        Constructs a IntxTilePackedTensor from an IntxUnpackedTensor.
+        Constructs a IntxOpaqueTensor from an IntxUnpackedToInt8Tensor.
         If bias is passed, bias is packed into the tensor.
         The compute_target indicates how the data is packed.
         """
 
-        # Extract data from IntxUnpackedTensor
-        assert (
-            tensor.activation_quantization
-            == ActivationQuantization.DYNAMIC_INT8_ASYMMETRIC_PER_TOKEN
-        )
+        # Extract data from IntxUnpackedToInt8Tensor
+        assert tensor.apply_int8_act_asym_per_token_quant
         qdata, scale, zero_point = tensor.qdata, tensor.scale, tensor.zero_point
         bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
         dtype = tensor.dtype
@@ -170,7 +165,7 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
 
         # Handle ATEN
         if compute_target == ComputeTarget.ATEN:
-            assert TORCH_VERSION_AT_LEAST_2_6, (
+            assert torch_version_at_least("2.6.0"), (
                 "ATEN target requires torch version > 2.6.0"
             )
             assert torch.backends.kleidiai.is_available(), (
@@ -251,11 +246,11 @@ class IntxTilePackedTensor(TorchAOBaseTensor):
         )
 
 
-implements = IntxTilePackedTensor.implements
+implements = IntxOpaqueTensor.implements
 
 
 def _linear_impl_2d_aten(input_tensor, weight_tensor):
-    assert isinstance(weight_tensor, IntxTilePackedTensor)
+    assert isinstance(weight_tensor, IntxOpaqueTensor)
     assert weight_tensor.compute_target == ComputeTarget.ATEN
     assert input_tensor.dim() == 2
     assert weight_tensor.dim() == 2
@@ -343,8 +338,6 @@ def _(func, types, args, kwargs):
     return res
 
 
-IntxTilePackedTensor.__module__ = "torchao.quantization"
+IntxOpaqueTensor.__module__ = "torchao.quantization"
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with IntxTilePackedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([IntxTilePackedTensor, ComputeTarget])
+torch.serialization.add_safe_globals([IntxOpaqueTensor, ComputeTarget])

@@ -71,17 +71,14 @@ from torchao.quantization.quantize_.common import (
     PackingFormat,
 )
 from torchao.quantization.quantize_.workflows import (
+    ComputeTarget,
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
-    IntxTilePackedTensor,
+    IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
-)
-from torchao.quantization.quantize_.workflows.intx import ComputeTarget
-from torchao.quantization.quantize_.workflows.intx.intx_unpacked_tensor import (
-    ActivationQuantization,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -844,11 +841,11 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         new_bias = bias
 
         # Create packed tensor
-        if packing_format == PackingFormat.TILE_PACKED:
+        if packing_format == PackingFormat.OPAQUE:
             assert compute_target is not None, (
                 "Must specify a compute target for PackingFormat.TILE_PACKED"
             )
-            new_weight = IntxTilePackedTensor.from_intx_unpacked_tensor(
+            new_weight = IntxOpaqueTensor.from_intx_unpacked_tensor(
                 new_weight, bias=new_bias, compute_target=compute_target
             )
             new_bias = None  # bias is packed with weights

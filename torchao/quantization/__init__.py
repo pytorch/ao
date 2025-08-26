@@ -93,7 +93,7 @@ from .quantize_.workflows import (
     Int4MarlinSparseTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
-    IntxTilePackedTensor,
+    IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
@@ -163,7 +163,7 @@ __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
-    "IntxTilePackedTensor",
+    "IntxOpaqueTensor",
     "IntxUnpackedToInt8Tensor",
     "Float8Tensor",
     # smooth quant - subject to change
