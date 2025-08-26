@@ -504,7 +504,7 @@
     <span class="n">Int4MarlinSparseTensor</span><span class="p">,</span>
     <span class="n">Int4PreshuffledTensor</span><span class="p">,</span>
     <span class="n">Int4Tensor</span><span class="p">,</span>
-    <span class="n">IntxUnpackedTensor</span><span class="p">,</span>
+    <span class="n">IntxUnpackedToInt8Tensor</span><span class="p">,</span>
     <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.transform_module</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -547,6 +547,7 @@
     <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">,</span>
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
+    <span class="n">quantize_affine</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.subclass</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
@@ -1168,6 +1169,9 @@
     <span class="n">weight_scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">act_mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
+    <span class="n">packing_format</span><span class="p">:</span> <span class="n">PackingFormat</span> <span class="o">=</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">UNPACKED_TO_INT8</span>
+
+    <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
@@ -1215,30 +1219,54 @@
                     <span class="p">)</span>
 
 
-<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_int8_dynamic_activation_intx_weight_transform</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
-    <span class="n">bias</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">bias</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int8_dynamic_activation_intx_weight_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
     <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
     <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_granularity</span>
     <span class="n">weight_mapping_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_mapping_type</span>
     <span class="n">weight_scale_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_scale_dtype</span>
     <span class="n">act_mapping_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">act_mapping_type</span>
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
+    <span class="n">packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_format</span>
 
-    <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;weight must be 2D, but got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D&quot;</span>
+    <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">group_size</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;axis must be 0&quot;</span>
+        <span class="k">assert</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
 
+    <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+        <span class="k">assert</span> <span class="n">packing_format</span> <span class="ow">in</span> <span class="p">[</span>
+            <span class="n">PackingFormat</span><span class="o">.</span><span class="n">UNPACKED_TO_INT8</span><span class="p">,</span>
+        <span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Unsupported packing format: </span><span class="si">{</span><span class="n">packing_format</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">new_weight</span> <span class="o">=</span> <span class="n">IntxUnpackedToInt8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
+            <span class="n">apply_int8_act_asym_per_token_quant</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">weight_scale_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">weight_scale_dtype</span> <span class="o">!=</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">:</span>
+            <span class="n">_adjust_scale_dtype_in_intx_unpacked_tensor</span><span class="p">(</span>
+                <span class="n">new_weight</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">weight_scale_dtype</span>
+            <span class="p">)</span>
+
+        <span class="n">new_bias</span> <span class="o">=</span> <span class="n">bias</span>
+
+        <span class="k">return</span> <span class="n">new_weight</span><span class="p">,</span> <span class="n">new_bias</span>
+
+    <span class="c1"># Version 1</span>
     <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">weight_dtype</span><span class="p">]</span>
 
     <span class="c1"># We quantize with QDQLayout, and then construct the packed weight tensor later</span>
@@ -1298,9 +1326,21 @@
         <span class="c1"># bias is packed with weights if present</span>
         <span class="n">bias</span> <span class="o">=</span> <span class="kc">None</span>
 
-    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-    <span class="n">module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">bias</span>
-    <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int8_dynamic_activation_intx_weight_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="n">new_weight</span><span class="p">,</span> <span class="n">new_bias</span> <span class="o">=</span> <span class="n">_int8_dynamic_activation_intx_weight_quantize_tensor</span><span class="p">(</span>
+        <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">module</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">config</span>
+    <span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">new_bias</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
 
 
@@ -2400,6 +2440,31 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_adjust_scale_dtype_in_intx_unpacked_tensor</span><span class="p">(</span>
+    <span class="n">intx_unpacked_tensor</span><span class="p">:</span> <span class="n">IntxUnpackedToInt8Tensor</span><span class="p">,</span>
+    <span class="n">hp_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Adjusts the scale_dtype on IntxUnpackedToInt8Tensor.</span>
+<span class="sd">    Updating the scale dtype requires updating the qdata because qdata is calculated after the scale.</span>
+<span class="sd">    This is used in IntxWeightOnlyConfig and Int8DynamicActivationIntxWeightConfig to make</span>
+<span class="sd">    version=2 and version=1 numerically equivalent when the scale_dtype differs from the input dtype</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">intx_unpacked_tensor</span><span class="p">,</span> <span class="n">IntxUnpackedToInt8Tensor</span><span class="p">)</span>
+    <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">scale_dtype</span><span class="p">)</span>
+    <span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">]</span>
+    <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">qdata</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
+        <span class="n">hp_tensor</span><span class="p">,</span>
+        <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span>
+        <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">zero_point</span><span class="p">,</span>
+        <span class="n">output_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+        <span class="n">quant_min</span><span class="o">=</span><span class="n">qmin</span><span class="p">,</span>
+        <span class="n">quant_max</span><span class="o">=</span><span class="n">qmax</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">IntxWeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -2467,14 +2532,17 @@
 
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">UNPACKED_TO_INT8</span><span class="p">:</span>
-            <span class="n">new_weight</span> <span class="o">=</span> <span class="n">IntxUnpackedTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
+            <span class="n">new_weight</span> <span class="o">=</span> <span class="n">IntxUnpackedToInt8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
                 <span class="n">weight</span><span class="p">,</span>
                 <span class="n">block_size</span><span class="p">,</span>
                 <span class="n">weight_dtype</span><span class="p">,</span>
                 <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">scale_dtype</span> <span class="o">!=</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">:</span>
-                <span class="n">new_weight</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">new_weight</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">scale_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+                <span class="n">_adjust_scale_dtype_in_intx_unpacked_tensor</span><span class="p">(</span>
+                    <span class="n">new_weight</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">scale_dtype</span>
+                <span class="p">)</span>
+
             <span class="k">return</span> <span class="n">new_weight</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported packing format: </span><span class="si">{</span><span class="n">packing_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
