@@ -139,10 +139,86 @@ def quantize_and_eval(
     if compile:
         model = torch.compile(model)
 
+    print("Benchmarking SmoothQuant model...")
     return benchmark(model, tokenizer, max_seq_length, tasks=tasks, device=device)
 
 
-if __name__ == "__main__":
+def compare_models(
+    repo_id: str,
+    alpha: float,
+    tasks: list[str],
+    max_seq_length: int,
+    calibration_limit: int,
+    device: str,
+    precision: torch.dtype,
+    compile: bool,
+    model_save_path: str,
+    model_save_hf_hub_path: str,
+):
+    """Compare perplexity and speed for behchmarking SmoothQuant"""
+
+    # Benchmark base model
+    print("Benchmarking base model...")
+    torch.manual_seed(34)
+    tokenizer = AutoTokenizer.from_pretrained(repo_id)
+    model = (
+        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
+        .eval()
+        .to(device)
+    )
+    if compile:
+        model = torch.compile(model)
+    base_results = benchmark(
+        model, tokenizer, max_seq_length, tasks=tasks, device=device
+    )
+
+    # Benchmark quantized model
+    smoothquant_results = quantize_and_eval(
+        repo_id,
+        alpha,
+        tasks,
+        max_seq_length,
+        calibration_limit,
+        device,
+        precision,
+        compile,
+        model_save_path,
+        model_save_hf_hub_path,
+    )
+
+    # Calculate changes and display results
+    ppl_change = (
+        (smoothquant_results["perplexity"] - base_results["perplexity"])
+        / base_results["perplexity"]
+        * 100
+    )
+    speed_change = (
+        (
+            base_results["avg_inference_time_per_token"]
+            - smoothquant_results["avg_inference_time_per_token"]
+        )
+        / base_results["avg_inference_time_per_token"]
+        * 100
+    )
+
+    # Print results
+    print(
+        f"\nBase: PPL={base_results['perplexity']:.2f}, Speed={base_results['avg_inference_time_per_token']:.4f}s/token"
+    )
+    print(
+        f"SmoothQuant: PPL={smoothquant_results['perplexity']:.2f}, Speed={smoothquant_results['avg_inference_time_per_token']:.4f}s/token"
+    )
+    print(f"Changes: PPL {ppl_change:+.2f}%, Speed {speed_change:+.2f}%")
+
+    return {
+        "base_model": base_results,
+        "smoothquant_model": smoothquant_results,
+        "perplexity_change_percent": ppl_change,
+        "speed_improvement_percent": speed_change,
+    }
+
+
+def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Evaluate a model with SmoothQuant quantization."
     )
@@ -205,11 +281,16 @@ if __name__ == "__main__":
         help="Huggingface hub path to store the quantized model and tokenizer.",
     )
 
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_parser()
     args = parser.parse_args()
 
     # Convert precision argument to torch dtype
     precision_dtype = getattr(torch, args.precision, torch.bfloat16)
-    result = quantize_and_eval(
+    result = compare_models(
         args.repo,
         args.alpha,
         args.tasks,
@@ -221,5 +302,3 @@ if __name__ == "__main__":
         args.model_save_path,
         args.model_save_hf_hub_path,
     )
-
-    print(f"SmoothQuant Results: {result}")

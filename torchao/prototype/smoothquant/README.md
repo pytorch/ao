@@ -58,13 +58,26 @@ quantize_(model, quant_config)
 
 ## Benchmarks
 
-Evaluation perplexity numbers were calculated using the script in `smoothquant/example.py`. For Llama-2-7b-chat-hf, performance benchmarks were calculated using the `torchao/_models/llama/generate.py` script and run on a 1xA100 48GB PCIe interface.
+All experiments use `Llama-2-7b-chat-hf` model with max sequence length 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance.
 
-| Model              | Quantization | Tokens/sec | Throughput (GB/sec) | Peak Mem (GB) | Model Size |Perplexity |
-|--------------------|--------------|------------|---------------------|---------------|---------------|-----------------|
-| Llama-2-7b-chat-hf | int8dq | 539 | 1,331 | 14.3 | 7.97 | 6.98 |
-|                    | int8wo |  -  |  -  |  -  |  -  |    |
-|                    | float8wo |  -  |  -  |  -  |  -  |    |
-|                    | float8dq |  -  |  -  |  -  |  -  |    |
+### Benchmark Result
 
-> Note: vLLM becnchmark will be introduced in forsesable future. See https://github.com/pytorch/ao/issues/2815 for more information.
+| Precision | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
+|-----------|--------------|------------|------------|------------|--------------|
+| float32 | - | 6.93 | 625 | - | - |
+| float32 | int8dq | 7.03 | 1,003 | +0.83% ↗️ | +39.39% ⚡ |
+| bfloat16* | - | 6.93 | 27 | - | - |
+| bfloat16* | int8dq | 6.92 | 3 | -0.18% ↘️ | -768.29% 🐌 |
+| bfloat16 | - | 6.93 | 667 | - | - |
+| bfloat16 | int8dq | 7.03 | 1,108 | +1.39% ↗️ | +41.07% ⚡ |
+
+> *Used with `torch.compile`
+
+### Key Findings
+
+- **Speed Improvement**: Most configurations show 35-40% speed improvement with SmoothQuant
+- **Quality Trade-off**: Slight perplexity increase (~1-1.4%) in most cases
+- **Compilation Impact**: Using `--compile` flag significantly degrades performance (768% slower)
+- **Best Configuration**: `bfloat16` without `--compile` provides optimal balance
+
+> Note: Unlike AWQ, this benchmark isn't computed using the script in `smoothquant/example.py` and `torchao/_models/llama/generate.py`. vLLM benchmark will be introduced in foreseeable future. See https://github.com/pytorch/ao/issues/2815 for more information.
