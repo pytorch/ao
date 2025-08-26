@@ -16,10 +16,23 @@ Here is the serialization and deserialization flow::
       quantize_,
       Int4WeightOnlyConfig,
   )
-  from torchao.testing.model_architectures import ToyTwoLinearModel
+
+  class ToyLinearModel(torch.nn.Module):
+      def __init__(self, m=64, n=32, k=64):
+          super().__init__()
+          self.linear1 = torch.nn.Linear(m, n, bias=False)
+          self.linear2 = torch.nn.Linear(n, k, bias=False)
+
+      def example_inputs(self, batch_size=1, dtype=torch.float32, device="cpu"):
+          return (torch.randn(batch_size, self.linear1.in_features, dtype=dtype, device=device),)
+
+      def forward(self, x):
+          x = self.linear1(x)
+          x = self.linear2(x)
+          return x
 
   dtype = torch.bfloat16
-  m = ToyTwoLinearModel(1024, 1024, 1024).eval().to(dtype).to("cuda")
+  m = ToyLinearModel(1024, 1024, 1024).eval().to(dtype).to("cuda")
   print(f"original model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB")
 
   example_inputs = m.example_inputs(dtype=dtype, device="cuda")
