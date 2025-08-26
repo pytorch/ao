@@ -466,9 +466,16 @@
     <span class="n">MARLIN_SPARSE</span> <span class="o">=</span> <span class="s2">&quot;marlin_sparse&quot;</span>
 
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Unpacked means the subbyte quantized data is stored as int8</span>
+<span class="sd">    Unpacked to int8 means the subbyte quantized data is stored as int8</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">UNPACKED_TO_INT8</span> <span class="o">=</span> <span class="s2">&quot;unpacked_to_int8&quot;</span></div>
+    <span class="n">UNPACKED_TO_INT8</span> <span class="o">=</span> <span class="s2">&quot;unpacked_to_int8&quot;</span>
+
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Opaque packing format that&#39;s used for tensors that does not have a predefined packing format</span>
+<span class="sd">    (that may be decided on hardware, tensor shape, library availability etc.) and it&#39;s not</span>
+<span class="sd">    needed for the rest of the system to understand the specific format that&#39;s adopted.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">OPAQUE</span> <span class="o">=</span> <span class="s2">&quot;opaque&quot;</span></div>
 </pre></div>
 
              </article>
