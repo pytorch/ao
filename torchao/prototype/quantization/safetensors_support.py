@@ -4,11 +4,9 @@ from typing import Dict, Optional, Tuple
 import torch
 from safetensors.torch import load_file, save_file
 
-from torchao import quantize_
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization import granularity
 from torchao.quantization.granularity import PerRow
-from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
     QuantizeTensorToFloat8Kwargs,
 )
@@ -69,7 +67,7 @@ def load_tensor_subclass_dict(file_path: str):
             hp_value_ub = tensor_metadata.get("hp_value_ub")
             mm_config = Float8MMConfig(*json.loads(tensor_metadata.get("mm_config")))
 
-            from torchao.quantization.quantize_.workflows import Float8Tensor
+            from torchao.quantization import Float8Tensor
 
             result[tensor_name] = Float8Tensor(
                 qdata=tensor_tensors["qdata"].to(tensor_metadata["qdata_device"]),
@@ -184,23 +182,3 @@ def save_tensor_subclass_dict(
 
     save_file(combined_tensors_dict, file_path, metadata=combined_metadata)
     print(f"Saved {len(tensor_dict)} tensor subclasses to {file_path} with metadata")
-
-
-if __name__ == "__main__":
-    config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
-    model = torch.nn.Sequential(
-        torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
-    )
-    quantize_(model, config)
-    example_inputs = (torch.randn(2, 32, dtype=torch.bfloat16, device="cuda"),)
-    ref_output = model(*example_inputs)
-
-    save_tensor_subclass_dict(model.state_dict(), "fp8_weights.safetensors")
-    reconstructed_dict = load_tensor_subclass_dict("fp8_weights.safetensors")
-
-    model = torch.nn.Sequential(
-        torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
-    )
-    model.load_state_dict(reconstructed_dict, assign=True)
-    output = model(*example_inputs)
-    assert torch.equal(output, ref_output)
