@@ -516,14 +516,8 @@ def get_extensions():
     sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    # TODO: Add support for other ROCm GPUs
     if use_rocm:
-        # Add ROCm GPU architecture check
-        gpu_arch = None
-        if torch.cuda.is_available():
-            gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch and gpu_arch != "gfx942":
-            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print("Currently only gfx942 is supported. Compiling only for gfx942.")
         extra_compile_args["nvcc"].append("--offload-arch=gfx942")
         sources += rocm_sources
     else:
