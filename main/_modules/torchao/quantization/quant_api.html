@@ -502,6 +502,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.workflows</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Float8Tensor</span><span class="p">,</span>
     <span class="n">Int4MarlinSparseTensor</span><span class="p">,</span>
+    <span class="n">Int4OpaqueTensor</span><span class="p">,</span>
     <span class="n">Int4PreshuffledTensor</span><span class="p">,</span>
     <span class="n">Int4Tensor</span><span class="p">,</span>
     <span class="n">IntxUnpackedToInt8Tensor</span><span class="p">,</span>
@@ -1545,6 +1546,12 @@
             <span class="k">return</span> <span class="n">new_weight</span>
         <span class="k">elif</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">MARLIN_SPARSE</span><span class="p">:</span>
             <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4MarlinSparseTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
+                <span class="n">weight</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">new_weight</span>
+        <span class="k">elif</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">OPAQUE</span><span class="p">:</span>
+            <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4OpaqueTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
                 <span class="n">weight</span><span class="p">,</span>
                 <span class="n">block_size</span><span class="p">,</span>
             <span class="p">)</span>
