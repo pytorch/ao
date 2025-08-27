@@ -12,7 +12,6 @@ from typing import List
 
 import torch
 from tabulate import tabulate
-from torch.nn import functional as F
 from tqdm import tqdm
 from triton.testing import do_bench
 
@@ -72,7 +71,9 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-def run_experiment(config: ExperimentConfig, profile=False, use_compile=False) -> ExperimentResult:
+def run_experiment(
+    config: ExperimentConfig, profile=False, use_compile=False
+) -> ExperimentResult:
     M, N, K = config.m, config.n, config.k
     inputs = torch.randn(M, K, dtype=config.out_dtype, device="cuda")
     bf16_linear = torch.nn.Linear(K, N, dtype=config.out_dtype, device="cuda")
@@ -87,24 +88,23 @@ def run_experiment(config: ExperimentConfig, profile=False, use_compile=False) -
         for _ in range(3):
             func(*args, **kwargs)
 
-
     # bfloat16 bench and profile
     labels = inputs.new_empty(M, N).fill_(1.0)
     bf16_linear_us = bench_fwd_bwd_microseconds(
-        bf16_linear, 
-        inputs, 
-        labels=labels, 
+        bf16_linear,
+        inputs,
+        labels=labels,
         use_compile=use_compile,
     )
     if profile:
         print("Profiling bf16_linear")
         profile_fwd_bwd(
-            bf16_linear, 
-            inputs, 
+            bf16_linear,
+            inputs,
             labels=labels,
             profile_name="bf16_linear_profile",
             use_compile=use_compile,
-    )
+        )
 
     # FP8 triton bench and profile
     fp8_triton_linear_us = bench_fwd_bwd_microseconds(
@@ -189,7 +189,7 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser() 
+    parser = argparse.ArgumentParser()
     parser.add_argument("--profile", action="store_true", help="Enable profiling")
     parser.add_argument("--compile", action="store_true", help="Enable compilation")
     args = parser.parse_args()
