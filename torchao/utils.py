@@ -778,10 +778,10 @@ class TorchAOBaseTensor(torch.Tensor):
        Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)
 
 
-    If `tensor_data_names` and `tensor_attribute_names` are defined, there are some additional
+    If `tensor_data_names` (torch.Tensor data attribute names) and `tensor_attribute_names` (non-torch.Tensor attribute names) are defined, there are some additional
     functions that will be added, this includes:
     `__tensor_flatten__`: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data,
-        second element is a list of non-Tensor attributes
+        second element is a dict from attribute_name to non-Tensor attributes
     `__tensor_unflatten__`: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor
     `_apply_fn_to_data`: takes a function (Tensor -> Tensor),  applies function to all tensor data and
         recreate a new subclassed Tensor with the transformed tensor data
@@ -871,15 +871,17 @@ class TorchAOBaseTensor(torch.Tensor):
                     if maybe_tensor is not None:
                         tensor_data_names.append(tensor_data_name)
 
-            attrs = [getattr(self, attr) for attr in self.tensor_attribute_names]
+            attr_dict = {
+                attr: getattr(self, attr) for attr in self.tensor_attribute_names
+            }
             if hasattr(self, "optional_tensor_attribute_names"):
-                attrs += [
-                    getattr(self, attr) for attr in self.optional_tensor_attribute_names
-                ]
+                attr_dict = attr_dict | {
+                    attr: getattr(self, attr)
+                    for attr in self.optional_tensor_attribute_names
+                }
 
-            # TODO(future PR): also return names of tensor attributes for easier
-            # debugging
-            return tensor_data_names, attrs
+            return tensor_data_names, attr_dict
+
         raise NotImplementedError(
             "Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"
         )
@@ -892,27 +894,30 @@ class TorchAOBaseTensor(torch.Tensor):
             required_tensors = [
                 tensor_data_dict[name] for name in cls.tensor_data_names
             ]
-            optional_tensors = []
+            optional_tensor_dict = {}
             if hasattr(cls, "optional_tensor_data_names"):
-                for tensor_data_name in cls.optional_tensor_data_names:
-                    if tensor_data_name in tensor_data_dict:
-                        optional_tensors.append(tensor_data_dict[tensor_data_name])
-                    else:
-                        optional_tensors.append(None)
+                optional_tensor_dict = {
+                    tensor_data_name: tensor_data_dict.get(tensor_data_name, None)
+                    for tensor_data_name in cls.optional_tensor_data_names
+                }
 
-            required_attributes = tensor_attributes[: len(cls.tensor_attribute_names)]
-            optional_attributes = []
+            required_attributes = [
+                tensor_attributes[name] for name in cls.tensor_attribute_names
+            ]
+            optional_attribute_dict = {}
             if hasattr(cls, "optional_tensor_attribute_names"):
-                optional_attributes = tensor_attributes[
-                    len(cls.tensor_attribute_names) :
-                ]
+                optional_attribute_dict = {
+                    name: tensor_attributes[name]
+                    for name in cls.optional_tensor_attribute_names
+                }
 
             return cls(
                 *required_tensors,
                 *required_attributes,
-                *optional_tensors,
-                *optional_attributes,
+                **optional_tensor_dict,
+                **optional_attribute_dict,
             )
+
         raise NotImplementedError(
             "Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"
         )
@@ -924,29 +929,30 @@ class TorchAOBaseTensor(torch.Tensor):
             required_tensors = [
                 fn(getattr(self, attr)) for attr in self.tensor_data_names
             ]
-            optional_tensors = []
+            optional_tensor_dict = {}
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
-                        optional_tensors.append(fn(maybe_tensor))
+                        optional_tensor_dict[tensor_data_name] = fn(maybe_tensor)
                     else:
-                        optional_tensors.append(None)
+                        optional_tensor_dict[tensor_data_name] = None
 
             required_attributes = [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
-            optional_attributes = []
+            optional_attribute_dict = {}
             if hasattr(self, "optional_tensor_attribute_names"):
-                optional_attributes = [
-                    getattr(self, attr) for attr in self.optional_tensor_attribute_names
-                ]
+                optional_attribute_dict = {
+                    attr_name: getattr(self, attr_name)
+                    for attr_name in self.optional_tensor_attribute_names
+                }
 
             return self.__class__(
                 *required_tensors,
                 *required_attributes,
-                *optional_tensors,
-                *optional_attributes,
+                **optional_tensor_dict,
+                **optional_attribute_dict,
             )
 
         raise NotImplementedError(
