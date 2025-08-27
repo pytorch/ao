@@ -76,6 +76,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4OpaqueTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
 )
@@ -743,6 +744,8 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
     packing_format: PackingFormat = PackingFormat.UNPACKED_TO_INT8
 
+    # Used with PackingFormat.OPAQUE
+    compute_target: Optional[str] = None
     version: int = 1
 
     def __post_init__(self):
@@ -799,6 +802,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     act_mapping_type = config.act_mapping_type
     layout = config.layout
     packing_format = config.packing_format
+    compute_target = config.compute_target
 
     assert weight.dim() == 2, (
         f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -821,6 +825,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         assert act_mapping_type == MappingType.ASYMMETRIC
         assert packing_format in [
             PackingFormat.UNPACKED_TO_INT8,
+            PackingFormat.OPAQUE,
         ], f"Unsupported packing format: {packing_format}"
         new_weight = IntxUnpackedToInt8Tensor.from_hp(
             weight,
@@ -835,6 +840,16 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
             )
 
         new_bias = bias
+
+        # Create packed tensor
+        if packing_format == PackingFormat.OPAQUE:
+            assert compute_target is not None, (
+                "Must specify a compute target for PackingFormat.OPAQUE"
+            )
+            new_weight = IntxOpaqueTensor.from_intx_unpacked_to_int8_tensor(
+                new_weight, bias=new_bias, compute_target=compute_target
+            )
+            new_bias = None  # bias is packed with weights
 
         return new_weight, new_bias
 
