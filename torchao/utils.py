@@ -6,7 +6,10 @@
 import functools
 import importlib
 import itertools
+import logging
 import re
+import subprocess
+import sys
 import time
 import warnings
 from functools import reduce
@@ -1119,17 +1122,29 @@ def is_package_at_least(package_name: str, min_version: str):
 
 
 def _is_fbgemm_genai_gpu_available():
-    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
-    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if importlib.util.find_spec("fbgemm_gpu") is None:
+    try:
+        # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
+        # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import fbgemm_gpu; import fbgemm_gpu.experimental.gen_ai; print('SUCCESS')",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and "SUCCESS" in result.stdout:
+            return True
+        logging.warning(f"fbgemm_gpu import failed: {result.stderr}")
         return False
-
-    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
-    if not is_fbcode() and fbgemm_gpu.__version__ < "1.2.0":
+    except subprocess.TimeoutExpired:
+        logging.warning("fbgemm_gpu import timed out")
         return False
-
-    return True
+    except Exception as e:
+        logging.warning(f"Error testing fbgemm_gpu: {e}")
+        return False
 
 
 class DummyModule(torch.nn.Module):

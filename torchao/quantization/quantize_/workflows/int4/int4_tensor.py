@@ -10,7 +10,11 @@ from typing import List
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import TorchAOBaseTensor, fill_defaults
+from torchao.utils import (
+    TorchAOBaseTensor,
+    _is_fbgemm_genai_gpu_available,
+    fill_defaults,
+)
 
 __all__ = [
     "Int4Tensor",
@@ -19,9 +23,9 @@ __all__ = [
 aten = torch.ops.aten
 
 
-try:
+if _is_fbgemm_genai_gpu_available():
     from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
-except:
+else:
     int4_row_quantize_zp = None
     pack_int4 = None
 
