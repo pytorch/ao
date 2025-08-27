@@ -65,9 +65,7 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
             return [self.encode_value(item) for item in o]
 
         if isinstance(o, dict):
-            return {
-                k: self.encode_value(v) for k, v in o.items()
-            }
+            return {k: self.encode_value(v) for k, v in o.items()}
 
         # Default case
         return super().default(o)
