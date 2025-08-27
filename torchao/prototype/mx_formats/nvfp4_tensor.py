@@ -96,9 +96,9 @@ class NVFP4Tensor(TorchAOBaseTensor):
         blockwise_scales,
         block_size,
         orig_dtype,
-        per_tensor_scale,
-        act_per_tensor_scale,
-        is_swizzled_scales=False,
+        _per_tensor_scale=None,
+        _act_per_tensor_scale=None,
+        _is_swizzled_scales=False,
         use_triton_kernel=False,
         act_quant_kwargs=None,
     ):
@@ -122,9 +122,9 @@ class NVFP4Tensor(TorchAOBaseTensor):
         self._scale_e4m3 = blockwise_scales
         self._block_size = block_size
         self._orig_dtype = orig_dtype
-        self._per_tensor_scale = per_tensor_scale
-        self._act_per_tensor_scale = act_per_tensor_scale
-        self._is_swizzled_scales = is_swizzled_scales
+        self._per_tensor_scale = _per_tensor_scale
+        self._act_per_tensor_scale = _act_per_tensor_scale
+        self._is_swizzled_scales = _is_swizzled_scales
         self.use_triton_kernel = use_triton_kernel
         self.act_quant_kwargs = act_quant_kwargs
         return self

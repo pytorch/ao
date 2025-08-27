@@ -91,10 +91,12 @@ from .quant_primitives import (
 from .quantize_.workflows import (
     Float8Tensor,
     Int4MarlinSparseTensor,
+    Int4OpaqueTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4XPUTensorIntZP,
-    IntxUnpackedTensor,
+    IntxOpaqueTensor,
+    IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -164,8 +166,10 @@ __all__ = [
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
     "Int4XPUTensorIntZP",
-    "IntxUnpackedTensor",
+    "IntxOpaqueTensor",
+    "IntxUnpackedToInt8Tensor",
     "Float8Tensor",
+    "Int4OpaqueTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",

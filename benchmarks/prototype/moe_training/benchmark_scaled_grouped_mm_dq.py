@@ -12,8 +12,8 @@ from typing import List
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
-from utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 
+from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 from torchao.prototype.moe_training import _scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
@@ -48,8 +48,8 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     # Llama4 shapes
     A_shapes = [(16640, 5120)]
-    B_shapes = [(16, 8192, 5120)]
-    recipes = [MoEScalingType.MXFP8, MoEScalingType.FP8_ROWWISE]
+    B_shapes = [(1, 8192, 5120), (4, 8192, 5120), (16, 8192, 5120), (64, 8192, 5120)]
+    recipes = [MoEScalingType.FP8_ROWWISE, MoEScalingType.MXFP8]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for A_shape, B_shape, recipe, high_precision_dtype in itertools.product(

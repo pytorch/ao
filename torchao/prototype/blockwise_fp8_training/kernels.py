@@ -23,14 +23,7 @@ fp8_gemm_configs_max_autotune = [
     )
     for block_size in [64, 128, 256]
     for num_warps in [4, 8]
-    for num_stages in [2, 4]
-]
-
-# For fast compile times during development.
-dev_fp8_gemm_configs = [
-    triton.Config(
-        {"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128}, num_warps=4, num_stages=3
-    ),
+    for num_stages in [2]
 ]
 
 EPS = 1e-12
@@ -38,7 +31,7 @@ EPS = 1e-12
 
 @triton.autotune(configs=fp8_gemm_configs_max_autotune, key=["N", "K", "BLOCK_SIZE_K"])
 @triton.jit
-def blockwise_fp8_gemm_1x128_128x128_kernel(
+def triton_fp8_gemm_1x128_128x128_kernel(
     a_ptr,  # (M, K)
     a_stride_dim_0,
     a_stride_dim_1,
@@ -102,23 +95,21 @@ def blockwise_fp8_gemm_1x128_128x128_kernel(
     tl.store(c_ptrs, c, mask=c_mask)
 
 
-def blockwise_fp8_gemm_1x128_128x128(
+def triton_fp8_gemm_1x128_128x128(
     a: torch.Tensor,  # (M, K)
-    a_s: torch.Tensor,  # (M, K // block_size)
     b: torch.Tensor,  # (K, N)
+    a_s: torch.Tensor,  # (M, K // block_size)
     b_s: torch.Tensor,  # (K // block_size, N // block_size)
     block_size: int = 128,
     out_dtype: torch.dtype = torch.float32,
 ):
     # 'a' must be in row-major layout, 'b' must be in column-major layout
-    assert _is_row_major(a) and _is_column_major(b), (
-        "a must be row-major, b must be column-major"
-    )
+    assert _is_row_major(a), "a must be row-major"
+    assert _is_column_major(b), "b must be column-major"
 
-    # a_scales must be row-major, b_scales must be column-major
-    assert _is_row_major(a_s) and _is_column_major(b_s), (
-        "a_s must be row-major, b_s must be column-major"
-    )
+    # a_scales must be col-major, b_scales must be row-major
+    assert _is_column_major(a_s), "a_s must be column-major"
+    assert _is_column_major(b_s), "b_s must be column-major"
 
     M = a.size(0)
     K = a.size(1)
@@ -128,7 +119,7 @@ def blockwise_fp8_gemm_1x128_128x128(
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
-    blockwise_fp8_gemm_1x128_128x128_kernel[grid](
+    triton_fp8_gemm_1x128_128x128_kernel[grid](
         a,
         a.stride(0),
         a.stride(1),
@@ -157,7 +148,7 @@ def blockwise_fp8_gemm_1x128_128x128(
     configs=fp8_gemm_configs_max_autotune, key=["M", "N", "K", "BLOCK_SIZE_K"]
 )
 @triton.jit
-def blockwise_fp8_gemm_1x128_128x1_kernel(
+def triton_fp8_gemm_1x128_128x1_kernel(
     a_ptr,  # (M, K)
     a_stride_dim_0,
     a_stride_dim_1,
@@ -219,17 +210,22 @@ def blockwise_fp8_gemm_1x128_128x1_kernel(
     tl.store(c_ptrs, c, mask=c_mask)
 
 
-def blockwise_fp8_gemm_1x128_128x1(
+def triton_fp8_gemm_1x128_128x1(
     a: torch.Tensor,  # (M, K)
-    a_s: torch.Tensor,  # (M, K // block_size) reciprocals of scales
     b: torch.Tensor,  # (K, N)
+    a_s: torch.Tensor,  # (M, K // block_size) reciprocals of scales
     b_s: torch.Tensor,  # (K // block_size, N) reciprocals of scales
     block_size: int = 128,
     out_dtype: torch.dtype = torch.float32,
 ):
     # 'a' must be in row-major layout, 'b' must be in column-major layout
-    assert a.is_contiguous() and not b.is_contiguous()
-    assert a_s.is_contiguous() and b_s.is_contiguous()
+    assert _is_row_major(a), "a must be row-major"
+    assert _is_column_major(b), "b must be column-major"
+
+    # a_scales must be col-major, b_scales must be row-major
+    assert _is_column_major(a_s), "a_s must be column-major"
+    assert _is_row_major(b_s), "b_s must be row-major"
+
     M = a.size(0)
     K = a.size(1)
     N = b.size(1)
@@ -238,7 +234,7 @@ def blockwise_fp8_gemm_1x128_128x1(
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
-    blockwise_fp8_gemm_1x128_128x1_kernel[grid](
+    triton_fp8_gemm_1x128_128x1_kernel[grid](
         a,
         a.stride(0),
         a.stride(1),
@@ -260,6 +256,30 @@ def blockwise_fp8_gemm_1x128_128x1(
     return c
 
 
+# Quantization kernels autotuner configs
+quant_kernel_configs = [
+    triton.Config(
+        {},
+        num_warps=warps,
+        num_stages=stages,
+    )
+    for warps in [4, 8]
+    for stages in [2, 4]
+]
+
+quant_kernel_configs_with_groups = [
+    triton.Config(
+        {"NUM_GROUPS": groups},
+        num_warps=warps,
+        num_stages=stages,
+    )
+    for groups in [2, 16, 32, 64, 128]
+    for warps in [2, 4, 8]
+    for stages in [2, 4, 6]
+]
+
+
+@triton.autotune(configs=quant_kernel_configs_with_groups, key=["K"])
 @triton.jit
 def fp8_blockwise_act_quant_lhs_kernel(
     x_ptr,
@@ -274,13 +294,14 @@ def fp8_blockwise_act_quant_lhs_kernel(
     M,
     K: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
+    NUM_GROUPS: tl.constexpr,
     EPS: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_k = tl.program_id(axis=1)
 
-    # Load (1 x block_size) tile of x, where input is row major
-    m_offs = pid_m
+    # Load (num_groups x block_size) tile of x, where input is row major
+    m_offs = pid_m * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
     k_offs = pid_k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
@@ -289,8 +310,10 @@ def fp8_blockwise_act_quant_lhs_kernel(
     # Perform scaling
     max_fp8_e4m3 = 448.0
     min_fp8_e4m3 = -448.0
-    amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)
+
+    # Scales for (1 x block_size) groups, shape will be (NUM_GROUPS, 1)
+    amax = tl.clamp(tl.max(tl.abs(x), axis=1), min=EPS, max=float("inf")).to(tl.float64)
+    scale = (max_fp8_e4m3 / amax).to(tl.float32)[:, None]
     y = x * scale
     y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
 
@@ -299,9 +322,9 @@ def fp8_blockwise_act_quant_lhs_kernel(
     y_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
-    # Write scales
-    scale_offs = pid_m * s_stride_dim_0 + pid_k * s_stride_dim_1
-    tl.store(s_ptr + scale_offs, scale)
+    # Write reciprocal scales
+    scale_offs = m_offs[:, None] * s_stride_dim_0 + pid_k * s_stride_dim_1
+    tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale))
 
 
 def fp8_blockwise_act_quant_lhs(
@@ -309,7 +332,7 @@ def fp8_blockwise_act_quant_lhs(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Input: row-major high-precision tensor
-    Output: row-major, with scales for (1 x block_size) groups stored in row-major.
+    Output: row-major, with reciprocal scales for (1 x block_size) groups stored in col-major.
     """
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.size(-1) % block_size == 0, (
@@ -320,8 +343,15 @@ def fp8_blockwise_act_quant_lhs(
     ], "dtype must be torch.float8_e4m3fn"
     M, K = x.size()
     y = torch.empty_like(x, dtype=dtype)
-    s = x.new_empty(M, K // block_size, dtype=torch.float32)
-    grid = lambda meta: (M, triton.cdiv(K, meta["BLOCK_SIZE"]))
+    # Write scales to column-major format to align with torch._scaled_mm requirements.
+    s = x.new_empty(M, K // block_size, dtype=torch.float32).as_strided(
+        (M, K // block_size),
+        (1, M),
+    )
+    grid = lambda meta: (
+        triton.cdiv(M, meta["NUM_GROUPS"]),
+        triton.cdiv(K, meta["BLOCK_SIZE"]),
+    )
     fp8_blockwise_act_quant_lhs_kernel[grid](
         x,
         x.stride(0),
@@ -340,6 +370,7 @@ def fp8_blockwise_act_quant_lhs(
     return y, s
 
 
+@triton.autotune(configs=quant_kernel_configs_with_groups, key=["K"])
 @triton.jit
 def fp8_blockwise_act_quant_rhs_kernel(
     x_ptr,
@@ -354,14 +385,17 @@ def fp8_blockwise_act_quant_rhs_kernel(
     M,
     K: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
+    NUM_GROUPS: tl.constexpr,
     EPS: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_k = tl.program_id(axis=1)
 
-    # Load (block_size x 1) tile of x, where input is row major
+    # Load (block_size x block_size) tile of x, where input is row major.
+    # Each scaling group is (block_size x 1), but we load (block_size x block_size)
+    # to facilitate coalesced gmem accesses and improve efficiency.
     m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    k_offs = pid_k
+    k_offs = pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
     x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
@@ -369,19 +403,21 @@ def fp8_blockwise_act_quant_rhs_kernel(
     # Perform scaling
     max_fp8_e4m3 = 448.0
     min_fp8_e4m3 = -448.0
-    amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)
+
+    # Column-wise scales for RHS operand, shape (1, block_size)
+    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
+    scale = (max_fp8_e4m3 / amax).to(tl.float32)[None, :]
     y = x * scale
     y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
 
-    # Write output to column major fomrat
+    # Write output to column major format
     y_offs = m_offs[:, None] * y_stride_dim_0 + k_offs[None, :] * y_stride_dim_1
     y_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
     # Write scales
-    scale_offs = pid_m * s_stride_dim_0 + pid_k * s_stride_dim_1
-    tl.store(s_ptr + scale_offs, scale)
+    scale_offs = pid_m * s_stride_dim_0 + k_offs[None, :] * s_stride_dim_1
+    tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale))
 
 
 def fp8_blockwise_act_quant_rhs(
@@ -399,12 +435,14 @@ def fp8_blockwise_act_quant_rhs(
         torch.float8_e4m3fn,
     ], "dtype must be torch.float8_e4m3fn"
     M, K = x.size()
+    M_blocks = triton.cdiv(M, block_size)
     y = torch.empty_like(x, dtype=dtype)
     y = y.as_strided(y.size(), (1, y.size(0)))
-    s = x.new_empty(triton.cdiv(M, block_size), K, dtype=torch.float32)
+    s = x.new_empty(M_blocks, K, dtype=torch.float32)
+
     grid = lambda meta: (
         triton.cdiv(M, meta["BLOCK_SIZE"]),
-        K,
+        triton.cdiv(K, meta["NUM_GROUPS"]),
     )
     fp8_blockwise_act_quant_rhs_kernel[grid](
         x,
@@ -424,6 +462,7 @@ def fp8_blockwise_act_quant_rhs(
     return y, s
 
 
+@triton.autotune(configs=quant_kernel_configs_with_groups, key=["K"])
 @triton.jit
 def fp8_blockwise_act_quant_transposed_lhs_kernel(
     x_ptr,
@@ -437,8 +476,8 @@ def fp8_blockwise_act_quant_transposed_lhs_kernel(
     s_stride_dim_1,
     M,
     K: tl.constexpr,
-    SCALE_BLOCK_SIZE: tl.constexpr,  # For scaling groups, not for grid/parallelization
-    BLOCK_SIZE_K: tl.constexpr,  # For grid/parallelization, not for scaling groups
+    BLOCK_SIZE: tl.constexpr,  # For scaling groups, not for grid/parallelization
+    NUM_GROUPS: tl.constexpr,  # For grid/parallelization, not for scaling groups
     EPS: tl.constexpr,
 ):
     # This kernel reads data in row-major format, and writes to an output tensor with
@@ -448,12 +487,12 @@ def fp8_blockwise_act_quant_transposed_lhs_kernel(
     pid_m = tl.program_id(axis=0)
     pid_k = tl.program_id(axis=1)
 
-    # Load (block_size x block_size_k) block of input, where input is row major.
+    # Load (block_size x num_groups) block of input, where input is row major.
     # We will be computing (block_size x 1) scaling factors (columns), and computing
-    # `block_size_k` at a time, so we aren't parallelizing with 1 thread per column,
+    # `num_groups` at a time, so we aren't parallelizing with 1 thread per column,
     # which will fail to launch for large tensors, due to max block number of 65535.
-    m_offs = pid_m * SCALE_BLOCK_SIZE + tl.arange(0, SCALE_BLOCK_SIZE)
-    k_offs = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+    m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    k_offs = pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
     x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
@@ -479,8 +518,10 @@ def fp8_blockwise_act_quant_transposed_lhs_kernel(
 
     # Scale tensor size is (K, M // SCALE_BLOCK_SIZE)
     scale_offs = scale_k_offs * s_stride_dim_0 + scale_m_off * s_stride_dim_1
-    scale_mask = (scale_k_offs < K) & (scale_m_off < M // SCALE_BLOCK_SIZE)
-    tl.store(s_ptr + scale_offs, scale, mask=scale_mask)
+    scale_mask = (scale_k_offs < K) & (scale_m_off < M // BLOCK_SIZE)
+
+    # Write out reciprocal scales
+    tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
 
 def fp8_blockwise_act_quant_transposed_lhs(
@@ -497,10 +538,16 @@ def fp8_blockwise_act_quant_transposed_lhs(
     # Output should have transposed dims and be in row major format
     M, K = x.shape
     y = torch.empty(K, M, dtype=dtype, device=x.device)
-    s = x.new_empty(K, triton.cdiv(M, block_size), dtype=torch.float32)
+    M_blocks = triton.cdiv(M, block_size)
+
+    # Column major scales required for torch._scaled_mm
+    s = x.new_empty(K, M_blocks, dtype=torch.float32).as_strided(
+        (K, M_blocks),  # shape
+        (1, K),  # stride
+    )
     grid = lambda meta: (
-        triton.cdiv(M, meta["SCALE_BLOCK_SIZE"]),
-        triton.cdiv(K, meta["BLOCK_SIZE_K"]),
+        triton.cdiv(M, meta["BLOCK_SIZE"]),
+        triton.cdiv(K, meta["NUM_GROUPS"]),
     )
 
     fp8_blockwise_act_quant_transposed_lhs_kernel[grid](
@@ -515,13 +562,13 @@ def fp8_blockwise_act_quant_transposed_lhs(
         s.stride(1),
         M,
         K=K,
-        SCALE_BLOCK_SIZE=block_size,  # Scaling group size
-        BLOCK_SIZE_K=block_size,  # Just for parallelize the work along K as well
+        BLOCK_SIZE=block_size,  # Scaling group size
         EPS=EPS,
     )
     return y, s
 
 
+@triton.autotune(configs=quant_kernel_configs, key=["M", "N"])
 @triton.jit
 def fp8_blockwise_weight_quant_rhs_kernel(
     x_ptr,
@@ -562,10 +609,10 @@ def fp8_blockwise_weight_quant_rhs_kernel(
     y_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
-    # Write scale (scalar value)
+    # Write reciprocal scale (scalar value)
     scale_m_off = pid_m * s_stride_dim_0
     scale_n_off = pid_n * s_stride_dim_1
-    tl.store(s_ptr + scale_m_off + scale_n_off, scale)
+    tl.store(s_ptr + scale_m_off + scale_n_off, tl.div_rn(1.0, scale))
 
 
 def fp8_blockwise_weight_quant_rhs(
@@ -582,8 +629,10 @@ def fp8_blockwise_weight_quant_rhs(
     M, N = x.size()
     y = torch.empty_like(x, dtype=dtype)
     y = y.as_strided(y.size(), (1, y.size(0)))  # Column major
-    s = x.new_empty(
-        triton.cdiv(M, block_size), triton.cdiv(N, block_size), dtype=torch.float32
+    M_blocks, N_blocks = triton.cdiv(M, block_size), triton.cdiv(N, block_size)
+    s = x.new_empty(M_blocks, N_blocks, dtype=torch.float32).as_strided(
+        (M_blocks, N_blocks),  # shape
+        (1, M_blocks),  # stride
     )
     grid = lambda meta: (
         triton.cdiv(M, meta["BLOCK_SIZE"]),
@@ -607,6 +656,7 @@ def fp8_blockwise_weight_quant_rhs(
     return y, s
 
 
+@triton.autotune(configs=quant_kernel_configs, key=["M", "N"])
 @triton.jit
 def fp8_blockwise_weight_quant_transposed_rhs_kernel(
     x_ptr,
@@ -659,14 +709,14 @@ def fp8_blockwise_weight_quant_transposed_rhs_kernel(
     y_mask = (n_offs[:, None] < N) & (m_offs[None, :] < M)
     tl.store(y_ptr + y_offs, y.trans(1, 0), mask=y_mask)
 
-    # Write scales
+    # Write reciprocal scales
     scale_m = pid_m
     scale_k = pid_n
     scale_offs = scale_k[:, None] * s_stride_dim_0 + scale_m[None, :] * s_stride_dim_1
     scale_mask = (scale_k[:, None] < N // BLOCK_SIZE) & (
         scale_m[None, :] < M // BLOCK_SIZE
     )
-    tl.store(s_ptr + scale_offs, scale, mask=scale_mask)
+    tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
 
 def fp8_blockwise_weight_quant_transposed_rhs(
@@ -738,7 +788,9 @@ def torch_blockwise_scale_act_quant_lhs(x, tile_size=128):
     # Reshape quantized output back to original shape and reshape scales accordingly
     x = x.reshape(*orig_shape)
     s = s.reshape(orig_shape[0], -1).to(torch.float)
-    return x, s
+
+    # Return output tensor and reciprocal scale
+    return x, 1.0 / s
 
 
 def torch_blockwise_scale_act_quant_rhs(
@@ -797,7 +849,8 @@ def torch_blockwise_scale_act_quant_rhs(
     # Convert to column-major format
     y = y.t().contiguous().t()
 
-    return y, scales
+    # Return output tensor and reciprocal scales
+    return y, 1.0 / scales
 
 
 def torch_blockwise_scale_weight_quant(x, tile_size=128):
@@ -837,4 +890,6 @@ def torch_blockwise_scale_weight_quant(x, tile_size=128):
     x = x.permute(0, 2, 1, 3)
     x = x.reshape(height, width)
     s = s.reshape(t_h, t_w).to(torch.float)
-    return x, s
+
+    # Return output tensor and reciprocal scale
+    return x, 1.0 / s
