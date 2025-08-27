@@ -1,29 +1,16 @@
 import dataclasses
+import enum
+import importlib
 import json
 from typing import Any, Dict
-import enum
 
 import torch
-from torchao.quantization import Float8Tensor
-import importlib
-from torchao.quantization.granularity import PerRow
-from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
-    QuantizeTensorToFloat8Kwargs,
-)
 
-ALLOWED_QUANT_DTYPES = {
-    "torch.float8_e4m3fn": torch.float8_e4m3fn,
-    # add to me
-}
-ALLOWED_GRANUALARITY = {"PerRow()": PerRow()}
+from torchao.quantization import Float8Tensor
 
 ALLOWED_AO_MODULES = {
     "torchao.quantization",
-    "torchao.sparsity.sparse_api",
-    "torchao.prototype.quantization",
-    "torchao.prototype.mx_formats",
     "torchao.dtypes",
-    "torchao.prototype.awq",
     "torchao.quantization.quantize_.common",
     "torchao.quantization.quantize_.workflows",
 }
@@ -33,17 +20,16 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Float8Tensor):
             tensor_attr_dict = {}
+            all_tensor_attributes = (
+                o.optional_tensor_attribute_names + o.tensor_attribute_names
+            )
 
-            for tensor_attribute_name in o.optional_tensor_attribute_names:
+            for tensor_attribute_name in all_tensor_attributes:
                 attribute = getattr(o, tensor_attribute_name)
                 serialized_attribute = self.encode_value(attribute)
-                if serialized_attribute:
-                    tensor_attr_dict[tensor_attribute_name] = serialized_attribute
+                tensor_attr_dict[tensor_attribute_name] = serialized_attribute
 
-            return {
-                "_type": o.__class__.__name__,
-                "_data": tensor_attr_dict
-            }
+            return {"_type": o.__class__.__name__, "_data": tensor_attr_dict}
 
         if hasattr(o, "_fields") and hasattr(
             o, "_asdict"
@@ -61,11 +47,9 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
             data_dict = {}
             # Process each field to handle nested objects
             for f in dataclasses.fields(o):
-                if f.name != "version":
-                    data_dict[f.name] = self.encode_value(getattr(o, f.name))
+                data_dict[f.name] = self.encode_value(getattr(o, f.name))
 
             return {
-                # Only store the class name for dataclasses too
                 "_type": o.__class__.__name__,
                 "_data": data_dict,
             }
@@ -80,6 +64,7 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
         if isinstance(o, list):
             return [self.encode_value(item) for item in o]
 
+        # Default case
         return super().default(o)
 
     def encode_value(self, value):
@@ -96,7 +81,7 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
         return value
 
 
-def config_from_dict(data: Dict[str, Any]) -> Float8Tensor:
+def object_from_dict(data: Dict[str, Any]):
     if not isinstance(data, dict):
         raise TypeError(f"Expected dictionary, got {type(data)}")
 
@@ -143,11 +128,11 @@ def config_from_dict(data: Dict[str, Any]) -> Float8Tensor:
     for key, value in obj_data.items():
         if isinstance(value, dict) and "_type" in value and "_data" in value:
             # Recursively handle nested configs
-            processed_data[key] = config_from_dict(value)
+            processed_data[key] = object_from_dict(value)
         elif isinstance(value, list):
             # Handle lists or tuples of possible configs
             processed_data[key] = [
-                config_from_dict(item)
+                object_from_dict(item)
                 if isinstance(item, dict) and "_type" in item and "_data" in item
                 else item
                 for item in value
@@ -160,7 +145,7 @@ def config_from_dict(data: Dict[str, Any]) -> Float8Tensor:
         elif isinstance(value, dict):
             # Handle dicts of possible configs
             processed_data[key] = {
-                k: config_from_dict(v)
+                k: object_from_dict(v)
                 if isinstance(v, dict) and "_type" in v and "_data" in v
                 else v
                 for k, v in value.items()
