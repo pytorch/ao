@@ -53,7 +53,7 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    dim, hidden_dim = 5120, 4 * 5120
+    dim, hidden_dim = 5120, 8192
     ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
@@ -136,7 +136,8 @@ def test_moe_float8_training(target_fqns: list[str], compile: bool):
         ["does.not.exist"],
     ],
 )
-def test_moe_mxfp8_training(target_fqns: list[str]):
+@pytest.mark.parametrize("compile", [False, True])
+def test_moe_mxfp8_training(target_fqns: list[str], compile: bool):
     block_size = 32
 
     # Token groups must be divisible by 32 for mxfp8
@@ -149,7 +150,7 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    dim, hidden_dim = 256, 4 * 256
+    dim, hidden_dim = 5120, 8192
     ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
@@ -178,6 +179,11 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
         target_fqns=target_fqns,
     )
 
+    if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
+
     # inputs
     batch, seq = 8, 2048
     ref_x = torch.randn(
@@ -191,7 +197,7 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    min_out_sqnr = 25.0
+    min_out_sqnr = 28.0
     assert out_sqnr.item() >= min_out_sqnr, (
         f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
     )
@@ -207,7 +213,7 @@ def test_moe_mxfp8_training(target_fqns: list[str]):
 
     # validate input gradient
     input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    min_input_grad_sqnr = 25.0
+    min_input_grad_sqnr = 30.0
     assert input_grad_sqnr.item() >= min_input_grad_sqnr, (
         f"SQNR must be >= {min_input_grad_sqnr}, got {input_grad_sqnr.item()}."
     )

@@ -6,9 +6,9 @@
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
-if TORCH_VERSION_AT_LEAST_2_7:
+if torch_version_at_least("2.7.0"):
     from .constant_fold import constant_fold
 
 from typing import Union
@@ -320,7 +320,7 @@ def convert_pt2e(
     pm = PassManager([PortNodeMetaForQDQ()])
     model = pm(model).graph_module
 
-    if fold_quantize and TORCH_VERSION_AT_LEAST_2_7:
+    if fold_quantize and torch_version_at_least("2.7.0"):
         constant_fold(model, _quant_node_constraint)
 
     if use_reference_representation:

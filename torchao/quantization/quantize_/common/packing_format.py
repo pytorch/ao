@@ -35,3 +35,15 @@ class PackingFormat(str, Enum):
     marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization
     """
     MARLIN_SPARSE = "marlin_sparse"
+
+    """
+    Unpacked to int8 means the subbyte quantized data is stored as int8
+    """
+    UNPACKED_TO_INT8 = "unpacked_to_int8"
+
+    """
+    Opaque packing format that's used for tensors that does not have a predefined packing format
+    (that may be decided on hardware, tensor shape, library availability etc.) and it's not
+    needed for the rest of the system to understand the specific format that's adopted.
+    """
+    OPAQUE = "opaque"
