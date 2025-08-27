@@ -8,8 +8,8 @@ from torch.testing._internal.common_utils import (
 
 from torchao import quantize_
 from torchao.prototype.quantization.safetensors_support import (
-    load_tensor_subclass_dict,
-    save_tensor_subclass_dict,
+    load_tensor_state_dict,
+    save_tensor_state_dict,
 )
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig
@@ -30,8 +30,8 @@ class TestSafeTensors(TestCase):
         example_inputs = (torch.randn(2, 32, dtype=torch.bfloat16, device="cuda"),)
         ref_output = model(*example_inputs)
 
-        save_tensor_subclass_dict(model.state_dict(), "fp8_weights.safetensors")
-        reconstructed_dict = load_tensor_subclass_dict(
+        save_tensor_state_dict(model.state_dict(), "fp8_weights.safetensors")
+        reconstructed_dict = load_tensor_state_dict(
             "fp8_weights.safetensors", device="cuda"
         )
 

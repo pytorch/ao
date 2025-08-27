@@ -11,9 +11,24 @@ from torchao.prototype.quantization.safetensors_serialization import (
 from torchao.quantization import Float8Tensor
 
 
-def load_tensor_subclass_dict(file_path: str, device: str):
+def load_tensor_state_dict(file_path: str, device: str):
     """
     Load a dictionary of tensor subclasses from a safetensors file.
+
+    For torch.Tensors, we load:
+        - _data: the tensor data
+        - _type: the tensor type
+
+    For Float8Tensor, we load:
+        - tensor_data: qdata and scale
+        - tensor_attributes:
+            - block_size
+            - mm_config
+            - hp_value_lb
+            - hp_value_ub
+            - act_quant_kwargs
+            - kernel_preference
+            - dtype
 
     Args:
         file_path: Path to the safetensors file
@@ -61,12 +76,29 @@ def load_tensor_subclass_dict(file_path: str, device: str):
     return result
 
 
-def save_tensor_subclass_dict(
+def save_tensor_state_dict(
     tensor_dict: Dict[str, Dict[str, torch.Tensor]],
     file_path: str,
 ):
     """
     Save a dictionary of tensor subclasses with appropriate metadata.
+
+    For torch.Tensors, we save:
+        - _data: the tensor data
+        - _type: the tensor type
+
+    For Float8Tensor, we save:
+        - tensor_data:
+            - qdata
+            - scale
+        - tensor_attributes:
+            - block_size
+            - mm_config
+            - hp_value_lb
+            - hp_value_ub
+            - act_quant_kwargs
+            - kernel_preference
+            - dtype
 
     Args:
         tensor_dict: Dictionary of tensor subclasses to save, with keys as tensor names
