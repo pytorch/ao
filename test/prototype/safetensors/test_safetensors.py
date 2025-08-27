@@ -13,9 +13,13 @@ from torchao.prototype.quantization.safetensors_support import (
 )
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig
+from torchao.utils import (
+    is_sm_at_least_89,
+)
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
 class TestSafeTensors(TestCase):
     def test_safetensors(self):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
