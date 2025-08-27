@@ -7,7 +7,7 @@
 
 import enum
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
@@ -132,7 +132,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         tensor: IntxUnpackedToInt8Tensor,
         *,
         bias: Optional[torch.Tensor] = None,
-        compute_target: ComputeTarget | str = ComputeTarget.TORCHAO_AUTO,
+        compute_target: Union[ComputeTarget, str] = ComputeTarget.TORCHAO_AUTO,
     ):
         """
         Constructs a IntxOpaqueTensor from an IntxUnpackedToInt8Tensor.
