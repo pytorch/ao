@@ -21,12 +21,19 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
 )
+from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+    compute_per_group_blocked_scale_offsets,
+    torch_to_blocked_per_group_2d,
+    triton_mx_block_rearrange_per_group_2d,
+)
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
+    generate_jagged_offs,
     torch_to_3d_rowwise_float8_transpose_rhs,
     torch_to_float8_per_group_colwise,
     torch_to_float8_per_group_rowwise,
 )
+from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -195,3 +202,41 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
     assert ref_fp8.shape == triton_fp8.shape, "output shapes not equal"
     assert ref_fp8.stride() == triton_fp8.stride(), "output strides not equal"
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "m,k,n_groups", [(256, 256, 4), (16640, 5120, 16), (16640, 8192, 16)]
+)
+def test_mxfp8_per_group_blocked_scales_2d(
+    m: int,
+    k: int,
+    n_groups: int,
+):
+    device = "cuda"
+    block_size = 32
+    input_data = torch.randn(m, k, device=device)
+    e8m0_scales, _ = to_mx(
+        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+    input_group_offsets = generate_jagged_offs(
+        n_groups, m, multiple_of=block_size, device=device
+    )
+
+    # torch reference
+    ref_out_scales, _ = torch_to_blocked_per_group_2d(
+        e8m0_scales, input_group_offsets, m, k, block_size=block_size
+    )
+
+    # triton kernel
+    _, output_group_offsets = compute_per_group_blocked_scale_offsets(
+        input_group_offsets
+    )
+    triton_out_scales = triton_mx_block_rearrange_per_group_2d(
+        e8m0_scales,
+        input_group_offsets,
+        output_group_offsets,
+    )
+    assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
+        "blocked scales not equal"
+    )

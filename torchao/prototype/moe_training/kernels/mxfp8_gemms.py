@@ -2,9 +2,9 @@ import logging
 
 import torch
 
-from torchao.prototype.mx_formats.utils import (
-    to_blocked_per_group_2d,
-    to_blocked_per_group_3d,
+from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+    torch_to_blocked_per_group_2d,
+    torch_to_blocked_per_group_3d,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -18,6 +18,8 @@ except Exception as e:
         "pip3 install --force-reinstall --pre torch fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu129"
         "If errors persist, please file a bug report."
     )
+
+DEBUG = False
 
 
 @torch.library.custom_op("torchao::fbgemm_mxfp8_grouped_mm_2d_3d", mutates_args={})
@@ -38,10 +40,10 @@ def fbgemm_mxfp8_grouped_mm_2d_3d(
 
     # Convert scales for each group to blocked format.
     Mg, K = A_fp8.shape
-    A_scales_blocked, starting_row_after_padding = to_blocked_per_group_2d(
+    A_scales_blocked, starting_row_after_padding = torch_to_blocked_per_group_2d(
         A_scales, offs, Mg, K
     )
-    B_scales_blocked = to_blocked_per_group_3d(B_scales)
+    B_scales_blocked = torch_to_blocked_per_group_3d(B_scales)
 
     # From this, we compute `group_sizes` and `starting_row_after_padding`:
     # group_sizes = [32, 32, 64]
@@ -108,28 +110,58 @@ def _log_inputs(
     group_sizes: torch.Tensor,
     starting_row_after_padding: torch.Tensor,
 ):
-    logger.info(f"offs: {offs}, dtype: {offs.dtype}")
+    # TODO: figure out why python logging module is not behaving as expected,
+    # when setting log level to DEBUG, it still doesn't print logger.debug lines.
+    # Using this hack for now.
+    if not DEBUG:
+        return
+
+    logger.info("offs: %s, dtype: %s", offs, offs.dtype)
     logger.info(
-        f"A_fp8.shape: {A_fp8.shape}, stride: {A_fp8.stride()}, dtype: {A_fp8.dtype}"
+        "A_fp8.shape: %s, stride: %s, dtype: %s",
+        A_fp8.shape,
+        A_fp8.stride(),
+        A_fp8.dtype,
     )
     logger.info(
-        f"B_fp8.shape: {B_fp8.shape}, stride: {B_fp8.stride()}, dtype: {B_fp8.dtype}"
+        "B_fp8.shape: %s, stride: %s, dtype: %s",
+        B_fp8.shape,
+        B_fp8.stride(),
+        B_fp8.dtype,
     )
     logger.info(
-        f"A_scales (non-blocked) shape: {A_scales.shape}, stride: {A_scales.stride()}, dtype: {A_scales.dtype}"
+        "A_scales (non-blocked) shape: %s, stride: %s, dtype: %s",
+        A_scales.shape,
+        A_scales.stride(),
+        A_scales.dtype,
     )
     logger.info(
-        f"A_scales_blocked.shape: {A_scales_blocked.shape}, stride: {A_scales_blocked.stride()}, dtype: {A_scales_blocked.dtype}"
+        "A_scales_blocked.shape: %s, stride: %s, dtype: %s",
+        A_scales_blocked.shape,
+        A_scales_blocked.stride(),
+        A_scales_blocked.dtype,
     )
     logger.info(
-        f"B_scales (non-blocked) shape: {B_scales.shape}, stride: {B_scales.stride()}, dtype: {B_scales.dtype}"
+        "B_scales (non-blocked) shape: %s, stride: %s, dtype: %s",
+        B_scales.shape,
+        B_scales.stride(),
+        B_scales.dtype,
     )
     logger.info(
-        f"B_scales_blocked.shape: {B_scales_blocked.shape}, stride: {B_scales_blocked.stride()}, dtype: {B_scales_blocked.dtype}"
+        "B_scales_blocked.shape: %s, stride: %s, dtype: %s",
+        B_scales_blocked.shape,
+        B_scales_blocked.stride(),
+        B_scales_blocked.dtype,
     )
     logger.info(
-        f"group_sizes: {group_sizes}, stride: {group_sizes.stride()}, dtype: {group_sizes.dtype}"
+        "group_sizes: %s, stride: %s, dtype: %s",
+        group_sizes,
+        group_sizes.stride(),
+        group_sizes.dtype,
     )
     logger.info(
-        f"starting_row_after_padding: {starting_row_after_padding}, stride: {starting_row_after_padding.stride()}, dtype: {starting_row_after_padding.dtype}"
+        "starting_row_after_padding: %s, stride: %s, dtype: %s",
+        starting_row_after_padding,
+        starting_row_after_padding.stride(),
+        starting_row_after_padding.dtype,
     )
