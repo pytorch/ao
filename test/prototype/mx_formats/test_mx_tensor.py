@@ -25,14 +25,14 @@ from torchao.prototype.mx_formats.mx_tensor import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -380,14 +380,12 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
     else:
         raise AssertionError("unsupported")
     block_size = 4
-    use_fp4_custom_triton_dequant_kernel = False
     tensor_mx = MXTensor(
         data_bits,
         scale_e8m0,
         elem_dtype,
         block_size,
         torch.float,
-        use_fp4_custom_triton_dequant_kernel,
         MXGemmKernelChoice.EMULATED,
         pack_fp6,
         None,
@@ -427,14 +425,10 @@ def test_block_sizes(elem_dtype, B):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("fp4_triton", [False, True])
-def test_transpose(elem_dtype, fp4_triton):
+def test_transpose(elem_dtype):
     """
     Verify that transposing an MX tensor works
     """
-    if elem_dtype != torch.float4_e2m1fn_x2 and fp4_triton:
-        pytest.skip("unsupported configuration")
-
     M, K = 128, 256
     block_size = 32
     tensor_hp = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -442,7 +436,6 @@ def test_transpose(elem_dtype, fp4_triton):
         tensor_hp,
         elem_dtype,
         block_size,
-        use_fp4_custom_triton_dequant_kernel=fp4_triton,
     )
     tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()
 
@@ -510,7 +503,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
-    use_fp4_custom_triton_dequant_kernel = False
     pack_fp6 = False
     x_mx_dq = to_dtype(
         x_mx.qdata,
@@ -518,7 +510,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx._elem_dtype,
         x_mx._block_size,
         hp_dtype,  # noqa: E501
-        use_fp4_custom_triton_dequant_kernel,
         pack_fp6,
     )
     x_mx_c_dq = to_dtype_c(
@@ -527,7 +518,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
         hp_dtype,
-        use_fp4_custom_triton_dequant_kernel,
         pack_fp6,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
@@ -615,7 +605,7 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     from torchao.prototype.mx_formats.nvfp4_tensor import (
@@ -684,7 +674,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     "use_triton_kernel", [False, True] if torch.cuda.is_available() else [False]
 )
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
@@ -717,7 +707,7 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     ],
 )
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
@@ -756,7 +746,7 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     """
@@ -851,7 +841,7 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_error):
     """
@@ -872,7 +862,7 @@ def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_er
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_swizzled_scales_view_semantics():
     """
@@ -899,7 +889,7 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_swizzled_scales_serialization():
     """
@@ -917,8 +907,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert NVFP4Tensor.tensor_attribute_names[2] == "_is_swizzled_scales"
-    assert ctx[2] == True
+    assert "_is_swizzled_scales" in ctx
+    assert ctx["_is_swizzled_scales"] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -941,7 +931,7 @@ def test_nvfp4_swizzled_scales_serialization():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not TORCH_VERSION_AT_LEAST_2_8, reason="NVFP4 requires PyTorch 2.8+"
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_swizzled_scales_get_scales_method():
     """

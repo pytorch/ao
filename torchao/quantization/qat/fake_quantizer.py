@@ -57,10 +57,18 @@ class FakeQuantizerBase(torch.nn.Module):
 
     @staticmethod
     def from_config(config: FakeQuantizeConfigBase) -> "FakeQuantizerBase":
+        # TODO: rewrite using registration API so we don't need to import here
+        from torchao.prototype.qat import (
+            NVFP4FakeQuantizeConfig,
+            NVFP4FakeQuantizer,
+        )
+
         if isinstance(config, IntxFakeQuantizeConfig):
             return IntxFakeQuantizer(config)
-        if isinstance(config, Float8FakeQuantizeConfig):
+        elif isinstance(config, Float8FakeQuantizeConfig):
             return Float8FakeQuantizer(config)
+        elif isinstance(config, NVFP4FakeQuantizeConfig):
+            return NVFP4FakeQuantizer(config)
         else:
             raise ValueError(f"Unknown config type: {config}")
 
@@ -73,6 +81,7 @@ class Float8FakeQuantizer(FakeQuantizerBase):
     def __init__(self, config: Float8FakeQuantizeConfig):
         super().__init__()
         self.config = config
+        torch._C._log_api_usage_once("torchao.quantization.qat.Float8FakeQuantizer")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         original_dtype = x.dtype
@@ -98,7 +107,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
 
     def __init__(self, config: IntxFakeQuantizeConfig):
         super().__init__()
-        torch._C._log_api_usage_once("torchao.quantization.qat.FakeQuantizer")
+        torch._C._log_api_usage_once("torchao.quantization.qat.IntxFakeQuantizer")
         self.config = config
         self.enabled = True
         self.scale: Optional[torch.Tensor] = None

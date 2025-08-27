@@ -28,8 +28,8 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
     compute_max_diff,
+    torch_version_at_least,
 )
 
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
@@ -155,7 +155,8 @@ class TestOps(TestCase):
         return out.to(torch.uint8)
 
     @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
+        not torch_version_at_least("2.7.0"),
+        reason="int8 sdpa requires torch 2.7 or later",
     )
     @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
     @pytest.mark.skipif(

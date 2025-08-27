@@ -320,7 +320,6 @@ class FakeQuantizeConfig(IntxFakeQuantizeConfig):
         _log_deprecation_warning(self)
 
 
-# TODO: rewrite using registration API?
 def _infer_fake_quantize_configs(
     base_config: AOBaseConfig,
 ) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
@@ -331,7 +330,15 @@ def _infer_fake_quantize_configs(
 
     Return a 2-tuple of (activation_config, weight_config) for fake quantization.
     """
+    # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
+    from torchao.prototype.mx_formats import (
+        NVFP4InferenceConfig,
+        NVFP4MMConfig,
+    )
+    from torchao.prototype.qat import (
+        NVFP4FakeQuantizeConfig,
+    )
     from torchao.quantization import (
         Float8DynamicActivationFloat8WeightConfig,
         Float8DynamicActivationInt4WeightConfig,
@@ -382,9 +389,20 @@ def _infer_fake_quantize_configs(
         )
         weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
-            group_size=base_config.group_size,
+            group_size=128,
             is_symmetric=True,
         )
+    elif isinstance(base_config, NVFP4InferenceConfig):
+        # Note: today the PTQ config does not allow the user to specify
+        # `per_tensor_scales` due to serialization concerns. In the future
+        # we may add a way to compute these dynamically (for activations),
+        # but for now QAT will mimic the existing behavior of not having
+        # `per_tensor_scales` (subject to change)
+        if NVFP4MMConfig.DYNAMIC:
+            act_config = NVFP4FakeQuantizeConfig(False)
+        else:
+            act_config = None
+        weight_config = NVFP4FakeQuantizeConfig(False)
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
     return (act_config, weight_config)

@@ -41,8 +41,8 @@ from torchao.optim.subclass_8bit import OptimState8bit
 from torchao.optim.subclass_fp8 import OptimStateFp8
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
     get_available_devices,
+    torch_version_at_least,
 )
 
 try:
@@ -242,7 +242,7 @@ class TestOptim(TestCase):
     )
     @skip_if_rocm("ROCm enablement in progress")
     @pytest.mark.skipif(
-        TORCH_VERSION_AT_LEAST_2_7, reason="Failing in CI"
+        torch_version_at_least("2.7.0"), reason="Failing in CI"
     )  # TODO: fix this
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
