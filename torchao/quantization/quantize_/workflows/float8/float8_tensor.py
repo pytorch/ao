@@ -94,7 +94,8 @@ class Float8Tensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = [
+    tensor_attribute_names = []
+    optional_tensor_attribute_names = [
         "block_size",
         "mm_config",
         "hp_value_lb",
@@ -106,15 +107,15 @@ class Float8Tensor(TorchAOBaseTensor):
 
     def __new__(
         cls,
-        qdata,
-        scale,
-        block_size,
-        mm_config,
-        hp_value_lb,
-        hp_value_ub,
-        act_quant_kwargs,
-        kernel_preference,
-        dtype,
+        qdata: torch.Tensor,
+        scale: torch.Tensor,
+        block_size: Optional[List[int]] = None,
+        mm_config: Optional[Float8MMConfig] = None,
+        hp_value_lb: Optional[float] = None,
+        hp_value_ub: Optional[float] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        dtype: Optional[torch.dtype] = None,
     ):
         shape = qdata.shape
         kwargs = {}
@@ -147,12 +148,12 @@ class Float8Tensor(TorchAOBaseTensor):
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.block_size=}, {self.mm_config=}, "
+            f"{self.block_size=}, {self.mm_config=}, {self.kernel_preference=} "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
 
     def _quantization_type(self):
-        return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.mm_config=}, {self.scale.shape=}"
+        return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.mm_config=}, {self.scale.shape=}, {self.kernel_preference=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:

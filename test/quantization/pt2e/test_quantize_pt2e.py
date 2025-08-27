@@ -57,6 +57,7 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (  # noqa: 
 from torchao.quantization.pt2e.quantizer.embedding_quantizer import (  # noqa: F811
     EmbeddingQuantizer,
 )
+from torchao.testing.model_architectures import ConvWithSharedWeightInExportedModel
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
@@ -66,11 +67,11 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     QuantizationConfig,
 )
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else [])
 
-if TORCH_VERSION_AT_LEAST_2_7:
+if torch_version_at_least("2.7.0"):
     from torch.testing._internal.common_utils import (
         TEST_HPU,
     )
@@ -79,7 +80,7 @@ if TORCH_VERSION_AT_LEAST_2_7:
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2E(PT2EQuantizationTestCase):
     def test_simple_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
@@ -149,6 +150,34 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             node_occurrence,
             node_list,
         )
+
+    def test_chunked_bn_fusion(self):
+        batch_size = 1
+        n_chunks = 3
+        in_channels = 1
+        out_channels = 32
+        m = ConvWithSharedWeightInExportedModel(n_chunks, in_channels, out_channels)
+        m.bn.running_var = torch.nn.Parameter(
+            torch.rand(out_channels) * 1e-2, requires_grad=False
+        )
+
+        m.eval()
+        example_inputs = (torch.rand(batch_size, n_chunks, 32, 32),)
+        ref_outputs = m(*example_inputs)
+        traced_model = torch.export.export(m, example_inputs, strict=True).module()
+        traced_outputs = traced_model(*example_inputs)
+        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+        prepared_outputs = prepared_model(*example_inputs)
+
+        if isinstance(ref_outputs, (tuple, list)):
+            for ref, prepared, traced in zip(
+                ref_outputs, prepared_outputs, traced_outputs
+            ):
+                torch.testing.assert_close(ref, traced)
+                torch.testing.assert_close(traced, prepared)
+        else:
+            torch.testing.assert_close(ref_outputs, traced_outputs)
+            torch.testing.assert_close(traced_outputs, prepared_outputs)
 
     def test_wo_annotate_conv_output_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
@@ -1189,7 +1218,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
     @parametrize("dtype", (torch.float32, torch.bfloat16))
     @parametrize("quant_dtype", (torch.int16, torch.float8_e5m2, torch.float8_e4m3fn))
     def test_quantization_dtype(self, dtype, quant_dtype):
-        if TORCH_VERSION_AT_LEAST_2_7 and TEST_HPU:
+        if torch_version_at_least("2.7.0") and TEST_HPU:
             unittest.SkipTest("test doesn't currently work with HPU")
 
         class DtypeActQuantizer(Quantizer):
@@ -1986,7 +2015,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             m.train()
 
     def test_allow_exported_model_train_eval(self):
-        if TORCH_VERSION_AT_LEAST_2_7 and TEST_HPU:
+        if torch_version_at_least("2.7.0") and TEST_HPU:
             unittest.SkipTest("test doesn't currently work with HPU")
 
         class M(torch.nn.Module):
@@ -2916,7 +2945,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
         from torchao.quantization.pt2e._affine_quantization import (

@@ -26,10 +26,10 @@ FP8_DTYPE_MAP = {
     torch.float64: tl.float64,
 }
 
-block_sizes_n = [32, 128, 256]  # large dim (output_features)
-block_sizes_k = [32, 128, 256]  # small dim (input_features)
-num_warps = [2, 4]
-num_stages = [2, 3, 4, 5, 6]
+block_sizes_n = [128]  # large dim (output_features)
+block_sizes_k = [128]  # small dim (input_features)
+num_warps = [4]
+num_stages = [4]
 kernel_configs_2D = [
     triton.Config(
         {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
@@ -172,9 +172,7 @@ def _triton_fp8_rowwise_3d_transpose_scales_rhs_kernel(
         + (n_offs[None, :] * stride_input_dim2)
     )
     input_mask = (k_offs[:, None] < K) & (n_offs[None, :] < N)
-    input_data = tl.load(input_ptr + input_offs, mask=input_mask, other=0.0).to(
-        input_dtype
-    )
+    input_data = tl.load(input_ptr + input_offs, mask=input_mask, other=0.0)
 
     # In a normal torch implementation, we should transpose the tensor then compute the amax
     # along the dim1 (N), to compute colwise scales for a RHS operand of a scaled grouped gemm:
@@ -243,9 +241,7 @@ def _triton_fp8_rowwise_3d_transpose_cast_rhs_kernel(
         + (n_offs[None, :] * stride_input_dim2)
     )
     input_mask = (k_offs[:, None] < K) & (n_offs[None, :] < N)
-    input_data = tl.load(input_ptr + input_offs, mask=input_mask, other=0.0).to(
-        input_dtype
-    )
+    input_data = tl.load(input_ptr + input_offs, mask=input_mask, other=0.0)
     input_data = input_data.trans(1, 0)  # (K, N) -> (N, K)
 
     # load global scales for this block of the given expert - shape (1, K)
@@ -253,15 +249,12 @@ def _triton_fp8_rowwise_3d_transpose_cast_rhs_kernel(
         expert_idx[:, None] * stride_scales_dim0 + k_offs[None, :] * stride_scales_dim1
     )
     scales_mask = k_offs[None, :] < K
-    scales = tl.load(scales_ptr + scales_offs, mask=scales_mask, other=0.0).to(
-        tl.float32
-    )
+    scales = tl.load(scales_ptr + scales_offs, mask=scales_mask, other=0.0)
 
     # transpose data and apply scales - shape (N,K) * (1,K) = (N,K)
-    scaled_data = input_data * scales
-    output_data = tl.clamp(scaled_data, min=fp8_dtype_min, max=fp8_dtype_max).to(
-        output_dtype
-    )
+    output_data = tl.clamp(
+        input_data * scales, min=fp8_dtype_min, max=fp8_dtype_max
+    ).to(output_dtype)
 
     # store transpose and store output data - shape (N, K)
     output_offs = (
