@@ -12,16 +12,16 @@ from typing import List
 import torch
 from tabulate import tabulate
 from tqdm import tqdm
-from utils import benchmark_cuda_function_in_microseconds
 
+from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+    torch_to_blocked_per_group_2d,
+    torch_to_blocked_per_group_3d,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.mx_tensor import to_mx
-from torchao.prototype.mx_formats.utils import (
-    to_blocked_per_group_2d,
-    to_blocked_per_group_3d,
-)
 
 device = torch.device("cuda")
 
@@ -50,9 +50,9 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     # Llama4 shapes
     M = [16640]
-    K = [5120]
-    N = [8192]
-    E = [16]
+    K = [2048, 5120, 8192]
+    N = [2048, 5120, 8192]
+    E = [1, 2, 4, 8]
     configs = []
     for e, m, n, k in itertools.product(
         E,
@@ -196,10 +196,10 @@ def bench_mxfp8_grouped_mm(A, B_t, offs, block_size=32) -> float:
 
     # Convert scales for each group to blocked format.
     Mg, K = A_fp8.shape
-    A_scales_blocked, starting_row_after_padding = to_blocked_per_group_2d(
+    A_scales_blocked, starting_row_after_padding = torch_to_blocked_per_group_2d(
         A_scales, offs, Mg, K
     )
-    B_scales_blocked = to_blocked_per_group_3d(B_scales)
+    B_scales_blocked = torch_to_blocked_per_group_3d(B_scales)
 
     # From this, we compute `group_sizes` and `starting_row_after_padding`:
     # group_sizes = [32, 32, 64]
