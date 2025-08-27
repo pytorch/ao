@@ -13,7 +13,7 @@ ALLOWED_QUANT_DTYPES = {
     "torch.float8_e4m3fn": torch.float8_e4m3fn,
     # add to me
 }
-ALLOWED_GRANUALARITY = {"PerRow": PerRow()}
+ALLOWED_GRANUALARITY = {"PerRow()": PerRow()}
 
 
 class QuantizeTensorToFloat8KwargsJSONEncoder(json.JSONEncoder):
@@ -42,13 +42,9 @@ def config_from_dict(data: Dict[str, Any]) -> QuantizeTensorToFloat8Kwargs:
     if saved_mm_config:
         saved_mm_config = Float8MMConfig(*saved_mm_config)
 
-    saved_granularity = ALLOWED_GRANUALARITY.get(data.get("granularity"))
-    if not saved_granularity:
-        saved_granularity = PerRow()
-
     return QuantizeTensorToFloat8Kwargs(
         float8_dtype=ALLOWED_QUANT_DTYPES.get(data.get("float8_dtype")),
-        granularity=saved_granularity,
+        granularity=ALLOWED_GRANUALARITY.get(data.get("granularity")),
         mm_config=saved_mm_config,
         hp_value_lb=data.get("hp_value_lb"),
         hp_value_ub=data.get("hp_value_ub"),

@@ -57,7 +57,9 @@ def load_tensor_subclass_dict(file_path: str, device: str):
         tensor_type = tensor_metadata.get("tensor_type")
 
         if tensor_type == str(Float8Tensor):
-            # not the same as mm_config in act_quant_kwargs
+            kernel_preference = json.loads(tensor_metadata.get("kernel_preference"))
+            hp_value_lb = tensor_metadata.get("hp_value_lb")
+            hp_value_ub = tensor_metadata.get("hp_value_ub")
             mm_config = json.loads(tensor_metadata.get("mm_config"))
             if mm_config:
                 mm_config = Float8MMConfig(*mm_config)
@@ -65,17 +67,25 @@ def load_tensor_subclass_dict(file_path: str, device: str):
             act_quant_kwargs_dict = json.loads(tensor_metadata.get("act_quant_kwargs"))
             act_quant_kwargs = config_from_dict(act_quant_kwargs_dict)
 
+            tensor_data_dict = {
+                "qdata": tensor_tensors["qdata"],
+                "scale": tensor_tensors["scale"],
+            }
+
+            tensor_attribute_dict = {
+                "block_size": json.loads(tensor_metadata.get("block_size")),
+                "mm_config": mm_config,
+                "hp_value_lb": hp_value_lb,
+                "hp_value_ub": hp_value_ub,
+                "act_quant_kwargs": act_quant_kwargs,
+                "kernel_preference": kernel_preference,
+                "dtype": act_quant_kwargs.float8_dtype,
+            }
+
             result[tensor_name] = Float8Tensor(
-                qdata=tensor_tensors["qdata"],
-                scale=tensor_tensors["scale"],
-                block_size=json.loads(tensor_metadata.get("block_size")),
-                mm_config=mm_config,
-                hp_value_lb=act_quant_kwargs.hp_value_lb,
-                hp_value_ub=act_quant_kwargs.hp_value_ub,
-                act_quant_kwargs=act_quant_kwargs,
-                kernel_preference=act_quant_kwargs.kernel_preference,
-                dtype=act_quant_kwargs.float8_dtype,
+                **tensor_data_dict, **tensor_attribute_dict
             )
+
         elif tensor_type == str(torch.Tensor):
             data = tensor_tensors["data"]
             result[tensor_name] = data
@@ -114,6 +124,9 @@ def create_metadata_for_tensor_subclass(
                 tensors_dict[item] = value
             elif value:
                 metadata[item] = json.dumps(value)
+                if item == "mm_config":
+                    print(metadata[item])
+                    print(type(json.loads(metadata[item])))
 
     return metadata, tensors_dict
 
@@ -128,7 +141,6 @@ def save_tensor_subclass_dict(
     Args:
         tensor_dict: Dictionary of tensor subclasses to save, with keys as tensor names
         file_path: Path where to save the tensors
-        additional_metadata: Optional additional metadata to include
     """
 
     combined_metadata = {}
