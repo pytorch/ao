@@ -11,6 +11,8 @@ from torchao.prototype.quantization.safetensors_serialization import (
 )
 from torchao.quantization import Float8Tensor
 
+logger: logging.Logger = logging.getLogger(__name__)
+
 
 def load_tensor_state_dict(file_path: str, device: str):
     """
@@ -71,7 +73,7 @@ def load_tensor_state_dict(file_path: str, device: str):
         else:
             raise ValueError(f"Unsupported tensor type: {tensor_type}")
 
-    logging.info(
+    logger.info(
         f"Loaded {len(tensor_names)} tensor subclasses from {file_path} with metadata"
     )
     return result
@@ -136,6 +138,6 @@ def save_tensor_state_dict(
     combined_metadata["tensor_names"] = json.dumps(list(tensor_dict.keys()))
 
     save_file(combined_tensors_dict, file_path, metadata=combined_metadata)
-    logging.info(
+    logger.info(
         f"Saved {len(tensor_dict)} tensor subclasses to {file_path} with metadata"
     )
