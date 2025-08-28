@@ -1997,7 +1997,7 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
-        <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">to_float8</span><span class="p">(</span>
+        <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span> <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">()</span>
         <span class="p">)</span>
     <span class="k">return</span> <span class="n">new_weight</span>
@@ -2195,7 +2195,7 @@
             <span class="n">kernel_preference</span><span class="o">=</span><span class="n">kernel_preference</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">to_float8</span><span class="p">(</span>
+        <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span>
             <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span>
             <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span>

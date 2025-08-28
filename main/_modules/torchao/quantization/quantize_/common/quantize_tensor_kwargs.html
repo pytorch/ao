@@ -451,7 +451,7 @@
 
 <span class="sd">    class Float8Tensor(...)</span>
 <span class="sd">        @classmethod</span>
-<span class="sd">        def to_float8(cls, tensor, quant_kwargs: QuantizeTensorKwargs)</span>
+<span class="sd">        def from_hp(cls, tensor, quant_kwargs: QuantizeTensorKwargs)</span>
 <span class="sd">            ...</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -472,7 +472,7 @@
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">quant_kwargs</span><span class="p">,</span> <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">to_float8</span><span class="p">(</span>
+        <span class="k">return</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
             <span class="n">tensor</span><span class="p">,</span>
             <span class="n">quant_kwargs</span><span class="o">.</span><span class="n">float8_dtype</span><span class="p">,</span>
             <span class="n">quant_kwargs</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span>
