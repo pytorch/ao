@@ -87,7 +87,7 @@ class Float8Tensor(TorchAOBaseTensor):
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
         hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
-        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8Tensor.to_float8
+        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8Tensor.from_hp
         kernel_preference (KernelPreference): the preference for quantize, mm etc. kernel to use,
         by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
@@ -163,7 +163,7 @@ class Float8Tensor(TorchAOBaseTensor):
         return _dequantize_affine_float8(qdata, scale, output_dtype)
 
     @classmethod
-    def to_float8(
+    def from_hp(
         cls,
         hp_tensor: torch.Tensor,
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
