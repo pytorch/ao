@@ -15,7 +15,7 @@ from torch._higher_order_ops.out_dtype import out_dtype
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torch.fx import GraphModule
 from torch.fx.passes.utils.matcher_with_name_node_map_utils import InternalMatch
-from torch.fx.subgraph_rewriter import replace_pattern_with_filters, ReplacedPatterns
+from torch.fx.subgraph_rewriter import ReplacedPatterns, replace_pattern_with_filters
 
 from torchao.quantization.pt2e.export_utils import WrapperModule
 from torchao.quantization.pt2e.utils import (
