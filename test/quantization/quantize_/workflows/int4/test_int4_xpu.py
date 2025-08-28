@@ -31,7 +31,7 @@ from torchao.utils import (
 def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
-        packing_format="plain",
+        packing_format="plain_int32",
         zero_point_domain=ZeroPointDomain.INT,
         version=2,
     )

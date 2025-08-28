@@ -1069,10 +1069,17 @@ def _int4_weight_only_quantize_tensor(weight, config):
             )
             return new_weight
         elif packing_format == PackingFormat.PLAIN:
-            if "xpu" in weight.device.type and zero_point_domain == ZeroPointDomain.INT:
-                new_weight = Int4XPUTensorIntZP.from_hp(weight, block_size)
-            else:
-                new_weight = Int4Tensor.from_hp(
+            new_weight = Int4Tensor.from_hp(
+                weight,
+                block_size,
+            )
+            return new_weight
+        elif packing_format == PackingFormat.PLAIN_INT32:
+            if (
+                "xpu" in weight.device.dtype
+                and zero_point_domain == ZeroPointDomain.INT
+            ):
+                new_weight = Int4XPUTensorIntZP.from_hp(
                     weight,
                     block_size,
                 )
