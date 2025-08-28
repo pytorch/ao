@@ -327,7 +327,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             A_scale,
             B_data,
             B_scales,
-            offs=offs,
+            input_group_end_offsets=offs,
             block_size=block_size,
             out_dtype=out_dtype,
         )
@@ -366,7 +366,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             grad_out_scale,
             B_data,
             B_scales,
-            offs=offs,
+            input_group_end_offsets=offs,
             out_dtype=out_dtype,
         )
 
@@ -401,7 +401,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             grad_out_t_scales,
             A_data,
             A_scales,
-            offs=offs,
+            input_group_end_offsets=offs,
         )
 
         # grad_B shape =  (E,K,N)
@@ -415,7 +415,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     A_scale: torch.Tensor,
     B_data: torch.Tensor,
     B_scale: torch.Tensor,
-    offs: Optional[torch.Tensor] = None,
+    input_group_end_offsets: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = 32,
 ) -> torch.Tensor:
@@ -479,7 +479,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     B_t = B.reshape(E, N, K).transpose(-2, -1)
 
     # Perform bf16 grouped GEMM.
-    out = torch._grouped_mm(A, B_t, offs=offs, out_dtype=out_dtype)
+    out = torch._grouped_mm(A, B_t, offs=input_group_end_offsets, out_dtype=out_dtype)
     return out
 
 
@@ -488,7 +488,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     A_scale: torch.Tensor,  # (M, K//block_size)
     B_data: torch.Tensor,  # (K, N)
     B_scale: torch.Tensor,  # (K//block_size, N)
-    offs: torch.Tensor,
+    input_group_end_offsets: torch.Tensor,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = 32,
 ) -> torch.Tensor:
@@ -510,7 +510,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     # Dequantize input per each scaling group
     scales_start_idx = 0
     group_start_idx = 0
-    for group_end_idx in offs.tolist():
+    for group_end_idx in input_group_end_offsets.tolist():
         group_size = group_end_idx - group_start_idx
         scale_group_size = group_size // block_size
         if group_size == 0:
@@ -576,5 +576,5 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
         scales_start_idx += scale_group_size
 
     # Perform bf16 grouped GEMM using dequantized A and B.
-    out = torch._grouped_mm(A, B, offs=offs, out_dtype=out_dtype)
+    out = torch._grouped_mm(A, B, offs=input_group_end_offsets, out_dtype=out_dtype)
     return out
