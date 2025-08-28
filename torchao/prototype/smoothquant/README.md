@@ -53,7 +53,7 @@ quantize_(model, quant_config)
 
 ## Benchmarks
 
-All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence length (SeqLen) 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance. For comprehensive benchmarking, we compare three cases: 1. origin, 2. W4A8-dynamic, 3. SmoothQuant (W4A8-dynamic)
+All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence length (SeqLen) 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance. For comprehensive benchmarking, we compare three cases: 1. origin, 2. W8A8-dynamic, 3. SmoothQuant (W8A8-dynamic)
 
 ### Benchmark Results
 
@@ -63,17 +63,17 @@ All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence 
 |-----------|--------------|------------|------------|------------|--------------|
 | bfloat16  |  -             | 6.93       | 667        |  -         |  -          |
 | bfloat16* |  -             | 6.93       | 27    🐌   |  -         |  -          |
-| bfloat16  | W4A8-dynamic   | 7.35       | 1,967      | +6.07%     | +33.89%     |
-| bfloat16  | W4A8-dynamic** | 7.03       | **1,972**  | **+1.39%** | +33.82%     |
+| bfloat16  | W8A8-dynamic   | 7.35       | 1,967      | +6.07%     | +33.89%     |
+| bfloat16  | W8A8-dynamic** | 7.03       | **1,972**  | **+1.39%** | +33.82%     |
 | float16   |  -             | 6.93       | 625        |  -         |  -          |
-| float16   | W4A8-dynamic   | 7.29       | 523        | +5.21%     | -19.42%     |
-| float16   | W4A8-dynamic** | 6.94       | 516        | **+0.21%** | -21.23%     |
-| bfloat16* | W4A8-dynamic** | 6.92       | 3          | -0.18%     | -768.29% 🐌 |
+| float16   | W8A8-dynamic   | 7.29       | 523        | +5.21%     | -19.42%     |
+| float16   | W8A8-dynamic** | 6.94       | 516        | **+0.21%** | -21.23%     |
+| bfloat16* | W8A8-dynamic** | 6.92       | 3          | -0.18%     | -768.29% 🐌 |
 
 
 ### Key Findings
 
-- **Speed Improvement**: Most configurations show 35-40% speed improvement with both W4A8 and SmoothQuant-W4A8
+- **Speed Improvement**: Most configurations show 35-40% speed improvement with both W8A8 and SmoothQuant-W8A8
 - **Quality Trade-off**: Slight perplexity increase (~1-1.4%) in most cases
 - **Compilation Impact**: Using `--compile` flag significantly degrades performance (768% slower)
 - **Best Configuration**: `bfloat16` without `--compile` provides optimal balance
