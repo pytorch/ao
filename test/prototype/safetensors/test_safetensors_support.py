@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao import quantize_
-from torchao.prototype.quantization.safetensors_support import (
+from torchao.prototype.safetensors.safetensors_support import (
     load_tensor_state_dict,
     save_tensor_state_dict,
 )

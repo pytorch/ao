@@ -1,18 +1,22 @@
 import dataclasses
 import enum
-import importlib
 import json
 from typing import Any, Dict
 
 import torch
 
+import torchao
 from torchao.quantization import Float8Tensor
+from torchao.quantization.quantize_.common import KernelPreference
+from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 
-ALLOWED_AO_MODULES = {
-    "torchao.quantization",
-    "torchao.dtypes",
-    "torchao.quantization.quantize_.common",
-    "torchao.quantization.quantize_.workflows",
+ALLOWED_CLASSES = {
+    "Float8Tensor": Float8Tensor,
+    "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
+    "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
+    "PerRow": torchao.quantization.PerRow,
+    "PerTensor": torchao.quantization.PerTensor,
+    "KernelPreference": KernelPreference,
 }
 
 
@@ -26,8 +30,8 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
 
             for tensor_attribute_name in all_tensor_attributes:
                 attribute = getattr(o, tensor_attribute_name)
-                serialized_attribute = self.encode_value(attribute)
-                tensor_attr_dict[tensor_attribute_name] = serialized_attribute
+                encoded_attribute = self.encode_value(attribute)
+                tensor_attr_dict[tensor_attribute_name] = encoded_attribute
 
             return {"_type": o.__class__.__name__, "_data": tensor_attr_dict}
 
@@ -58,7 +62,7 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
             return {"_type": "torch.dtype", "_data": str(o).split(".")[-1]}
 
         if isinstance(o, enum.Enum):
-            # Store the full path for enums to ensure uniqueness
+            # Store the full class name for enums to ensure uniqueness
             return {"_type": f"{o.__class__.__name__}", "_data": o.name}
 
         if isinstance(o, list):
@@ -81,6 +85,8 @@ class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
         except TypeError:
             pass
 
+        # Default case - return as is
+        # (This will be processed by standard JSON encoder later)
         return value
 
 
@@ -97,19 +103,11 @@ def object_from_dict(data: Dict[str, Any]):
     if type_path == "torch.dtype":
         return getattr(torch, obj_data)
 
-    # Try to find the class in any of the allowed modules
-    cls = None
-    for module_path in ALLOWED_AO_MODULES:
-        try:
-            module = importlib.import_module(module_path)
-            cls = getattr(module, type_path)
-            break  # Found the class, exit the loop
-        except (ImportError, AttributeError):
-            continue  # Try the next module
+    cls = ALLOWED_CLASSES.get(type_path)
 
     # If we couldn't find the class in any allowed module, raise an error
     if cls is None:
-        allowed_modules_str = ", ".join(ALLOWED_AO_MODULES)
+        allowed_modules_str = ", ".join(ALLOWED_CLASSES)
         raise ValueError(
             f"Failed to find class {type_path} in any of the allowed modules: {allowed_modules_str}"
         )

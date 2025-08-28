@@ -5,7 +5,7 @@ from typing import Dict
 import torch
 from safetensors.torch import load_file, save_file
 
-from torchao.prototype.quantization.safetensors_serialization import (
+from torchao.prototype.safetensors.safetensors_serialization import (
     Float8TensorAttributeJSONEncoder,
     object_from_dict,
 )
@@ -118,7 +118,7 @@ def save_tensor_state_dict(
                 tensors_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
 
             metadata = json.dumps(tensor, cls=Float8TensorAttributeJSONEncoder)
-        elif isinstance(tensor, torch.Tensor):
+        elif type(tensor) is torch.Tensor:
             tensors_dict = {"_data": tensor}
             metadata = json.dumps({"_type": torch.Tensor.__name__})
         else:
