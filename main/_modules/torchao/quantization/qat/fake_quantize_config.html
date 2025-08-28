@@ -787,14 +787,31 @@
             <span class="n">is_symmetric</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Only version 2 of </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span><span class="si">}</span><span class="s2"> is supported&quot;</span><span class="p">)</span>
         <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
-            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span>
-            <span class="n">group_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
-            <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span>
+                <span class="n">group_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
+                <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c1"># For BC</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+                <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+                <span class="n">zp_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="o">.</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">zp_domain</span> <span class="o">=</span> <span class="n">base_config</span><span class="o">.</span><span class="n">zero_point_domain</span>
+            <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">,</span>
+                <span class="n">group_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
+                <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zp_domain</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown version on base config </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Only version 2 of </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span><span class="si">}</span><span class="s2"> is supported&quot;</span><span class="p">)</span>
