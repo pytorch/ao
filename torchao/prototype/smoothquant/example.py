@@ -157,7 +157,7 @@ def compare_models(
 ):
     """Compare perplexity and speed for behchmarking SmoothQuant"""
 
-    # Benchmark base model
+    # Case 1: Base model without quantization
     print("Benchmarking base model...")
     torch.manual_seed(34)
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
@@ -172,7 +172,23 @@ def compare_models(
         model, tokenizer, max_seq_length, tasks=tasks, device=device
     )
 
-    # Benchmark quantized model
+    # Case 2: W4A8-dynamic without SmoothQuant
+    print("Benchmarking W4A8-dynamic without SmoothQuant...")
+    torch.manual_seed(34)
+    w4a8_model = (
+        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
+        .eval()
+        .to(device)
+    )
+    quantize_(w4a8_model, Int8DynamicActivationInt8WeightConfig())
+    if compile:
+        w4a8_model = torch.compile(w4a8_model)
+    w4a8_results = benchmark(
+        w4a8_model, tokenizer, max_seq_length, tasks=tasks, device=device
+    )
+
+    # Case 3: SmoothQuant + W4A8-dynamic
+    print("Benchmarking SmoothQuant with W4A8-dynamic...")
     smoothquant_results = quantize_and_eval(
         repo_id,
         alpha,
@@ -187,12 +203,26 @@ def compare_models(
     )
 
     # Calculate changes and display results
-    ppl_change = (
+    w4a8_ppl_change = (
+        (w4a8_results["perplexity"] - base_results["perplexity"])
+        / base_results["perplexity"]
+        * 100
+    )
+    w4a8_speed_change = (
+        (
+            base_results["avg_inference_time_per_token"]
+            - w4a8_results["avg_inference_time_per_token"]
+        )
+        / base_results["avg_inference_time_per_token"]
+        * 100
+    )
+
+    smoothquant_ppl_change = (
         (smoothquant_results["perplexity"] - base_results["perplexity"])
         / base_results["perplexity"]
         * 100
     )
-    speed_change = (
+    smoothquant_speed_change = (
         (
             base_results["avg_inference_time_per_token"]
             - smoothquant_results["avg_inference_time_per_token"]
@@ -206,15 +236,24 @@ def compare_models(
         f"\nBase: PPL={base_results['perplexity']:.2f}, Speed={base_results['avg_inference_time_per_token']:.4f}s/token"
     )
     print(
-        f"SmoothQuant: PPL={smoothquant_results['perplexity']:.2f}, Speed={smoothquant_results['avg_inference_time_per_token']:.4f}s/token"
+        f"W4A8-Dynamic: PPL={w4a8_results['perplexity']:.2f}, Speed={w4a8_results['avg_inference_time_per_token']:.4f}s/token"
     )
-    print(f"Changes: PPL {ppl_change:+.2f}%, Speed {speed_change:+.2f}%")
+    print(
+        f"SmoothQuant+W4A8: PPL={smoothquant_results['perplexity']:.2f}, Speed={smoothquant_results['avg_inference_time_per_token']:.4f}s/token"
+    )
+    print(f"W4A8 Changes: PPL {w4a8_ppl_change:+.2f}%, Speed {w4a8_speed_change:+.2f}%")
+    print(
+        f"SmoothQuant Changes: PPL {smoothquant_ppl_change:+.2f}%, Speed {smoothquant_speed_change:+.2f}%"
+    )
 
     return {
         "base_model": base_results,
+        "w4a8_model": w4a8_results,
         "smoothquant_model": smoothquant_results,
-        "perplexity_change_percent": ppl_change,
-        "speed_improvement_percent": speed_change,
+        "w4a8_ppl_change_percent": w4a8_ppl_change,
+        "w4a8_speed_improvement_percent": w4a8_speed_change,
+        "smoothquant_ppl_change_percent": smoothquant_ppl_change,
+        "smoothquant_speed_improvement_percent": smoothquant_speed_change,
     }
 
 
