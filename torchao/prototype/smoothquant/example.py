@@ -74,7 +74,7 @@ def benchmark(model, tokenizer, max_seq_length=512, tasks=["PPL"], device="cuda"
 
 
 def quantize_and_eval(
-    repo_id: str,
+    model_id: str,
     alpha: float,
     tasks: list[str],
     max_seq_length: int,
@@ -88,9 +88,9 @@ def quantize_and_eval(
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
-    tokenizer = AutoTokenizer.from_pretrained(repo_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
         .eval()
         .to(device)
     )
@@ -144,7 +144,7 @@ def quantize_and_eval(
 
 
 def compare_models(
-    repo_id: str,
+    model_id: str,
     alpha: float,
     tasks: list[str],
     max_seq_length: int,
@@ -160,9 +160,9 @@ def compare_models(
     # Case 1: Base model without quantization
     print("Benchmarking base model...")
     torch.manual_seed(34)
-    tokenizer = AutoTokenizer.from_pretrained(repo_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
         .eval()
         .to(device)
     )
@@ -176,7 +176,7 @@ def compare_models(
     print("Benchmarking W4A8-dynamic without SmoothQuant...")
     torch.manual_seed(34)
     w4a8_model = (
-        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
         .eval()
         .to(device)
     )
@@ -190,7 +190,7 @@ def compare_models(
     # Case 3: SmoothQuant + W4A8-dynamic
     print("Benchmarking SmoothQuant with W4A8-dynamic...")
     smoothquant_results = quantize_and_eval(
-        repo_id,
+        model_id,
         alpha,
         tasks,
         max_seq_length,
@@ -257,7 +257,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--repo", type=str, required=True, help="Repository ID of the model."
+        "--model", type=str, required=True, help="Model ID from Huggingface hub."
     )
     parser.add_argument(
         "--alpha",
@@ -324,7 +324,7 @@ if __name__ == "__main__":
     # Convert precision argument to torch dtype
     precision_dtype = getattr(torch, args.precision, torch.bfloat16)
     result = compare_models(
-        args.repo,
+        args.model,
         args.alpha,
         args.tasks,
         args.max_seq_length,
