@@ -69,7 +69,7 @@ def benchmark(model, tokenizer, max_seq_length=512, tasks=["PPL"], device="cuda"
 
     return {
         "perplexity": ppl.item(),
-        "avg_inference_time_per_token": inference_time / input_ids.size(1),
+        "tokens_per_sec": input_ids.size(1) / inference_time,
     }
 
 
@@ -209,11 +209,8 @@ def compare_models(
         * 100
     )
     w4a8_speed_change = (
-        (
-            base_results["avg_inference_time_per_token"]
-            - w4a8_results["avg_inference_time_per_token"]
-        )
-        / base_results["avg_inference_time_per_token"]
+        (w4a8_results["tokens_per_sec"] - base_results["tokens_per_sec"])
+        / base_results["tokens_per_sec"]
         * 100
     )
 
@@ -223,23 +220,20 @@ def compare_models(
         * 100
     )
     smoothquant_speed_change = (
-        (
-            base_results["avg_inference_time_per_token"]
-            - smoothquant_results["avg_inference_time_per_token"]
-        )
-        / base_results["avg_inference_time_per_token"]
+        (smoothquant_results["tokens_per_sec"] - base_results["tokens_per_sec"])
+        / base_results["tokens_per_sec"]
         * 100
     )
 
     # Print results
     print(
-        f"\nBase: PPL={base_results['perplexity']:.2f}, Speed={base_results['avg_inference_time_per_token']:.4f}s/token"
+        f"\nBase: PPL={base_results['perplexity']:.2f}, Speed={base_results['tokens_per_sec']:.2f} tokens/sec"
     )
     print(
-        f"W4A8-Dynamic: PPL={w4a8_results['perplexity']:.2f}, Speed={w4a8_results['avg_inference_time_per_token']:.4f}s/token"
+        f"W4A8-Dynamic: PPL={w4a8_results['perplexity']:.2f}, Speed={w4a8_results['tokens_per_sec']:.2f} tokens/sec"
     )
     print(
-        f"SmoothQuant+W4A8: PPL={smoothquant_results['perplexity']:.2f}, Speed={smoothquant_results['avg_inference_time_per_token']:.4f}s/token"
+        f"SmoothQuant+W4A8: PPL={smoothquant_results['perplexity']:.2f}, Speed={smoothquant_results['tokens_per_sec']:.2f} tokens/sec"
     )
     print(f"W4A8 Changes: PPL {w4a8_ppl_change:+.2f}%, Speed {w4a8_speed_change:+.2f}%")
     print(
