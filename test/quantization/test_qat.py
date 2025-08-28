@@ -69,6 +69,7 @@ from torchao.quantization.qat.utils import (
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
+    Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.quant_primitives import (
@@ -1933,6 +1934,22 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+    )
+    @parametrize("version", [1, 2])
+    def test_quantize_api_int4(self, version: int):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int4WeightOnlyConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int4WeightOnlyConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            Int4WeightOnlyConfig(version=version),
+            target_prepare_sqnr=12,
+            target_convert_sqnr=float("inf"),
+        )
+
     def test_infer_fp8_int4_config(self):
         """
         Test that fake quantize configs are correctly inferred from
@@ -1948,6 +1965,29 @@ class TestQAT(TestCase):
         self.assertEqual(act_config.dtype, torch.float8_e4m3fn)
         self.assertIsInstance(act_config.granularity, PerRow)
         self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int4)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertTrue(weight_config.is_symmetric)
+
+    def test_infer_int4_weight_only_config(self):
+        """
+        Test that fake quantize configs are correctly inferred from `Int4WeightOnlyConfig`.
+        """
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        base_config = Int4WeightOnlyConfig(version=1)
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsNone(act_config)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.uint4)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertFalse(weight_config.is_symmetric)
+
+        base_config = Int4WeightOnlyConfig(version=2)
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsNone(act_config)
         self.assertEqual(weight_config.dtype, torch.int4)
         self.assertEqual(weight_config.group_size, 128)
         self.assertTrue(weight_config.is_symmetric)
