@@ -9,11 +9,11 @@ from torch import nn
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.blockwise_fp8_training.kernels import (
-    fp8_blockwise_act_quant_lhs,
-    fp8_blockwise_act_quant_rhs,
-    fp8_blockwise_act_quant_transposed_lhs,
-    fp8_blockwise_weight_quant_rhs,
-    fp8_blockwise_weight_quant_transposed_rhs,
+    triton_fp8_blockwise_act_quant_lhs,
+    triton_fp8_blockwise_act_quant_rhs,
+    triton_fp8_blockwise_act_quant_transposed_lhs,
+    triton_fp8_blockwise_weight_quant_rhs,
+    triton_fp8_blockwise_weight_quant_transposed_rhs,
     triton_fp8_gemm_1x128_128x1,
     triton_fp8_gemm_1x128_128x128,
 )
@@ -33,10 +33,10 @@ class fp8_blockwise_mm(torch.autograd.Function):
         x = x.reshape(-1, x_orig_shape[-1])
 
         # Cast inputs to fp8 blockwise using (1, block_size) scaling granularity in row major format.
-        x_fp8, x_scale = fp8_blockwise_act_quant_lhs(x, block_size)
+        x_fp8, x_scale = triton_fp8_blockwise_act_quant_lhs(x, block_size)
 
         # Cast weight to fp8 blockwise using (block_size, block_size) scaling granularity, with transposed dims in column major format.
-        weight_t_fp8, weight_t_scale = fp8_blockwise_weight_quant_transposed_rhs(
+        weight_t_fp8, weight_t_scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
             weight,
             block_size=block_size,
         )
@@ -74,13 +74,13 @@ class fp8_blockwise_mm(torch.autograd.Function):
         assert grad_output.shape[1] % 128 == 0, "unsupported"
 
         # Cast grad_output to fp8 blockwise 1x128 since it is the grad of the output activation.
-        grad_output_fp8, grad_output_scale = fp8_blockwise_act_quant_lhs(
+        grad_output_fp8, grad_output_scale = triton_fp8_blockwise_act_quant_lhs(
             grad_output,
             block_size,
         )
 
         # Cast weight to fp8 blockwise to 128x128 in column major format.
-        weight_fp8, weight_scale = fp8_blockwise_weight_quant_rhs(
+        weight_fp8, weight_scale = triton_fp8_blockwise_weight_quant_rhs(
             weight,
             block_size=block_size,
         )
@@ -100,15 +100,17 @@ class fp8_blockwise_mm(torch.autograd.Function):
         # Cast grad_output_t to fp8 blockwise with (1 x block_size) scaling groups, since it is
         # the grad of the output activation.
         # Write directly with transposed dims in row major format, as needed for dW calc.
-        grad_output_t_fp8, grad_output_t_scale = fp8_blockwise_act_quant_transposed_lhs(
-            grad_output,
-            block_size,
+        grad_output_t_fp8, grad_output_t_scale = (
+            triton_fp8_blockwise_act_quant_transposed_lhs(
+                grad_output,
+                block_size,
+            )
         )
 
         # Cast x to fp8 blockwise with (block_size x 1) scaling groups, in column major format.
         # RHS should have groupwise scales calculated colwise, so scaling groups do not cross the
         # contracting (K) dim.
-        x_fp8, x_scale = fp8_blockwise_act_quant_rhs(x, block_size)
+        x_fp8, x_scale = triton_fp8_blockwise_act_quant_rhs(x, block_size)
 
         # grad_weight = grad_output.T @ x
         fp8_gemm_1x128_128x1 = (

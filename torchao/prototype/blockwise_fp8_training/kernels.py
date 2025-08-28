@@ -9,6 +9,7 @@ from typing import Tuple
 import torch
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
@@ -119,7 +120,7 @@ def triton_fp8_gemm_1x128_128x128(
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
-    triton_fp8_gemm_1x128_128x128_kernel[grid](
+    wrap_triton(triton_fp8_gemm_1x128_128x128_kernel)[grid](
         a,
         a.stride(0),
         a.stride(1),
@@ -234,7 +235,7 @@ def triton_fp8_gemm_1x128_128x1(
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
-    triton_fp8_gemm_1x128_128x1_kernel[grid](
+    wrap_triton(triton_fp8_gemm_1x128_128x1_kernel)[grid](
         a,
         a.stride(0),
         a.stride(1),
@@ -281,7 +282,7 @@ quant_kernel_configs_with_groups = [
 
 @triton.autotune(configs=quant_kernel_configs_with_groups, key=["K"])
 @triton.jit
-def fp8_blockwise_act_quant_lhs_kernel(
+def triton_fp8_blockwise_act_quant_lhs_kernel(
     x_ptr,
     x_stride_dim_0,
     x_stride_dim_1,
@@ -327,7 +328,8 @@ def fp8_blockwise_act_quant_lhs_kernel(
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale))
 
 
-def fp8_blockwise_act_quant_lhs(
+@triton_op("torchao::triton_fp8_blockwise_act_quant_lhs", mutates_args={})
+def triton_fp8_blockwise_act_quant_lhs(
     x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -352,7 +354,7 @@ def fp8_blockwise_act_quant_lhs(
         triton.cdiv(M, meta["NUM_GROUPS"]),
         triton.cdiv(K, meta["BLOCK_SIZE"]),
     )
-    fp8_blockwise_act_quant_lhs_kernel[grid](
+    wrap_triton(triton_fp8_blockwise_act_quant_lhs_kernel)[grid](
         x,
         x.stride(0),
         x.stride(1),
@@ -372,7 +374,7 @@ def fp8_blockwise_act_quant_lhs(
 
 @triton.autotune(configs=quant_kernel_configs_with_groups, key=["K"])
 @triton.jit
-def fp8_blockwise_act_quant_rhs_kernel(
+def triton_fp8_blockwise_act_quant_rhs_kernel(
     x_ptr,
     x_stride_dim_0,
     x_stride_dim_1,
@@ -420,7 +422,8 @@ def fp8_blockwise_act_quant_rhs_kernel(
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale))
 
 
-def fp8_blockwise_act_quant_rhs(
+@triton_op("torchao::triton_fp8_blockwise_act_quant_rhs", mutates_args={})
+def triton_fp8_blockwise_act_quant_rhs(
     x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -444,7 +447,7 @@ def fp8_blockwise_act_quant_rhs(
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(K, meta["NUM_GROUPS"]),
     )
-    fp8_blockwise_act_quant_rhs_kernel[grid](
+    wrap_triton(triton_fp8_blockwise_act_quant_rhs_kernel)[grid](
         x,
         x.stride(0),
         x.stride(1),
@@ -464,7 +467,7 @@ def fp8_blockwise_act_quant_rhs(
 
 @triton.autotune(configs=quant_kernel_configs_with_groups, key=["K"])
 @triton.jit
-def fp8_blockwise_act_quant_transposed_lhs_kernel(
+def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     x_ptr,
     x_stride_dim_0,
     x_stride_dim_1,
@@ -524,7 +527,8 @@ def fp8_blockwise_act_quant_transposed_lhs_kernel(
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
 
-def fp8_blockwise_act_quant_transposed_lhs(
+@triton_op("torchao::triton_fp8_blockwise_act_quant_transposed_lhs", mutates_args={})
+def triton_fp8_blockwise_act_quant_transposed_lhs(
     x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
@@ -550,7 +554,7 @@ def fp8_blockwise_act_quant_transposed_lhs(
         triton.cdiv(K, meta["NUM_GROUPS"]),
     )
 
-    fp8_blockwise_act_quant_transposed_lhs_kernel[grid](
+    wrap_triton(triton_fp8_blockwise_act_quant_transposed_lhs_kernel)[grid](
         x,
         x.stride(0),
         x.stride(1),
@@ -570,7 +574,7 @@ def fp8_blockwise_act_quant_transposed_lhs(
 
 @triton.autotune(configs=quant_kernel_configs, key=["M", "N"])
 @triton.jit
-def fp8_blockwise_weight_quant_rhs_kernel(
+def triton_fp8_blockwise_weight_quant_rhs_kernel(
     x_ptr,
     x_stride_dim_0,
     x_stride_dim_1,
@@ -615,8 +619,9 @@ def fp8_blockwise_weight_quant_rhs_kernel(
     tl.store(s_ptr + scale_m_off + scale_n_off, tl.div_rn(1.0, scale))
 
 
-def fp8_blockwise_weight_quant_rhs(
-    x: torch.Tensor, block_size: int = 128, dtype=torch.float8_e4m3fn
+@triton_op("torchao::triton_fp8_blockwise_weight_quant_rhs", mutates_args={})
+def triton_fp8_blockwise_weight_quant_rhs(
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.dim() == 2, "Input tensor must have 2 dimensions"
@@ -638,7 +643,7 @@ def fp8_blockwise_weight_quant_rhs(
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
-    fp8_blockwise_weight_quant_rhs_kernel[grid](
+    wrap_triton(triton_fp8_blockwise_weight_quant_rhs_kernel)[grid](
         x,
         x.stride(0),
         x.stride(1),
@@ -658,7 +663,7 @@ def fp8_blockwise_weight_quant_rhs(
 
 @triton.autotune(configs=quant_kernel_configs, key=["M", "N"])
 @triton.jit
-def fp8_blockwise_weight_quant_transposed_rhs_kernel(
+def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     x_ptr,
     x_stride_dim_0,
     x_stride_dim_1,
@@ -719,8 +724,9 @@ def fp8_blockwise_weight_quant_transposed_rhs_kernel(
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
 
-def fp8_blockwise_weight_quant_transposed_rhs(
-    x: torch.Tensor, block_size: int = 128, dtype=torch.float8_e4m3fn
+@triton_op("torchao::triton_fp8_blockwise_weight_quant_transposed_rhs", mutates_args={})
+def triton_fp8_blockwise_weight_quant_transposed_rhs(
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.dim() == 2, "Input tensor must have 2 dimensions"
@@ -742,7 +748,7 @@ def fp8_blockwise_weight_quant_transposed_rhs(
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
-    fp8_blockwise_weight_quant_transposed_rhs_kernel[grid](
+    wrap_triton(triton_fp8_blockwise_weight_quant_transposed_rhs_kernel)[grid](
         x,
         x.stride(0),
         x.stride(1),
