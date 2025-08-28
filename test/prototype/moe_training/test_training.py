@@ -43,7 +43,13 @@ except ImportError:
 @pytest.mark.parametrize(
     "recipe_config",
     [
-        # {"recipe": MoEScalingType.FP8_ROWWISE, "group_alignment_size": 16, "min_out_sqnr": 29.0, "min_input_grad_sqnr": 29.0, "min_param_grad_sqnr": 23.0},
+        {
+            "recipe": MoEScalingType.FP8_ROWWISE,
+            "group_alignment_size": 16,
+            "min_out_sqnr": 29.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 23.0,
+        },
         {
             "recipe": MoEScalingType.MXFP8,
             "group_alignment_size": 32,

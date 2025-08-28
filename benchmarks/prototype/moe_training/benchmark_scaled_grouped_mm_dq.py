@@ -6,6 +6,7 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 import argparse
 import itertools
+import logging
 from dataclasses import dataclass
 from typing import List
 
@@ -184,6 +185,24 @@ def main(args: argparse.Namespace):
     configs = get_configs()
     results = []
     for config in tqdm(configs):
+        if (
+            config.recipe == MoEScalingType.FP8_ROWWISE
+            and torch.cuda.get_device_capability() != (9, 0)
+        ):
+            logging.warning(
+                f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+            )
+            continue
+
+        elif (
+            config.recipe == MoEScalingType.MXFP8
+            and torch.cuda.get_device_capability() != (10, 0)
+        ):
+            logging.warning(
+                f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            )
+            continue
+
         result = run_experiment(config, args)
         results.append(Experiment(config=config, result=result))
 
