@@ -2,6 +2,7 @@ import torch
 import triton
 import triton.language as tl
 from torch import Tensor
+from torch.library import triton_op, wrap_triton
 
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import ceil_div
@@ -104,6 +105,7 @@ def compute_per_group_blocked_scale_offsets(offsets: torch.Tensor):
     return group_sizes, starting_row_after_padding
 
 
+@triton_op("torchao::triton_mx_block_rearrange_per_group_2d", mutates_args={})
 def triton_mx_block_rearrange_per_group_2d(
     scales_tensor: torch.Tensor,
     input_group_end_offsets: torch.Tensor,
@@ -145,7 +147,7 @@ def triton_mx_block_rearrange_per_group_2d(
         num_groups,
         num_col_blocks,
     )
-    triton_scale_swizzle_per_group_2d[grid](
+    wrap_triton(triton_scale_swizzle_per_group_2d)[grid](
         # Input scales
         scales_tensor.view(torch.uint8),
         scales_tensor.stride(0),
@@ -240,6 +242,7 @@ def triton_scale_swizzle_per_group_2d(
         current_start_row += BLOCK_ROWS
 
 
+@triton_op("torchao::triton_mx_block_rearrange_per_group_3d", mutates_args={})
 def triton_mx_block_rearrange_per_group_3d(scale_tensor: torch.Tensor) -> torch.Tensor:
     """
     Rearranges an E8M0 tensor scale to block-scaled swizzle format.
@@ -283,7 +286,7 @@ def triton_mx_block_rearrange_per_group_3d(scale_tensor: torch.Tensor) -> torch.
         num_col_blocks,
     )
 
-    triton_scale_swizzle_per_group_3d[grid](
+    wrap_triton(triton_scale_swizzle_per_group_3d)[grid](
         scale_tensor.view(torch.uint8),
         input_stride_dim0,
         input_stride_dim1,

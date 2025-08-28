@@ -3,8 +3,9 @@ import logging
 import torch
 
 from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
-    torch_to_blocked_per_group_2d,
-    torch_to_blocked_per_group_3d,
+    compute_per_group_blocked_scale_offsets,
+    triton_mx_block_rearrange_per_group_2d,
+    triton_mx_block_rearrange_per_group_3d,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -39,38 +40,23 @@ def fbgemm_mxfp8_grouped_mm_2d_3d(
     assert A_fp8.shape[-1] == B_fp8.shape[-1], "A_fp8 and B_fp8 must have same last dim"
 
     # Convert scales for each group to blocked format.
-    Mg, K = A_fp8.shape
-    A_scales_blocked, starting_row_after_padding = torch_to_blocked_per_group_2d(
-        A_scales, offs, Mg, K
+    # TODO:
+    group_sizes, output_group_start_offsets = compute_per_group_blocked_scale_offsets(
+        offs
     )
-    B_scales_blocked = torch_to_blocked_per_group_3d(B_scales)
-
-    # From this, we compute `group_sizes` and `starting_row_after_padding`:
-    # group_sizes = [32, 32, 64]
-    # starting_row_after_padding = [0, 32, 64, 128]
-    zero = torch.tensor([0], dtype=offs.dtype, device=offs.device)
-    group_sizes = torch.diff(offs, prepend=zero).to(torch.int64)
-
-    # TODO: remove debug logging once prototype is more mature.
-    _log_inputs(
-        A_fp8,
-        B_fp8,
+    A_scales_blocked = triton_mx_block_rearrange_per_group_2d(
         A_scales,
-        A_scales_blocked,
-        B_scales,
-        B_scales_blocked,
-        offs,
-        group_sizes,
-        starting_row_after_padding,
+        input_group_end_offsets=offs,
+        output_group_start_offsets=output_group_start_offsets,
     )
-
+    B_scales_blocked = triton_mx_block_rearrange_per_group_3d(B_scales)
     out = torch.ops.fbgemm.mx8mx8bf16_grouped_stacked(
         A_fp8,
         B_fp8,
         A_scales_blocked,
         B_scales_blocked,
         group_sizes,
-        starting_row_after_padding=starting_row_after_padding,
+        starting_row_after_padding=output_group_start_offsets,
     )
     return out
 
@@ -81,7 +67,7 @@ def _fbgemm_mxfp8_grouped_mm_2d_3d_fake(
     A_scales: torch.Tensor,
     B_fp8: torch.Tensor,
     B_scales: torch.Tensor,
-    offs: torch.Tensor,
+    input_group_end_offsets: torch.Tensor,
     block_size: int = 32,
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
@@ -91,9 +77,9 @@ def _fbgemm_mxfp8_grouped_mm_2d_3d_fake(
     assert A_fp8.shape[-1] == B_fp8.shape[-1], "A_fp8 and B_fp8 must have same last dim"
     mg, k = A_fp8.shape
     e, n, k = B_fp8.shape
-    n_groups = offs.numel()
+    n_groups = input_group_end_offsets.numel()
     assert n_groups == e, (
-        "Size of `offs` (number of groups) must match first dim of `B_fp8`"
+        "Size of `input_group_end_offsets` (number of groups) must match first dim of `B_fp8`"
     )
     output = torch.empty((mg, n), dtype=torch.bfloat16, device=A_fp8.device)
     return output
@@ -106,7 +92,7 @@ def _log_inputs(
     A_scales_blocked: torch.Tensor,
     B_scales: torch.Tensor,
     B_scales_blocked: torch.Tensor,
-    offs: torch.Tensor,
+    input_group_end_offsets: torch.Tensor,
     group_sizes: torch.Tensor,
     starting_row_after_padding: torch.Tensor,
 ):
@@ -116,7 +102,11 @@ def _log_inputs(
     if not DEBUG:
         return
 
-    logger.info("offs: %s, dtype: %s", offs, offs.dtype)
+    logger.info(
+        "input_group_end_offsets: %s, dtype: %s",
+        input_group_end_offsets,
+        input_group_end_offsets.dtype,
+    )
     logger.info(
         "A_fp8.shape: %s, stride: %s, dtype: %s",
         A_fp8.shape,
