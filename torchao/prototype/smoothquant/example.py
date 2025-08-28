@@ -80,8 +80,6 @@ def quantize_and_eval(
     max_seq_length: int,
     calibration_limit: int,
     device: str,
-    precision: torch.dtype,
-    compile: bool,
     model_save_path: str,
     model_save_hf_hub_path: str,
 ):
@@ -90,7 +88,7 @@ def quantize_and_eval(
     t0 = time.time()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
@@ -136,9 +134,6 @@ def quantize_and_eval(
         model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
         tokenizer.push_to_hub(model_save_hf_hub_path)
 
-    if compile:
-        model = torch.compile(model)
-
     print("Benchmarking SmoothQuant model...")
     return benchmark(model, tokenizer, max_seq_length, tasks=tasks, device=device)
 
@@ -150,8 +145,6 @@ def compare_models(
     max_seq_length: int,
     calibration_limit: int,
     device: str,
-    precision: torch.dtype,
-    compile: bool,
     model_save_path: str,
     model_save_hf_hub_path: str,
 ):
@@ -162,12 +155,10 @@ def compare_models(
     torch.manual_seed(34)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
-    if compile:
-        model = torch.compile(model)
     base_results = benchmark(
         model, tokenizer, max_seq_length, tasks=tasks, device=device
     )
@@ -176,13 +167,11 @@ def compare_models(
     print("Benchmarking W4A8-dynamic without SmoothQuant...")
     torch.manual_seed(34)
     w4a8_model = (
-        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
     quantize_(w4a8_model, Int8DynamicActivationInt8WeightConfig())
-    if compile:
-        w4a8_model = torch.compile(w4a8_model)
     w4a8_results = benchmark(
         w4a8_model, tokenizer, max_seq_length, tasks=tasks, device=device
     )
@@ -196,8 +185,6 @@ def compare_models(
         max_seq_length,
         calibration_limit,
         device,
-        precision,
-        compile,
         model_save_path,
         model_save_hf_hub_path,
     )
@@ -285,21 +272,10 @@ def create_parser() -> argparse.ArgumentParser:
         help="Device to run the evaluation on. Default is 'cuda'.",
     )
     parser.add_argument(
-        "--precision",
-        type=str,
-        default="bfloat16",
-        help="Precision type. Default is 'bfloat16'.",
-    )
-    parser.add_argument(
         "--max_seq_length",
         type=int,
         default=512,
         help="Maximum sequence length. Default is 512",
-    )
-    parser.add_argument(
-        "--compile",
-        action="store_true",
-        help="Flag to indicate if compilation is required.",
     )
     parser.add_argument(
         "--model_save_path",
@@ -321,8 +297,6 @@ if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
 
-    # Convert precision argument to torch dtype
-    precision_dtype = getattr(torch, args.precision, torch.bfloat16)
     result = compare_models(
         args.model,
         args.alpha,
@@ -330,8 +304,6 @@ if __name__ == "__main__":
         args.max_seq_length,
         args.calibration_limit,
         args.device,
-        precision_dtype,
-        args.compile,
         args.model_save_path,
         args.model_save_hf_hub_path,
     )
