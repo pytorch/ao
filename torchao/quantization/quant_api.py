@@ -1568,7 +1568,7 @@ def _float8_weight_only_quant_tensor(weight, config):
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
         weight_dtype = config.weight_dtype
-        new_weight = Float8Tensor.to_float8(
+        new_weight = Float8Tensor.from_hp(
             weight, float8_dtype=weight_dtype, granularity=PerRow()
         )
     return new_weight
@@ -1766,7 +1766,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             kernel_preference=kernel_preference,
         )
 
-        quantized_weight = Float8Tensor.to_float8(
+        quantized_weight = Float8Tensor.from_hp(
             weight,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,

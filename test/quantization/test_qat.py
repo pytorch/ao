@@ -1859,7 +1859,7 @@ class TestQAT(TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(32, 64)
         out = fake_quantizer(x)
-        out_expected = Float8Tensor.to_float8(x, dtype, granularity).dequantize()
+        out_expected = Float8Tensor.from_hp(x, dtype, granularity).dequantize()
         sqnr = compute_error(out, out_expected)
         self.assertGreater(sqnr, 16)
 
