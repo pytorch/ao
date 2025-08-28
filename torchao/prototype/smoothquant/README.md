@@ -18,15 +18,10 @@ python example.py --repo <MODEL_ID>  --device <cuda/cpu>
 python example.py --repo meta-llama/Llama-2-7b-chat-hf  --alpha 0.8
 ```
 
-To use the `torch.compile` for speedup, add `--compile`.
-```bash
-python example.py --repo <MODEL_ID>  --compile
-```
-
 To save a quantized model for reuse, specify `--model_save_path`
 
 ```bash
-python example.py --repo <MODEL_ID> --model_save_path ./quantized_model.pt
+python example.py --repo <MODEL_ID> --model_save_path ./model_smoothquant.pt
 ```
 
 ## Usage of API
@@ -62,23 +57,23 @@ All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence 
 
 ### Benchmark Results
 
+*Used with `torch.compile`, **Used with **SmoothQuant**
+
 | Precision | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
 |-----------|--------------|------------|------------|------------|--------------|
-| float16   | -                  | 6.93       | 625        | -          | -           |
-| bfloat16  | -                  | 6.93       | 667        | -          | -           |
-| bfloat16* | -                  | 6.93       | 27    🐌   | -          | -           |
-| float16   | A4W8-dynamic       | 7.35       | 1,016      | +6.07%     | +39.51%   |
-| bfloat16  | A4W8-dynamic       | 7.29       | 981        | +5.21%     | +37.46%   |
-| float16   | A4W8-dynamic**     | 7.03       | 1,003      | **+0.83%** | +39.39%   |
-| bfloat16  | A4W8-dynamic**     | 7.03       | 1,108      | **+1.39%** | +41.07%   |
-| bfloat16* | A4W8-dynamic**     | 6.92       | 3          | -0.18%     | -768.29% 🐌 |
+| bfloat16  |  -             | 6.93       | 667        |  -         |  -          |
+| bfloat16* |  -             | 6.93       | 27    🐌   |  -         |  -          |
+| bfloat16  | A4W8-dynamic   | 7.35       | 1,967      | +6.07%     | +33.89%     |
+| bfloat16  | A4W8-dynamic** | 7.03       | **1,972**  | **+1.39%** | +33.82%     |
+| float16   |  -             | 6.93       | 625        |  -         |  -          |
+| float16   | A4W8-dynamic   | 7.29       | 523        | +5.21%     | -19.42%     |
+| float16   | A4W8-dynamic** | 6.94       | 516        | **+0.21%** | -21.23%     |
+| bfloat16* | A4W8-dynamic** | 6.92       | 3          | -0.18%     | -768.29% 🐌 |
 
-> *Used with `torch.compile`
-> **Used with SmoothQuant
 
 ### Key Findings
 
-- **Speed Improvement**: Most configurations show 35-40% speed improvement with SmoothQuant
+- **Speed Improvement**: Most configurations show 35-40% speed improvement with both W4A8 and SmoothQuant-W4A8
 - **Quality Trade-off**: Slight perplexity increase (~1-1.4%) in most cases
 - **Compilation Impact**: Using `--compile` flag significantly degrades performance (768% slower)
 - **Best Configuration**: `bfloat16` without `--compile` provides optimal balance
