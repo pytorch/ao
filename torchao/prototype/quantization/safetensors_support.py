@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Dict
 
 import torch
@@ -70,7 +71,7 @@ def load_tensor_state_dict(file_path: str, device: str):
         else:
             raise ValueError(f"Unsupported tensor type: {tensor_type}")
 
-    print(
+    logging.info(
         f"Loaded {len(tensor_names)} tensor subclasses from {file_path} with metadata"
     )
     return result
@@ -135,4 +136,6 @@ def save_tensor_state_dict(
     combined_metadata["tensor_names"] = json.dumps(list(tensor_dict.keys()))
 
     save_file(combined_tensors_dict, file_path, metadata=combined_metadata)
-    print(f"Saved {len(tensor_dict)} tensor subclasses to {file_path} with metadata")
+    logging.info(
+        f"Saved {len(tensor_dict)} tensor subclasses to {file_path} with metadata"
+    )

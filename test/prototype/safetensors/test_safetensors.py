@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 
 import torch
@@ -30,10 +31,9 @@ class TestSafeTensors(TestCase):
         example_inputs = (torch.randn(2, 32, dtype=torch.bfloat16, device="cuda"),)
         ref_output = model(*example_inputs)
 
-        save_tensor_state_dict(model.state_dict(), "fp8_weights.safetensors")
-        reconstructed_dict = load_tensor_state_dict(
-            "fp8_weights.safetensors", device="cuda"
-        )
+        with tempfile.NamedTemporaryFile() as f:
+            save_tensor_state_dict(model.state_dict(), f.name)
+            reconstructed_dict = load_tensor_state_dict(f.name, device="cuda")
 
         model = torch.nn.Sequential(
             torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
