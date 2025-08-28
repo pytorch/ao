@@ -20,6 +20,12 @@ from torchao.prototype.moe_training.kernels import (
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
 )
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim1CastKernelChoice,
+    MXGemmKernelChoice,
+    ScaleCalculationMode,
+)
+from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_dim1_kernel_wrapper
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -376,17 +382,18 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # Transpose A so we can scale along the M dimension, then un-transpose.
         # A_t_data shape: (K, M)
         # A_t_scales shape: (K, M//block_size)
-        A_t_scales, A_t_data = to_mx(
-            A.transpose(-2, -1).contiguous(),
+        A_t_mx = _to_mxfp8_dim1_kernel_wrapper(
+            A,
+            block_size,
             elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
+            hp_dtype=A.dtype,
+            gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,  # Not used
+            cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+            scale_calculation_mode=ScaleCalculationMode.FLOOR,
         )
-
-        # A_data shape = (M, K)
-        A_data = A_t_data.transpose(-2, -1)
-
-        # A_scales shape = (M//block_size, K)
-        A_scales = A_t_scales.transpose(-2, -1)
+        A_mx = A_t_mx.t()
+        A_data = A_mx.qdata
+        A_scales = A_mx._scale_e8m0.t()
 
         # grad_B_t = scaled grouped mm of (N,M) @ (M,K) = (E,N,K)
         grad_B = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
