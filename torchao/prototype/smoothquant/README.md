@@ -58,20 +58,23 @@ quantize_(model, quant_config)
 
 ## Benchmarks
 
-All experiments use `Llama-2-7b-chat-hf` model with max sequence length 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance.
+All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence length (SeqLen) 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance. For comprehensive benchmarking, we compare three cases: 1. origin, 2. W4A8-dynamic, 3. SmoothQuant (W4A8-dynamic)
 
-### Benchmark Result
+### Benchmark Results
 
 | Precision | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
 |-----------|--------------|------------|------------|------------|--------------|
-| float32 | - | 6.93 | 625 | - | - |
-| float32 | int8dq | 7.03 | 1,003 | +0.83% ↗️ | +39.39% ⚡ |
-| bfloat16* | - | 6.93 | 27 | - | - |
-| bfloat16* | int8dq | 6.92 | 3 | -0.18% ↘️ | -768.29% 🐌 |
-| bfloat16 | - | 6.93 | 667 | - | - |
-| bfloat16 | int8dq | 7.03 | 1,108 | +1.39% ↗️ | +41.07% ⚡ |
+| float16   | -                  | 6.93       | 625        | -          | -           |
+| bfloat16  | -                  | 6.93       | 667        | -          | -           |
+| bfloat16* | -                  | 6.93       | 27    🐌   | -          | -           |
+| float16   | A4W8-dynamic       | 7.35       | 1,016      | +6.07%     | +39.51%   |
+| bfloat16  | A4W8-dynamic       | 7.29       | 981        | +5.21%     | +37.46%   |
+| float16   | A4W8-dynamic**     | 7.03       | 1,003      | **+0.83%** | +39.39%   |
+| bfloat16  | A4W8-dynamic**     | 7.03       | 1,108      | **+1.39%** | +41.07%   |
+| bfloat16* | A4W8-dynamic**     | 6.92       | 3          | -0.18%     | -768.29% 🐌 |
 
 > *Used with `torch.compile`
+> **Used with SmoothQuant
 
 ### Key Findings
 
@@ -80,4 +83,4 @@ All experiments use `Llama-2-7b-chat-hf` model with max sequence length 512 and 
 - **Compilation Impact**: Using `--compile` flag significantly degrades performance (768% slower)
 - **Best Configuration**: `bfloat16` without `--compile` provides optimal balance
 
-> Note: Unlike AWQ, this benchmark isn't computed using the script in `smoothquant/example.py` and `torchao/_models/llama/generate.py`. vLLM benchmark will be introduced in foreseeable future. See https://github.com/pytorch/ao/issues/2815 for more information.
+> Note: Unlike AWQ, this benchmark isn't computed using the script in `vllm/benchmarks` or `lm_eval`. vLLM benchmark will be introduced in foreseeable future. See https://github.com/pytorch/ao/issues/2815 for more information.
