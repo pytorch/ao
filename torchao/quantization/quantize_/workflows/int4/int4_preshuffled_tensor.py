@@ -102,6 +102,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         group_zero: Optional[torch.Tensor] = None,
         row_scale: Optional[torch.Tensor] = None,
     ):
+        super().__init__()
         # one and only one of group_scale and group_zero should be None
         assert group_zero is None or row_scale is None
         assert not (group_zero is not None and row_scale is not None)

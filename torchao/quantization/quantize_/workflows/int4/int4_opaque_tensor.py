@@ -70,6 +70,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         block_size: List[int],
         shape: torch.Size,
     ):
+        super().__init__()
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size

@@ -136,6 +136,7 @@ class Float8Tensor(TorchAOBaseTensor):
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         dtype: Optional[torch.dtype] = None,
     ):
+        super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size

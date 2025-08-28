@@ -37,7 +37,7 @@ class ComputeTarget(enum.Enum):
     ATEN = "aten"
 
     """
-    This packs the tensor for TorchAO CPU kernels by selecting the best available kernel 
+    This packs the tensor for TorchAO CPU kernels by selecting the best available kernel
     based on the quantization scheme, either using KlediAI kernels or lowbit kernels.
     It requires TorchAO C++ kernels to be installed.
     """
@@ -112,6 +112,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         packed_weights_has_bias,
         compute_target,
     ):
+        super().__init__()
         assert packed_weights.device == torch.device("cpu")
         self.packed_weights = packed_weights
         self.bit_width = bit_width

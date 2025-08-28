@@ -35,6 +35,7 @@ class Int4MarlinSparseTensor(TorchAOBaseTensor):
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(self, qdata, scale, zero_point, meta, block_size, num_bits, shape):
+        super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
