@@ -18,6 +18,9 @@ from .int4.int4_tile_packed_to_4d_tensor import Int4TilePackedTo4dTensor
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
 )
+from .intx.intx_packing_format import (
+    IntxPackingFormat,
+)
 from .intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
 )
@@ -29,8 +32,8 @@ __all__ = [
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
-    "IntxOpaqueTensor",
     "Int4OpaqueTensor",
-    "IntxUnpackedTensor",
+    "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
+    "IntxOpaqueTensor",
 ]

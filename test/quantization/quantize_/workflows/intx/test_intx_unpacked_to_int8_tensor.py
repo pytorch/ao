@@ -25,7 +25,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
-from torchao.quantization.quantize_.common import PackingFormat
+from torchao.quantization.quantize_.workflows import IntxPackingFormat
 from torchao.quantization.utils import compute_error
 from torchao.utils import torch_version_at_least
 
@@ -158,7 +158,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
                 weight_mapping_type=MappingType.SYMMETRIC,
-                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -192,14 +192,12 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         model2 = torch.nn.Sequential(*layers)
         activations = torch.randn(1, 512, dtype=torch.float32)
 
-        packing_format = PackingFormat.UNPACKED_TO_INT8
-
         quantize_(
             model,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
-                packing_format=packing_format,
+                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -224,14 +222,12 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         model2 = torch.nn.Sequential(*layers)
         activations = torch.randn(1, 512, dtype=torch.float32)
 
-        packing_format = PackingFormat.UNPACKED_TO_INT8
-
         quantize_(
             model,
             IntxWeightOnlyConfig(
                 weight_dtype=torch.int4,
                 granularity=PerGroup(64),
-                packing_format=packing_format,
+                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -290,7 +286,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             weight_granularity=PerGroup(group_size),
             weight_mapping_type=mapping_type,
             weight_scale_dtype=scale_dtype,
-            packing_format=PackingFormat.UNPACKED_TO_INT8,
+            packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=2,
         )
 
@@ -398,7 +394,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 weight_mapping_type=mapping_type,
                 weight_scale_dtype=scale_dtype,
                 act_mapping_type=act_mapping_type,
-                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
