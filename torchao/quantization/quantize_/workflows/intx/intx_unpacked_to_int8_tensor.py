@@ -93,6 +93,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         dtype,
         apply_int8_act_asym_per_token_quant,
     ):
+        super().__init__()
         assert qdata.dtype == torch.int8, (
             f"qdata dtype must be int8, but got {qdata.dtype}"
         )

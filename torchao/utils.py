@@ -860,6 +860,9 @@ class TorchAOBaseTensor(torch.Tensor):
     get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
     _get_to_kwargs = _get_to_kwargs
 
+    def __init__(self, *args, **kwargs):
+        torch._C._log_api_usage_once(str(type(self)))
+
     def __tensor_flatten__(self):
         if hasattr(self, "tensor_data_names") and hasattr(
             self, "tensor_attribute_names"
