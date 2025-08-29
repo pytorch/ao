@@ -5,6 +5,9 @@ from .float8.float8_tensor import (
 from .int4.int4_marlin_sparse_tensor import (
     Int4MarlinSparseTensor,
 )
+from .int4.int4_opaque_tensor import (
+    Int4OpaqueTensor,
+)
 from .int4.int4_plain_int32_tensor import (
     Int4PlainInt32,
 )
