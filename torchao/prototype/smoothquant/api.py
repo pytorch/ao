@@ -105,10 +105,11 @@ def _smooth_quant_transform(
         linear = torch.nn.Linear(
             observed_linear.in_features,
             observed_linear.out_features,
-            bias=False,
+            observed_linear.bias is not None,
             device=observed_linear.weight.device,
             dtype=observed_linear.weight.dtype,
         )
+    linear.bias = observed_linear.bias
 
     # Quantize weights
     base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]

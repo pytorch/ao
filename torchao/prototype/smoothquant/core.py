@@ -89,9 +89,11 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
             observed_linear = cls(
                 float_linear.in_features,
                 float_linear.out_features,
+                float_linear.bias is not None,
                 obs,
                 device=float_linear.weight.device,
                 dtype=float_linear.weight.dtype,
             )
         observed_linear.weight = float_linear.weight
+        observed_linear.bias = float_linear.bias
         return observed_linear
