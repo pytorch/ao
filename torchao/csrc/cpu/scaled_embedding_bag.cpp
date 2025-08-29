@@ -143,7 +143,6 @@ at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
   int64_t emb_dim = qweight.size(1);
 
   auto index_type = indices.scalar_type();
-  auto qtype = qweight.scalar_type();
   float w_scale = w_scales.data_ptr<float>()[0];
 
   TORCH_CHECK(indices.is_contiguous() && offsets.is_contiguous(),
