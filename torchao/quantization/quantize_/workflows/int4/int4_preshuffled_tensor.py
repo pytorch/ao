@@ -5,13 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import importlib.util
 from typing import List, Optional
 
 import torch
 
 from torchao.utils import (
     TorchAOBaseTensor,
+    _is_fbgemm_genai_gpu_available,
 )
 
 __all__ = [
@@ -21,10 +21,7 @@ __all__ = [
 aten = torch.ops.aten
 
 
-if (
-    importlib.util.find_spec("fbgemm_gpu") is None
-    or importlib.util.find_spec("fbgemm_gpu.experimental") is None
-):
+if not _is_fbgemm_genai_gpu_available():
     quantize_int4_preshuffle = None
     quantize_fp8_row = None
 else:
