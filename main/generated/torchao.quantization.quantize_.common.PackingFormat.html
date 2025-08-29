@@ -459,11 +459,17 @@ the values are packed and laid out in the quantized data.</p>
 </dd></dl>
 
 <dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8">
-<span class="sig-name descname"><span class="pre">UNPACKED_TO_INT8</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'unpacked_to_int8'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.TILE_PACKED_TO_4D">
+<span class="sig-name descname"><span class="pre">TILE_PACKED_TO_4D</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'tile_packed_to_4d'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.TILE_PACKED_TO_4D" title="Permalink to this definition">¶</a></dt>
 <dd><p>Opaque packing format that’s used for tensors that does not have a predefined packing format
 (that may be decided on hardware, tensor shape, library availability etc.) and it’s not
 needed for the rest of the system to understand the specific format that’s adopted.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8">
+<span class="sig-name descname"><span class="pre">UNPACKED_TO_INT8</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'unpacked_to_int8'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8" title="Permalink to this definition">¶</a></dt>
+<dd><p>tile_packed_to_4d is referring to the format used by tinygemm kernels for int4 quantization</p>
 </dd></dl>
 
 </dd></dl>
