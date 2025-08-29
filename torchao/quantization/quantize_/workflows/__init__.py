@@ -5,17 +5,14 @@ from .float8.float8_tensor import (
 from .int4.int4_marlin_sparse_tensor import (
     Int4MarlinSparseTensor,
 )
-from .int4.int4_opaque_tensor import (
-    Int4OpaqueTensor,
+from .int4.int4_plain_int32_tensor import (
+    Int4PlainInt32,
 )
 from .int4.int4_preshuffled_tensor import (
     Int4PreshuffledTensor,
 )
 from .int4.int4_tensor import (
     Int4Tensor,
-)
-from .int4.int4_xpu_tensor import (
-    Int4XPUTensorIntZP,
 )
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
@@ -28,7 +25,7 @@ __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
-    "Int4XPUTensorIntZP",
+    "Int4PlainInt32",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "IntxOpaqueTensor",

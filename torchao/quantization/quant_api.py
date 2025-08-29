@@ -74,9 +74,9 @@ from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
+    Int4PlainInt32,
     Int4PreshuffledTensor,
     Int4Tensor,
-    Int4XPUTensorIntZP,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -1131,14 +1131,10 @@ def _int4_weight_only_quantize_tensor(weight, config):
             )
             return new_weight
         elif packing_format == PackingFormat.PLAIN_INT32:
-            if (
-                "xpu" in weight.device.dtype
-                and zero_point_domain == ZeroPointDomain.INT
-            ):
-                new_weight = Int4XPUTensorIntZP.from_hp(
-                    weight,
-                    block_size,
-                )
+            new_weight = Int4PlainInt32.from_hp(
+                weight,
+                block_size,
+            )
             return new_weight
         elif packing_format == PackingFormat.MARLIN_SPARSE:
             new_weight = Int4MarlinSparseTensor.from_hp(

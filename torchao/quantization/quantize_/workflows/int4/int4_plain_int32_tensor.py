@@ -19,13 +19,13 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "Int4XPUTensorIntZP",
+    "Int4PlainInt32",
 ]
 
 aten = torch.ops.aten
 
 
-class Int4XPUTensorIntZP(TorchAOBaseTensor):
+class Int4PlainInt32(TorchAOBaseTensor):
     """
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
@@ -115,7 +115,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
         )
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        return Int4XPUTensorIntZP(
+        return Int4PlainInt32(
             packed_weight,
             scale.transpose(0, 1).contiguous(),
             zero_point.transpose(0, 1).contiguous().to(torch.int8),
@@ -124,7 +124,7 @@ class Int4XPUTensorIntZP(TorchAOBaseTensor):
         )
 
 
-implements = Int4XPUTensorIntZP.implements
+implements = Int4PlainInt32.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -137,8 +137,8 @@ def _(func, types, args, kwargs):
     assert input_tensor.device.type == "xpu", (
         f"For XPU device only but got: {input_tensor.device}"
     )
-    assert isinstance(weight_tensor, Int4XPUTensorIntZP), (
-        f"Expected weight_tensor to be Int4XPUTensorIntZP, got: {type(weight_tensor)}"
+    assert isinstance(weight_tensor, Int4PlainInt32), (
+        f"Expected weight_tensor to be Int4PlainInt32, got: {type(weight_tensor)}"
     )
     assert weight_tensor.block_size[0] == 1, (
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
@@ -175,7 +175,7 @@ def _(func, types, args, kwargs):
     return y.to(orig_dtype)
 
 
-Int4XPUTensorIntZP.__module__ = "torchao.quantization"
+Int4PlainInt32.__module__ = "torchao.quantization"
 
-# Allow a model with Int4XPUTensorIntZP weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Int4XPUTensorIntZP])
+# Allow a model with Int4PlainInt32 weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int4PlainInt32])
