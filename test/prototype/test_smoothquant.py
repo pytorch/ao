@@ -161,7 +161,7 @@ class TestSmoothQuant(unittest.TestCase):
         sequence_length = 5
 
         # Create two identical models for comparison
-        m = ToyTwoLinearModel(*layer_dims).eval().to(input_dtype).to(device)
+        m = ToyTwoLinearModel(*layer_dims).eval()
         m_save_load = deepcopy(m)
 
         # Generate calibration dataset

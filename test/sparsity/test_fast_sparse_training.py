@@ -22,14 +22,13 @@ from torchao.utils import is_fbcode
 class TestRuntimeSemiStructuredSparsity(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
-    @unittest.skip("Temporarily skipping to unpin nightlies")
     def test_runtime_weight_sparsification(self):
         # need this import inside to not break 2.2 tests
         from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
         input = torch.rand((128, 128)).half().cuda()
         grad = torch.rand((128, 128)).half().cuda()
-        model = ToyTwoLinearModel(128, 256, 128).half().cuda()
+        model = ToyTwoLinearModel(128, 256, 128).half()
         model_c = copy.deepcopy(model)
 
         for name, mod in model.named_modules():
@@ -76,7 +75,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
 
         input = torch.rand((128, 128)).half().cuda()
         grad = torch.rand((128, 128)).half().cuda()
-        model = ToyTwoLinearModel(128, 256, 128).half().cuda()
+        model = ToyTwoLinearModel(128, 256, 128).half()
         model_c = copy.deepcopy(model)
 
         for name, mod in model.named_modules():

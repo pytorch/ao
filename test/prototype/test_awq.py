@@ -39,15 +39,13 @@ class TestAWQ(TestCase):
             AWQConfig(base_config, step="not_supported")
 
     def test_awq_functionality(self):
-        device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
-        original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
         group_size = 128
         n_calibration_examples = 10
         sequence_length = 5
 
-        m = ToyTwoLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        m = ToyTwoLinearModel(l1, l2, l3).eval()
 
         # baseline quantization
         base_config = FbgemmConfig(
@@ -61,11 +59,10 @@ class TestAWQ(TestCase):
         quantize_(m_baseline, base_config)
 
         # awq quantization
+        # tinygemm kernel only uses bfloat16 inputs
         dataset = m.example_inputs(
             dataset_size,
             sequence_length=sequence_length,
-            dtype=original_dtype,
-            device=device,
         )
         ref_out = torch.cat([m(d.squeeze(0)) for d in dataset])
 
@@ -88,20 +85,16 @@ class TestAWQ(TestCase):
         assert loss_awq < loss_base * 1.1
 
     def test_awq_loading(self):
-        device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
-        original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
         group_size = 128
         n_calibration_examples = 10
         sequence_length = 5
 
-        m = ToyTwoLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        m = ToyTwoLinearModel(l1, l2, l3).eval()
         dataset = m.example_inputs(
             dataset_size,
             sequence_length=sequence_length,
-            dtype=original_dtype,
-            device=device,
         )
         calibration_data = dataset[:n_calibration_examples]
 
@@ -128,9 +121,7 @@ class TestAWQ(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        loaded_model = (
-            ToyTwoLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
-        )
+        loaded_model = ToyTwoLinearModel(l1, l2, l3).eval()
         loaded_model.load_state_dict(state_dict, assign=True)
 
         m = torch.compile(m, fullgraph=True)
@@ -150,20 +141,16 @@ class TestAWQ(TestCase):
 
         There is also a slicing op that is ommitted here, overall e2e is tested in tests in vllm repo
         """
-        device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
-        original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
         group_size = 128
         n_calibration_examples = 10
         sequence_length = 5
 
-        m = ToyTwoLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+        m = ToyTwoLinearModel(l1, l2, l3).eval()
         dataset = m.example_inputs(
             dataset_size,
             sequence_length=sequence_length,
-            dtype=original_dtype,
-            device=device,
         )
         calibration_data = dataset[:n_calibration_examples]
 
@@ -190,9 +177,7 @@ class TestAWQ(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        loaded_model = (
-            ToyTwoLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
-        )
+        loaded_model = ToyTwoLinearModel(l1, l2, l3).eval()
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
         quantize_(loaded_model, quant_config)
 

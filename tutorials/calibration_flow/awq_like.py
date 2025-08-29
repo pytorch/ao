@@ -168,11 +168,10 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     print(f"Testing {target_dtype} static quantization:")
     torch.manual_seed(0)
 
-    dtype = torch.bfloat16
-    m = ToyTwoLinearModel(64, 32, 64).eval().to(dtype).to("cuda")
+    m = ToyTwoLinearModel(64, 32, 64).eval()
 
     m_bf16 = copy.deepcopy(m)
-    example_inputs = m.example_inputs(dtype=dtype, device="cuda")
+    example_inputs = m.example_inputs()
     print("example inputs shape:", example_inputs[0].shape)
 
     m_bf16 = torch.compile(m_bf16, mode="max-autotune")

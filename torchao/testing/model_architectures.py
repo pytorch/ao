@@ -15,12 +15,12 @@ class ToySingleLinearModel(torch.nn.Module):
     """Single linear for m * k * n problem size"""
 
     def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
+        self, m=64, n=32, k=64, has_bias=False, dtype=torch.bfloat16, device="cuda"
     ):
         super().__init__()
-        self.m = m
         self.dtype = dtype
         self.device = device
+        self.m = m
         self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
             dtype=self.dtype, device=self.device
         )
@@ -45,7 +45,7 @@ class ToyTwoLinearModel(torch.nn.Module):
         output_dim,
         has_bias=False,
         dtype=torch.bfloat16,
-        device="cpu",
+        device="cuda",
     ):
         super().__init__()
         self.dtype = dtype
@@ -57,22 +57,21 @@ class ToyTwoLinearModel(torch.nn.Module):
             hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
         )
 
-    def example_inputs(
-        self, batch_size=1, sequence_length=None, dtype=None, device=None
-    ):
-        if dtype is None:
-            dtype = self.dtype
-        if device is None:
-            device = self.device
-
+    # Note: tinygemm kernel only uses bfloat16 inputs
+    def example_inputs(self, batch_size=1, sequence_length=None):
         if sequence_length is not None:
             return [
-                torch.randn(1, self.linear1.in_features, dtype=dtype, device=device)
+                torch.randn(
+                    1, self.linear1.in_features, dtype=self.dtype, device=self.device
+                )
                 for _ in range(batch_size)
             ]
         return (
             torch.randn(
-                batch_size, self.linear1.in_features, dtype=dtype, device=device
+                batch_size,
+                self.linear1.in_features,
+                dtype=self.dtype,
+                device=self.device,
             ),
         )
 
@@ -239,8 +238,8 @@ def create_model_and_input_data(
         m, k, n (int): dimensions of the model and input data
     """
     if model_type == "linear":
-        model = ToyTwoLinearModel(m, k, n, dtype=high_precision_dtype).to(device)
-        input_data = torch.randn(1, m, device=device, dtype=high_precision_dtype)
+        model = ToyTwoLinearModel(k, m, n)
+        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string
         match = re.search(r"ln_linear_?(\w+)?", model_type)
