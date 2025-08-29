@@ -96,7 +96,7 @@ def device_mesh_1d() -> DeviceMesh:
     "target_fqns",
     [
         ["experts"],
-        ["does.not.exist"],
+        ["experts,shared_experts"],
     ],
 )
 @pytest.mark.parametrize("compile", [False, True])
