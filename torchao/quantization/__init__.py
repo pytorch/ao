@@ -91,9 +91,12 @@ from .quant_primitives import (
 from .quantize_.workflows import (
     Float8Tensor,
     Int4MarlinSparseTensor,
-    Int4PlainInt32,
+    Int4OpaqueTensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4PlainInt32,
+    IntxOpaqueTensor,
+    IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
