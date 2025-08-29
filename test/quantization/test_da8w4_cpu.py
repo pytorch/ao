@@ -8,6 +8,7 @@ import copy
 import unittest
 
 import torch
+from torch._dynamo.utils import counters
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -120,7 +121,6 @@ class TestDa8w4Cpu(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
     def test_8da4w_concat_linear_cpu(self, x_dim, bias):
-        self.skipTest("Disabled for now")
         N, K = 64, 128
 
         class Mod(torch.nn.Module):
@@ -163,6 +163,11 @@ class TestDa8w4Cpu(TestCase):
             # ensure the expected op occurs only once in the code after fusion
             # The trailing "(" is to avoid matching the op in the comment
             assert code[0].count("torch.ops.torchao.da8w4_linear_cpu.default(") == 1
+
+            # ensure the custom DA8W4ConcatLinearCPUPass is properly cached as fxgraph
+            enable_fxgraph_cache_bypass = counters["inductor"]["fxgraph_cache_bypass"]
+            assert enable_fxgraph_cache_bypass == 0
+
             with torch._inductor.config.patch(
                 {"freezing": True, "cpp.enable_concat_linear": False}
             ):
@@ -171,6 +176,9 @@ class TestDa8w4Cpu(TestCase):
                     x,
                 )
             assert torch.allclose(y, y_ref)
+
+            disable_fxgraph_cache_bypass = counters["inductor"]["fxgraph_cache_bypass"]
+            assert disable_fxgraph_cache_bypass == 0
 
 
 common_utils.instantiate_parametrized_tests(TestDa8w4Cpu)
