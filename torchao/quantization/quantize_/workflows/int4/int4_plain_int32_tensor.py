@@ -19,13 +19,13 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "Int4PlainInt32",
+    "Int4PlainInt32Tensor",
 ]
 
 aten = torch.ops.aten
 
 
-class Int4PlainInt32(TorchAOBaseTensor):
+class Int4PlainInt32Tensor(TorchAOBaseTensor):
     """
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
@@ -87,7 +87,7 @@ class Int4PlainInt32(TorchAOBaseTensor):
         zero_point_dtype = torch.int32
         scale, zero_point = choose_qparams_affine(
             w,
-            mapping_type.name,
+            mapping_type,
             block_size,
             target_dtype,
             quant_min,
@@ -114,7 +114,7 @@ class Int4PlainInt32(TorchAOBaseTensor):
         )
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        return Int4PlainInt32(
+        return Int4PlainInt32Tensor(
             packed_weight,
             scale.transpose(0, 1).contiguous(),
             zero_point.transpose(0, 1).contiguous().to(torch.int8),
@@ -123,7 +123,7 @@ class Int4PlainInt32(TorchAOBaseTensor):
         )
 
 
-implements = Int4PlainInt32.implements
+implements = Int4PlainInt32Tensor.implements
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -136,8 +136,8 @@ def _(func, types, args, kwargs):
     assert input_tensor.device.type == "xpu", (
         f"For XPU device only but got: {input_tensor.device}"
     )
-    assert isinstance(weight_tensor, Int4PlainInt32), (
-        f"Expected weight_tensor to be Int4PlainInt32, got: {type(weight_tensor)}"
+    assert isinstance(weight_tensor, Int4PlainInt32Tensor), (
+        f"Expected weight_tensor to be Int4PlainInt32Tensor, got: {type(weight_tensor)}"
     )
     assert weight_tensor.block_size[0] == 1, (
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
@@ -174,7 +174,7 @@ def _(func, types, args, kwargs):
     return y.to(orig_dtype)
 
 
-Int4PlainInt32.__module__ = "torchao.quantization"
+Int4PlainInt32Tensor.__module__ = "torchao.quantization"
 
-# Allow a model with Int4PlainInt32 weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Int4PlainInt32])
+# Allow a model with Int4PlainInt32Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int4PlainInt32Tensor])

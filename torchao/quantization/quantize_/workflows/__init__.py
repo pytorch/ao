@@ -9,7 +9,7 @@ from .int4.int4_opaque_tensor import (
     Int4OpaqueTensor,
 )
 from .int4.int4_plain_int32_tensor import (
-    Int4PlainInt32,
+    Int4PlainInt32Tensor,
 )
 from .int4.int4_preshuffled_tensor import (
     Int4PreshuffledTensor,
@@ -28,7 +28,7 @@ __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
-    "Int4PlainInt32",
+    "Int4PlainInt32Tensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "IntxOpaqueTensor",
