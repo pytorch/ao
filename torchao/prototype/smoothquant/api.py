@@ -43,7 +43,6 @@ class SmoothQuantConfig(AOBaseConfig):
             load the quantized weights through copy_ later
         alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
             Fall back to conventional quantization if None
-        smoothing_factor: Main concept of SmoothQuant, which is a factor to smooth the quantization.
     """
 
     base_config: AOBaseConfig
