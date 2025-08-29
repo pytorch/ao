@@ -65,8 +65,9 @@ gpu_name_to_specs = {
 }
 
 
-def get_specs():
-    gpu_name = torch.cuda.get_device_name(0)
+def get_specs(gpu_name: Optional[str] = None):
+    if gpu_name is None:
+        gpu_name = torch.cuda.get_device_name(0)
     return gpu_name_to_specs[gpu_name]
 
 
@@ -188,6 +189,7 @@ def get_tensor_memory_traffic_ovhd_s(
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
+            "mxfp8_cublas_rceil",
         ), "unsupported"
         # For now, assume that we can't profitably fuse kernel 1 and kernel 2
         # x_bf16 = ...
@@ -213,10 +215,15 @@ def get_tensor_memory_traffic_ovhd_s(
 
 
 def get_individual_gemm_time_sympy(
-    M: sympy.Symbol, K: sympy.Symbol, N: sympy.Symbol, dtype, mx_recipe_name
+    M: sympy.Symbol,
+    K: sympy.Symbol,
+    N: sympy.Symbol,
+    dtype,
+    mx_recipe_name,
+    gpu_name: Optional[str] = None,
 ) -> sympy.Symbol:
     # compute bound
-    specs = get_specs()
+    specs = get_specs(gpu_name)
     gemm_ops = 2 * M * K * N
     if dtype is torch.bfloat16:
         peak_tops = specs["bf16_peak_tops"]
@@ -234,6 +241,7 @@ def get_individual_gemm_time_sympy(
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
+            "mxfp8_cublas_rceil",
         ), "unsupported"
         assert dtype in (torch.float8_e4m3fn, torch.float8_e5m2), "unsupported"
         # adjust reads for MX scaling
@@ -263,6 +271,7 @@ def get_gemm_time_sympy(
     dtype,
     float8_recipe_name: Optional[str],
     mx_recipe_name: Optional[str],
+    gpu_name: Optional[str],
 ):
     # next: add rowwise_with_gw_hp here
     # note: this function is currently not super accurate for small shapes:
@@ -277,13 +286,13 @@ def get_gemm_time_sympy(
         gemm_dtype_grad_weight = torch.bfloat16
 
     gemm_output_time_s = get_individual_gemm_time_sympy(
-        M, K, N, gemm_dtype_input, mx_recipe_name
+        M, K, N, gemm_dtype_input, mx_recipe_name, gpu_name
     )
     gemm_grad_input_time_s = get_individual_gemm_time_sympy(
-        M, N, K, gemm_dtype_grad_input, mx_recipe_name
+        M, N, K, gemm_dtype_grad_input, mx_recipe_name, gpu_name
     )
     gemm_grad_weight_time_s = get_individual_gemm_time_sympy(
-        K, M, N, gemm_dtype_grad_weight, mx_recipe_name
+        K, M, N, gemm_dtype_grad_weight, mx_recipe_name, gpu_name
     )
     total = gemm_output_time_s + gemm_grad_input_time_s + gemm_grad_weight_time_s
     return total
@@ -296,8 +305,9 @@ def get_float8_mem_sympy(
     float8_recipe_name: Optional[str],
     mx_recipe_name: Optional[str],
     enable_fusion_modeling: bool,
+    gpu_name: Optional[str] = None,
 ):
-    specs = get_specs()
+    specs = get_specs(gpu_name)
 
     # there are three gemms in the fwd/bwd of a linear:
     #
@@ -340,3 +350,80 @@ def get_float8_mem_sympy(
 
     res = sum([*fwd_fp8_input_mem, *fwd_fp8_weight_mem, *gi_fp8_grad_output_mem])
     return res
+
+
+def get_inference_tensor_memory_traffic_ovhd_s(
+    specs,
+    dim0,
+    dim1,
+    tensor_role: str,
+    float8_recipe_name: Optional[str],
+    fuse_with_prev=False,
+) -> List[Union[sympy.Symbol, float]]:
+    """
+    Inference version of `get_tensor_memory_traffic_ovhd_s`.
+    The only thing happening here is we quantize the activation.
+    """
+    assert float8_recipe_name == "rowwise", "unsupported"
+    assert fuse_with_prev is False, "unsupported"
+
+    # assumes input bf16, output f8
+    numel = dim0 * dim1
+
+    res_bytes = None
+
+    assert tensor_role == "input"
+    # x_bf16 = ...
+    # kernel 1:               x_bf16 -> x_fp8
+    kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+    res_bytes = [
+        kernel_1_rw,
+    ]
+
+    # convert from bytes to seconds
+    res_s = [
+        x / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
+        for x in res_bytes
+    ]
+
+    # take max of kernel_overhead, r/w time
+    res_s = [sympy.Max(x, KERNEL_LAUNCH_OVERHEAD_SEC) for x in res_s]
+
+    return res_s
+
+
+def get_inference_float8_mem_sympy(
+    M,
+    K,
+    N,
+    float8_recipe_name: Optional[str],
+    gpu_name: Optional[str] = None,
+):
+    specs = get_specs(gpu_name)
+    # input @ weight_t = output
+    # MxK @ KxN => MxN
+    fwd_fp8_input_mem = get_inference_tensor_memory_traffic_ovhd_s(
+        specs,
+        M,
+        K,
+        tensor_role="input",
+        float8_recipe_name=float8_recipe_name,
+        fuse_with_prev=False,
+    )
+    res = sum([*fwd_fp8_input_mem])
+    return res
+
+
+def get_inference_gemm_time_sympy(
+    M: sympy.Symbol,
+    K: sympy.Symbol,
+    N: sympy.Symbol,
+    dtype,
+    float8_recipe_name: Optional[str],
+    gpu_name: Optional[str],
+):
+    assert float8_recipe_name == "rowwise" or float8_recipe_name is None, "unsupported"
+    # note: this function is currently not super accurate for small shapes:
+    # when M,K,N <= 1k,1k,1k it undercounts by around 2x
+    gemm_output_time_s = get_individual_gemm_time_sympy(M, K, N, dtype, None, gpu_name)
+    return gemm_output_time_s

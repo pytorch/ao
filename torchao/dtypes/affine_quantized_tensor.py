@@ -19,10 +19,10 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_dont_preserve_zero,
-    _choose_qparams_affine_float8,
     _choose_qparams_affine_floatx,
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_affine_hqq,
+    _choose_scale_float8,
     _dequantize_affine_float8,
     _dequantize_affine_floatx,
     _dequantize_affine_no_zero_point,
@@ -35,10 +35,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 logger = logging.getLogger(__name__)
 aten = torch.ops.aten
@@ -119,6 +116,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         dtype=None,
         strides=None,
     ):
+        torch._C._log_api_usage_once(str(type(self)))
         self.tensor_impl = tensor_impl
         self.block_size = block_size
         self.quant_min = quant_min
@@ -462,7 +460,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
-            scale = _choose_qparams_affine_float8(
+            scale = _choose_scale_float8(
                 input_float, float8_dtype=target_dtype, block_size=block_size
             )
             data = _quantize_affine_float8(input_float, scale, target_dtype)
@@ -613,6 +611,5 @@ to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_stat
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([AffineQuantizedTensor])
+# Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([AffineQuantizedTensor])

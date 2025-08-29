@@ -39,6 +39,8 @@ def create_benchmark_result(
     metric_values: List[float],
     quant_type: str,
     device: str,
+    torch_compile_mode: str,
+    metric_extra_info: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
     """Create a benchmark result in the PyTorch OSS benchmark database format.
 
@@ -77,6 +79,7 @@ def create_benchmark_result(
             "extra_info": {
                 "device": device,
                 "arch": benchmark_device,
+                "torch_compile_mode": torch_compile_mode,
             },
         },
         "model": {
@@ -85,9 +88,12 @@ def create_benchmark_result(
             "origins": ["torchao"],
         },
         "metric": {
-            "name": f"{metric_name}(wrt bf16)",  # name with unit
+            "name": f"{metric_name}",  # name with unit
             "benchmark_values": metric_values,  # benchmark_values
             "target_value": 0.0,  # TODO: Will need to define the target value
+            "extra_info": {
+                **metric_extra_info,
+            },
         },
         "runners": [],
         "dependencies": {},
@@ -115,20 +121,61 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
 
         if result is not None:
             # Create benchmark result in OSS format
-            benchmark_result = create_benchmark_result(
+            speedup_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
                 shape=[config.m, config.k, config.n],
-                metric_name="speedup",
-                metric_values=[result.speedup],
+                metric_name="Fwd Speedup (x)",
+                metric_values=[result.compile_speedup_on_baseline],
                 quant_type=config.quantization,
                 device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
             )
-            results.append(benchmark_result)
+            results.append(speedup_result)
+            baseline_time_result = create_benchmark_result(
+                benchmark_name="TorchAO Quantization Benchmark",
+                shape=[config.m, config.k, config.n],
+                metric_name="Bfloat16 Fwd Time (ms)",
+                metric_values=[result.baseline_model_compiled_inference_time_in_ms],
+                quant_type=config.quantization,
+                device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
+                metric_extra_info={
+                    "unit": "ms",
+                },
+            )
+            results.append(baseline_time_result)
+            quantize_time_result = create_benchmark_result(
+                benchmark_name="TorchAO Quantization Benchmark",
+                shape=[config.m, config.k, config.n],
+                metric_name="Quantized Fwd Time (ms)",
+                metric_values=[result.quantized_model_compiled_inference_time_in_ms],
+                quant_type=config.quantization,
+                device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
+                metric_extra_info={
+                    "unit": "ms",
+                },
+            )
+            results.append(quantize_time_result)
+            allocated_memory_result = create_benchmark_result(
+                benchmark_name="TorchAO Quantization Benchmark",
+                shape=[config.m, config.k, config.n],
+                metric_name="Allocated Memory (MB)",
+                metric_values=[result.memory_stats["allocated_bytes.all.peak"]],
+                quant_type=config.quantization,
+                device=config.device,
+                torch_compile_mode=config.torch_compile_mode,
+                metric_extra_info={
+                    "unit": "MB",
+                },
+            )
+            results.append(allocated_memory_result)
 
     return results
 
 
 def main():
+    torch.manual_seed(42)
     parser = argparse.ArgumentParser(
         description="Run microbenchmarks and output results in PyTorch OSS benchmark database format"
     )

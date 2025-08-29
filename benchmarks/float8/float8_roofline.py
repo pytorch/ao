@@ -48,7 +48,6 @@ import pandas as pd
 import sympy
 import torch
 import torch.nn as nn
-import torch.utils.benchmark as benchmark
 import tqdm
 from torch.profiler import ProfilerActivity, profile
 from utils import (
@@ -57,6 +56,7 @@ from utils import (
     profiler_output_to_filtered_time_by_kernel_name,
 )
 
+import torchao
 from torchao.float8 import (
     Float8LinearConfig,
     convert_to_float8_training,
@@ -67,6 +67,7 @@ from torchao.testing.training.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
+from torchao.utils import is_MI300
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -81,20 +82,6 @@ class LNLinearSigmoid(torch.nn.Module):
         x = self.fc(x)
         x = self.sigmoid(x)
         return x
-
-
-# TODO(next): hook this up
-
-
-def benchmark_fn_in_sec(f, *args, **kwargs):
-    # Manual warmup
-    for _ in range(4):
-        f(*args, **kwargs)
-    t0 = benchmark.Timer(
-        stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
-    )
-    measurement = t0.blocked_autorange()
-    return measurement.mean
 
 
 def get_gpu_kernel_time(m, x, grad_output):
@@ -175,7 +162,12 @@ def get_gemm_times(
     if float8_recipe_name == "rowwise_with_gw_hp" and gemm_role == "grad_weight":
         f8_time_s = bf16_time_s
     else:
-        d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16
+        e4m3_dtype = torch.float8_e4m3fn
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            e4m3_dtype = torch.float8_e4m3fnuz
+        d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
+        # TODO(future PR): create more realistic tensors here for more accurate
+        # gemm benchmarking
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
         if float8_recipe_name == "tensorwise":
@@ -184,7 +176,7 @@ def get_gemm_times(
         elif float8_recipe_name in ("rowwise", "rowwise_with_gw_hp"):
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
-        elif mx_recipe_name == "mxfp8_cublas":
+        elif mx_recipe_name in ("mxfp8_cublas", "mxfp8_cublas_rceil"):
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         else:
@@ -232,6 +224,8 @@ def run(
         float8_recipe_name = "tensorwise"
 
     print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"torch version: {torch.__version__}")
+    print(f"torchao version: {torchao.__version__}")
     print(f"do_benchmarks: {do_benchmarks}")
     print(f"shape_gen_name: {shape_gen_name}")
     print(f"float8_recipe_name: {float8_recipe_name}")
@@ -248,9 +242,11 @@ def run(
         mx_recipe_name,
         enable_fusion_modeling,
     )
-    bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16, None, None)
+    bf16_gemm_time_sympy = get_gemm_time_sympy(
+        M, K, N, torch.bfloat16, None, None, None
+    )
     fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name
+        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name, None
     )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)

@@ -16,6 +16,13 @@ import os
 
 import pytest
 import torch
+
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._tensor import DTensor
@@ -29,13 +36,10 @@ try:
         parallelize_module,
     )
 except ImportError:
-    import warnings
-
-    warnings.warn(
-        "torch version is too old, these tests require nightly build. Skipping MoE training tests."
+    pytest.skip(
+        "torch version is too old, these tests require nightly build. Skipping MoE training tests.",
+        allow_module_level=True,
     )
-    pytest.skip(allow_module_level=True)
-
 
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
@@ -44,26 +48,28 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
 from torchao.quantization.quant_api import quantize_
 
 from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
-    from torchtitan.experiments.llama4.infra.expert_parallel import (
+    from torchtitan.distributed.expert_parallel import (
         ExpertParallel,
         ExpertTensorParallel,
         NoParallel,
         TensorParallel,
+        set_token_group_alignment_size_m,
     )
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
-    import warnings
-
-    warnings.warn("torchtitan not installed, skipping MoE tests.")
-    pytest.skip(allow_module_level=True)
+    pytest.skip(
+        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
+    )
 
 
 @pytest.mark.parametrize(
@@ -74,24 +80,38 @@ except ImportError:
         # ["experts,shared_expert"],
     ],
 )
-def test_moe_float8_training_tp(target_fqns: list[str]):
+@pytest.mark.parametrize(
+    "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
+    [
+        (MoEScalingType.FP8_ROWWISE, 29.0, 16, 23.0),
+        (MoEScalingType.MXFP8, 28.0, 32, 21.0),
+    ],
+)
+def test_moe_float8_training_tp(
+    target_fqns: list[str],
+    recipe: MoEScalingType,
+    min_out_sqnr: float,
+    alignment_size: int,
+    min_param_grad_sqnr: float,
+):
     assert torch.cuda.is_available()
+
+    # token group aligment size must be 16 for fp8
+    set_token_group_alignment_size_m(alignment_size)
 
     # setup distributed for tp
     mesh = setup_distributed()
 
     # define model args
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=8,
-        dim=256,
-        vocab_size=1024,
     )
+    dim, hidden_dim = 5120, 4 * 5120
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(1)
     ref_model.init_weights(init_std, device)
 
@@ -110,7 +130,7 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
         return False
 
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -144,7 +164,7 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
     )
 
     # inputs
-    batch, seq, dim = 8, 2048, 256
+    batch, seq = 8, 2048
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
@@ -156,7 +176,9 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    assert out_sqnr.item() >= 30.0, f"SQNR must be >= 30.0, got {out_sqnr.item()}."
+    assert out_sqnr.item() >= min_out_sqnr, (
+        f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
+    )
 
     # compute loss
     labels = torch.ones_like(ref_out)
@@ -169,15 +191,16 @@ def test_moe_float8_training_tp(target_fqns: list[str]):
 
     # validate input gradient
     input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    assert input_grad_sqnr.item() >= 28.0, (
-        f"SQNR must be >= 28.0, got {input_grad_sqnr.item()}."
+    min_input_grad_sqnr = 28.0
+    assert input_grad_sqnr.item() >= min_input_grad_sqnr, (
+        f"SQNR must be >= {min_input_grad_sqnr}, got {input_grad_sqnr.item()}."
     )
 
     # validate param gradients
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
-        assert param_grad_sqnr.item() >= 25.0, (
-            f"SQNR must be >= 25.0, got {param_grad_sqnr.item()}."
+        assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
+            f"SQNR must be >= {min_param_grad_sqnr}, got {param_grad_sqnr.item()}."
         )
 
     dist.destroy_process_group()
@@ -206,7 +229,7 @@ def apply_moe_ep_tp(
         moe_layer_plan = {
             # input / output sharding on the seqlen dim
             # all-gather for input, reduce-scatter for output
-            "moe": PrepareModuleInputOutput(
+            "": PrepareModuleInputOutput(
                 input_layouts=(Shard(1),),
                 desired_input_layouts=(Replicate(),),
                 use_local_input=True,
@@ -214,9 +237,9 @@ def apply_moe_ep_tp(
                 desired_output_layouts=(Shard(1),),
             ),
             # replicate computation for the router
-            "moe.router.gate": NoParallel(),
+            "router.gate": NoParallel(),
             # input Replicate, output Partial
-            "moe.shared_expert": TensorParallel(),
+            "shared_expert": TensorParallel(),
         }
         parallelize_module(
             module=model,

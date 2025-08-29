@@ -15,8 +15,6 @@ import torch.nn.functional as F
 from torch._prims_common import make_contiguous_strides_for
 from torch.distributed.device_mesh import DeviceMesh
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
@@ -943,7 +941,7 @@ class NF4Tensor(torch.Tensor):
             f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
         )
 
-    # Do not force the Float8Tensor type on the returned tensor
+    # Do not force the Float8TrainingTensor type on the returned tensor
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
@@ -1156,6 +1154,5 @@ def nf4_constructor(
     )
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals([NF4Tensor])
-    torch.serialization.add_safe_globals([NF4Tensor])
+torch.serialization.add_safe_globals([NF4Tensor])
+torch.serialization.add_safe_globals([NF4Tensor])

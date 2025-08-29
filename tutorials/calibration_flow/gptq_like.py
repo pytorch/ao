@@ -48,11 +48,11 @@ from torchao.quantization import (
     LinearActivationQuantizedTensor,
     MappingType,
     PerTensor,
-    _fake_quantize_affine,
     quantize_,
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.quantization.quant_primitives import _fake_quantize_affine
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )

@@ -317,13 +317,21 @@ class TorchAOBuildExt(BuildExtension):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
 
+        # Get the expected extension file name that Python will look for
+        # We force CMake to use this library name
+        ext_filename = os.path.basename(self.get_ext_filename(ext.name))
+        ext_basename = os.path.splitext(ext_filename)[0]
+
         subprocess.check_call(
             [
                 "cmake",
                 ext.cmake_lists_dir,
             ]
             + ext.cmake_args
-            + ["-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir],
+            + [
+                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
+                "-DTORCHAO_CMAKE_EXT_SO_NAME=" + ext_basename,
+            ],
             cwd=self.build_temp,
         )
         subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
@@ -425,10 +433,12 @@ def get_extensions():
             extra_link_args.append("/DEBUG")
 
     rocm_sparse_marlin_supported = False
+    rocm_tiled_layout_supported = False
     if use_rocm:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
         found_vec_ext = False
+        found_outer_vec = False
         print("ROCM_HOME", ROCM_HOME)
         hipblaslt_headers = list(
             glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h"))
@@ -441,12 +451,17 @@ def get_extensions():
                     found_col16 = True
                 if "HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER_VEC_EXT" in text:
                     found_vec_ext = True
+                if "HIPBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F" in text:
+                    found_outer_vec = True
         if found_col16:
             extra_compile_args["cxx"].append("-DHIPBLASLT_HAS_ORDER_COL16")
             print("hipblaslt found extended col order enums")
         else:
             print("hipblaslt does not have extended col order enums")
-        if found_vec_ext:
+        if found_outer_vec:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_OUTER_VEC")
+            print("hipblaslt found outer vec")
+        elif found_vec_ext:
             extra_compile_args["cxx"].append("-DHIPBLASLT_VEC_EXT")
             print("hipblaslt found vec ext")
         else:
@@ -474,8 +489,11 @@ def get_extensions():
     # Define ROCm source directories
     rocm_source_dirs = [
         os.path.join(extensions_dir, "rocm", "swizzle"),
-        os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
     ]
+    if rocm_tiled_layout_supported:
+        rocm_source_dirs.append(
+            os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
+        )
     if rocm_sparse_marlin_supported:
         rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
@@ -490,15 +508,16 @@ def get_extensions():
     if use_cuda:
         sources += cuda_sources
 
+    # Add MXFP8 cuda extension dir
+    mxfp8_extension_dir = os.path.join(extensions_dir, "cuda", "mx_kernels")
+    mxfp8_sources_to_exclude = list(
+        glob.glob(os.path.join(mxfp8_extension_dir, "**/*"), recursive=True)
+    )
+    sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
+
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    # TODO: Add support for other ROCm GPUs
     if use_rocm:
-        # Add ROCm GPU architecture check
-        gpu_arch = None
-        if torch.cuda.is_available():
-            gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch and gpu_arch != "gfx942":
-            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print("Currently only gfx942 is supported. Compiling only for gfx942.")
         extra_compile_args["nvcc"].append("--offload-arch=gfx942")
         sources += rocm_sources
     else:
@@ -610,6 +629,36 @@ def get_extensions():
             )
         )
 
+    # Add the mxfp8 casting CUDA extension
+    if use_cuda:
+        mxfp8_sources = [
+            os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
+            os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
+        ]
+
+        # Only add the extension if the source files exist AND we are building for sm100
+        mxfp8_src_files_exist = all(os.path.exists(f) for f in mxfp8_sources)
+        if mxfp8_src_files_exist and build_for_sm100a:
+            print("Building mxfp8_cuda extension")
+            ext_modules.append(
+                CUDAExtension(
+                    name="torchao.prototype.mxfp8_cuda",
+                    sources=mxfp8_sources,
+                    include_dirs=[
+                        mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
+                        "/usr/local/cuda-12.8/include",  # CUDA 12.8 headers
+                    ],
+                    library_dirs=[
+                        "/usr/local/cuda-12.8/lib64",  # CUDA 12.8 libraries
+                    ],
+                    extra_compile_args={
+                        "cxx": ["-std=c++17", "-O3"],
+                        "nvcc": nvcc_args,
+                    },
+                    extra_link_args=["-lcuda", "-lcudart"],
+                ),
+            )
+
     # Only build the cutlass_90a extension if sm90a is in the architecture flags
     if (
         cutlass_90a_sources is not None
@@ -665,7 +714,7 @@ def get_extensions():
 
         ext_modules.append(
             CMakeExtension(
-                "torchao.experimental",
+                "torchao._experimental_aten_ops",
                 cmake_lists_dir="torchao/experimental",
                 cmake_args=(
                     [

@@ -45,10 +45,8 @@ from torchao.quantization.subclass import (  # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.quantization.utils import _quantize_activation_per_token_absmax
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -74,7 +72,7 @@ __all__ = [
 def _is_linear(mod, *args):
     # avoid circular dependencies
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
-        AffineFakeQuantizedTensor,
+        _AffineFakeQuantizedTensor,
     )
 
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
@@ -86,7 +84,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AutoQuantizableLinearWeightV1)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
-        and not isinstance(mod.weight, AffineFakeQuantizedTensor)
+        and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
         and not isinstance(mod, torch.nn.modules.linear.NonDynamicallyQuantizableLinear)
     )
 
@@ -110,7 +108,7 @@ def _graph_equals(g1, g2):
 
 aten = torch.ops.aten
 
-AUTOQUANT_CACHE = {}
+_AUTOQUANT_CACHE = {}
 
 # This is a flag to control whether we do some rewrite for graph
 # to account for different batch sizes, it's a temporary solution for llama model
@@ -119,15 +117,15 @@ LLAMA = True
 
 
 def check_cache(gm, cls, shapes_and_dtype):
-    for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
+    for gm_, cls_, shapes_and_dtype_ in _AUTOQUANT_CACHE.keys():
         graph_equals = _graph_equals(gm_.graph, gm.graph)
         if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
-            return AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
+            return _AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
     return None
 
 
 def update_cache(gm, cls, shapes_and_dtype, res):
-    AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
+    _AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
 
 
 # adjust each input's bsz to target_bsz
@@ -469,6 +467,8 @@ def do_autoquant_bench(op, *args, **kwargs):
     """
     runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
     """
+    from torch._inductor.runtime.benchmarking import benchmarker
+
     rep = kwargs.pop("rep", 100)
     warmup = kwargs.pop("warmup", 25)
     with torch.no_grad():
@@ -483,24 +483,9 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._inductor.runtime.benchmarking import benchmarker
-
-            res = benchmarker.benchmark_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-        elif TORCH_VERSION_AT_LEAST_2_3:
-            from torch._inductor.runtime.runtime_utils import do_bench_gpu
-
-            res = do_bench_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-        else:
-            from torch._inductor.utils import do_bench
-
-            res = do_bench(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
+        res = benchmarker.benchmark_gpu(
+            lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+        )
     return res
 
 
@@ -638,7 +623,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         # SAM best is between .8 and 1, SDXL also performs best in this range
         INTERPOLATION_CONSTANT = mode[1]
         w_qtensor = cls.from_float(weight)
-        x_vals_int8, x_scales = quantize_activation_per_token_absmax(
+        x_vals_int8, x_scales = _quantize_activation_per_token_absmax(
             act_mat.reshape(-1, act_mat.shape[-1])
         )
         quantized_matmul = (

@@ -16,10 +16,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import Layout, PlainLayout, is_device
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
-    TORCH_VERSION_AT_LEAST_2_8,
-)
+from torchao.utils import torch_version_at_least
 
 from .int4_cpu_layout import (
     Int4CPUAQTTensorImpl,
@@ -124,6 +121,10 @@ class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
         if zero_point.dim() == 1:
             zero_point.unsqueeze_(-1)
 
+        # Pack weight from [N, K] to [N / block_n, K / block_k, block_k, block_n].
+        # Pack the inner blocks [block_k, block_n] to VNNI layout if AMX is available.
+        # Pack scales/qzeros from [N, num_groups] to [N / block_n, num_groups, block_n].
+        # Compensation shape = [N / block_n, K / block_k, block_n].
         weight_int4, scales, qzeros, compensation = (
             torch.ops.torchao.da8w4_linear_prepack_cpu(int_data, scale, zero_point)
         )
@@ -242,7 +243,7 @@ def _aqt_is_uint4(aqt):
 
 def _linear_int8_act_int4_weight_cpu_check(input_tensor, weight_tensor, bias):
     return (
-        TORCH_VERSION_AT_LEAST_2_7
+        torch_version_at_least("2.7.0")
         and is_device(input_tensor.device.type, "cpu")
         and is_device(weight_tensor.device.type, "cpu")
         and (bias is None or is_device(bias.device.type, "cpu"))
@@ -258,11 +259,11 @@ def _linear_int8_act_int4_weight_cpu_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
-    assert TORCH_VERSION_AT_LEAST_2_7, (
+    assert torch_version_at_least("2.7.0"), (
         f"Requires PyTorch version at least 2.7, but got: {torch.__version__}"
     )
     if _aqt_is_int8(input_tensor):
-        assert TORCH_VERSION_AT_LEAST_2_8, (
+        assert torch_version_at_least("2.8.0"), (
             f"Requires PyTorch version at least 2.8, but got: {torch.__version__}"
         )
     assert is_device(input_tensor.device.type, "cpu"), (
@@ -310,3 +311,9 @@ def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
     return y.to(orig_dtype)
+
+
+# Register the concat linear fusion pass
+# from ...prototype.inductor.fx_passes import register_da8w4_concat_linear_cpu_pass
+
+# register_da8w4_concat_linear_cpu_pass()

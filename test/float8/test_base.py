@@ -8,22 +8,10 @@ import itertools
 import random
 import re
 import unittest
-import warnings
 
 import pytest
 import torch
 import torch.nn as nn
-
-from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 
 from torchao.float8.config import (
     Float8LinearConfig,
@@ -40,8 +28,8 @@ from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
@@ -54,19 +42,25 @@ from torchao.float8.float8_utils import (
     tensor_to_scale,
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
-from torchao.utils import is_MI300, is_ROCM
+from torchao.testing.utils import skip_if_rocm
+from torchao.utils import (
+    is_MI300,
+    is_ROCM,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 random.seed(0)
 torch.manual_seed(0)
 
 
-def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
+def bitwise_identical(a: Float8TrainingTensor, b: Float8TrainingTensor) -> bool:
     assert torch.all(a._scale == b._scale).item(), "scales are not identical"
     assert torch.all(a._data == b._data).item(), "data is not identical"
     return True
 
 
-class TestFloat8Tensor:
+class TestFloat8TrainingTensor:
     def test_preserves_dtype(self) -> None:
         # hp means high precision, lp means low precision
         hp_dtypes = (torch.float32, torch.float16, torch.bfloat16)
@@ -128,7 +122,7 @@ class TestFloat8Tensor:
         with pytest.raises(RuntimeError):
             fp8_a.copy_(b)  # Should fail
 
-        fp8_b = Float8Tensor(
+        fp8_b = Float8TrainingTensor(
             torch.empty(16, dtype=e4m3_dtype),
             scale_a,
             torch.bfloat16,
@@ -381,6 +375,9 @@ class TestFloat8Linear:
         "linear_dtype", [torch.bfloat16, torch.float16, torch.float32]
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
+    )
     @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
@@ -389,12 +386,6 @@ class TestFloat8Linear:
         linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
-        if torch.cuda.get_device_capability() < (9, 0):
-            warnings.warn(
-                f"CUDA capability {torch.cuda.get_device_capability()} < (9.0)"
-            )
-            pytest.skip()
-
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
         config = Float8LinearConfig.from_recipe_name(recipe_name)
@@ -410,51 +401,30 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [
+            Float8LinearRecipeName.TENSORWISE,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
+        ],
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_autocast_outputs(
         self,
         emulate: bool,
         linear_dtype: torch.dtype,
+        recipe_name: Float8LinearRecipeName,
     ):
         m_ref = nn.Sequential(
             nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
             nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
         )
-        config = Float8LinearConfig(
-            emulate=emulate,
-        )
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
+        # work around config being frozen
+        object.__setattr__(config, "emulate", emulate)
+
         m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
-
-        # autocast off
-        x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
-        y = m(x)
-        assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
-
-        # autocast on
-        with torch.autocast("cuda"):
-            y = m(x)
-        assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
-
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            y = m(x)
-        assert y.dtype == torch.bfloat16, (
-            f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
-        )
-
-    @pytest.mark.parametrize(
-        "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
-    )
-    @pytest.mark.parametrize(
-        "emulate", [True, False] if is_sm_at_least_89() else [True]
-    )
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
-        m = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
-        config = Float8LinearConfig(emulate=emulate)
-        m = Float8Linear.from_float(copy.deepcopy(m), config)
-
-        # Cast the module to dtype
-        m = m.to(dtype=linear_dtype)
 
         # autocast off
         x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
@@ -498,10 +468,10 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
-        from torchao.quantization.quant_api import float8_weight_only, quantize_
+        from torchao.quantization import Float8WeightOnlyConfig, quantize_
 
-        quantize_(m, float8_weight_only())
-        assert m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn, (
+        quantize_(m, Float8WeightOnlyConfig())
+        assert m[0].weight.qdata.dtype == torch.float8_e4m3fn, (
             "Post quantization dtype should be torch.float8_e4m3fn"
         )
         with torch.no_grad():

@@ -16,6 +16,13 @@ import os
 
 import pytest
 import torch
+
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
@@ -27,41 +34,56 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
-from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
-from torchao.quantization.quant_api import quantize_
+from testing_utils import _validate_model_conversion
 
-from .testing_utils import _validate_model_conversion
+from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
+from torchao.quantization.quant_api import quantize_
 
 # this test requires torchtitan
 try:
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.distributed.expert_parallel import set_token_group_alignment_size_m
+    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
-    import warnings
+    pytest.skip(
+        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
+    )
 
-    warnings.warn("torchtitan not installed, skipping MoE tests.")
-    pytest.skip(allow_module_level=True)
 
-
-def test_moe_float8_training_fsdp():
+@pytest.mark.parametrize(
+    "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
+    [
+        (MoEScalingType.FP8_ROWWISE, 29.0, 16, 23.0),
+        (MoEScalingType.MXFP8, 28.0, 32, 21.0),
+    ],
+)
+def test_moe_float8_training_fsdp(
+    recipe: MoEScalingType,
+    min_out_sqnr: float,
+    alignment_size: int,
+    min_param_grad_sqnr: float,
+):
     assert torch.cuda.is_available()
 
     # setup distributed for fsdp
     setup_distributed()
 
+    set_token_group_alignment_size_m(alignment_size)
+
     # define model args
     target_fqns = ["experts"]
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=8,
-        dim=256,
     )
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    dim, hidden_dim = 5120, 4 * 5120
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
 
@@ -80,7 +102,7 @@ def test_moe_float8_training_fsdp():
         return False
 
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -94,7 +116,7 @@ def test_moe_float8_training_fsdp():
     fully_shard(ref_model)
 
     # inputs
-    batch, seq, dim = 8, 2048, 256
+    batch, seq = 8, 2048
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
@@ -106,7 +128,9 @@ def test_moe_float8_training_fsdp():
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    assert out_sqnr.item() >= 30.0, f"SQNR must be >= 30.0, got {out_sqnr.item()}."
+    assert out_sqnr.item() >= min_out_sqnr, (
+        f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
+    )
 
     # compute loss
     labels = torch.ones_like(ref_out)
@@ -119,15 +143,16 @@ def test_moe_float8_training_fsdp():
 
     # validate input gradient
     input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    assert input_grad_sqnr.item() >= 30.0, (
-        f"SQNR must be >= 30.0, got {input_grad_sqnr.item()}."
+    min_input_grad_sqnr = 29.0
+    assert input_grad_sqnr.item() >= min_input_grad_sqnr, (
+        f"SQNR must be >= {min_input_grad_sqnr}, got {input_grad_sqnr.item()}."
     )
 
     # validate param gradients
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
-        assert param_grad_sqnr.item() >= 25.0, (
-            f"SQNR must be >= 25.0, got {param_grad_sqnr.item()}."
+        assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
+            f"SQNR must be >= {min_param_grad_sqnr}, got {param_grad_sqnr.item()}."
         )
 
     dist.destroy_process_group()

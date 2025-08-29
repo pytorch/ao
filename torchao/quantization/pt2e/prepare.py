@@ -13,10 +13,7 @@ import torch
 from torch._subclasses import FakeTensor
 from torch.ao.quantization import QConfigMapping
 from torch.ao.quantization.fx.custom_config import PrepareCustomConfig
-from torch.ao.quantization.fx.prepare import (
-    _insert_obs_or_fq,
-    _save_state,
-)
+from torch.ao.quantization.fx.prepare import _insert_obs_or_fq, _save_state
 from torch.ao.quantization.qconfig import QConfigAny
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.node import Argument
@@ -26,9 +23,7 @@ from torchao.quantization.pt2e import (
     DerivedObserverOrFakeQuantize,
     ObserverOrFakeQuantize,
 )
-from torchao.quantization.pt2e.fake_quantize import (
-    FixedQParamsFakeQuantize,
-)
+from torchao.quantization.pt2e.fake_quantize import FixedQParamsFakeQuantize
 from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
     PartialWrapper,
@@ -42,7 +37,7 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationSpecBase,
     SharedQuantizationSpec,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
 
 # TODO: make pt2e folder private?
 __all__ = [
@@ -208,8 +203,8 @@ def _get_edge_or_node_to_qspec(
     """Get a map from EdgeOrNode to quantization spec based on annotations on the nodes"""
     edge_or_node_to_qspec: dict[EdgeOrNode, QuantizationSpecBase] = {}
     for n in model.graph.nodes:
-        if hasattr(n, "meta") and "quantization_annotation" in n.meta:
-            qa = n.meta["quantization_annotation"]
+        if hasattr(n, "meta") and Q_ANNOTATION_KEY in n.meta:
+            qa = n.meta[Q_ANNOTATION_KEY]
             for input_to_n, qspec in qa.input_qspec_map.items():
                 input_edge = (input_to_n, n)
                 edge_or_node_to_qspec[input_edge] = qspec
@@ -324,7 +319,7 @@ def _get_edge_or_node_to_group_id(
 
             assert isinstance(input_edge, tuple)
             arg, n = input_edge
-            if n.meta["quantization_annotation"].allow_implicit_sharing:
+            if n.meta[Q_ANNOTATION_KEY].allow_implicit_sharing:
                 # NOTE: the order is important here, we first share with other users and then share with previous
                 # output because the reverse order could cause circular dependency
                 # e.g node1 -> node2
@@ -557,7 +552,6 @@ def _maybe_insert_output_observer_for_node(
             isinstance(node, Node)
             and isinstance(new_output, Node)
             and FROM_NODE_KEY in node.meta
-            and TORCH_VERSION_AT_LEAST_2_6
         ):
             new_output.meta[FROM_NODE_KEY] = node.meta[FROM_NODE_KEY]
         return new_output
@@ -571,9 +565,7 @@ def _maybe_insert_input_and_output_observers_for_node(
     is_qat: bool,
 ):
     this_node_quantization_annotation = (
-        node.meta["quantization_annotation"]
-        if "quantization_annotation" in node.meta
-        else None
+        node.meta[Q_ANNOTATION_KEY] if Q_ANNOTATION_KEY in node.meta else None
     )
     if this_node_quantization_annotation is None:
         return

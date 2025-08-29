@@ -178,7 +178,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
         )
 
         # Generate memory profile
-        result_path = generate_memory_profile(
+        result_path, memory_stats = generate_memory_profile(
             self.model, self.input_data, memory_profile_path
         )
 
@@ -270,13 +270,12 @@ class TestBenchmarkProfiler(unittest.TestCase):
                 f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.json",
             )
 
-            # Generate memory profile
-            result = generate_memory_profile(
-                self.model, self.input_data, memory_profile_path
-            )
-
             # Should return None when CUDA is unavailable
-            self.assertIsNone(result)
+            self.assertIsNone(
+                generate_memory_profile(
+                    self.model, self.input_data, memory_profile_path
+                )
+            )
 
             # Should not create file when CUDA is unavailable
             self.assertFalse(os.path.exists(memory_profile_path))

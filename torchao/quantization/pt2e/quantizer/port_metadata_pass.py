@@ -12,18 +12,12 @@ import torch
 from torch._export.error import InternalError
 from torch.fx.passes.infra.pass_base import PassBase, PassResult
 
-from torchao.quantization.pt2e.utils import (
-    _filter_sym_size_users,
-)
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
+from torchao.quantization.pt2e.utils import _filter_sym_size_users
 from torchao.quantization.quant_primitives import quant_lib  # noqa: F401
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
-from .quantizer import (
-    QuantizationSpecBase,
-)
-from .utils import (
-    is_valid_annotation,
-)
+from .quantizer import QuantizationSpecBase
+from .utils import is_valid_annotation
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
@@ -39,25 +33,21 @@ _QUANTIZE_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.quantize_per_channel.default,
+    torch.ops.torchao.quantize_affine,
 ]
 
 _DEQUANTIZE_OPS = [
     torch.ops.quantized_decomposed.dequantize_per_tensor.default,
     torch.ops.quantized_decomposed.dequantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.dequantize_per_channel.default,
+    torch.ops.torchao.dequantize_affine,
 ]
 
 _CHOOSE_QPARAMS_OPS = [
     torch.ops.quantized_decomposed.choose_qparams.tensor,
     torch.ops.quantized_decomposed.choose_qparams_symmetric.tensor,
+    torch.ops.torchao.choose_qparams_affine,
 ]
-
-
-# ops are only registered after 2.5
-if TORCH_VERSION_AT_LEAST_2_5:
-    _QUANTIZE_OPS += [torch.ops.torchao.quantize_affine]
-    _DEQUANTIZE_OPS += [torch.ops.torchao.dequantize_affine]
-    _CHOOSE_QPARAMS_OPS += [torch.ops.torchao.choose_qparams_affine]
 
 
 def _add_metadata(to_node: torch.fx.Node, from_node: torch.fx.Node) -> None:
@@ -68,7 +58,7 @@ def _add_metadata(to_node: torch.fx.Node, from_node: torch.fx.Node) -> None:
 
 
 def _has_quant_annotation(node: torch.fx.Node) -> bool:
-    return "quantization_annotation" in node.meta
+    return Q_ANNOTATION_KEY in node.meta
 
 
 def _find_choose_qparams_node(node: torch.fx.Node) -> Optional[torch.fx.Node]:
@@ -281,10 +271,10 @@ class PortNodeMetaForQDQ(PassBase):
 
     def call(self, graph_module: torch.fx.GraphModule) -> PassResult:
         for node in graph_module.graph.nodes:
-            annotation = node.meta.get("quantization_annotation", None)
+            annotation = node.meta.get(Q_ANNOTATION_KEY, None)
             if is_valid_annotation(annotation):
-                input_qspec_map = node.meta["quantization_annotation"].input_qspec_map
-                output_qspec = node.meta["quantization_annotation"].output_qspec
+                input_qspec_map = node.meta[Q_ANNOTATION_KEY].input_qspec_map
+                output_qspec = node.meta[Q_ANNOTATION_KEY].output_qspec
                 for input_node, qspec in input_qspec_map.items():
                     _port_metadata_for_input_quant_nodes(input_node, node, qspec)
                 _port_metadata_for_output_quant_nodes(node, output_qspec)

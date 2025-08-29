@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
-from torchao.float8.float8_tensor import LinearMMConfig
+from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import is_row_major
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,

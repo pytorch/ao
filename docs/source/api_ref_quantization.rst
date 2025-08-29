@@ -24,6 +24,7 @@ Inference APIs for quantize\_
     :nosignatures:
 
     Int4WeightOnlyConfig
+    Float8DynamicActivationInt4WeightConfig
     Float8DynamicActivationFloat8WeightConfig
     Float8WeightOnlyConfig
     Float8StaticActivationFloat8WeightConfig
@@ -33,24 +34,6 @@ Inference APIs for quantize\_
     Int8DynamicActivationInt8WeightConfig
     UIntXWeightOnlyConfig
     FPXWeightOnlyConfig
-
-.. currentmodule:: torchao.quantization.qat
-
-QAT APIs
-----------------------
-
-.. autosummary::
-    :toctree: generated/
-    :nosignatures:
-
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
-    FakeQuantizeConfig
-    Int4WeightOnlyQATQuantizer
-    Int8DynActInt4WeightQATQuantizer
-    Int4WeightOnlyEmbeddingQATQuantizer
-    ComposableQATQuantizer
-    initialize_fake_quantizers
 
 .. currentmodule:: torchao.quantization
 

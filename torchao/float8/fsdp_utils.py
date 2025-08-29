@@ -15,8 +15,8 @@ from torch._prims_common import suggest_memory_format
 from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     hp_tensor_and_scale_to_float8,
@@ -38,6 +38,10 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
     from torch.distributed._tensor import DTensor
 
     from torchao.float8.float8_linear import Float8Linear
+
+    torch._C._log_api_usage_once(
+        "torchao.float8.precompute_float8_dynamic_scale_for_fsdp"
+    )
 
     float8_linears: List[Float8Linear] = [
         m
@@ -217,7 +221,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
 
     def fsdp_pre_all_gather(self, mesh):
         if self._precomputed_scale is not None:
-            float8_tensor = hp_tensor_and_scale_to_float8(
+            float8_training_tensor = hp_tensor_and_scale_to_float8(
                 self._tensor,
                 self._precomputed_scale,
                 self._dtype,
@@ -225,7 +229,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 GemmInputRole.WEIGHT,
             )
         else:
-            float8_tensor = hp_tensor_to_float8_dynamic(
+            float8_training_tensor = hp_tensor_to_float8_dynamic(
                 self._tensor,
                 self._dtype,
                 self._linear_mm_config,
@@ -233,7 +237,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 gemm_input_role=GemmInputRole.WEIGHT,
                 device_mesh=mesh,
             )
-        return (float8_tensor._data,), (float8_tensor._scale,)
+        return (float8_training_tensor._data,), (float8_training_tensor._scale,)
 
     def fsdp_post_all_gather(
         self,
@@ -248,21 +252,25 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         if out is not None:
             from torch.distributed._tensor import DTensor
 
-            if isinstance(out, Float8Tensor):
+            if isinstance(out, Float8TrainingTensor):
                 out._scale = scale
             elif isinstance(out, DTensor) and isinstance(
-                out._local_tensor, Float8Tensor
+                out._local_tensor, Float8TrainingTensor
             ):
                 out._local_tensor._scale = scale
             else:
                 raise RuntimeError(
-                    f"out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got {out}"
+                    f"out must be a Float8TrainingTensor or DTensor(_local_tensor=Float8TrainingTensor), but got {out}"
                 )
             return
-        return Float8Tensor(
+        return Float8TrainingTensor(
             data,
             scale,
             param_dtype,
             self._linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         ), (data,)
+
+
+# Needed to allowlist this subclass for deserialization used for restoring checkpoints.
+torch.serialization.add_safe_globals([WeightWithDynamicFloat8CastTensor])

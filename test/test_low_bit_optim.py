@@ -16,6 +16,7 @@ from torch.distributed._composable.fsdp import (
     OffloadPolicy,
     fully_shard,
 )
+from torch.testing._internal import common_utils
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -24,6 +25,9 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
 
 from packaging.version import Version
 from torchao import optim
@@ -37,9 +41,8 @@ from torchao.optim.subclass_8bit import OptimState8bit
 from torchao.optim.subclass_fp8 import OptimStateFp8
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_7,
     get_available_devices,
+    torch_version_at_least,
 )
 
 try:
@@ -187,6 +190,27 @@ class TestOptim(TestCase):
         finally:
             torch.set_default_dtype(old_dtype)
 
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("device", _DEVICES)
+    def test_param_groups(self, optim_name, device):
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device)
+        param_groups = [
+            dict(params=list(model[0].parameters()), lr=1e-4),
+            dict(params=list(model[2].parameters()), lr=1e-5),
+        ]
+        optimizer = getattr(optim, optim_name)(param_groups)
+
+        x = torch.randn(4, 32, device=device)
+        loss = model(x).sum()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
@@ -197,8 +221,6 @@ class TestOptim(TestCase):
     @parametrize("device", _DEVICES)
     def test_subclass_slice(self, subclass, shape, device):
         if subclass == OptimStateFp8:
-            if device == "cpu" and len(shape) > 1 and not TORCH_VERSION_AT_LEAST_2_5:
-                pytest.skip("fill_cpu not implemented for Float8_e4m3fn for torch<2.5")
             if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -220,7 +242,7 @@ class TestOptim(TestCase):
     )
     @skip_if_rocm("ROCm enablement in progress")
     @pytest.mark.skipif(
-        TORCH_VERSION_AT_LEAST_2_7, reason="Failing in CI"
+        torch_version_at_least("2.7.0"), reason="Failing in CI"
     )  # TODO: fix this
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
@@ -444,9 +466,6 @@ class TestFSDP2(FSDPTest):
     def world_size(self) -> int:
         return _FSDP_WORLD_SIZE
 
-    @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
-    )
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
@@ -562,9 +581,6 @@ class TestFSDP2(FSDPTest):
                 v2 = v2.dequantize()
             self.assertEqual(v1, v2)
 
-    @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
-    )
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
     def test_uneven_shard(self):

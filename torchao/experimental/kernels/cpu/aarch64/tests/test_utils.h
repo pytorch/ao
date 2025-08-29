@@ -575,6 +575,136 @@ struct lowbit_embedding_test_case {
   }
 };
 
+template <int weight_nbit_>
+struct lut_embedding_test_case {
+  // --- Struct Members ---
+  int num_embeddings;
+  int embedding_dim;
+  int scale_group_size;
+  int lut_group_size;
+  bool has_scales;
+
+  // Source Data for LUT-based quantization
+  std::vector<uint8_t> weight_qval_idxs; // Unsigned indices into the LUT
+  std::vector<float> weight_scales; // Grouped scales
+  std::vector<float> weight_luts; // The lookup tables themselves
+
+  // Ground Truth
+  std::vector<float> expected_outputs; // Dequantized float values
+
+  // --- Constructor ---
+  lut_embedding_test_case(
+      int num_embeddings_,
+      int embedding_dim_,
+      int scale_group_size_,
+      int lut_group_size_,
+      bool has_scales_,
+      std::vector<uint8_t> weight_qval_idxs_,
+      std::vector<float> weight_scales_,
+      std::vector<float> weight_luts_,
+      std::vector<float> expected_outputs_)
+      : num_embeddings(num_embeddings_),
+        embedding_dim(embedding_dim_),
+        scale_group_size(scale_group_size_),
+        lut_group_size(lut_group_size_),
+        has_scales(has_scales_),
+        weight_qval_idxs(weight_qval_idxs_),
+        weight_scales(weight_scales_),
+        weight_luts(weight_luts_),
+        expected_outputs(expected_outputs_) {
+    const int total_weights = num_embeddings * embedding_dim;
+    assert(total_weights % lut_group_size == 0);
+    assert(embedding_dim % scale_group_size == 0);
+    assert(this->weight_qval_idxs.size() == num_embeddings * embedding_dim);
+    const int scales_per_row = embedding_dim / scale_group_size;
+    if (has_scales) {
+      assert(this->weight_scales.size() == num_embeddings * scales_per_row);
+    }
+    assert(this->expected_outputs.size() == num_embeddings * embedding_dim);
+  }
+
+ private:
+  static lut_embedding_test_case _generate(
+      int num_embeddings,
+      int embedding_dim,
+      int scale_group_size,
+      int lut_group_size,
+      bool has_scales) {
+    const int lut_size = 1 << weight_nbit_;
+    const int total_weights = num_embeddings * embedding_dim;
+    const int total_lut_groups =
+        (total_weights + lut_group_size - 1) / lut_group_size;
+    const int total_scale_groups = has_scales
+        ? ((total_weights + scale_group_size - 1) / scale_group_size)
+        : 0;
+
+    // 1. Generate the test case parameters
+    // Generate random source data
+    std::mt19937 gen(std::random_device{}());
+    auto weight_luts =
+        get_random_vector(total_lut_groups * lut_size, -1.0f, 1.0f);
+
+    // Generate random quantized indices for each weight.
+    auto weight_qval_idxs =
+        get_random_lowbit_vector(total_weights, weight_nbit_);
+
+    // Generate random scales for each weight.
+    std::vector<float> weight_scales;
+    if (has_scales) {
+      weight_scales = get_random_vector(total_scale_groups, 0.5f, 1.5f);
+    }
+
+    // 2. Calculate the expected outputs by applying the LUT dequantization
+    auto expected_outputs = std::vector<float>(total_weights);
+    for (int i = 0; i < num_embeddings; ++i) {
+      for (int j = 0; j < embedding_dim; ++j) {
+        const size_t linear_idx = i * embedding_dim + j;
+        const size_t lut_idx = linear_idx / lut_group_size;
+
+        const size_t lut_offset = lut_idx * lut_size;
+        const float* current_lut = weight_luts.data() + lut_offset;
+
+        // Scale logic is unchanged.
+        float scale = 1.0f;
+        if (has_scales) {
+          const size_t scale_group_idx = linear_idx / scale_group_size;
+          scale = weight_scales[scale_group_idx];
+        }
+
+        uint8_t q_idx = weight_qval_idxs[linear_idx];
+        expected_outputs[linear_idx] = current_lut[q_idx] * scale;
+      }
+    }
+
+    // 3. Return the complete test case
+    return lut_embedding_test_case(
+        num_embeddings,
+        embedding_dim,
+        scale_group_size,
+        lut_group_size,
+        has_scales,
+        weight_qval_idxs,
+        weight_scales,
+        weight_luts,
+        expected_outputs);
+  }
+
+ public:
+  static lut_embedding_test_case generate(
+      int num_embeddings,
+      int embedding_dim,
+      int scale_group_size,
+      int lut_group_size,
+      bool has_scales) {
+    return _generate(
+        num_embeddings,
+        embedding_dim,
+        scale_group_size,
+        lut_group_size,
+        has_scales);
+  }
+};
+
 struct groupwise_lowbit_weight_lut_test_case {
   //--------------------------------------------------------------------------
   // Parameters
@@ -589,177 +719,371 @@ struct groupwise_lowbit_weight_lut_test_case {
   //--------------------------------------------------------------------------
   // Data Tensors
   //--------------------------------------------------------------------------
-  std::vector<float>   expected_output;
-  std::vector<float>   activations;
-  std::vector<float>   bias;
-  std::vector<uint8_t> weight_qval_indices;        // Indices into a LUT for each weight
-  std::vector<float>   weight_luts;         // The pool of unique LUTs
-  std::vector<float>   weight_scales;       // The pool of unique scales
+  std::vector<float> expected_output;
+  std::vector<float> activations;
+  std::vector<float> bias;
+  std::vector<uint8_t>
+      weight_qval_indices; // Indices into a LUT for each weight
+  std::vector<float> weight_luts; // The pool of unique LUTs
+  std::vector<float> weight_scales; // The pool of unique scales
 
   //--------------------------------------------------------------------------
   // Constructor
   //--------------------------------------------------------------------------
   groupwise_lowbit_weight_lut_test_case(
-      int m_, int k_, int n_, int scale_group_size_, int lut_group_size_, int weight_nbit_, bool has_scales_, bool has_bias_, bool has_clamp_,
-      float clamp_min_, float clamp_max_,
-      std::vector<float> expected_output_, std::vector<float> activations_,
-      std::vector<float> bias_, std::vector<uint8_t> weight_qval_indices_,
-      std::vector<float> weight_luts_, std::vector<float> weight_scales_)
-      : m(m_), k(k_), n(n_),
-        scale_group_size(scale_group_size_), lut_group_size(lut_group_size_), weight_nbit(weight_nbit_),
+      int m_,
+      int k_,
+      int n_,
+      int scale_group_size_,
+      int lut_group_size_,
+      int weight_nbit_,
+      bool has_scales_,
+      bool has_bias_,
+      bool has_clamp_,
+      float clamp_min_,
+      float clamp_max_,
+      std::vector<float> expected_output_,
+      std::vector<float> activations_,
+      std::vector<float> bias_,
+      std::vector<uint8_t> weight_qval_indices_,
+      std::vector<float> weight_luts_,
+      std::vector<float> weight_scales_)
+      : m(m_),
+        k(k_),
+        n(n_),
+        scale_group_size(scale_group_size_),
+        lut_group_size(lut_group_size_),
+        weight_nbit(weight_nbit_),
         has_scales(has_scales_),
-        has_bias(has_bias_), has_clamp(has_clamp_), clamp_min(clamp_min_), clamp_max(clamp_max_),
+        has_bias(has_bias_),
+        has_clamp(has_clamp_),
+        clamp_min(clamp_min_),
+        clamp_max(clamp_max_),
         expected_output(expected_output_),
         activations(activations_),
         bias(bias_),
         weight_qval_indices(weight_qval_indices_),
         weight_luts(weight_luts_),
-        weight_scales(weight_scales_)
-  {}
+        weight_scales(weight_scales_) {}
 
   //--------------------------------------------------------------------------
   // Generator Functions (Factories)
   //--------------------------------------------------------------------------
 
-private:
+ private:
   /**
    * @brief The private "master" generator that provides maximum flexibility.
    *
-   * This function is the core engine. It takes the exact number of scales and LUTs
-   * to generate and constructs the test case. All other public generators are
-   * wrappers around this one.
+   * This function is the core engine. It takes the exact number of scales and
+   * LUTs to generate and constructs the test case. All other public generators
+   * are wrappers around this one.
    */
   static groupwise_lowbit_weight_lut_test_case _generate_master(
-    int m, int k, int n,
-    int scale_group_size, // Directly controls scale change frequency
-    int lut_group_size,   // Directly controls LUT change frequency
-    int weight_nbit, bool has_scales,
-    bool has_bias, bool has_clamp) {
-
+      int m,
+      int k,
+      int n,
+      int scale_group_size, // Directly controls scale change frequency
+      int lut_group_size, // Directly controls LUT change frequency
+      int weight_nbit,
+      bool has_scales,
+      bool has_bias,
+      bool has_clamp) {
     // --- 0. Validation and Setup ---
     const int total_weights = n * k;
     // Frequencies are controlled by their group sizes.
     assert(total_weights % scale_group_size == 0);
-    assert(total_weights % lut_group_size == 0);
 
-    // The number of unique scales/LUTs is derived directly from their group size.
+    // The number of unique scales/LUTs is derived directly from their group
+    // size.
     const int num_scales = total_weights / scale_group_size;
-    const int num_luts = total_weights / lut_group_size;
+    const int num_luts = (total_weights + lut_group_size - 1) / lut_group_size;
     const int lut_size = 1 << weight_nbit;
     std::mt19937 gen(std::random_device{}());
 
     // --- 1. Generate Primary Inputs ---
     auto activations = get_random_vector(m * k, -1.0f, 1.0f);
     std::vector<float> bias_vec(n, 0.0f);
-    if (has_bias) bias_vec = get_random_vector(n, -0.5f, 0.5f);
-    float clamp_min = -std::numeric_limits<float>::infinity(), clamp_max = std::numeric_limits<float>::infinity();
+    if (has_bias)
+      bias_vec = get_random_vector(n, -0.5f, 0.5f);
+    float clamp_min = -std::numeric_limits<float>::infinity(),
+          clamp_max = std::numeric_limits<float>::infinity();
     if (has_clamp) {
       auto r = get_random_vector(2, -5.0f, 5.0f);
-      clamp_min = std::min(r[0], r[1]); clamp_max = std::max(r[0], r[1]);
+      clamp_min = std::min(r[0], r[1]);
+      clamp_max = std::max(r[0], r[1]);
     }
 
     // --- 2. Generate Quantization Data ---
     // 2a. Generate the pools of unique scales and LUTs.
     std::vector<float> weight_scales;
     if (has_scales) {
-        // Normal case: generate random scales.
-        weight_scales = get_random_vector(num_scales, 0.001f, 0.1f);
+      // Normal case: generate random scales.
+      weight_scales = get_random_vector(num_scales, 0.001f, 0.1f);
     } else {
-        // LUT-only case: create a vector where every scale is 1.0f.
-        weight_scales.assign(num_scales, 1.0f);
+      // LUT-only case: create a vector where every scale is 1.0f.
+      weight_scales.assign(num_scales, 1.0f);
     }
 
-    auto weight_luts = get_random_vector(num_luts * lut_size, -0.2f, 0.2f); // Independent random LUTs
+    auto weight_luts = get_random_vector(
+        num_luts * lut_size, -0.2f, 0.2f); // Independent random LUTs
 
     // 2b. Generate random quantized indices for each weight.
     auto weight_qval_indices = std::vector<uint8_t>(total_weights);
     std::uniform_int_distribution<int> qval_dis(0, lut_size - 1);
-    for (int i = 0; i < total_weights; ++i) weight_qval_indices[i] = static_cast<uint8_t>(qval_dis(gen));
+    for (int i = 0; i < total_weights; ++i)
+      weight_qval_indices[i] = static_cast<uint8_t>(qval_dis(gen));
 
-  // --- 3. Compute Expected Output using the IMPLICIT mappings ---
-  std::vector<float> expected_output(m * n);
-  for (int m_idx = 0; m_idx < m; ++m_idx) {
-    for (int n_idx = 0; n_idx < n; ++n_idx) {
-      float res = 0.0f;
-      for (int k_idx = 0; k_idx < k; ++k_idx) {
-        float activation_val = activations[m_idx * k + k_idx];
-        int weight_idx = n_idx * k + k_idx;
-        uint8_t qval_idx = weight_qval_indices[weight_idx];
+    // --- 3. Compute Expected Output using the IMPLICIT mappings ---
+    std::vector<float> expected_output(m * n);
+    for (int m_idx = 0; m_idx < m; ++m_idx) {
+      for (int n_idx = 0; n_idx < n; ++n_idx) {
+        float res = 0.0f;
+        for (int k_idx = 0; k_idx < k; ++k_idx) {
+          float activation_val = activations[m_idx * k + k_idx];
+          int weight_idx = n_idx * k + k_idx;
+          uint8_t qval_idx = weight_qval_indices[weight_idx];
 
-        int32_t scale_idx = weight_idx / scale_group_size;
-        int32_t lut_idx   = weight_idx / lut_group_size;
+          int32_t scale_idx = weight_idx / scale_group_size;
+          int32_t lut_idx = weight_idx / lut_group_size;
 
-        // Dequantize: scale * LUT_value
-        float scale = weight_scales[scale_idx];
-        float lut_val = weight_luts[lut_idx * lut_size + qval_idx];
-        res += activation_val * (scale * lut_val);
+          // Dequantize: scale * LUT_value
+          float scale = weight_scales[scale_idx];
+          float lut_val = weight_luts[lut_idx * lut_size + qval_idx];
+          res += activation_val * (scale * lut_val);
+        }
+        res += bias_vec[n_idx];
+        if (has_clamp) {
+          res = std::clamp(res, clamp_min, clamp_max);
+        }
+        expected_output[m_idx * n + n_idx] = res;
       }
-      res += bias_vec[n_idx];
-      if (has_clamp) { res = std::clamp(res, clamp_min, clamp_max); }
-      expected_output[m_idx * n + n_idx] = res;
     }
+
+    // --- 4. Construct and Return ---
+    return groupwise_lowbit_weight_lut_test_case(
+        m,
+        k,
+        n,
+        scale_group_size,
+        lut_group_size,
+        weight_nbit,
+        has_scales,
+        has_bias,
+        has_clamp,
+        clamp_min,
+        clamp_max,
+        expected_output,
+        activations,
+        bias_vec,
+        weight_qval_indices,
+        weight_luts,
+        weight_scales);
   }
 
-  // --- 4. Construct and Return ---
-  return groupwise_lowbit_weight_lut_test_case(
-    m, k, n, scale_group_size, lut_group_size, weight_nbit, has_scales,
-    has_bias, has_clamp, clamp_min, clamp_max,
-    expected_output,
-    activations,
-    bias_vec,
-    weight_qval_indices,
-    weight_luts,
-    weight_scales);
-
-  }
-
-public:
+ public:
   /**
-   * @brief OVERLOAD 1: Simple generator where scales and LUTs share the same grouping.
+   * @brief OVERLOAD 1: Simple generator where scales and LUTs share the same
+   * grouping.
    *
-   * This is for the simplest case where a block of weights gets one scale and one LUT,
-   * and this pattern repeats.
+   * This is for the simplest case where a block of weights gets one scale and
+   * one LUT, and this pattern repeats.
    */
   static groupwise_lowbit_weight_lut_test_case generate_per_group(
-    int m, int k, int n,
-    int group_size, // The size of the block for both scales and LUTs
-    int weight_nbit, bool has_scales,
-    bool has_bias, bool has_clamp) {
-
-    std::cout << "[Generator Info] Using 'Per-Group' model.\n"
-              << "  - Both scales and LUTs will switch every " << group_size << " weights." << std::endl;
-
+      int m,
+      int k,
+      int n,
+      int group_size, // The size of the block for both scales and LUTs
+      int weight_nbit,
+      bool has_scales,
+      bool has_bias,
+      bool has_clamp) {
     // Just call the decoupled generator with the same group size for both.
     return _generate_master(
-      m, k, n,
-      group_size, /* scale_group_size */
-      group_size, /* lut_group_size */
-      weight_nbit,
-      has_scales,
-      has_bias, has_clamp
-    );
+        m,
+        k,
+        n,
+        group_size, /* scale_group_size */
+        group_size, /* lut_group_size */
+        weight_nbit,
+        has_scales,
+        has_bias,
+        has_clamp);
   }
 
   /**
-   * @brief OVERLOAD 2: Advanced generator with separate grouping for scales and LUTs.
+   * @brief OVERLOAD 2: Advanced generator with separate grouping for scales and
+   * LUTs.
    */
   static groupwise_lowbit_weight_lut_test_case generate_with_decoupled_grouping(
-    int m, int k, int n,
-    int scale_group_size, int lut_group_size, int weight_nbit, bool has_scales,
-    bool has_bias, bool has_clamp) {
-
-    std::cout << "[Generator Info] Using 'Decoupled Grouping' model.\n"
-              << "  - Scales will switch every " << scale_group_size << " weights.\n"
-              << "  - LUTs will switch every " << lut_group_size << " weights." << std::endl;
-
+      int m,
+      int k,
+      int n,
+      int scale_group_size,
+      int lut_group_size,
+      int weight_nbit,
+      bool has_scales,
+      bool has_bias,
+      bool has_clamp) {
     return _generate_master(
-        m, k, n,
-        scale_group_size, lut_group_size,
-        weight_nbit, has_scales,
-        has_bias, has_clamp
-    );
+        m,
+        k,
+        n,
+        scale_group_size,
+        lut_group_size,
+        weight_nbit,
+        has_scales,
+        has_bias,
+        has_clamp);
   }
 };
+
+#if defined(__ARM_FEATURE_BF16)
+std::vector<bfloat16_t> to_bfloat16_vector(const std::vector<float>& vec) {
+  std::vector<bfloat16_t> bf16_vec(vec.size());
+  for (size_t i = 0; i < vec.size(); ++i) {
+    // This conversion simulates the precision loss
+    bf16_vec[i] = vcvt_f32_bf16(vdup_n_f32(vec[i]));
+  }
+  return bf16_vec;
+}
+
+struct groupwise_lowbit_weight_lut_test_case_bf16 {
+  //--------------------------------------------------------------------------
+  // Parameters
+  //--------------------------------------------------------------------------
+  int m, k, n;
+  int scale_group_size;
+  int lut_group_size;
+  int weight_nbit;
+  bool has_scales, has_bias, has_clamp;
+  float clamp_min, clamp_max;
+
+  //--------------------------------------------------------------------------
+  // Data Tensors
+  //--------------------------------------------------------------------------
+  std::vector<float> expected_output;
+  std::vector<float> activations;
+  std::vector<float> bias;
+  std::vector<uint8_t>
+      weight_qval_indices; // Indices into a LUT for each weight
+  std::vector<bfloat16_t> weight_luts;
+  std::vector<bfloat16_t> weight_scales;
+
+  // ... existing constructor and generate functions ...
+
+  // New generator for the BFMMLA kernel
+  static groupwise_lowbit_weight_lut_test_case generate(
+      int m,
+      int k,
+      int n,
+      int scale_group_size,
+      int lut_group_size,
+      int weight_nbit,
+      bool has_scales,
+      bool has_bias,
+      bool has_clamp) {
+    // 1. Generate float data first
+    // --- 0. Validation and Setup ---
+    const int total_weights = n * k;
+    // Frequencies are controlled by their group sizes.
+    assert(total_weights % scale_group_size == 0);
+
+    // The number of unique scales/LUTs is derived directly from their group
+    // size.
+    const int num_scales = total_weights / scale_group_size;
+    const int num_luts = (total_weights + lut_group_size - 1) / lut_group_size;
+    const int lut_size = 1 << weight_nbit;
+    std::mt19937 gen(std::random_device{}());
+
+    // --- 1. Generate Primary Inputs ---
+    auto activations = get_random_vector(m * k, -1.0f, 1.0f);
+    std::vector<float> bias_vec(n, 0.0f);
+    if (has_bias)
+      bias_vec = get_random_vector(n, -0.5f, 0.5f);
+    float clamp_min = -std::numeric_limits<float>::infinity(),
+          clamp_max = std::numeric_limits<float>::infinity();
+    if (has_clamp) {
+      auto r = get_random_vector(2, -5.0f, 5.0f);
+      clamp_min = std::min(r[0], r[1]);
+      clamp_max = std::max(r[0], r[1]);
+    }
+
+    // --- 2. Generate Quantization Data ---
+    // 2a. Generate the pools of unique scales and LUTs.
+    std::vector<float> weight_scales;
+    if (has_scales) {
+      // Normal case: generate random scales.
+      weight_scales = get_random_vector(num_scales, 0.001f, 0.1f);
+    } else {
+      // LUT-only case: create a vector where every scale is 1.0f.
+      weight_scales.assign(num_scales, 1.0f);
+    }
+
+    auto weight_luts = get_random_vector(
+        num_luts * lut_size, -0.2f, 0.2f); // Independent random LUTs
+
+    // 2b. Generate random quantized indices for each weight.
+    auto weight_qval_indices = std::vector<uint8_t>(total_weights);
+    std::uniform_int_distribution<int> qval_dis(0, lut_size - 1);
+    for (int i = 0; i < total_weights; ++i)
+      weight_qval_indices[i] = static_cast<uint8_t>(qval_dis(gen));
+
+    std::vector<bfloat16_t> weight_scales_bf16 =
+        to_bfloat16_vector(weight_scales);
+
+    std::vector<bfloat16_t> weight_luts_bf16 = to_bfloat16_vector(weight_luts);
+
+    // --- 3. Compute Expected Output using SIMULATED bfloat16 precision ---
+    std::vector<float> expected_output(m * n);
+    for (int m_idx = 0; m_idx < m; ++m_idx) {
+      for (int n_idx = 0; n_idx < n; ++n_idx) {
+        float res = 0.0f;
+        for (int k_idx = 0; k_idx < k; ++k_idx) {
+          float activation_val = activations[m_idx * k + k_idx];
+          int weight_idx = n_idx * k + k_idx;
+          uint8_t qval_idx = weight_qval_indices[weight_idx];
+
+          int32_t scale_idx = weight_idx / scale_group_size;
+          int32_t lut_idx = weight_idx / lut_group_size;
+
+          // Dequantize: scale * LUT_value
+          // CRITICAL CHANGE: Simulate bfloat16 precision before multiplying
+          bfloat16_t scale_bf16 = weight_scales_bf16[scale_idx];
+          bfloat16_t lut_val_bf16 =
+              weight_luts_bf16[lut_idx * lut_size + qval_idx];
+          float dequantized_weight = float(scale_bf16) * float(lut_val_bf16);
+
+          res += activation_val * dequantized_weight;
+        }
+        res += bias_vec[n_idx];
+        if (has_clamp) {
+          res = std::clamp(res, clamp_min, clamp_max);
+        }
+        expected_output[m_idx * n + n_idx] = res;
+      }
+    }
+    return groupwise_lowbit_weight_lut_test_case_bf16(
+        m,
+        k,
+        n,
+        scale_group_size,
+        lut_group_size,
+        weight_nbit,
+        has_scales,
+        has_bias,
+        has_clamp,
+        clamp_min,
+        clamp_max,
+        expected_output,
+        activations,
+        bias_vec,
+        weight_qval_indices,
+        weight_luts_bf16, // Pass the b16 version
+        weight_scales_bf16 // Pass the b16 version
+    );
+  }
+}; // End of struct
+#endif // defined(__ARM_FEATURE_BF16)
 
 } // namespace torchao
 

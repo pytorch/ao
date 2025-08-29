@@ -3,15 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import pytest
-
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 import copy
 import io
 import random
@@ -23,30 +14,30 @@ from typing import Tuple
 import pytest
 import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
 from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl, preprocess_scale
 from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
-    float8_dynamic_activation_float8_weight,
-    float8_weight_only,
+    Float8StaticActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.granularity import (
     PerRow,
     PerTensor,
 )
-from torchao.quantization.quant_api import (
-    float8_static_activation_float8_weight,
-)
 from torchao.quantization.quant_primitives import (
     MappingType,
-    _choose_qparams_affine_float8,
+    _choose_scale_float8,
     _dequantize_affine_float8,
     _quantize_affine_float8,
     choose_qparams_affine,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -118,11 +109,13 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
             mode_map = {
                 "dynamic": partial(
-                    float8_dynamic_activation_float8_weight, granularity=granularity
+                    Float8DynamicActivationFloat8WeightConfig,
+                    granularity=granularity,
+                    version=1,
                 ),
-                "weight-only": float8_weight_only,
+                "weight-only": partial(Float8WeightOnlyConfig, version=1),
                 "static": partial(
-                    float8_static_activation_float8_weight,
+                    Float8StaticActivationFloat8WeightConfig,
                     scale=scale,
                     granularity=granularity,
                 ),
@@ -151,7 +144,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     def test_invalid_granularity(self):
         with pytest.raises(ValueError, match="Invalid granularity specification"):
-            float8_dynamic_activation_float8_weight(granularity="invalid")
+            Float8DynamicActivationFloat8WeightConfig(granularity="invalid")
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
@@ -161,7 +154,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             ValueError,
             match="Different granularities for activation and weight are not supported",
         ):
-            float8_dynamic_activation_float8_weight(granularity=(PerTensor(), PerRow()))
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=(PerTensor(), PerRow())
+            )
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
@@ -171,8 +166,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             pass
 
         with pytest.raises(ValueError, match="Invalid granularity types"):
-            float8_dynamic_activation_float8_weight(
-                granularity=(UnsupportedGranularity(), UnsupportedGranularity())
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=(UnsupportedGranularity(), UnsupportedGranularity()),
             )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -186,7 +181,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         ):
             model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
             quantize_(
-                model, float8_dynamic_activation_float8_weight(granularity=PerRow())
+                model,
+                Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
             )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -200,15 +196,18 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         mode_map = {
             "dynamic": partial(
-                float8_dynamic_activation_float8_weight, granularity=PerTensor()
+                Float8DynamicActivationFloat8WeightConfig,
+                granularity=PerTensor(),
+                version=1,
             ),
-            "weight-only": float8_weight_only,
+            "weight-only": partial(Float8WeightOnlyConfig, version=1),
             "static": partial(
-                float8_static_activation_float8_weight,
+                Float8StaticActivationFloat8WeightConfig,
                 scale=torch.tensor(1.0, dtype=torch.float32, device="cuda"),
                 granularity=PerTensor(),
             ),
         }
+
         factory = mode_map[mode]()
         quantize_(model, factory)
 
@@ -274,7 +273,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             "torchao.quantization.quant_api", level="INFO"
         ) as log_context:
             quantize_(
-                model, float8_dynamic_activation_float8_weight(granularity=PerTensor())
+                model,
+                Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(), version=1
+                ),
             )
             print(model)
 
@@ -319,7 +321,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         )
         test_linear = copy.deepcopy(ref_linear)
         quantize_(
-            test_linear, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+            test_linear,
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), version=1),
         )
 
         quant_weight = test_linear.weight
@@ -356,6 +359,49 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
+    def test_choose_scale_float8_bounds(self, float8_dtype, output_dtype):
+        block_size = ()
+        device = "cuda"
+        input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
+
+        # testing upper bounds
+        input_tensor[0][0] = 2000
+        scale_ref = _choose_scale_float8(
+            input_tensor, float8_dtype=float8_dtype, block_size=block_size
+        )
+
+        hp_value_ub = 1200
+        scale_with_ub = _choose_scale_float8(
+            input_tensor,
+            float8_dtype=float8_dtype,
+            block_size=block_size,
+            hp_value_ub=hp_value_ub,
+        )
+        # since scale = abs_max / quant_max, larger abs_max means scale is larger
+        self.assertTrue(scale_ref > scale_with_ub)
+
+        # tesing lower bounds settings
+        # making sure that abs is on the scale of 1e-20, so hp_value_lb can take effect
+        input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32) * 1e-20
+        scale_ref = _choose_scale_float8(
+            input_tensor, float8_dtype=float8_dtype, block_size=block_size
+        )
+        hp_value_lb = 1e-12
+        scale_with_lb = _choose_scale_float8(
+            input_tensor,
+            float8_dtype=float8_dtype,
+            block_size=block_size,
+            hp_value_lb=hp_value_lb,
+        )
+        # since scale = abs_max / quant_max, larger abs_max means scale is larger
+        self.assertTrue(scale_ref < scale_with_lb)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
@@ -364,7 +410,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
 
         # Choose quantization parameters
-        scale = _choose_qparams_affine_float8(
+        scale = _choose_scale_float8(
             input_tensor, float8_dtype=float8_dtype, block_size=block_size
         )
 
@@ -395,7 +441,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         block_size = (2, 16)  # 2x2 blocks in first dim, 2x16 blocks in second dim
 
         # Choose quantization parameters
-        scale = _choose_qparams_affine_float8(
+        scale = _choose_scale_float8(
             input_tensor, float8_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
@@ -428,7 +474,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize a model
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+            model,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, version=1
+            ),
         )
 
         weight_impl = model.weight.original_weight_tensor.tensor_impl
@@ -462,7 +511,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize with per-tensor granularity
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
+            model,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerTensor(), version=1
+            ),
         )
 
         original_weight = model.weight
@@ -493,7 +545,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize with per-row granularity
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+            model,
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), version=1),
         )
 
         original_weight = model.weight  # Shape: (32, 64)
@@ -531,7 +584,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Create and quantize a model
         model = torch.nn.Linear(64, 32, bias=False).to(device).to(dtype)
         quantize_(
-            model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
+            model,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerTensor(), version=1
+            ),
         )
 
         original_weight = model.weight
@@ -569,7 +625,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         quant_model = copy.deepcopy(ref_model)
         quantize_(
             quant_model,
-            Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, version=1
+            ),
         )
 
         # Create input with batch size that works well with slicing
@@ -675,45 +733,70 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         expected_shape = (8, 1)  # Flattened (2*2*2, 1)
         self.assertEqual(result.shape, expected_shape)
 
-    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
-    @common_utils.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
-    def test_quantize_dequantize_fp8_inductor(self, float8_dtype, hp_dtype):
-        quantize_affine_float8 = torch.ops.torchao.quantize_affine_float8
-        dequantize_affine_float8 = torch.ops.torchao.dequantize_affine_float8
-        input = torch.randn(10, 10)
-        with torch.no_grad():
-            torch._dynamo.reset()
-            expected_scale = torch.tensor(2.0)
-            expected_quantized = quantize_affine_float8(
-                input,
-                expected_scale,
-                float8_dtype=float8_dtype,
+    @torch.no_grad()
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize("float8_config_version", [1, 2])
+    def test_expected_kernels_on_gpu(self, granularity, float8_config_version):
+        """
+        Verify that float8 quantization + torch.compile results in the
+        expected number of kernels in the GPU trace.
+        """
+        torch.compiler.reset()
+
+        M, K, N = 128, 256, 512
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+        )
+        if float8_config_version == 1:
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity, version=1
             )
-            expected_dequantized = dequantize_affine_float8(
-                expected_quantized,
-                expected_scale,
-                output_dtype=hp_dtype,
+        else:
+            assert float8_config_version == 2
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity,
+                version=2,
+                kernel_preference=KernelPreference.TORCH,
             )
-            test_q, (code_q,) = torch._inductor.utils.run_and_get_code(
-                torch.compile(quantize_affine_float8),
-                input,
-                expected_scale,
-                float8_dtype=float8_dtype,
+        quantize_(
+            m,
+            config,
+        )
+
+        m = torch.compile(m)
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        out, code = run_and_get_code(m, x)
+
+        # triton kernel call looks like:
+        #   triton_per_fused__scaled_mm__to_copy_abs_amax_clamp_clone_div_expand_permute_transpose_unsqueeze_view_0.run(arg3_1, buf1, buf2, 128, 256, stream=stream0)
+        # scaled_mm call looks like:
+        #   extern_kernels._scaled_mm(buf1, reinterpret_tensor(arg0_1, (256, 512), (1, 256), 0), buf2, reinterpret_tensor(arg1_1, (1, 512), (1, 1), 0), arg2_1, out_dtype=torch.bfloat16, use_fast_accum=True, out=buf3)
+        if granularity == PerRow():
+            # one triton kernel for quantizing the activation
+            FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(
+                code[0]
             )
-            torch.testing.FileCheck().check(
-                "torch.ops.torchao.quantize_affine_float8.default"
-            ).run(code_q)
-            test_dq, (code_dq,) = torch._inductor.utils.run_and_get_code(
-                torch.compile(dequantize_affine_float8),
-                test_q,
-                expected_scale,
-                hp_dtype,
+            # one scaled_mm call
+            FileCheck().check("def call(").check_count(
+                "._scaled_mm(", 1, exactly=True
+            ).run(code[0])
+        else:
+            assert granularity == PerTensor(), "unsupported"
+            # three triton kernels for quantizing the activation:
+            # kernel 1: x_max_tmp = max(x, ...)
+            # kernel 2: x_max = max(x_max_tmp)
+            # kernel 3: x_float8 = to_float8(x, x_max)
+            FileCheck().check("def call(").check_count(".run(", 3, exactly=True).run(
+                code[0]
             )
-            torch.testing.FileCheck().check(
-                "torch.ops.torchao.dequantize_affine_float8.default"
-            ).run(code_dq)
-            torch.testing.assert_close(expected_quantized, test_q)
-            torch.testing.assert_close(expected_dequantized, test_dq)
+            # one scaled_mm call
+            FileCheck().check("def call(").check_count(
+                "._scaled_mm(", 1, exactly=True
+            ).run(code[0])
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)

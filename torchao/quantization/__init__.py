@@ -46,6 +46,7 @@ from .quant_api import (
     FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -87,8 +88,14 @@ from .quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from .quantize_ import (
-    Int4GroupwisePreshuffleTensor,
+from .quantize_.workflows import (
+    Float8Tensor,
+    Int4MarlinSparseTensor,
+    Int4OpaqueTensor,
+    Int4PreshuffledTensor,
+    Int4Tensor,
+    IntxOpaqueTensor,
+    IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -140,6 +147,7 @@ __all__ = [
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
     "Int4WeightOnlyConfig",
+    "Float8DynamicActivationInt4WeightConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
@@ -153,7 +161,13 @@ __all__ = [
     "ModuleFqnToConfig",
     "FbgemmConfig",
     # tensor subclasses
-    "Int4GroupwisePreshuffleTensor",
+    "Int4Tensor",
+    "Int4PreshuffledTensor",
+    "Int4MarlinSparseTensor",
+    "IntxOpaqueTensor",
+    "IntxUnpackedToInt8Tensor",
+    "Float8Tensor",
+    "Int4OpaqueTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
