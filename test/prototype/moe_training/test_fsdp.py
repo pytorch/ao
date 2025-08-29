@@ -26,6 +26,7 @@ if torch.version.hip is not None:
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn import functional as F
 
 # this feature requires CUDA and SM89+
@@ -51,6 +52,26 @@ except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
     )
+
+
+@pytest.fixture(scope="module")
+def device_mesh_1d() -> DeviceMesh:
+    """
+    Fixture for setting up and tearing down the distributed environment
+    for the entire test module.
+    """
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    if not dist.is_initialized():
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+    device_mesh = init_device_mesh("cuda", (world_size,))
+    torch.manual_seed(1)
+    torch.cuda.set_device(rank)
+
+    yield device_mesh
+
+    dist.destroy_process_group()
 
 
 @pytest.mark.parametrize(
@@ -80,7 +101,12 @@ except ImportError:
         },
     ],
 )
-def test_moe_training_fsdp(target_fqns: list[str], compile: bool, recipe_config: dict):
+def test_moe_training_fsdp(
+    target_fqns: list[str],
+    compile: bool,
+    recipe_config: dict,
+    device_mesh_1d: DeviceMesh,
+):
     (
         recipe,
         group_alignment_size,
@@ -110,9 +136,6 @@ def test_moe_training_fsdp(target_fqns: list[str], compile: bool, recipe_config:
         pytest.skip(
             f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
-
-    # setup distributed for fsdp
-    setup_distributed()
 
     # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
     # or quantization ops (mxfp8 scaling groups are size 1x32)
@@ -154,6 +177,10 @@ def test_moe_training_fsdp(target_fqns: list[str], compile: bool, recipe_config:
         model,
         target_fqns=target_fqns,
     )
+    if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
 
     # FSDP2
     fully_shard(model)
@@ -197,12 +224,3 @@ def test_moe_training_fsdp(target_fqns: list[str], compile: bool, recipe_config:
         assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
             f"SQNR must be >= {min_param_grad_sqnr}, got {param_grad_sqnr.item()}."
         )
-
-    dist.destroy_process_group()
-
-
-def setup_distributed():
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
