@@ -22,7 +22,7 @@ from torchao.float8.inference import (
     preprocess_data,
     preprocess_scale,
 )
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
@@ -178,32 +178,61 @@ class Float8Tensor(TorchAOBaseTensor):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
-        # for per row quantization and kernel_preference default setting, we'll use triton kernel for best performance
+        kernel_choice = None
         if (
             kernel_preference == KernelPreference.AUTO
             and _is_fbgemm_genai_gpu_available()
-            and (
-                tuple(block_size)
-                == (1,) * (hp_tensor.ndim - 1) + (hp_tensor.shape[-1],)
-            )
+            and is_sm_at_least_90()
+            and isinstance(granularity, PerRow)
+            and float8_dtype == torch.float8_e4m3fn
+            and hp_value_lb is None
         ):
-            assert float8_dtype == torch.float8_e4m3fn, (
-                f"Only torch.float8_e4m3fn is supported, got: {float8_dtype}"
+            # if kernel_preference is AUTO and per row quantization
+            # we'll use fbgemm quantize kernel for best performance
+            kernel_choice = "fbgemm"
+        elif kernel_preference == KernelPreference.FBGEMM:
+            # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
+            assert _is_fbgemm_genai_gpu_available() and is_sm_at_least_90(), (
+                "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
             )
+            assert hp_value_lb is None, (
+                "hp_value_lb should not be specified if with KerenelPreference.FBGEMM"
+            )
+            kernel_choice = "fbgemm"
+        else:
+            # fallback quantize kernel for everything else will be torch
+            kernel_choice = "torch"
+
+        if kernel_choice == "fbgemm":
+            assert hp_value_lb is None, f"{hp_value_lb=} is not supported"
             if hp_value_ub is not None:
                 maybe_hp_value_ub_tensor = torch.tensor(
                     hp_value_ub, dtype=torch.float, device=hp_tensor.device
                 )
             else:
                 maybe_hp_value_ub_tensor = None
-            data, scale = torch.ops.triton.quantize_fp8_row(
-                hp_tensor, scale_ub=maybe_hp_value_ub_tensor
-            )
-            scale_shape = []
-            for i in range(hp_tensor.ndim):
-                scale_shape.append(hp_tensor.shape[i] // block_size[i])
-            scale = scale.reshape(*scale_shape)
+            if isinstance(granularity, PerRow):
+                data, scale = torch.ops.triton.quantize_fp8_row(
+                    hp_tensor, scale_ub=maybe_hp_value_ub_tensor
+                )
+                scale_shape = []
+                for i in range(hp_tensor.ndim):
+                    scale_shape.append(hp_tensor.shape[i] // block_size[i])
+                scale = scale.reshape(*scale_shape)
+            else:
+                assert isinstance(granularity, PerTensor), (
+                    f"Expected per tensor, got {granularity}"
+                )
+                # current error: torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+                # TODO: enable after this is working
+                # data, scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+                #     hp_tensor, num_tokens, scale_ub=maybe_hp_value_ub_tensor
+                # )
+                raise NotImplementedError(
+                    "Currently KernelPreference.FBGEMM does not work for per tensor float8 quant"
+                )
         else:
+            assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
             scale = _choose_scale_float8(
                 hp_tensor,
                 float8_dtype=float8_dtype,
