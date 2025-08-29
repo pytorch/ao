@@ -72,6 +72,7 @@ from torchao.quantization.quantize_.common import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
+    Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
     Int4PreshuffledTensor,
@@ -1054,27 +1055,29 @@ def _gemlite_uintx_weight_only_transform(
 @dataclass
 class Int4WeightOnlyConfig(AOBaseConfig):
     """
-    Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using
-    "tensor_core_tiled" layout for speedup with tinygemm kernel
-
-    Note:
-        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`
-        and `torch.ops.aten._weight_int4pack_mm_for_cpu`), the main difference
-        of quantization algorithm compared to the more traditional type of integer quantization is the following:
-        1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
-        2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
-        please follow the relevant code in `choose_qparams_affine`, `quantize_affine` and `dequantize_affine`
-        to learn about how the quantization parameters are chosen and how the Tensor is quantized/dequantized for tinygemm
+    Configuration for int4 weight only quantization, only groupwise quantization is supported
+    right now, and we support version 1 and version 2, that are implemented differently although with
+    same support. In version 2, different target are mainly distinguished by `packing_format` arg, and in version 1, mainly by `layout`.
 
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained, choices are [256, 128, 64, 32]
-        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
-        `use_hqq`: whether to use hqq or default quantization mode, default is False
-        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT
-        `packing_format`: the packing format for int4 tensor, available from version 2 and above
+         size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2
+        `packing_format`: the packing format for int4 tensor, used in version 2 only
+         `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
+         currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
+        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`, used in version 1 only
+        `use_hqq`: whether to use hqq or default quantization mode, default is False, used in version 1 only
+        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE], used in version 1 only
+        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
+        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT, used in version 1 only
+        `version`: version of the config to use, only subset of above args are valid for version 1, and subset of above args are valid for version 2, default is 1, see note for more details
+
+    Note:
+        Current state for Int4WeightOnlyConfig is that it supports both v1 (legacy) and v2
+
+        For v2 (version = 2), only `group_size`, `packing_format`, `int4_choose_qparams_algorithm` and `set_inductor_config` are valid, all other args will be ignored
+        For v1 (version = 1), only `group_size`, `layout`, `use_hqq`, `zero_point_domain`, `preserve_zero` and `set_inductor_config` are valid, we plan to deprecate v1 in torchao 0.15 to make this config
+        less confusing
     """
 
     group_size: int = 128
@@ -1085,6 +1088,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     preserve_zero: Optional[bool] = None
     # only used in version >= 2
     packing_format: PackingFormat = PackingFormat.PLAIN
+    int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
+        Int4ChooseQParamsAlgorithm.TINYGEMM
+    )
     version: int = 1
 
     def __post_init__(self):
@@ -1105,6 +1111,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     group_size = config.group_size
     layout = config.layout
     use_hqq = config.use_hqq
+    int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
     zero_point_domain = config.zero_point_domain
     packing_format = config.packing_format
 
@@ -1118,6 +1125,12 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
     if config.version == 2:
         block_size = list(block_size)
+
+        if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
+            assert packing_format == PackingFormat.TILE_PACKED_TO_4D, (
+                f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {packing_format}, it's only supported by PackingFormat.TILE_PACKED_TO_4D curretnly"
+            )
+
         if packing_format == PackingFormat.PRESHUFFLED:
             new_weight = Int4PreshuffledTensor.from_hp(
                 weight,
@@ -1147,6 +1160,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             new_weight = Int4TilePackedTo4dTensor.from_hp(
                 weight,
                 block_size,
+                int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
             )
             return new_weight
         else:

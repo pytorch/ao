@@ -205,7 +205,7 @@ Nothing contained in this Model Card should be interpreted as or deemed a restri
 
 _int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig
-quant_config = Int4WeightOnlyConfig(group_size=128, use_hqq=True)
+quant_config = Int4WeightOnlyConfig(group_size=128, packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq", version=2)
 quantization_config = TorchAoConfig(quant_type=quant_config)
 quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -627,7 +627,12 @@ def quantize_and_upload(
     )
     quant_to_config = {
         "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
-        "INT4": Int4WeightOnlyConfig(group_size=128, version=2),
+        "INT4": Int4WeightOnlyConfig(
+            group_size=128,
+            packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+            version=2,
+        ),
         "INT8-INT4": ModuleFqnToConfig(
             {
                 "_default": _int8_int4_linear_config,
