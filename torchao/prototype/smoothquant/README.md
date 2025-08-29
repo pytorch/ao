@@ -59,7 +59,7 @@ All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence 
 
 *Used with `torch.compile`, **Used with **SmoothQuant**
 
-| Precision | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
+| Precision dtype | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
 |-----------|--------------|------------|------------|------------|--------------|
 | bfloat16  |  -             | 6.93       | 667        |  -         |  -          |
 | bfloat16* |  -             | 6.93       | 27    🐌   |  -         |  -          |
