@@ -8,7 +8,7 @@ def bench_fwd_bwd_microseconds(
 ):
     assert labels is not None
 
-    def fwd_bwd():
+    def fwd_bwd(*args, **kwargs):
         out = fn(*args, **kwargs)
         loss = F.mse_loss(out, labels)
         loss.backward()
@@ -16,7 +16,20 @@ def bench_fwd_bwd_microseconds(
     fwd_bwd_compiled = (
         torch.compile(fwd_bwd, fullgraph=fullgraph) if use_compile else fwd_bwd
     )
-    return benchmark_cuda_function_in_microseconds(fwd_bwd_compiled)
+    return benchmark_cuda_function_in_microseconds(
+        fwd_bwd_compiled,
+        *args,
+        **kwargs,
+    )
+
+
+def bench_fwd_microseconds(fn, *args, use_compile=False, fullgraph=True, **kwargs):
+    fn_compiled = torch.compile(fn, fullgraph=fullgraph) if use_compile else fn
+    return benchmark_cuda_function_in_microseconds(
+        fn_compiled,
+        *args,
+        **kwargs,
+    )
 
 
 def profile_fwd_bwd(

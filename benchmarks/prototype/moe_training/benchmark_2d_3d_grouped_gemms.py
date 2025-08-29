@@ -6,6 +6,7 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 import argparse
 import itertools
+import logging
 from dataclasses import dataclass
 from typing import List
 
@@ -105,10 +106,22 @@ def run_experiment(
     )
 
     # bench fp8 rowwise grouped mm
-    fp8_rowwise_us = bench_fp8_rowwise_grouped_mm(A, B_t, offs)
+    if torch.cuda.get_device_capability() != (9, 0):
+        logging.warning(
+            f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+        )
+        fp8_rowwise_us = float("inf")
+    else:
+        fp8_rowwise_us = bench_fp8_rowwise_grouped_mm(A, B_t, offs)
 
     # benchmark mxfp8 grouped mm
-    mxfp8_us = bench_mxfp8_grouped_mm(A, B_t, offs)
+    if torch.cuda.get_device_capability() != (10, 0):
+        logging.warning(
+            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+        )
+        mxfp8_us = float("inf")
+    else:
+        mxfp8_us = bench_mxfp8_grouped_mm(A, B_t, offs)
 
     return ExperimentResult(
         bf16_us=round(bf16_us, 3),
@@ -126,9 +139,25 @@ def print_results(experiments: List[Experiment]):
         "bf16_time_us",
         "fp8_rowwise_time_us",
         "mxfp8_time_us",
+        "bf16_tflops",
+        "fp8_rowwise_tflops",
+        "mxfp8_tflops",
+        "fp8_rowwise_speedup",
+        "mxfp8_speedup",
     ]
     rows = []
     for experiment in experiments:
+        # calculate tflops
+        e, m, n, k = (
+            experiment.config.e,
+            experiment.config.m,
+            experiment.config.n,
+            experiment.config.k,
+        )
+        flops = 2 * e * m * n * k
+        bf16_tflops = (flops / 1e12) / (experiment.result.bf16_us / 1e6)
+        fp8_rowwise_tflops = (flops / 1e12) / (experiment.result.fp8_rowwise_us / 1e6)
+        mxfp8_tflops = (flops / 1e12) / (experiment.result.mxfp8_us / 1e6)
         rows.append(
             [
                 experiment.config.e,
@@ -138,6 +167,11 @@ def print_results(experiments: List[Experiment]):
                 experiment.result.bf16_us,
                 experiment.result.fp8_rowwise_us,
                 experiment.result.mxfp8_us,
+                round(bf16_tflops, 3),
+                round(fp8_rowwise_tflops, 3),
+                round(mxfp8_tflops, 3),
+                f"{experiment.result.bf16_us / experiment.result.fp8_rowwise_us:.2f}x",
+                f"{experiment.result.bf16_us / experiment.result.mxfp8_us:.2f}x",
             ]
         )
     print(tabulate(rows, headers=headers))

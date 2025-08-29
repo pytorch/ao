@@ -7,12 +7,13 @@
 #
 # To run these benchmarks, use the following command:
 #
-# torchrun --nproc-per-node=8 --local-ranks-filter=0 torchao/prototype/moe_training/benchmarks/benchmark_moe_layer.py
+# torchrun --nproc-per-node=8 --local-ranks-filter=0 benchmarks/prototype/moe_training/benchmark_moe_layer_fsdp.py
 #
 #######################################################################
 
 import argparse
 import copy
+import logging
 import os
 
 import pytest
@@ -23,13 +24,6 @@ from torch.distributed._composable.fsdp import fully_shard
 from torch.nn import functional as F
 
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
-
-# this feature requires CUDA and SM89+
-if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
-    pytest.skip(
-        "CUDA not available or compute capability < 8.9", allow_module_level=True
-    )
-
 from torchao.prototype.moe_training.conversion_utils import (
     MoEScalingType,
     MoETrainingConfig,
@@ -48,12 +42,27 @@ except ImportError:
     )
 
 
-def bench_moe_float8_training_fsdp(
-    recipe_name: str, enable_profile: bool, use_compile: bool
-):
+def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile: bool):
     assert torch.cuda.is_available()
     assert recipe_name in ["fp8_rowwise", "mxfp8"]
     recipe = MoEScalingType[recipe_name.upper()]
+    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
+        9,
+        0,
+    ):
+        logging.warning(
+            f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+        )
+        return
+
+    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
+        10,
+        0,
+    ):
+        logging.warning(
+            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+        )
+        return
 
     # setup distributed for fsdp
     setup_distributed()
@@ -157,14 +166,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable PyTorch profiling and save results to file",
     )
-    parser.add_argument("--recipe", type=str, help="[fp8_rowwise, mxfp8]")
+    parser.add_argument(
+        "--recipe", type=str, help="[fp8_rowwise, mxfp8]", required=True
+    )
     parser.add_argument(
         "--compile",
         action="store_true",
         help="use torch.compile",
     )
     args = parser.parse_args()
-    bench_moe_float8_training_fsdp(
+    bench_moe_training_fsdp(
         recipe_name=args.recipe,
         enable_profile=args.profile,
         use_compile=args.compile,
