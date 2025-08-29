@@ -14,6 +14,7 @@ from .int4.int4_preshuffled_tensor import (
 from .int4.int4_tensor import (
     Int4Tensor,
 )
+from .int4.int4_tile_packed_to_4d_tensor import Int4TilePackedTo4dTensor
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
+    "Int4TilePackedTo4dTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "IntxOpaqueTensor",
