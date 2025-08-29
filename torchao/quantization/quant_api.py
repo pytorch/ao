@@ -74,7 +74,7 @@ from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
-    Int4PlainInt32,
+    Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
     IntxOpaqueTensor,
@@ -1131,7 +1131,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             )
             return new_weight
         elif packing_format == PackingFormat.PLAIN_INT32:
-            new_weight = Int4PlainInt32.from_hp(
+            new_weight = Int4PlainInt32Tensor.from_hp(
                 weight,
                 block_size,
             )

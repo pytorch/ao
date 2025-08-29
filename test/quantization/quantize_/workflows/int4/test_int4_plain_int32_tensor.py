@@ -19,9 +19,6 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
 )
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
-)
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     torch_version_at_least,
@@ -32,13 +29,12 @@ def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
         packing_format="plain_int32",
-        zero_point_domain=ZeroPointDomain.INT,
         version=2,
     )
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
-class Int4PlainInt32(TestCase):
+class Int4PlainInt32Tensor(TestCase):
     @parametrize(
         "sizes",
         [
@@ -69,7 +65,7 @@ class Int4PlainInt32(TestCase):
         quantize_(linear, get_config(group_size=128))
         self.assertEqual(
             str(type(linear.weight)),
-            "<class 'torchao.quantization.Int4PlainInt32'>",
+            "<class 'torchao.quantization.Int4PlainInt32Tensor'>",
         )
 
         with tempfile.NamedTemporaryFile() as f:
@@ -78,11 +74,11 @@ class Int4PlainInt32(TestCase):
             state_dict = torch.load(f)
             self.assertEqual(
                 str(type(state_dict["weight"])),
-                "<class 'torchao.quantization.Int4PlainInt32'>",
+                "<class 'torchao.quantization.Int4PlainInt32Tensor'>",
             )
 
 
-instantiate_parametrized_tests(Int4PlainInt32)
+instantiate_parametrized_tests(Int4PlainInt32Tensor)
 
 
 if __name__ == "__main__":

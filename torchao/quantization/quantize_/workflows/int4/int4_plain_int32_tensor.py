@@ -11,8 +11,8 @@ import torch
 
 from torchao.quantization.quant_primitives import (
     MappingType,
-    _choose_qparams_affine,
-    _quantize_affine,
+    choose_qparams_affine,
+    quantize_affine,
 )
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -30,13 +30,12 @@ class Int4PlainInt32(TorchAOBaseTensor):
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
     Tensor Attributes:
-        qdata: packed int4 weigh, always viewed as a 2D (N, K/2) tensor
+        qdata: (N, K/8), packed int4 weight, the data type is int32 here with 4*(int4*2)
         scale: (K/group_size, N), dtype is the same as the original Tensor dtype
-        zero_point: (K/group_size, N)
+        zero_point: (K/group_size, N), dtype is int8
 
     Non-Tensor Attributes:
-        block_size: the block size for quantization, representing the granularity, for groupwise quantization, will have block_size (1, group_size).
-                    we only support group_size = 32/64/128.
+        block_size: the block size for quantization, representing the granularity.
         shape: shape of the original Tensor
 
     """
@@ -86,7 +85,7 @@ class Int4PlainInt32(TorchAOBaseTensor):
         eps = 1e-6
         scale_dtype = None
         zero_point_dtype = torch.int32
-        scale, zero_point = _choose_qparams_affine(
+        scale, zero_point = choose_qparams_affine(
             w,
             mapping_type.name,
             block_size,
@@ -97,7 +96,7 @@ class Int4PlainInt32(TorchAOBaseTensor):
             scale_dtype,
             zero_point_dtype,
         )
-        int_data = _quantize_affine(
+        int_data = quantize_affine(
             w,
             block_size,
             scale,

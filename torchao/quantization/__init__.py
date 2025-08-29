@@ -92,9 +92,9 @@ from .quantize_.workflows import (
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
+    Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
-    Int4PlainInt32,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
 )
@@ -163,10 +163,10 @@ __all__ = [
     "FbgemmConfig",
     # tensor subclasses
     "Int4Tensor",
-    "Int4PlainInt32",
+    "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
-    "IntxOpaqueTensor",	   
+    "IntxOpaqueTensor",
     "IntxUnpackedToInt8Tensor",
     "Float8Tensor",
     "Int4OpaqueTensor",
