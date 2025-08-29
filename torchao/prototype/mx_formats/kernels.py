@@ -1179,7 +1179,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     @torch.library.custom_op("torchao::triton_mx_block_rearrange", mutates_args=())
     def triton_mx_block_rearrange(scale_tensor: torch.Tensor) -> torch.Tensor:
         """
-        Rearranges an E8M0 tensor scale from row-major format to block-scaled swizzle format.
+        Rearranges an E8M0 tensor scale to block-scaled swizzle format.
 
         This format is suitable for Tmem as described in NVIDIA documentation:
         https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
