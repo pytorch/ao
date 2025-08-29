@@ -42,6 +42,12 @@ class PackingFormat(str, Enum):
     UNPACKED_TO_INT8 = "unpacked_to_int8"
 
     """
+    plain_int32 is referring to the format used by int4 weight-only quantization.
+    which is a groupwise quantization format 2*int4 is store in a byte and 4*(int4*2) is stored in a int32.
+    """
+    PLAIN_INT32 = "plain_int32"
+
+    """
     Opaque packing format that's used for tensors that does not have a predefined packing format
     (that may be decided on hardware, tensor shape, library availability etc.) and it's not
     needed for the rest of the system to understand the specific format that's adopted.
