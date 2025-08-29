@@ -15,6 +15,7 @@ then
 ./test/prototype/moe_training/test_fsdp.sh
 ./test/prototype/moe_training/test_tp.sh
 ./test/prototype/moe_training/test_fsdp_tp.sh
+./test/prototype/moe_training/test_fsdp_tp_ep.sh
 fi
 
 echo "all tests successful"
