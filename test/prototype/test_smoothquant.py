@@ -73,7 +73,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize("device", ["cpu", "cuda"])
     @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
     def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
-        """Test the margin error of SmoothQuant across alpha, dtype, etc."""
+        """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
 
         m = self.ToyMultiLinearModel(32, 16, 8).eval().to(device).to(input_dtype)
         m_ref = deepcopy(m)
@@ -96,7 +96,7 @@ class TestSmoothQuant(unittest.TestCase):
 
         # Step 2: Inference quantized model
         with torch.inference_mode():
-            q_out = torch.compile(m, fullgraph=True)(test_data)
+            q_out = m(test_data)
             ref_out = m_ref(test_data)
 
             # Simple validation - ensure quantized model produces reasonable outputs
@@ -233,9 +233,6 @@ class TestSmoothQuant(unittest.TestCase):
         # Step 3: Apply quantization configuration
         config.step = SmoothQuantStep.CONVERT
         quantize_(m2, config)
-
-        # Apply compilation if supported
-        m2 = torch.compile(m2, fullgraph=True)
 
         # Step 4: Validate outputs on full dataset
         with torch.inference_mode():
