@@ -1147,6 +1147,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             new_weight = Int4TilePackedTo4dTensor.from_hp(
                 weight,
                 block_size,
+                use_hqq=use_hqq,
             )
             return new_weight
         else:

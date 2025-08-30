@@ -5,10 +5,18 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import math
 from typing import List
 
 import torch
 
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    _choose_qparams_affine_tinygemm,
+    _choose_qparams_and_quantize_affine_hqq,
+    _quantize_affine_tinygemm,
+)
+from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import TorchAOBaseTensor, fill_defaults, find_multiple
 
 __all__ = [
@@ -76,6 +84,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         cls,
         hp_tensor: torch.Tensor,
         block_size: List[int],
+        use_hqq: bool = False,
     ):
         assert len(block_size) == hp_tensor.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {hp_tensor.ndim=}"
@@ -115,34 +124,48 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         quant_min = 0
         quant_max = 15
 
-        from torchao.quantization.quant_primitives import (
-            MappingType,
-            _choose_qparams_affine_tinygemm,
-            _quantize_affine_tinygemm,
-        )
+        if use_hqq:
+            nbits = int(math.log2(quant_max + 1))
+            axis = 1
+            group_size = block_size[-1]
+            compute_dtype = hp_tensor_padded.dtype
+            device = hp_tensor_padded.device
+            int_data, scale, zero_point, _ = _choose_qparams_and_quantize_affine_hqq(
+                hp_tensor_padded,
+                nbits=nbits,
+                group_size=group_size,
+                axis=axis,
+                compute_dtype=compute_dtype,
+                device=device,
+                verbose=False,
+                raw_output=False,
+                # raw_output=False is basically the 'convert to tinygemm zero_point version' option (add scale*midpoint) that's used in TilePackedTo4d
+                # note _choose_qparams_affine_tinygemm does this same thing
+            )
+            int_data = int_data.to(target_dtype)
+        else:
+            # Calculate scale and zero_point for tinygemm
+            scale, zero_point = _choose_qparams_affine_tinygemm(
+                hp_tensor_padded,
+                mapping_type=MappingType.ASYMMETRIC,
+                block_size=tuple(block_size),
+                target_dtype=target_dtype,
+                quant_min=quant_min,
+                quant_max=quant_max,
+                scale_dtype=hp_tensor.dtype,
+                zero_point_dtype=hp_tensor.dtype,
+            )
 
-        # Calculate scale and zero_point for tinygemm
-        scale, zero_point = _choose_qparams_affine_tinygemm(
-            hp_tensor_padded,
-            mapping_type=MappingType.ASYMMETRIC,
-            block_size=tuple(block_size),
-            target_dtype=target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            scale_dtype=hp_tensor.dtype,
-            zero_point_dtype=hp_tensor.dtype,
-        )
-
-        # Quantize for tinygemm
-        int_data = _quantize_affine_tinygemm(
-            hp_tensor_padded,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-        )
+            # Quantize for tinygemm
+            int_data = _quantize_affine_tinygemm(
+                hp_tensor_padded,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min=quant_min,
+                quant_max=quant_max,
+            )
 
         # Convert to packed format
         def quant_2d(int_data_2d):
@@ -174,8 +197,6 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
                 if zero_point is not None
                 else None
             )
-
-        from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
 
