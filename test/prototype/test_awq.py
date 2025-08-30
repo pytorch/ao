@@ -43,7 +43,6 @@ class TestAWQ(TestCase):
         l1, l2, l3 = 512, 256, 128
         group_size = 128
         n_calibration_examples = 10
-        sequence_length = 5
 
         m = ToyTwoLinearModel(l1, l2, l3).eval()
 
@@ -60,10 +59,7 @@ class TestAWQ(TestCase):
 
         # awq quantization
         # tinygemm kernel only uses bfloat16 inputs
-        dataset = m.example_inputs(
-            dataset_size,
-            sequence_length=sequence_length,
-        )
+        dataset = m.example_inputs(dataset_size)
         ref_out = torch.cat([m(d.squeeze(0)) for d in dataset])
 
         calibration_data = dataset[:n_calibration_examples]
@@ -89,13 +85,9 @@ class TestAWQ(TestCase):
         l1, l2, l3 = 512, 256, 128
         group_size = 128
         n_calibration_examples = 10
-        sequence_length = 5
 
         m = ToyTwoLinearModel(l1, l2, l3).eval()
-        dataset = m.example_inputs(
-            dataset_size,
-            sequence_length=sequence_length,
-        )
+        dataset = m.example_inputs(dataset_size)
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
@@ -145,13 +137,9 @@ class TestAWQ(TestCase):
         l1, l2, l3 = 512, 256, 128
         group_size = 128
         n_calibration_examples = 10
-        sequence_length = 5
 
         m = ToyTwoLinearModel(l1, l2, l3).eval()
-        dataset = m.example_inputs(
-            dataset_size,
-            sequence_length=sequence_length,
-        )
+        dataset = m.example_inputs(dataset_size)
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate

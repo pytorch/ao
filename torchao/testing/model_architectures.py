@@ -58,22 +58,13 @@ class ToyTwoLinearModel(torch.nn.Module):
         )
 
     # Note: tinygemm kernel only uses bfloat16 inputs
-    def example_inputs(self, batch_size=1, sequence_length=None):
-        if sequence_length is not None:
-            return [
-                torch.randn(
-                    1, self.linear1.in_features, dtype=self.dtype, device=self.device
-                )
-                for _ in range(batch_size)
-            ]
-        return (
+    def example_inputs(self, batch_size=1):
+        return [
             torch.randn(
-                batch_size,
-                self.linear1.in_features,
-                dtype=self.dtype,
-                device=self.device,
-            ),
-        )
+                1, self.linear1.in_features, dtype=self.dtype, device=self.device
+            )
+            for _ in range(batch_size)
+        ]
 
     def forward(self, x):
         x = self.linear1(x)
