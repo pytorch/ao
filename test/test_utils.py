@@ -8,6 +8,7 @@ import warnings
 from unittest.mock import patch
 
 import torch
+import torch.nn.functional as F
 
 from torchao.testing.utils import skip_if_no_cuda
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
@@ -343,6 +344,48 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             l.weight, "attr", None, zero_point=None, optional_attr="value"
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
+
+    def test_implements_and_torch_function_together(self):
+        """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
+
+        implements = TorchAOBaseTensor.implements
+        implements_torch_function = TorchAOBaseTensor.implements_torch_function
+
+        @implements([torch.ops.aten.linear.default])
+        @implements_torch_function([F.linear])
+        def fake_linear(f, types, args, kwargs):
+            x, w, b = args
+            return torch.matmul(x, w.T) + (b if b is not None else 0)
+
+        # make sure both got registered on TorchAOBaseTensor
+        self.assertIn(
+            torch.ops.aten.linear.default,
+            TorchAOBaseTensor._ATEN_OP_TABLE[TorchAOBaseTensor],
+        )
+        self.assertIn(F.linear, TorchAOBaseTensor._TORCH_FN_TABLE[TorchAOBaseTensor])
+
+        # check they both point to the same function wrapper
+        aten_wrapper = TorchAOBaseTensor._ATEN_OP_TABLE[TorchAOBaseTensor][
+            torch.ops.aten.linear.default
+        ]
+        torchfn_wrapper = TorchAOBaseTensor._TORCH_FN_TABLE[TorchAOBaseTensor][F.linear]
+
+        # check if they wrap the same underlying function
+        self.assertEqual(aten_wrapper.__wrapped__, fake_linear)
+        self.assertEqual(torchfn_wrapper.__wrapped__, fake_linear)
+
+        # run through the wrapper
+        x = torch.randn(2, 3)
+        w = torch.randn(4, 3)
+        b = torch.randn(4)
+
+        out_aten = aten_wrapper(fake_linear, (TorchAOBaseTensor,), (x, w, b), {})
+        out_torchfn = torchfn_wrapper(fake_linear, (TorchAOBaseTensor,), (x, w, b), {})
+
+        expected = F.linear(x, w, b)
+
+        self.assertTrue(torch.allclose(out_aten, expected, atol=1e-6))
+        self.assertTrue(torch.allclose(out_torchfn, expected, atol=1e-6))
 
 
 if __name__ == "__main__":

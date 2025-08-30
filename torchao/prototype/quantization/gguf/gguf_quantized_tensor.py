@@ -218,6 +218,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 
 
 implements = GGUFQuantizedTensor.implements
+implements_torch_function = GGUFQuantizedTensor.implements_torch_function
 
 
 @implements([aten.detach.default, aten.alias.default])
