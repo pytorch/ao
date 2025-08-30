@@ -154,9 +154,10 @@ class GroupwiseLutQuantizedTensor(TorchAOBaseTensor):
 
 
 implements = GroupwiseLutQuantizedTensor.implements
+implements_torch_function = GroupwiseLutQuantizedTensor.implements_torch_function
 
 
-@implements([F.linear])
+@implements_torch_function([F.linear])
 def _(func, types, args, kwargs):
     """
     Override for `torch.nn.functional.linear`. This implementation calls the
