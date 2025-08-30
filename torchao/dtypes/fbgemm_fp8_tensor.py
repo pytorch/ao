@@ -111,9 +111,11 @@ class FbgemmFp8Tensor(TorchAOBaseTensor):
 
 
 implements = FbgemmFp8Tensor.implements
+implements_torch_function = FbgemmFp8Tensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -146,7 +148,7 @@ def _(func, types, args, kwargs):
     return res
 
 
-@implements(torch.bmm)
+@implements_torch_function(torch.bmm)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = (
         args[0],
