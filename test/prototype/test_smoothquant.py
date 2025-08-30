@@ -30,36 +30,7 @@ class TestSmoothQuant(unittest.TestCase):
         # This test case will trigger recompilation many times, so set a large cache_size_limit here
         torch._dynamo.config.cache_size_limit = 128
 
-    # TODO: Update after #2729 merged
-    # from torchao.testing.model_architectures import ToyMultiLinearModel
-    class ToyMultiLinearModel(torch.nn.Module):
-        """Shared model class for testing"""
-
-        def __init__(self, m=512, n=256, k=128, has_bias=False):
-            super().__init__()
-            self.linear1 = torch.nn.Linear(m, n, bias=has_bias)
-            self.linear2 = torch.nn.Linear(n, k, bias=has_bias)
-            self.linear3 = torch.nn.Linear(k, 64, bias=has_bias)
-
-        def example_inputs(
-            self, batch_size=1, sequence_length=10, dtype=torch.float, device="cuda"
-        ):
-            return [
-                torch.randn(
-                    1,
-                    sequence_length,
-                    self.linear1.in_features,
-                    dtype=dtype,
-                    device=device,
-                )
-                for _ in range(batch_size)
-            ]
-
-        def forward(self, x):
-            x = self.linear1(x)
-            x = self.linear2(x)
-            x = self.linear3(x)
-            return x
+    from test.prototype.test_awq import ToyLinearModel
 
     @common_utils.parametrize("alpha", [None, 0.5, 0.75])
     @common_utils.parametrize(
@@ -75,7 +46,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
         """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
 
-        m = self.ToyMultiLinearModel(32, 16, 8).eval().to(device).to(input_dtype)
+        m = self.ToyLinearModel(32, 16, 8).eval().to(device).to(input_dtype)
         m_ref = deepcopy(m)
         test_data = torch.randn(32, 32, dtype=input_dtype, device=device)
 
@@ -118,7 +89,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_observer_insertion(self):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
 
-        m = self.ToyMultiLinearModel(has_bias=False).eval()
+        m = self.ToyLinearModel().eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
@@ -150,7 +121,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_prepare_for_loading(self):
         """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
-        m = self.ToyMultiLinearModel(has_bias=False).eval()
+        m = self.ToyLinearModel().eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
@@ -204,7 +175,7 @@ class TestSmoothQuant(unittest.TestCase):
 
         # Create model and move to device/dtype
         m1 = (
-            self.ToyMultiLinearModel(512, 256, 128, has_bias=False)
+            self.ToyLinearModel(512, 256, 128)
             .eval()
             .to(device)
             .to(input_dtype)
