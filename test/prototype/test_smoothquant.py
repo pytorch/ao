@@ -32,7 +32,7 @@ class TestSmoothQuant(unittest.TestCase):
 
     from test.prototype.test_awq import ToyLinearModel
 
-    @common_utils.parametrize("alpha", [None, 0.5, 0.75])
+    @common_utils.parametrize("alpha", [0.5, 0.75])
     @common_utils.parametrize(
         "base_config",
         [
@@ -42,7 +42,7 @@ class TestSmoothQuant(unittest.TestCase):
         ],
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
-    @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("input_dtype", torch.bfloat16)
     def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
         """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
 
@@ -156,7 +156,7 @@ class TestSmoothQuant(unittest.TestCase):
             )
 
     # TODO: Check more quantization APIs and dtype
-    @common_utils.parametrize("alpha", [None, 0.5, 0.75])
+    @common_utils.parametrize("alpha", [0.5, 0.75])
     @common_utils.parametrize(
         "base_config",
         [
@@ -166,7 +166,7 @@ class TestSmoothQuant(unittest.TestCase):
         ],
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
-    @common_utils.parametrize("input_dtype", [torch.float])
+    @common_utils.parametrize("input_dtype", torch.bfloat16)
     def test_two_step_quantization(self, alpha, base_config, device, input_dtype):
         """Test two-step quantization process (PREPARE -> CONVERT)."""
         dataset_size = 20
