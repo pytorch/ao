@@ -30,7 +30,7 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
     Tensor Attributes:
-        qdata: (N, K/8), packed int4 weight, the data type is int32 here with 4*(int4*2)
+        qdata: (N, K/8), packed int4 weight, the data type is int32 here with 4*(int4*2), the original data type can be half and bfloat16
         scale: (K/group_size, N), dtype is the same as the original Tensor dtype
         zero_point: (K/group_size, N), dtype is int8
 
