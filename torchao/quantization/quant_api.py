@@ -77,6 +77,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4TilePackedTo4dTensor,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -1148,6 +1149,12 @@ def _int4_weight_only_quantize_tensor(weight, config):
                 block_size,
             )
             return new_weight
+        elif packing_format == PackingFormat.TILE_PACKED_TO_4D:
+            new_weight = Int4TilePackedTo4dTensor.from_hp(
+                weight,
+                block_size,
+            )
+            return new_weight
         else:
             raise ValueError(f"Unsupported packing format: {packing_format}")
 
@@ -1522,10 +1529,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
+    warnings.warn(
+        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()""")
+    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()"""
+    )
 
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
@@ -1574,7 +1583,7 @@ def _float8_weight_only_quant_tensor(weight, config):
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
         weight_dtype = config.weight_dtype
-        new_weight = Float8Tensor.to_float8(
+        new_weight = Float8Tensor.from_hp(
             weight, float8_dtype=weight_dtype, granularity=PerRow()
         )
     return new_weight
@@ -1772,7 +1781,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             kernel_preference=kernel_preference,
         )
 
-        quantized_weight = Float8Tensor.to_float8(
+        quantized_weight = Float8Tensor.from_hp(
             weight,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
@@ -2101,7 +2110,10 @@ class IntxWeightOnlyConfig(AOBaseConfig):
             assert self.granularity.axis == 0, (
                 f"axis must be 0 with PerAxis, but got {self.granularity.axis}"
             )
-        assert self.mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC], (
+        assert self.mapping_type in [
+            MappingType.ASYMMETRIC,
+            MappingType.SYMMETRIC,
+        ], (
             f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
         )
 

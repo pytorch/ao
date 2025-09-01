@@ -72,35 +72,97 @@ except ImportError:
     )
 
 
+@pytest.fixture(scope="module")
+def device_mesh_1d() -> DeviceMesh:
+    """
+    Fixture for setting up and tearing down the distributed environment
+    for the entire test module.
+    """
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    if not dist.is_initialized():
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+    device_mesh = init_device_mesh("cuda", (world_size,))
+    torch.manual_seed(1)
+    torch.cuda.set_device(rank)
+
+    yield device_mesh
+
+    dist.destroy_process_group()
+
+
 @pytest.mark.parametrize(
     "target_fqns",
     [
         ["experts"],
-        # TODO: investigate hang when shared_expert is converted
-        # ["experts,shared_expert"],
+        ["experts,shared_experts"],
     ],
 )
+@pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
-    "recipe, min_out_sqnr, alignment_size, min_param_grad_sqnr",
+    "recipe_config",
     [
-        (MoEScalingType.FP8_ROWWISE, 29.0, 16, 23.0),
-        (MoEScalingType.MXFP8, 28.0, 32, 21.0),
+        {
+            "recipe": MoEScalingType.FP8_ROWWISE,
+            "group_alignment_size": 16,
+            "min_out_sqnr": 29.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 23.0,
+        },
+        {
+            "recipe": MoEScalingType.MXFP8,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 28.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
     ],
 )
-def test_moe_float8_training_tp(
+def test_moe_training_tp(
     target_fqns: list[str],
-    recipe: MoEScalingType,
-    min_out_sqnr: float,
-    alignment_size: int,
-    min_param_grad_sqnr: float,
+    compile: bool,
+    recipe_config: dict,
+    device_mesh_1d: DeviceMesh,
 ):
+    (
+        recipe,
+        group_alignment_size,
+        min_out_sqnr,
+        min_input_grad_sqnr,
+        min_param_grad_sqnr,
+    ) = (
+        recipe_config["recipe"],
+        recipe_config["group_alignment_size"],
+        recipe_config["min_out_sqnr"],
+        recipe_config["min_input_grad_sqnr"],
+        recipe_config["min_param_grad_sqnr"],
+    )
     assert torch.cuda.is_available()
+    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
+        9,
+        0,
+    ):
+        pytest.skip(
+            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+        )
 
-    # token group aligment size must be 16 for fp8
-    set_token_group_alignment_size_m(alignment_size)
+    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
+        10,
+        0,
+    ):
+        pytest.skip(
+            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+        )
 
-    # setup distributed for tp
-    mesh = setup_distributed()
+    # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
+    # or quantization ops (mxfp8 scaling groups are size 1x32)
+    set_token_group_alignment_size_m(group_alignment_size)
+
+    # define model args
+    model_args = MoEArgs(
+        num_experts=8,
+    )
 
     # define model args
     model_args = MoEArgs(
@@ -138,10 +200,14 @@ def test_moe_float8_training_tp(
         model,
         target_fqns=target_fqns,
     )
+    if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
 
     # apply TP
-    apply_moe_ep_tp(model, tp_mesh=mesh, ep_mesh=None, ep_tp_mesh=None)
-    apply_moe_ep_tp(ref_model, tp_mesh=mesh, ep_mesh=None, ep_tp_mesh=None)
+    apply_moe_ep_tp(model, tp_mesh=device_mesh_1d, ep_mesh=None, ep_tp_mesh=None)
+    apply_moe_ep_tp(ref_model, tp_mesh=device_mesh_1d, ep_mesh=None, ep_tp_mesh=None)
 
     # Rough validation that parallelization was applied properly.
     assert isinstance(model.experts.w1.data, DTensor), (
@@ -191,7 +257,6 @@ def test_moe_float8_training_tp(
 
     # validate input gradient
     input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    min_input_grad_sqnr = 28.0
     assert input_grad_sqnr.item() >= min_input_grad_sqnr, (
         f"SQNR must be >= {min_input_grad_sqnr}, got {input_grad_sqnr.item()}."
     )
@@ -202,19 +267,6 @@ def test_moe_float8_training_tp(
         assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
             f"SQNR must be >= {min_param_grad_sqnr}, got {param_grad_sqnr.item()}."
         )
-
-    dist.destroy_process_group()
-
-
-def setup_distributed():
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    device_mesh = init_device_mesh("cuda", (world_size,))
-    # seed must be the same in all processes
-    torch.manual_seed(1)
-    torch.cuda.set_device(rank)
-    return device_mesh
 
 
 def apply_moe_ep_tp(

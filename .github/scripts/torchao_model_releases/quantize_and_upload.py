@@ -10,6 +10,10 @@ import torch
 from huggingface_hub import ModelCard, get_token, whoami
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
+from torchao._models._eval import TransformerEvalWrapper
+from torchao.prototype.awq import (
+    AWQConfig,
+)
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
@@ -19,6 +23,7 @@ from torchao.quantization import (
     PerAxis,
     PerGroup,
     PerRow,
+    quantize_,
 )
 
 
@@ -103,8 +108,6 @@ model_id = "{base_model}"
 model_to_quantize = "{untied_model}"
 
 {quant_code}
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Push to hub
 USER_ID = "YOUR_USER_ID"
@@ -204,12 +207,16 @@ _int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig
 quant_config = Int4WeightOnlyConfig(group_size=128, use_hqq=True)
 quantization_config = TorchAoConfig(quant_type=quant_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
 _fp8_quant_code = """
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 quantization_config = TorchAoConfig(quant_type=quant_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
 _int8_int4_quant_code = """
@@ -230,7 +237,45 @@ linear_config = Int8DynamicActivationIntxWeightConfig(
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_embedding=True, untie_embedding_weights=True, modules_to_not_convert=[])
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
+
+_awq_int4_quant_code = """
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
+from torchao.prototype.awq import (
+    AWQConfig,
+)
+from torchao._models._eval import TransformerEvalWrapper
+model = AutoModelForCausalLM.from_pretrained(
+    model_to_quantize,
+    device_map="auto",
+    torch_dtype=torch.bfloat16,
+)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+base_config = Int4WeightOnlyConfig(group_size=128, version=2)
+quant_config = AWQConfig(base_config, step="prepare")
+quantize_(
+    model,
+    quant_config,
+)
+TransformerEvalWrapper(
+    model=model,
+    tokenizer=tokenizer,
+    max_seq_length=max_seq_length,
+).run_eval(
+    tasks=tasks,
+    limit=calibration_limit,
+)
+quant_config = AWQConfig(base_config, step="convert")
+quantize_(model, quant_config)
+
+quantized_model = model
+quant_config = AWQConfig(base_config, step="prepare_for_loading")
+quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+"""
+
 
 _server_inference_recipe = """
 # Inference with vLLM
@@ -568,7 +613,9 @@ After that you can run the model in a mobile app (see [Running in a mobile app](
 """
 
 
-def quantize_and_upload(model_id, quant, push_to_hub):
+def quantize_and_upload(
+    model_id, quant, tasks, calibration_limit, max_seq_length, push_to_hub
+):
     _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
         weight_granularity=PerGroup(32),
@@ -580,7 +627,7 @@ def quantize_and_upload(model_id, quant, push_to_hub):
     )
     quant_to_config = {
         "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
-        "INT4": Int4WeightOnlyConfig(group_size=128),
+        "INT4": Int4WeightOnlyConfig(group_size=128, version=2),
         "INT8-INT4": ModuleFqnToConfig(
             {
                 "_default": _int8_int4_linear_config,
@@ -593,23 +640,58 @@ def quantize_and_upload(model_id, quant, push_to_hub):
         "FP8": _fp8_quant_code,
         "INT4": _int4_quant_code,
         "INT8-INT4": _int8_int4_quant_code,
+        "AWQ-INT4": _awq_int4_quant_code,
     }
 
-    assert quant in quant_to_config, f"Unsupported quant option: {quant}"
-    quant_config = quant_to_config[quant]
-
+    # preparation
     model_to_quantize = model_id
     if quant == "INT8-INT4":
         model_to_quantize = _untie_weights_and_save_locally(model_to_quantize)
 
-    quantization_config = TorchAoConfig(quant_type=quant_config)
-    quantized_model = AutoModelForCausalLM.from_pretrained(
-        model_to_quantize,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-        quantization_config=quantization_config,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    # quantization
+
+    if "AWQ" in quant:
+        # awq will use torchao API directly
+        assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"
+        model = AutoModelForCausalLM.from_pretrained(
+            model_to_quantize,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        base_config = Int4WeightOnlyConfig(group_size=128, version=2)
+        quant_config = AWQConfig(base_config, step="prepare")
+        quantize_(
+            model,
+            quant_config,
+        )
+        TransformerEvalWrapper(
+            model=model,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+        quant_config = AWQConfig(base_config, step="convert")
+        quantize_(model, quant_config)
+
+        quantized_model = model
+        quant_config = AWQConfig(base_config, step="prepare_for_loading")
+        quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+    else:
+        # other quantization are integrated with `from_pretrained` in huggingface transformers
+        assert quant in quant_to_config, f"Unsupported quant option: {quant}"
+        quant_config = quant_to_config[quant]
+        quantization_config = TorchAoConfig(quant_type=quant_config)
+        quantized_model = AutoModelForCausalLM.from_pretrained(
+            model_to_quantize,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            quantization_config=quantization_config,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     username = _get_username()
 
@@ -702,7 +784,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quant",
         type=str,
-        help="Quantization method. Options are FP8, INT4, INT8_INT4, AWQ-INT4",
+        help="Quantization method. Options are FP8, INT4, INT8-INT4, AWQ-INT4",
+    )
+    parser.add_argument(
+        "--tasks",
+        nargs="+",
+        type=str,
+        help="lm-eval task to optimize for in awq, we'll select a sample from the task dataset and run awq calibration based on that",
+        default=["gsm8k"],
+    )
+    parser.add_argument(
+        "--calibration_limit",
+        type=int,
+        default=10,
+        help="Number of samples to use for calibration. Default is 10.",
+    )
+    parser.add_argument(
+        "--max_seq_length",
+        type=int,
+        default=2048,
+        help="Maximum sequence length of examples to calibrate and evaluate model on. Default is 2048",
     )
     parser.add_argument(
         "--push_to_hub",
@@ -711,4 +812,11 @@ if __name__ == "__main__":
         help="Flag to indicate whether push to huggingface hub or not",
     )
     args = parser.parse_args()
-    quantize_and_upload(args.model_id, args.quant, args.push_to_hub)
+    quantize_and_upload(
+        args.model_id,
+        args.quant,
+        args.tasks,
+        args.calibration_limit,
+        args.max_seq_length,
+        args.push_to_hub,
+    )

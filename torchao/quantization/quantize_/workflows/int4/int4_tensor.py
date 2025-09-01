@@ -75,6 +75,7 @@ class Int4Tensor(TorchAOBaseTensor):
         shape: torch.Size,
         act_pre_scale: Optional[torch.Tensor] = None,
     ):
+        super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point

@@ -15,8 +15,8 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.blockwise_fp8_training.kernels import (
-    fp8_blockwise_act_quant_rhs,
-    fp8_blockwise_act_quant_transposed_lhs,
+    triton_fp8_blockwise_act_quant_rhs,
+    triton_fp8_blockwise_act_quant_transposed_lhs,
     triton_fp8_gemm_1x128_128x1,
 )
 
@@ -78,8 +78,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     M, N, K = config.m, config.n, config.k
     A = torch.randn(M, N, dtype=config.out_dtype, device="cuda")
     B = torch.randn(M, K, dtype=config.out_dtype, device="cuda")
-    A_t_q, A_t_s = fp8_blockwise_act_quant_transposed_lhs(A, dtype=torch.float8_e4m3fn)
-    B_q, B_s = fp8_blockwise_act_quant_rhs(B, dtype=torch.float8_e4m3fn)
+    A_t_q, A_t_s = triton_fp8_blockwise_act_quant_transposed_lhs(
+        A, dtype=torch.float8_e4m3fn
+    )
+    B_q, B_s = triton_fp8_blockwise_act_quant_rhs(B, dtype=torch.float8_e4m3fn)
 
     def warmup(func, *args, **kwargs):
         for _ in range(10):
