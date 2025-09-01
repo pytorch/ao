@@ -33,7 +33,7 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     QuantizationConfig,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 class TestHelperModules:
@@ -97,7 +97,7 @@ _DEQUANTIZE_OPS = [
 
 
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestDuplicateDQPass(QuantizationTestCase):
     def _test_duplicate_dq(
         self,

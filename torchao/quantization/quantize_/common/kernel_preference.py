@@ -26,7 +26,7 @@ class KernelPreference(str, Enum):
     """
     TORCH = "torch"
 
-    """Use fbgemm quantize and quantized mm kernels, requires fbgemm_gpu_genai library
+    """Use quantize and quantized mm kernels from fbgemm_gpu_genai library, requires fbgemm_gpu_genai library
     """
     FBGEMM = "fbgemm"
 

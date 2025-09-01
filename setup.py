@@ -317,13 +317,21 @@ class TorchAOBuildExt(BuildExtension):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
 
+        # Get the expected extension file name that Python will look for
+        # We force CMake to use this library name
+        ext_filename = os.path.basename(self.get_ext_filename(ext.name))
+        ext_basename = os.path.splitext(ext_filename)[0]
+
         subprocess.check_call(
             [
                 "cmake",
                 ext.cmake_lists_dir,
             ]
             + ext.cmake_args
-            + ["-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir],
+            + [
+                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
+                "-DTORCHAO_CMAKE_EXT_SO_NAME=" + ext_basename,
+            ],
             cwd=self.build_temp,
         )
         subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
@@ -425,6 +433,7 @@ def get_extensions():
             extra_link_args.append("/DEBUG")
 
     rocm_sparse_marlin_supported = False
+    rocm_tiled_layout_supported = False
     if use_rocm:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
@@ -480,8 +489,11 @@ def get_extensions():
     # Define ROCm source directories
     rocm_source_dirs = [
         os.path.join(extensions_dir, "rocm", "swizzle"),
-        os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
     ]
+    if rocm_tiled_layout_supported:
+        rocm_source_dirs.append(
+            os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
+        )
     if rocm_sparse_marlin_supported:
         rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
@@ -504,14 +516,8 @@ def get_extensions():
     sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    # TODO: Add support for other ROCm GPUs
     if use_rocm:
-        # Add ROCm GPU architecture check
-        gpu_arch = None
-        if torch.cuda.is_available():
-            gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch and gpu_arch != "gfx942":
-            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print("Currently only gfx942 is supported. Compiling only for gfx942.")
         extra_compile_args["nvcc"].append("--offload-arch=gfx942")
         sources += rocm_sources
     else:
@@ -708,7 +714,7 @@ def get_extensions():
 
         ext_modules.append(
             CMakeExtension(
-                "torchao.experimental",
+                "torchao._experimental_aten_ops",
                 cmake_lists_dir="torchao/experimental",
                 cmake_args=(
                     [

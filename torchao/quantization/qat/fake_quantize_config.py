@@ -320,7 +320,6 @@ class FakeQuantizeConfig(IntxFakeQuantizeConfig):
         _log_deprecation_warning(self)
 
 
-# TODO: rewrite using registration API?
 def _infer_fake_quantize_configs(
     base_config: AOBaseConfig,
 ) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
@@ -331,7 +330,15 @@ def _infer_fake_quantize_configs(
 
     Return a 2-tuple of (activation_config, weight_config) for fake quantization.
     """
+    # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
+    from torchao.prototype.mx_formats import (
+        NVFP4InferenceConfig,
+        NVFP4MMConfig,
+    )
+    from torchao.prototype.qat import (
+        NVFP4FakeQuantizeConfig,
+    )
     from torchao.quantization import (
         Float8DynamicActivationFloat8WeightConfig,
         Float8DynamicActivationInt4WeightConfig,
@@ -351,14 +358,31 @@ def _infer_fake_quantize_configs(
             is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
         )
     elif isinstance(base_config, Int4WeightOnlyConfig):
-        if base_config.version != 2:
-            raise ValueError(f"Only version 2 of {type(base_config)} is supported")
         act_config = None
-        weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
-            group_size=base_config.group_size,
-            is_symmetric=True,
-        )
+        if base_config.version == 2:
+            weight_config = IntxFakeQuantizeConfig(
+                dtype=torch.int4,
+                group_size=base_config.group_size,
+                is_symmetric=True,
+            )
+        elif base_config.version == 1:
+            # For BC
+            from torchao.quantization.quant_api import (
+                LAYOUT_TO_ZERO_POINT_DOMAIN,
+            )
+
+            if base_config.zero_point_domain == ZeroPointDomain.NONE:
+                zp_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(base_config.layout)][0]
+            else:
+                zp_domain = base_config.zero_point_domain
+            weight_config = IntxFakeQuantizeConfig(
+                dtype=torch.uint4,
+                group_size=base_config.group_size,
+                is_symmetric=False,
+                zero_point_domain=zp_domain,
+            )
+        else:
+            raise ValueError(f"Unknown version on base config {type(base_config)}")
     elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig):
         if base_config.version != 2:
             raise ValueError(f"Only version 2 of {type(base_config)} is supported")
@@ -382,9 +406,20 @@ def _infer_fake_quantize_configs(
         )
         weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
-            group_size=base_config.group_size,
+            group_size=128,
             is_symmetric=True,
         )
+    elif isinstance(base_config, NVFP4InferenceConfig):
+        # Note: today the PTQ config does not allow the user to specify
+        # `per_tensor_scales` due to serialization concerns. In the future
+        # we may add a way to compute these dynamically (for activations),
+        # but for now QAT will mimic the existing behavior of not having
+        # `per_tensor_scales` (subject to change)
+        if NVFP4MMConfig.DYNAMIC:
+            act_config = NVFP4FakeQuantizeConfig(False)
+        else:
+            act_config = None
+        weight_config = NVFP4FakeQuantizeConfig(False)
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
     return (act_config, weight_config)

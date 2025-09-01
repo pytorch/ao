@@ -95,6 +95,13 @@ target_link_libraries(
     torchao_kernels_aarch64
 )
 
+add_executable(test_embedding_lut test_embedding_lut.cpp)
+target_link_libraries(
+  test_embedding_lut
+    PRIVATE
+    GTest::gtest_main
+    dep
+)
 
 add_executable(test_embedding test_embedding.cpp)
 target_link_libraries(
@@ -142,6 +149,7 @@ gtest_discover_tests(test_reduction)
 gtest_discover_tests(test_bitpacking)
 gtest_discover_tests(test_linear)
 gtest_discover_tests(test_embedding)
+gtest_discover_tests(test_embedding_lut)
 gtest_discover_tests(test_weight_packing)
 gtest_discover_tests(test_qmatmul)
 gtest_discover_tests(test_lut)

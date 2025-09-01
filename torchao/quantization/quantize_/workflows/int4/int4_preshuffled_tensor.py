@@ -75,17 +75,17 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "group_scale"]
-    optional_tensor_data_names = ["group_zero", "row_scale"]
     tensor_attribute_names = ["block_size", "shape"]
+    optional_tensor_data_names = ["group_zero", "row_scale"]
 
     def __new__(
         cls,
-        qdata,
-        group_scale,
-        group_zero,
-        row_scale,
-        block_size,
-        shape,
+        qdata: torch.Tensor,
+        group_scale: torch.Tensor,
+        block_size: List[int],
+        shape: List[int],
+        group_zero: Optional[torch.Tensor] = None,
+        row_scale: Optional[torch.Tensor] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -97,19 +97,20 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         self,
         qdata: torch.Tensor,
         group_scale: torch.Tensor,
-        group_zero: Optional[torch.Tensor],
-        row_scale: Optional[torch.Tensor],
         block_size: List[int],
         shape: List[int],
+        group_zero: Optional[torch.Tensor] = None,
+        row_scale: Optional[torch.Tensor] = None,
     ):
+        super().__init__()
         # one and only one of group_scale and group_zero should be None
         assert group_zero is None or row_scale is None
         assert not (group_zero is not None and row_scale is not None)
         self.qdata = qdata
-        self.group_scale = group_scale
-        self.group_zero = group_zero
         self.row_scale = row_scale
         self.block_size = block_size
+        self.group_scale = group_scale
+        self.group_zero = group_zero
 
     def _quantization_type(self):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
@@ -178,10 +179,10 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         return Int4PreshuffledTensor(
             qdata=wq,
             group_scale=group_scale,
-            group_zero=group_zero,
-            row_scale=row_scale,
             block_size=block_size,
             shape=original_shape,
+            group_zero=group_zero,
+            row_scale=row_scale,
         )
 
 

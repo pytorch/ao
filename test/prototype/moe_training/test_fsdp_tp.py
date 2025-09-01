@@ -16,6 +16,13 @@ import os
 
 import pytest
 import torch
+
+if torch.version.hip is not None:
+    pytest.skip(
+        "ROCm support for MoE quantization is under development",
+        allow_module_level=True,
+    )
+
 from torch import distributed as dist
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
@@ -35,6 +42,7 @@ except ImportError:
         allow_module_level=True,
     )
 
+
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     pytest.skip(
@@ -42,53 +50,132 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
 from torchao.quantization.quant_api import quantize_
 
 from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
-    from torchtitan.experiments.llama4.infra.expert_parallel import (
+    from torchtitan.distributed.expert_parallel import (
         ExpertParallel,
         ExpertTensorParallel,
         NoParallel,
         TensorParallel,
+        set_token_group_alignment_size_m,
     )
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
     )
 
 
+@pytest.fixture(scope="module")
+def device_mesh_2d() -> DeviceMesh:
+    """
+    Fixture for setting up and tearing down the distributed environment
+    for the entire test module.
+    """
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    if not dist.is_initialized():
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+    device_mesh = init_device_mesh(
+        "cuda",
+        (world_size // 2, 2),
+        mesh_dim_names=("dp", "tp"),
+    )
+
+    torch.manual_seed(1)
+    torch.cuda.set_device(rank)
+
+    yield device_mesh
+
+    dist.destroy_process_group()
+
+
 @pytest.mark.parametrize(
     "target_fqns",
     [
         ["experts"],
-        # TODO: investigate hang when shared_expert is converted
-        # ["experts,shared_expert"],
+        ["experts,shared_experts"],
     ],
 )
-def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
+@pytest.mark.parametrize("compile", [False, True])
+@pytest.mark.parametrize(
+    "recipe_config",
+    [
+        {
+            "recipe": MoEScalingType.FP8_ROWWISE,
+            "group_alignment_size": 16,
+            "min_out_sqnr": 29.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 22.0,
+        },
+        {
+            "recipe": MoEScalingType.MXFP8,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 28.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
+    ],
+)
+def test_moe_training_fsdp_tp(
+    target_fqns: list[str],
+    compile: bool,
+    recipe_config: dict,
+    device_mesh_2d: DeviceMesh,
+):
+    (
+        recipe,
+        group_alignment_size,
+        min_out_sqnr,
+        min_input_grad_sqnr,
+        min_param_grad_sqnr,
+    ) = (
+        recipe_config["recipe"],
+        recipe_config["group_alignment_size"],
+        recipe_config["min_out_sqnr"],
+        recipe_config["min_input_grad_sqnr"],
+        recipe_config["min_param_grad_sqnr"],
+    )
     assert torch.cuda.is_available()
+    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
+        9,
+        0,
+    ):
+        pytest.skip(
+            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+        )
 
-    # setup distributed for tp
-    mesh = setup_distributed()
+    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
+        10,
+        0,
+    ):
+        pytest.skip(
+            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+        )
+
+    # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
+    # or quantization ops (mxfp8 scaling groups are size 1x32)
+    set_token_group_alignment_size_m(group_alignment_size)
 
     # define model args
-    model_args = TransformerModelArgs(
-        moe_enabled=True,
+    model_args = MoEArgs(
         num_experts=8,
-        dim=256,
-        vocab_size=1024,
     )
+    dim, hidden_dim = 5120, 4 * 5120
     init_std = 0.02
     device = torch.device("cuda")
 
     # reference bf16 MoE
-    ref_model = MoE(model_args).to(torch.bfloat16).cuda()
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(1)
     ref_model.init_weights(init_std, device)
 
@@ -107,7 +194,7 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
         return False
 
     # quantize test model
-    config = MoETrainingConfig()
+    config = MoETrainingConfig(scaling_type=recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -115,13 +202,19 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
         model,
         target_fqns=target_fqns,
     )
+    if compile:
+        # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
+        model = torch.compile(model, fullgraph=False)
+        ref_model = torch.compile(ref_model, fullgraph=False)
 
     # apply TP
-    apply_moe_ep_tp(model, tp_mesh=mesh["tp"], ep_mesh=None, ep_tp_mesh=None)
-    apply_moe_ep_tp(ref_model, tp_mesh=mesh["tp"], ep_mesh=None, ep_tp_mesh=None)
+    apply_moe_ep_tp(model, tp_mesh=device_mesh_2d["tp"], ep_mesh=None, ep_tp_mesh=None)
+    apply_moe_ep_tp(
+        ref_model, tp_mesh=device_mesh_2d["tp"], ep_mesh=None, ep_tp_mesh=None
+    )
 
     # apply FSDP2
-    fsdp_config = {"mesh": mesh["dp"]}
+    fsdp_config = {"mesh": device_mesh_2d["dp"]}
     fully_shard(model, **fsdp_config)
     fully_shard(ref_model, **fsdp_config)
 
@@ -146,7 +239,7 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
     )
 
     # inputs
-    batch, seq, dim = 8, 2048, 256
+    batch, seq = 8, 2048
     ref_x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
@@ -158,7 +251,9 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
 
     # validate output
     out_sqnr = compute_error(out, ref_out)
-    assert out_sqnr.item() >= 30.0, f"SQNR must be >= 30.0, got {out_sqnr.item()}."
+    assert out_sqnr.item() >= min_out_sqnr, (
+        f"SQNR must be >= {min_out_sqnr}, got {out_sqnr.item()}."
+    )
 
     # compute loss
     labels = torch.ones_like(ref_out)
@@ -171,36 +266,16 @@ def test_moe_float8_training_fsdp_tp(target_fqns: list[str]):
 
     # validate input gradient
     input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    assert input_grad_sqnr.item() >= 28.0, (
-        f"SQNR must be >= 28.0, got {input_grad_sqnr.item()}."
+    assert input_grad_sqnr.item() >= min_input_grad_sqnr, (
+        f"SQNR must be >= {min_input_grad_sqnr}, got {input_grad_sqnr.item()}."
     )
 
     # validate param gradients
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         param_grad_sqnr = compute_error(param1.grad, param2.grad)
-        assert param_grad_sqnr.item() >= 25.0, (
-            f"SQNR must be >= 25.0, got {param_grad_sqnr.item()}."
+        assert param_grad_sqnr.item() >= min_param_grad_sqnr, (
+            f"SQNR must be >= {min_param_grad_sqnr}, got {param_grad_sqnr.item()}."
         )
-
-    dist.destroy_process_group()
-
-
-def setup_distributed():
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-    # https://pytorch.org/tutorials/recipes/distributed_device_mesh.html
-    device_mesh = init_device_mesh(
-        "cuda",
-        (world_size // 2, 2),
-        mesh_dim_names=("dp", "tp"),
-    )
-
-    # seed must be the same in all processes
-    torch.manual_seed(1)
-    torch.cuda.set_device(rank)
-    return device_mesh
 
 
 def apply_moe_ep_tp(
