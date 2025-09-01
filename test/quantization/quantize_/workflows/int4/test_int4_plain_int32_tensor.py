@@ -34,7 +34,7 @@ def get_config(group_size):
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
-@unittest.skipIf(not torch.xpu.is_available(), "CUDA not available")
+@unittest.skipIf(not torch.xpu.is_available(), "XPU not available")
 class Int4PlainInt32Tensor(TestCase):
     @parametrize(
         "sizes",
