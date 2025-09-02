@@ -124,7 +124,7 @@ inline void _scaled_embedding_bag_krnl(
       for (int64_t block_id = 0; block_id < num_blocks; block_id++) {
         // load first indices
         int64_t idx = indices[start_idx] * emb_dim + block_dim * block_id;
-            float *block_result = result + block_dim * block_id;
+        float *block_result = result + block_dim * block_id;
         x00 = _mm512_load_si512(&weight[idx]);
         x64 = _mm512_load_si512(&weight[idx + 64]);
         y0 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 0));
@@ -136,26 +136,26 @@ inline void _scaled_embedding_bag_krnl(
         y6 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 2));
         y7 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 3));
         for (int64_t j = start_idx + 1; j < end_idx; ++j) {
-            // add following idx
-            idx = indices[j] * emb_dim + block_dim * block_id;
-            x00 = _mm512_load_si512(&weight[idx]);
-            x64 = _mm512_load_si512(&weight[idx + 64]);
-            y0 = _mm512_add_epi32(
-                y0, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 0)));
-            y1 = _mm512_add_epi32(
-                y1, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 1)));
-            y2 = _mm512_add_epi32(
-                y2, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 2)));
-            y3 = _mm512_add_epi32(
-                y3, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 3)));
-            y4 = _mm512_add_epi32(
-                y4, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 0)));
-            y5 = _mm512_add_epi32(
-                y5, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 1)));
-            y6 = _mm512_add_epi32(
-                y6, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 2)));
-            y7 = _mm512_add_epi32(
-                y7, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 3)));
+          // add following idx
+          idx = indices[j] * emb_dim + block_dim * block_id;
+          x00 = _mm512_load_si512(&weight[idx]);
+          x64 = _mm512_load_si512(&weight[idx + 64]);
+          y0 = _mm512_add_epi32(
+              y0, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 0)));
+          y1 = _mm512_add_epi32(
+              y1, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 1)));
+          y2 = _mm512_add_epi32(
+              y2, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 2)));
+          y3 = _mm512_add_epi32(
+              y3, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 3)));
+          y4 = _mm512_add_epi32(
+              y4, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 0)));
+          y5 = _mm512_add_epi32(
+              y5, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 1)));
+          y6 = _mm512_add_epi32(
+              y6, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 2)));
+          y7 = _mm512_add_epi32(
+              y7, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 3)));
         }
         f0 = _mm512_cvt_roundepi32_ps(
             y0, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
@@ -268,7 +268,8 @@ at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
               "_scaled_embedding_bag: only accept contiguous weight");
   TORCH_CHECK(qweight.dim() == 2,
               "_scaled_embedding_bag: only accept weight with dim == 2");
-  TORCH_CHECK(qweight.scalar_type() == c10::ScalarType::Float8_e4m3fn || qweight.scalar_type() == c10::ScalarType::Char,
+  TORCH_CHECK(qweight.scalar_type() == c10::ScalarType::Float8_e4m3fn ||
+                  qweight.scalar_type() == c10::ScalarType::Char,
               "_scaled_embedding_bag: only support e4m3fn and int8 weight")
   // handle last offsets
   int64_t last_offset = indices.numel();
@@ -276,25 +277,28 @@ at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
   at::Tensor output =
       at::empty({batch_size, emb_dim}, qweight.options().dtype(at::kFloat));
   if (qweight.scalar_type() == c10::ScalarType::Float8_e4m3fn) {
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "_scaled_embedding_bag", [&] {
-      at::Float8_e4m3fn *qweight_ptr = qweight.data_ptr<at::Float8_e4m3fn>();
-      index_t *indices_ptr = indices.data_ptr<index_t>();
-      index_t *offsets_ptr = offsets.data_ptr<index_t>();
-      float *output_ptr = output.data_ptr<float>();
-      _scaled_embedding_bag<index_t, at::Float8_e4m3fn>(
-          output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size, emb_dim,
-          last_offset, w_scale, o_scale);
-    });
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "_scaled_embedding_bag", [&] {
+          at::Float8_e4m3fn *qweight_ptr =
+              qweight.data_ptr<at::Float8_e4m3fn>();
+          index_t *indices_ptr = indices.data_ptr<index_t>();
+          index_t *offsets_ptr = offsets.data_ptr<index_t>();
+          float *output_ptr = output.data_ptr<float>();
+          _scaled_embedding_bag<index_t, at::Float8_e4m3fn>(
+              output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size,
+              emb_dim, last_offset, w_scale, o_scale);
+        });
   } else {
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "_scaled_embedding_bag", [&] {
-      int8_t *qweight_ptr = qweight.data_ptr<int8_t>();
-      index_t *indices_ptr = indices.data_ptr<index_t>();
-      index_t *offsets_ptr = offsets.data_ptr<index_t>();
-      float *output_ptr = output.data_ptr<float>();
-      _scaled_embedding_bag<index_t, int8_t>(
-          output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size, emb_dim,
-          last_offset, w_scale, o_scale);
-    });
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "_scaled_embedding_bag", [&] {
+          int8_t *qweight_ptr = qweight.data_ptr<int8_t>();
+          index_t *indices_ptr = indices.data_ptr<index_t>();
+          index_t *offsets_ptr = offsets.data_ptr<index_t>();
+          float *output_ptr = output.data_ptr<float>();
+          _scaled_embedding_bag<index_t, int8_t>(
+              output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size,
+              emb_dim, last_offset, w_scale, o_scale);
+        });
   }
 
   return output;
