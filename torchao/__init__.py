@@ -58,7 +58,7 @@ if not skip_loading_so_files:
         # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
         from torchao.experimental.op_lib import *  # noqa: F403
     except Exception as e:
-        logger.warning(f"Skipping import of cpp extensions: {e}")
+        logger.debug(f"Skipping import of cpp extensions: {e}")
 
 from torchao.quantization import (
     autoquant,
