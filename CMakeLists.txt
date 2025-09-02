@@ -264,6 +264,10 @@ if(CPP_SOURCES OR CUDA_SOURCES)
     if(USE_CUDA)
         target_compile_options(torchao_C PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_COMPILE_OPTIONS}>)
         target_compile_definitions(torchao_C PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_COMPILE_DEFINITIONS}>)
+        # Link system libraries needed by CUDA
+        if(UNIX AND NOT APPLE)
+            target_link_libraries(torchao_C PRIVATE dl rt)
+        endif()
     endif()
     
     # Set output properties
