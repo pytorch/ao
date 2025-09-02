@@ -148,6 +148,7 @@ class TestMultiTensorInputRecorder(TestCase):
         self.assertTrue(isinstance(MT_input[2][2], MultiTensor))
         self.assertEqual(MT_input[3], torch.float)
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_gptq_with_input_recorder(self):
         from torchao.quantization.GPTQ import (
             Int4WeightOnlyGPTQQuantizer,
