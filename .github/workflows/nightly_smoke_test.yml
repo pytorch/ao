@@ -38,5 +38,5 @@ jobs:
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
-        python setup.py install
+        pip install .
         pytest test --verbose -s

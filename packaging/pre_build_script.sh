@@ -17,4 +17,4 @@ else
 fi
 pip install $PYTORCH_DEP
 
-pip install setuptools wheel twine auditwheel
+pip install setuptools wheel twine auditwheel scikit-build-core cmake ninja

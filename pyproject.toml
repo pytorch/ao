@@ -1,0 +1,142 @@
+[build-system]
+requires = ["scikit-build-core>=0.3.3"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "torchao"
+dynamic = ["version"]
+description = "Package for applying ao techniques to GPU models"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Meta Platforms, Inc."},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research", 
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "unittest-xml-reporting",
+    "parameterized",
+    "packaging",
+    "transformers",
+    "hypothesis",
+    "sentencepiece",
+    "expecttest",
+    "bitsandbytes",
+    "matplotlib",
+    "pandas",
+    "fire",
+    "tabulate",
+    "tiktoken",
+    "blobfile",
+    "lm_eval",
+    "diskcache",
+    "pycocotools",
+    "tqdm",
+    "importlib_metadata",
+    "ninja",
+    "cmake<4.0.0,>=3.19.0",
+    "ruff==0.11.6",
+    "pre-commit",
+]
+
+[project.urls]
+Homepage = "https://github.com/pytorch/ao"
+Repository = "https://github.com/pytorch/ao"
+Issues = "https://github.com/pytorch/ao/issues"
+
+[tool.scikit-build]
+# Verbose build output
+cmake.verbose = true
+logging.level = "INFO"
+cmake.build-type = "Release"
+build-dir = "build"
+wheel.packages = ["torchao"]
+wheel.py-api = "cp39"  # Python Limited API version
+
+# Version provider
+metadata.version.provider = "scikit_build_core.metadata.regex"
+metadata.version.input = "version.txt"
+metadata.version.regex = "(?P<value>.*)"
+
+# Environment variable controls
+cmake.args = [
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+    "-DBUILD_SHARED_LIBS=ON",
+]
+
+# CMake configure environment
+[tool.scikit-build.cmake.define]
+USE_CPP = {env = "USE_CPP", default = "1"}
+USE_CPU_KERNELS = {env = "USE_CPU_KERNELS", default = "0"}
+USE_CUDA = {env = "USE_CUDA", default = "AUTO"}
+USE_ROCM = {env = "USE_ROCM", default = "AUTO"} 
+BUILD_TORCHAO_EXPERIMENTAL = {env = "BUILD_TORCHAO_EXPERIMENTAL", default = "AUTO"}
+TORCHAO_BUILD_CPU_AARCH64 = {env = "TORCHAO_BUILD_CPU_AARCH64", default = "AUTO"}
+TORCHAO_BUILD_KLEIDIAI = {env = "TORCHAO_BUILD_KLEIDIAI", default = "OFF"}
+TORCHAO_BUILD_EXPERIMENTAL_MPS = {env = "TORCHAO_BUILD_EXPERIMENTAL_MPS", default = "OFF"}
+TORCHAO_PARALLEL_BACKEND = {env = "TORCHAO_PARALLEL_BACKEND", default = "aten_openmp"}
+TORCHAO_ENABLE_ARM_NEON_DOT = {env = "TORCHAO_ENABLE_ARM_NEON_DOT", default = "AUTO"}
+TORCHAO_ENABLE_ARM_I8MM = {env = "TORCHAO_ENABLE_ARM_I8MM", default = "OFF"}
+DEBUG = {env = "DEBUG", default = "0"}
+
+[tool.scikit-build.install]
+strip = false
+
+[tool.scikit-build.sdist]
+include = [
+    "torchao/**/*.py",
+    "torchao/**/*.cpp", 
+    "torchao/**/*.cu",
+    "torchao/**/*.cuh",
+    "torchao/**/*.h",
+    "torchao/**/*.hpp",
+    "torchao/**/*.c",
+    "torchao/**/*.cc",
+    "torchao/**/*.hip",
+    "torchao/kernel/configs/*.pkl",
+    "CMakeLists.txt",
+    "cmake/**",
+    "third_party/**",
+    ".gitmodules",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings  
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"test_*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["torchao"]

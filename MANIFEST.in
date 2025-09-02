@@ -1,0 +1,13 @@
+include version.txt
+include pyproject.toml
+include backend.py
+recursive-include torchao *.py
+recursive-include torchao *.pyi
+recursive-include torchao *.cpp
+recursive-include torchao *.cu
+recursive-include torchao *.h
+recursive-include torchao *.cuh
+recursive-include torchao *.cmake
+recursive-include torchao CMakeLists.txt
+exclude test_build_system.py
+exclude SETUP_PY_ELIMINATION.md
