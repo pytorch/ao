@@ -43,6 +43,8 @@ class HostEvent:
 def device_timer(device):
     if "cuda" in device:
         return torch.cuda.Event(enable_timing=True)
+    elif "xpu" in device:
+        return torch.xpu.Event(enable_timing=True)
     elif ("cpu" in device) or ("mps" in device):
         return HostEvent()
     else:
