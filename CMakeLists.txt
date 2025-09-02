@@ -47,10 +47,13 @@ endif()
 # Handle AUTO values from pyproject.toml
 if(USE_CUDA STREQUAL "AUTO")
     find_package(CUDAToolkit QUIET)
-    if(CUDAToolkit_FOUND)
+    # Also check if PyTorch was built with CUDA by looking for CUDA libraries in TORCH_LIBRARIES
+    if(CUDAToolkit_FOUND AND TORCH_LIBRARIES MATCHES "cuda")
         set(USE_CUDA ON)
+        message(STATUS "CUDA enabled: found CUDA toolkit and PyTorch CUDA libraries")
     else()
         set(USE_CUDA OFF)
+        message(STATUS "CUDA disabled: CUDAToolkit=${CUDAToolkit_FOUND}, PyTorch CUDA libs=${TORCH_LIBRARIES}")
     endif()
 endif()
 
