@@ -6,7 +6,6 @@ on:
     paths:
       - build/packaging/**
       - .github/workflows/build_wheels_linux.yml
-      - setup.py
       - pyproject.toml
       - CMakeLists.txt
   push:
