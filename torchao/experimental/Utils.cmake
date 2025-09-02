@@ -21,7 +21,20 @@ function(target_link_torchao_parallel_backend target_name torchao_parallel_backe
         target_link_libraries(${target_name} PRIVATE "${TORCH_LIBRARIES}")
 
         target_compile_definitions(${target_name} PRIVATE TORCHAO_PARALLEL_ATEN=1 AT_PARALLEL_OPENMP=1 INTRA_OP_PARALLEL=1)
-        target_link_libraries(${target_name} PRIVATE ${TORCH_INSTALL_PREFIX}/lib/libomp${CMAKE_SHARED_LIBRARY_SUFFIX})
+        
+        # Try to find OpenMP library in PyTorch installation
+        set(_OMP_LIB_PATH "${TORCH_INSTALL_PREFIX}/lib/libomp${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        if(EXISTS "${_OMP_LIB_PATH}")
+            target_link_libraries(${target_name} PRIVATE "${_OMP_LIB_PATH}")
+        else()
+            # Fallback: let CMake find system OpenMP
+            find_package(OpenMP QUIET)
+            if(OpenMP_CXX_FOUND)
+                target_link_libraries(${target_name} PRIVATE OpenMP::OpenMP_CXX)
+            else()
+                message(WARNING "OpenMP not found in PyTorch installation or system. Parallel operations may not work optimally.")
+            endif()
+        endif()
 
     elseif(TORCHAO_PARALLEL_BACKEND_TOUPPER STREQUAL "EXECUTORCH")
         message(STATUS "Building with TORCHAO_PARALLEL_BACKEND=TORCHAO_PARALLEL_EXECUTORCH")

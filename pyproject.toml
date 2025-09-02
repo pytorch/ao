@@ -1,5 +1,12 @@
 [build-system]
-requires = ["scikit-build-core>=0.3.3"]
+requires = [
+    "scikit-build-core>=0.3.3",
+    "pybind11",
+    "cmake>=3.19", 
+    "ninja",
+    "intel-openmp; platform_system != 'Darwin'",
+    "llvm-openmp; platform_system == 'Darwin'",
+]
 build-backend = "scikit_build_core.build"
 
 [project]
