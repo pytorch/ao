@@ -35,7 +35,7 @@ if (not "+git" in __version__) and not ("unknown" in __version__):
     # dumped)".
     # TODO(#2901, and before next torchao release): make this generic for
     # future torchao and torch versions
-    if __version__.startswith("0.13.0") and torch.__version__ >= "2.9":
+    if __version__.startswith("0.13.0") and str(torch.__version__) >= "2.9":
         logger.warning(
             f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__}"
         )
