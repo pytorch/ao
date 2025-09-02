@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 60
     runs-on: linux.idc.xpu
     env:
-      DOCKER_IMAGE: ghcr.io/pytorch/ci-image:pytorch-linux-jammy-xpu-2025.1-py3-b388c12018df5d6ce2f94b7fb337fa3729978ab3
+      DOCKER_IMAGE: ci-image:pytorch-linux-jammy-xpu-n-1-py3
       TEST_COMMAND: .github/scripts/ci_test_xpu.sh
       PYTORCH_RETRY_TEST_CASES: 1
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
@@ -33,6 +33,20 @@ jobs:
       - name: Checkout Torchao
         uses: actions/checkout@v4
 
+      - name: Setup XPU
+        uses: ./.github/workflows/xpu-action.yml
+
+      - name: configure aws credentials
+        id: aws_creds
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        with:
+          role-to-assume: arn:aws:iam::308535385114:role/gha_workflow_s3_and_ecr_read_only
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+      
       - name: Clean all stopped docker containers
         if: always()
         shell: bash
