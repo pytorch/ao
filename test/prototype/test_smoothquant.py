@@ -86,7 +86,14 @@ class TestSmoothQuant(unittest.TestCase):
                 f"Output shapes should match: quantized={q_out.shape}, reference={ref_out.shape}",
             )
 
-    def test_observer_insertion(self):
+    @common_utils.parametrize(
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # TODO: Check more quantization APIs
+        ],
+    )
+    def test_observer_insertion(self, base_config):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
 
         m = self.ToyLinearModel().eval()
@@ -97,7 +104,7 @@ class TestSmoothQuant(unittest.TestCase):
 
         # PREPARE step - should insert observers
         config = SmoothQuantConfig(
-            base_config=Int8DynamicActivationInt8WeightConfig(),
+            base_config=base_config,
             step=SmoothQuantStep.PREPARE,
         )
         quantize_(m, config)
@@ -118,7 +125,14 @@ class TestSmoothQuant(unittest.TestCase):
         self.assertIsInstance(m.linear1, torch.nn.Linear)
         self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
 
-    def test_prepare_for_loading(self):
+    @common_utils.parametrize(
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # TODO: Check more quantization APIs
+        ],
+    )
+    def test_prepare_for_loading(self, base_config):
         """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
         m = self.ToyLinearModel().eval()
@@ -129,7 +143,7 @@ class TestSmoothQuant(unittest.TestCase):
 
         # PREPARE_FOR_LOADING step - should create quantized model ready for loading
         config = SmoothQuantConfig(
-            base_config=Int8DynamicActivationInt8WeightConfig(),
+            base_config=base_config,
             step=SmoothQuantStep.PREPARE_FOR_LOADING,
             alpha=0.5,
         )
@@ -155,14 +169,12 @@ class TestSmoothQuant(unittest.TestCase):
                 output.shape, (2, 64), "Output shape should match expected dimensions"
             )
 
-    # TODO: Check more quantization APIs and dtype
     @common_utils.parametrize("alpha", [0.5, 0.75])
     @common_utils.parametrize(
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
-            # Skip int4 weight tests for now due to reference implementation mismatch
-            # Int8DynamicActivationInt4WeightConfig(),
+            # TODO: Check more quantization APIs
         ],
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
