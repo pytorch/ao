@@ -704,7 +704,7 @@ class TestQuantFlow(TestCase):
     def test_module_fqn_to_config_skip(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
-        model = ToyTwoLinearModel(64, 32, 64)
+        model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs()
         quantize_(model, config)
         model(*example_inputs)
@@ -715,7 +715,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int4wo_cuda_serialization(self):
         config = Int4WeightOnlyConfig(group_size=32)
-        model = ToyTwoLinearModel(64, 32, 64)
+        model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
         # quantize in cuda
         quantize_(model, config)
         example_inputs = model.example_inputs()

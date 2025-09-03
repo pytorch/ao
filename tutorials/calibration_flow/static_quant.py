@@ -246,7 +246,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     print(f"Testing {target_dtype} static quantization:")
     torch.manual_seed(0)
 
-    m = ToyTwoLinearModel(64, 32, 64).eval()
+    m = ToyTwoLinearModel(64, 32, 64).eval().to(torch.bfloat16).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
     example_inputs = m.example_inputs()

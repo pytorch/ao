@@ -25,12 +25,13 @@ class ToySingleLinearModel(torch.nn.Module):
             dtype=self.dtype, device=self.device
         )
 
-    def example_inputs(self):
-        return (
+    def example_inputs(self, batch_size=1):
+        return [
             torch.randn(
-                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
-            ),
-        )
+                1, self.linear.in_features, dtype=self.dtype, device=self.device
+            )
+            for _ in range(batch_size)
+        ]
 
     def forward(self, x):
         x = self.linear(x)
