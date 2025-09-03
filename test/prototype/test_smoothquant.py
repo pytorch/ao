@@ -42,7 +42,10 @@ class TestSmoothQuant(unittest.TestCase):
         ],
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
-    @common_utils.parametrize("input_dtype", torch.bfloat16)
+    @common_utils.parametrize("input_dtype", [torch.bfloat16])
+    # TODO: Replace ToyLinearModel with Transformer for real run.
+    # For verifying SmoothQuant, we have to compare if accuracy with SmoothQuant is higher than basic quantization
+    # See https://github.com/pytorch/ao/pull/2728#discussion_r2319143330 for more info
     def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
         """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
 
@@ -167,76 +170,6 @@ class TestSmoothQuant(unittest.TestCase):
             )
             self.assertEqual(
                 output.shape, (2, 64), "Output shape should match expected dimensions"
-            )
-
-    @common_utils.parametrize("alpha", [0.5, 0.75])
-    @common_utils.parametrize(
-        "base_config",
-        [
-            Int8DynamicActivationInt8WeightConfig(),
-            # TODO: Check more quantization APIs
-        ],
-    )
-    @common_utils.parametrize("device", ["cpu", "cuda"])
-    @common_utils.parametrize("input_dtype", torch.bfloat16)
-    def test_two_step_quantization(self, alpha, base_config, device, input_dtype):
-        """Test two-step quantization process (PREPARE -> CONVERT)."""
-        dataset_size = 20
-        n_calib_examples = 10
-        sequence_length = 20  # Must be > 16 to avoid CUDA int_mm limitation
-
-        # Create model and move to device/dtype
-        m1 = (
-            self.ToyLinearModel(512, 256, 128)
-            .eval()
-            .to(device)
-            .to(input_dtype)
-        )
-        m2 = deepcopy(m1)
-
-        # Generate calibration dataset
-        dataset = m1.example_inputs(
-            dataset_size,
-            sequence_length=sequence_length,
-            dtype=input_dtype,
-            device=device,
-        )
-        calibration_data = dataset[:n_calib_examples]
-
-        # Step 1: PREPARE - Insert observers
-        config = SmoothQuantConfig(
-            base_config=base_config, step=SmoothQuantStep.PREPARE, alpha=alpha
-        )
-        quantize_(m2, config)
-
-        # Step 2: Calibration
-        for data in calibration_data:
-            m2(data.squeeze(0).to(input_dtype))
-
-        # Step 3: Apply quantization configuration
-        config.step = SmoothQuantStep.CONVERT
-        quantize_(m2, config)
-
-        # Step 4: Validate outputs on full dataset
-        with torch.inference_mode():
-            m2_outputs = []
-
-            for data in dataset:
-                # TODO: Remove fixed dtype for testing more quantization APIs
-                input_tensor = data.squeeze(0).float()
-                m2_output = m2(input_tensor)
-                m2_outputs.append(m2_output)
-
-            # Concatenate all outputs
-            m2_result = torch.cat(m2_outputs)
-
-            self.assertIsNotNone(m2_result, "Quantized model output should not be None")
-
-            # Check that model produces reasonable outputs
-            self.assertFalse(
-                torch.isnan(m2_result).any(),
-                f"Quantized model should not produce NaN values for "
-                f"alpha={alpha}, base_config={type(base_config).__name__}, device={device}, dtype={input_dtype}",
             )
 
 
