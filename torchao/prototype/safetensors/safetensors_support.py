@@ -1,9 +1,8 @@
 import json
 import logging
-from typing import Dict
+from typing import Any, Dict
 
 import torch
-from safetensors.torch import load_file, save_file
 
 from torchao.prototype.safetensors.safetensors_serialization import (
     Float8TensorAttributeJSONEncoder,
@@ -14,55 +13,67 @@ from torchao.quantization import Float8Tensor
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-def load_tensor_state_dict(file_path: str, device: str):
+def unflatten_tensor_state_dict(
+    tensors_data_dict: Dict[str, Any],
+    metadata_dict: Dict[str, Any],
+):
     """
-    Load a dictionary of tensor subclasses from a safetensors file.
+    Reconstructs tensor subclass state dict from provided torch.Tensor data and metadata
+    This function is used after loading in previously saved model state dict (using safetensors.save_file) to reconstruct tensor subclass structure
 
-    For torch.Tensors, we load:
-        - _data: the tensor data
-        - _type: the tensor type
+    For example, given a previously flattened tensors_data_dict and metadata_dict:
+    tensors_data_dict = {
+        '0.weight:qdata': torch.Tensor(...),
+        '0.weight:scale': torch.Tensor(...),
+        '0.bias:_data': torch.Tensor(...),
+    }
+    metadata_dict = {
+        '0.weight': {
+            '_type': 'Float8Tensor',
+            '_data': {
+                'block_size': [1,32],
+                ...
+            }
+        }
+        '0.bias': {
+            '_type': 'torch.Tensor',
+        }
+        'tensor_names': ['0.weight', '0.bias']
+    }
 
-    For Float8Tensor, we load:
-        - tensor_data: qdata and scale
-        - tensor_attributes:
-            - block_size
-            - mm_config
-            - hp_value_lb
-            - hp_value_ub
-            - act_quant_kwargs
-            - kernel_preference
-            - dtype
+    We recover the structure of the original state dict:
+    tensor_dict = {
+        '0.weight': Float8Tensor(
+            qdata=torch.Tensor(...),
+            scale=torch.Tensor(...),
+            block_size=[1,32],
+            ...),
+        '0.bias': torch.Tensor(...),
+    }
 
     Args:
-        file_path: Path to the safetensors file
+        tensors_data_dict: a dictionary from "tensor_name:tensor_data_attribute_name" to flattened torch.Tensor data for tensor subclass instance
+        metadata_dict: a dictionary from "tensor_name" to another dictionary that contains type and attributes for tensor subclass instance
 
     Returns:
         Dictionary of reconstructed tensor subclasses
     """
-    loaded_tensors = load_file(file_path, device)
+    combined_data = {**tensors_data_dict, **metadata_dict}
 
-    with open(file_path, "rb") as f:
-        import struct
-
-        header_size = struct.unpack("<Q", f.read(8))[0]
-        header_bytes = f.read(header_size)
-        header = json.loads(header_bytes)
-        metadata = header.get("__metadata__", {})
-
-    if "tensor_names" not in metadata:
+    if "tensor_names" not in metadata_dict:
         raise ValueError("No tensors found")
 
-    tensor_names = json.loads(metadata["tensor_names"])
+    tensor_names = json.loads(metadata_dict["tensor_names"])
     result = {}
 
     for tensor_name in tensor_names:
         tensor_tensors = {}
-        for key, value in loaded_tensors.items():
+        for key, value in combined_data.items():
             if key.startswith(f"{tensor_name}:"):
                 # Remove the prefix
                 tensor_tensors[key[len(tensor_name) + 1 :]] = value
 
-        tensor_metadata = json.loads(metadata.get(tensor_name))
+        tensor_metadata = json.loads(metadata_dict.get(tensor_name))
         tensor_type = tensor_metadata.get("_type")
 
         if tensor_type == Float8Tensor.__name__:
@@ -73,54 +84,69 @@ def load_tensor_state_dict(file_path: str, device: str):
         else:
             raise ValueError(f"Unsupported tensor type: {tensor_type}")
 
-    logger.info(
-        f"Loaded {len(tensor_names)} tensor subclasses from {file_path} with metadata"
-    )
     return result
 
 
-def save_tensor_state_dict(
-    tensor_dict: Dict[str, Dict[str, torch.Tensor]],
-    file_path: str,
+def flatten_tensor_state_dict(
+    tensors_dict: Dict[str, Dict[str, torch.Tensor]],
 ):
     """
-    Save a dictionary of tensor subclasses with appropriate metadata.
+    Flattens a dictionary of tensor subclasses so that it is compatible with safetensors.save_file
+    We disconstruct tensor subclass structure into torch.Tensor data and metadata
 
-    For torch.Tensors, we save:
-        - _data: the tensor data
-        - _type: the tensor type
+    For example, given something like:
+    tensor_dict = {
+        '0.weight': Float8Tensor(
+            qdata=torch.Tensor(...),
+            scale=torch.Tensor(...),
+            block_size=[1,32],
+            ...),
+        '0.bias': torch.Tensor(...),
+    }
 
-    For Float8Tensor, we save:
-        - tensor_data:
-            - qdata
-            - scale
-        - tensor_attributes:
-            - block_size
-            - mm_config
-            - hp_value_lb
-            - hp_value_ub
-            - act_quant_kwargs
-            - kernel_preference
-            - dtype
+    We flatten this to:
+    tensors_data = {
+        '0.weight:qdata': torch.Tensor(...),
+        '0.weight:scale': torch.Tensor(...),
+        '0.bias:_data': torch.Tensor(...),
+    }
+    metadata = {
+        '0.weight': {
+            '_type': 'Float8Tensor',
+            '_data': {
+                'block_size': [1,32],
+                ...
+            }
+        }
+        '0.bias': {
+            '_type': 'torch.Tensor',
+        }
+        'tensor_names': ['0.weight', '0.bias']
+    }
 
     Args:
         tensor_dict: Dictionary of tensor subclasses to save, with keys as tensor names
-        file_path: Path where to save the tensors
+
+    Returns:
+        A tuple of (tensors_data, metadata) where
+            tensors_data: Dict[str, torch.Tensor] contains the tensor data
+            metadata: Dict[str, str] contains accompanying metadata from tensor subclass
+        This structure is compatible with safetensors.save_file
     """
 
-    combined_metadata = {}
-    combined_tensors_dict = {}
+    metadata_dict = {}
+    tensors_data_dict = {}
 
-    for tensor_name, tensor in tensor_dict.items():
+    for tensor_name, tensor in tensors_dict.items():
         if isinstance(tensor, Float8Tensor):
-            tensors_dict = {}
+            tensor_dict = {}
             for tensor_data_name in tensor.tensor_data_names:
-                tensors_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
+                tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
 
-            metadata = json.dumps(tensor, cls=Float8TensorAttributeJSONEncoder)
+            tensor_metadata = json.dumps(tensor, cls=Float8TensorAttributeJSONEncoder)
         elif type(tensor) is torch.Tensor:
-            tensors_dict = {"_data": tensor}
-            metadata = json.dumps({"_type": torch.Tensor.__name__})
+            tensor_dict = {"_data": tensor}
+            tensor_metadata = json.dumps({"_type": torch.Tensor.__name__})
         else:
             raise ValueError(f"Unsupported tensor type: {type(tensor)}")
 
@@ -129,15 +155,11 @@ def save_tensor_state_dict(
             f"{tensor_name}:{key}": (
                 value.detach().clone() if isinstance(value, torch.Tensor) else value
             )
-            for key, value in tensors_dict.items()
+            for key, value in tensor_dict.items()
         }
 
-        combined_metadata[tensor_name] = metadata
-        combined_tensors_dict.update(prefixed_tensors_dict)
+        metadata_dict[tensor_name] = tensor_metadata
+        tensors_data_dict.update(prefixed_tensors_dict)
 
-    combined_metadata["tensor_names"] = json.dumps(list(tensor_dict.keys()))
-
-    save_file(combined_tensors_dict, file_path, metadata=combined_metadata)
-    logger.info(
-        f"Saved {len(tensor_dict)} tensor subclasses to {file_path} with metadata"
-    )
+    metadata_dict["tensor_names"] = json.dumps(list(tensors_dict.keys()))
+    return tensors_data_dict, metadata_dict
