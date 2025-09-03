@@ -344,7 +344,7 @@ TEST(test_bitpacking_16_uint4_values, PackUnpackAreSame) {
 
 TEST(test_bitpacking_32_uint4_values, PackUnpackAreSame) {
   int unpacked_bytes = 32;
-  int nbit = 2;
+  int nbit = 4;
   int packed_bytes = unpacked_bytes * nbit / 8;
   auto input = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
