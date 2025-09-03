@@ -11,11 +11,7 @@ import torch
 from torch.testing._internal import common_utils
 
 from torchao.prototype.awq import AWQConfig, AWQStep
-from torchao.quantization import (
-    FbgemmConfig,
-    Int4WeightOnlyConfig,
-    quantize_,
-)
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.utils import _is_fbgemm_genai_gpu_available
 
 
@@ -63,16 +59,7 @@ class TestAWQ(common_utils.TestCase):
             AWQConfig(base_config, step="not_supported")
 
     @common_utils.parametrize(
-        "base_config",
-        [
-            FbgemmConfig(
-                input_dtype=torch.bfloat16,
-                weight_dtype=torch.int4,
-                output_dtype=torch.bfloat16,
-                block_size=[1, 128],
-                preshuffle=False,
-            )
-        ],
+        "base_config", [Int4WeightOnlyConfig(group_size=128, version=2)]
     )
     def test_awq_functionality(self, base_config):
         device = "cuda"
@@ -116,16 +103,7 @@ class TestAWQ(common_utils.TestCase):
         assert loss_awq < loss_base
 
     @common_utils.parametrize(
-        "base_config",
-        [
-            FbgemmConfig(
-                input_dtype=torch.bfloat16,
-                weight_dtype=torch.int4,
-                output_dtype=torch.bfloat16,
-                block_size=[1, 128],
-                preshuffle=False,
-            )
-        ],
+        "base_config", [Int4WeightOnlyConfig(group_size=128, version=2)]
     )
     def test_awq_loading(self, base_config):
         device = "cuda"
@@ -174,16 +152,7 @@ class TestAWQ(common_utils.TestCase):
         assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
 
     @common_utils.parametrize(
-        "base_config",
-        [
-            FbgemmConfig(
-                input_dtype=torch.bfloat16,
-                weight_dtype=torch.int4,
-                output_dtype=torch.bfloat16,
-                block_size=[1, 128],
-                preshuffle=False,
-            )
-        ],
+        "base_config", [Int4WeightOnlyConfig(group_size=128, version=2)]
     )
     def test_awq_loading_vllm(self, base_config):
         """Simulate weight loading in vllm:
