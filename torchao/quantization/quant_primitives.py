@@ -454,6 +454,11 @@ def _quantize_affine_no_dtype_cast(
     quant = torch.clamp(
         _Round.apply(input * (1.0 / scale)) + zero_point, quant_min, quant_max
     )
+    # TODO: HACK MIMIC FBGEMM
+    #quant = torch.clamp(
+    #    _Round.apply(input.div(scale)) + zero_point, quant_min, quant_max
+    #)
+
     quant = quant.view(original_shape)
 
     return quant
@@ -1178,6 +1183,7 @@ def _do_fake_quantize_affine(
         quant_min,
         quant_max,
     )
+    print("qat: wq = ", q.flatten()[:5], "group_scale = ", scale.flatten()[:5])
     dq = _dequantize_affine(
         q,
         block_size,
@@ -1187,6 +1193,7 @@ def _do_fake_quantize_affine(
         quant_max,
         output_dtype=input_dtype,
     )
+    print("qat: w_fq = ", dq.flatten()[:5])
     return (q, dq)
 
 
@@ -1534,11 +1541,15 @@ def _choose_qparams_affine(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    # TODO: HACK MIMIC FBGEMM
+    eps = 1e-6
+    max_val_abs = torch.amax(torch.abs(input.to(torch.float32)), dim=reduction_dims, keepdim=False)
 
-    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
+    #min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+    #max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+
+    #min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
+    #max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
 
     if (
         mapping_type == MappingType.SYMMETRIC.name
@@ -1546,8 +1557,9 @@ def _choose_qparams_affine(
     ):
         # scales
         if mapping_type == MappingType.SYMMETRIC.name:
-            max_val_pos = torch.max(-min_val_neg, max_val_pos)
-            scale = max_val_pos / (float(quant_max - quant_min) / 2)
+            #max_val_pos = torch.max(-min_val_neg, max_val_pos)
+            #scale = max_val_pos / (float(quant_max - quant_min) / 2)
+            scale = max_val_abs / (quant_max + 1)
         else:
             assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
             # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and

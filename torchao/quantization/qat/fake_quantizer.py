@@ -96,7 +96,10 @@ class Float8FakeQuantizer(FakeQuantizerBase):
         q = _quantize_affine_float8(
             x, scale, self.config.dtype, cast_to_float8_dtype=False
         )
+        print("qat: x_hp = ", x.flatten()[:5])
+        print("qat: xq = ", q.flatten()[:5], "scale = ", scale.flatten()[:5])
         dq = _dequantize_affine_float8(q, scale, original_dtype)
+        print("qat: x_fq = ", dq.flatten()[:5])
         return dq
 
 
@@ -140,6 +143,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         if isinstance(self.config.granularity, PerToken):
             return self._per_token_forward(x)
         elif isinstance(self.config.granularity, (PerAxis, PerGroup)):
+            print("qat: w_hp = ", x.flatten()[:5])
             return self._per_channel_or_group_forward(x)
         else:
             raise ValueError("Unknown granularity '%s'" % self.config.granularity)

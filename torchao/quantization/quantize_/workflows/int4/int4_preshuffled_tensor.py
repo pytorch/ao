@@ -168,6 +168,8 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
             wq, (group_scale, group_zero_or_row_scale) = quantize_int4_preshuffle(
                 w.cuda(), group_size=group_size, dtype=activation_dtype_str
             )
+            print("ptq: w_hp = ", w.flatten()[:5])
+            print("ptq: wq = ", wq.flatten()[:5], "weight_group_scale = ", group_scale.flatten()[:5])
 
         if activation_dtype == torch.bfloat16:
             group_zero = group_zero_or_row_scale
@@ -212,6 +214,8 @@ def _(func, types, args, kwargs):
         assert weight_tensor.row_scale is not None
         row_scale = weight_tensor.row_scale.contiguous()
         xq, x_scale = quantize_fp8_row(input_tensor)
+        print("ptq: x_hp = ", input_tensor.flatten()[:5])
+        print("ptq: xq = ", xq.flatten()[:5], "x_scale = ", x_scale.flatten()[:5])
         res = torch.ops.fbgemm.f8i4bf16_shuffled(
             xq, wq, x_scale, row_scale, group_scale
         )

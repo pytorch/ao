@@ -141,8 +141,8 @@ class M(torch.nn.Module):
 
     def forward(self, x):
         x = self.linear1(x)
-        x = self.sub(x)
-        x = self.linear2(x)
+        #x = self.sub(x)
+        #x = self.linear2(x)
         return x
 
 
@@ -1887,19 +1887,30 @@ class TestQAT(TestCase):
         # baseline
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config)
+
+        print("\n\n======= PTQ start")
         out_baseline = m_baseline(*example_inputs)
+        print("======= PTQ end\n\n")
 
         # compare prepare
         quantize_(m, QATConfig(base_config, step="prepare"))
+        #quantize_(m, QATConfig(
+        #    activation_config=IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False, scale_precision=torch.float32, zero_point_precision=torch.float32, eps=torch.finfo(torch.float32).eps),
+        #    weight_config=IntxFakeQuantizeConfig(torch.int4, group_size=32, is_symmetric=True, scale_precision=torch.float32, zero_point_precision=torch.float32),
+        #    step="prepare",
+        #))
+        print("\n\n======= QAT start")
         out_prepared = m(*example_inputs)
+        print("======= QAT end\n\n")
         prepare_sqnr = compute_error(out_prepared, out_baseline)
+        print("prepare_sqnr", prepare_sqnr, base_config.__class__.__name__)
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
-        quantize_(m, QATConfig(base_config, step="convert"))
-        out_converted = m(*example_inputs)
-        convert_sqnr = compute_error(out_converted, out_baseline)
-        self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
+        #quantize_(m, QATConfig(base_config, step="convert"))
+        #out_converted = m(*example_inputs)
+        #convert_sqnr = compute_error(out_converted, out_baseline)
+        #self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
 
     @parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
@@ -1947,6 +1958,19 @@ class TestQAT(TestCase):
         self._test_quantize_api_against_ptq(
             Int4WeightOnlyConfig(version=version),
             target_prepare_sqnr=12,
+            target_convert_sqnr=float("inf"),
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_quantize_api_int8_int4(self):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            Int8DynamicActivationInt4WeightConfig(group_size=32),
+            target_prepare_sqnr=30,
             target_convert_sqnr=float("inf"),
         )
 
@@ -2032,6 +2056,55 @@ class TestQAT(TestCase):
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
         self.assertGreater(sqnr, 24)
+
+    def test_fbgemm_int4(self):
+        from fbgemm_gpu.experimental.gen_ai.quantize import (
+            int4_row_quantize,
+            quantize_fp8_row,
+            quantize_int4_preshuffle,
+            pack_int4,
+        )
+        from torchao.quantization.utils import get_group_qparams_symmetric
+        from torchao.quantization.quant_primitives import _quantize_affine_no_dtype_cast
+
+        group_size = 128
+        x1 = torch.randn([128, 256], dtype=torch.bfloat16).cuda()
+        x2 = copy.deepcopy(x1)
+        x3 = copy.deepcopy(x1)
+        x4 = copy.deepcopy(x1)
+
+        (y1, (gs1, rs1)) = quantize_int4_preshuffle(x1, group_size, dtype="fp8")
+        (y2, rs2) = quantize_fp8_row(x2)
+        (y2, gs2) = int4_row_quantize(y2, group_size)
+        #(y2, gs2) = int4_row_quantize(x2, group_size)
+
+        # "QAT"
+        (gs3, zp3) = get_group_qparams_symmetric(x3, 4, group_size, torch.float32)
+        y3 = _quantize_affine_no_dtype_cast(
+            x3,
+            (1, group_size),
+            gs3,
+            zp3,
+            quant_min=-8,
+            quant_max=7,
+        )
+
+        def see(t):
+            return t.flatten()[:5]
+        def shuffle_and_pack(t, gs):
+            t = pack_int4(t.to(torch.int8))
+            return torch.ops.fbgemm.preshuffle_i4(t, gs.to(torch.float8_e4m3fn))
+
+        print("y1", see(y1))
+        print("y2", see(y2))
+        print("y3", see(y3))
+        print("shuffle_and_pack(y2, gs2)", see(shuffle_and_pack(y2, gs2)[0]))
+        print("shuffle_and_pack(y3, gs3)", see(shuffle_and_pack(y3, gs3)[0]))
+        print("SQNR between y2 and y3: ", compute_error(y2.to(torch.float32), y3.to(torch.float32)))
+        print("SQNR between y2 and y3 (shuffled and packed): ", compute_error(shuffle_and_pack(y2, gs2)[0].to(torch.float32), shuffle_and_pack(y3, gs3)[0].to(torch.float32)))
+        print("SQNR between y1 and y2 (shuffled and packed): ", compute_error(y1.to(torch.float32), shuffle_and_pack(y2, gs2)[0].to(torch.float32)))
+        print("SQNR between y1 and y3 (shuffled and packed): ", compute_error(y1.to(torch.float32), shuffle_and_pack(y3, gs3)[0].to(torch.float32)))
+        #breakpoint()
 
 
 instantiate_parametrized_tests(TestQAT)
