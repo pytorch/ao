@@ -10,6 +10,7 @@ import itertools
 import logging
 import os
 import unittest
+from copy import deepcopy
 from functools import partial
 
 import torch
@@ -18,10 +19,16 @@ from parameterized import parameterized
 from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
+from torch.testing._internal import common_utils
 
 import torchao
 from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
-from torchao.quantization import safe_int_mm
+from torchao.prototype.smoothquant import (
+    SmoothQuantConfig,
+    SmoothQuantObservedLinear,
+)
+from torchao.prototype.smoothquant.core import SmoothQuantStep
+from torchao.quantization import quantize_, safe_int_mm
 from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
@@ -39,7 +46,7 @@ from torchao.quantization.autoquant import (
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
-    _replace_with_custom_fn_if_matches_filter,
+    Int8DynamicActivationInt8WeightConfig,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
@@ -49,12 +56,6 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_primitives import (
     MappingType,
     dequantize_affine,
-)
-from torchao.quantization.smoothquant import (
-    SmoothFakeDynamicallyQuantizedLinear,
-    get_scale,
-    smooth_fq_linear_to_inference,
-    swap_linear_with_smooth_fq_linear,
 )
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
@@ -202,260 +203,157 @@ def run_supported_device_dtype(test_method):
     return wrapper
 
 
-class SmoothquantUnitTest(unittest.TestCase):
-    # first, let's reproduce the graphic from the paper, Figure 4, to ensure
-    # we are calculating the scales correctly
-    def test_figure_4(self):
-        X = torch.FloatTensor([1, -16, 2, 6, -2, 8, -1, -9]).reshape(1, 2, 4)
-        W = torch.FloatTensor([2, 1, -2, 1, -1, -1, 2, -1, -2, -1, -1, 1]).reshape(4, 3)
-        X_mul_W = torch.matmul(X, W)
+# Note: This is copy-paste from test_smoothquant.py
+class TestSmoothQuant(unittest.TestCase):
+    """SmoothQuant tests using only supported quantization configs."""
 
-        smoothquant_scale = get_scale(
-            torch.amax(torch.abs(X), dim=(0, 1)),
-            torch.amax(torch.abs(W), dim=1),
+    @classmethod
+    def setUpClass(cls):
+        """Set up class-level configuration for tests."""
+        # This test case will trigger recompilation many times, so set a large cache_size_limit here
+        torch._dynamo.config.cache_size_limit = 128
+
+    from test.prototype.test_awq import ToyLinearModel
+
+    @common_utils.parametrize("alpha", [0.5, 0.75])
+    @common_utils.parametrize(
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
+            # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
+        ],
+    )
+    @common_utils.parametrize("device", ["cpu", "cuda"])
+    @common_utils.parametrize("input_dtype", [torch.bfloat16])
+    # TODO: Replace ToyLinearModel with Transformer for real run.
+    # For verifying SmoothQuant, we have to compare if accuracy with SmoothQuant is higher than basic quantization
+    # See https://github.com/pytorch/ao/pull/2728#discussion_r2319143330 for more info
+    def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
+        """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
+
+        m = self.ToyLinearModel(32, 16, 8).eval().to(device).to(input_dtype)
+        m_ref = deepcopy(m)
+        test_data = torch.randn(32, 32, dtype=input_dtype, device=device)
+
+        # Step 1: Setup quantized model with observer insertion and calibration
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE,
+            alpha=alpha,
+        )
+        quantize_(m, config)
+
+        # Perform calibration with test data
+        m(test_data)
+
+        # Apply quantization configuration
+        config.step = SmoothQuantStep.CONVERT
+        quantize_(m, config)
+
+        # Step 2: Inference quantized model
+        with torch.inference_mode():
+            q_out = m(test_data)
+            ref_out = m_ref(test_data)
+
+            # Simple validation - ensure quantized model produces reasonable outputs
+            self.assertIsNotNone(q_out, "Quantized model output should not be None")
+            self.assertFalse(
+                torch.isnan(q_out).any(),
+                f"Quantized model should not produce NaN values for "
+                f"alpha={alpha}, base_config={type(base_config).__name__}, "
+                f"device={device}, dtype={input_dtype}",
+            )
+
+            # Check output shapes match
+            self.assertEqual(
+                q_out.shape,
+                ref_out.shape,
+                f"Output shapes should match: quantized={q_out.shape}, reference={ref_out.shape}",
+            )
+
+    @common_utils.parametrize(
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # TODO: Check more quantization APIs
+        ],
+    )
+    def test_observer_insertion(self, base_config):
+        """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
+
+        m = self.ToyLinearModel().eval()
+
+        # Before quantization - should be regular Linear
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+        # PREPARE step - should insert observers
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE,
+        )
+        quantize_(m, config)
+
+        # After PREPARE - should be SmoothQuantObservedLinear
+        self.assertIsInstance(m.linear1, SmoothQuantObservedLinear)
+        self.assertTrue(hasattr(m.linear1, "obs"))
+
+        # Test calibration
+        test_data = torch.randn(2, 512)
+        m(test_data)
+
+        # CONVERT step - should produce regular Linear with quantized weights
+        config.step = SmoothQuantStep.CONVERT
+        quantize_(m, config)
+
+        # After CONVERT - should be regular Linear again (but quantized)
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+    @common_utils.parametrize(
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # TODO: Check more quantization APIs
+        ],
+    )
+    def test_prepare_for_loading(self, base_config):
+        """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
+
+        m = self.ToyLinearModel().eval()
+
+        # Before quantization - should be regular Linear
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+        # PREPARE_FOR_LOADING step - should create quantized model ready for loading
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE_FOR_LOADING,
             alpha=0.5,
         )
+        quantize_(m, config)
 
-        # reproduce scaled calculation
-        X_scaled = X / smoothquant_scale.reshape(1, 1, -1)
-        W_scaled = torch.matmul(torch.diag(smoothquant_scale), W)
-        X_scaled_mul_scaled_W = torch.matmul(X_scaled, W_scaled)
-        assert torch.allclose(X_mul_W, X_scaled_mul_scaled_W), "not close!"
-        assert X_mul_W.shape == X_scaled_mul_scaled_W.shape
+        # After PREPARE_FOR_LOADING - should be regular Linear with quantized weights
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
 
-    # next, run the above test on a sample of representative inputs
-    def test_tensors(self):
-        x_shape = (1, 5, 7)
-        w_shape = (7, 9)
-        for i in range(3):
-            X = torch.randn(x_shape) * 10
-            W = torch.randn(w_shape)
-            s = get_scale(
-                torch.amax(torch.abs(X), dim=(0, 1)),
-                torch.amax(torch.abs(W), dim=1),
-                alpha=0.5,
+        # Test that model can run inference
+        test_data = torch.randn(2, 512)
+        with torch.inference_mode():
+            output = m(test_data)
+
+            # Validate output
+            self.assertIsNotNone(
+                output, "PREPARE_FOR_LOADING model output should not be None"
             )
-
-            Y = torch.matmul(X, W)
-            Y_ref = torch.matmul(
-                X / s.reshape(1, 1, -1),
-                torch.matmul(torch.diag(s), W),
+            self.assertFalse(
+                torch.isnan(output).any(), "Model should not produce NaN values"
             )
-            assert torch.allclose(Y, Y_ref, atol=1e-3, rtol=1e-3), "not close!"
-
-    def _test_smooth_linear_impl(self, x_shape, lin_shape, device):
-        orig_backend = torch.backends.quantized.engine
-        # so we can use the full range
-        torch.backends.quantized.engine = "qnnpack"
-
-        x = torch.randn(*x_shape, device=device) * 9 + 10
-
-        lin_fp32 = nn.Linear(*lin_shape, device=device)  # misc: ignore
-        lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
-            copy.deepcopy(lin_fp32), alpha=0.25
-        )
-        lin_smooth_skip_scaling = SmoothFakeDynamicallyQuantizedLinear.from_float(
-            copy.deepcopy(lin_fp32), alpha=0.25
-        )
-
-        lin_fp32_copy = copy.deepcopy(lin_fp32)  # assignment: ignore
-        lin_fp32_copy.qconfig = torch.ao.quantization.QConfig(  # assignment: ignore
-            activation=None,
-            weight=torch.ao.quantization.default_per_channel_weight_observer,
-        )
-        lin_dynamic_q = torch.ao.nn.quantized.dynamic.Linear.from_float(
-            lin_fp32_copy.cpu()
-        )
-
-        y_ref = lin_fp32(x)
-
-        # calibrate the smoothquant versions
-        y_smooth_nocalib = lin_smooth(x)
-        _ = lin_smooth_skip_scaling(x)
-        lin_smooth.to_inference()
-        lin_smooth_skip_scaling.debug_skip_scaling = True
-        lin_smooth_skip_scaling.to_inference()
-
-        # verify that with scaling turned off, numerics match quantized version
-        y_smooth_fq_only = lin_smooth_skip_scaling(x)
-        y_smooth_fq = lin_smooth(x)
-        y_dynamic_q = lin_dynamic_q(x.cpu()).to(device)
-
-        # print('y_ref', y_ref)
-        # print('y_smooth_nocalib', y_smooth_nocalib)
-        # print('y_smooth_fq', y_smooth_fq)
-        # print('y_smooth_fq_only', y_smooth_fq_only)
-        # print('y_dynamic_q', y_dynamic_q)
-
-        sqnr_smooth_fq = compute_error(y_ref, y_smooth_fq)
-        sqnr_dynamic_q = compute_error(y_ref, y_dynamic_q)
-        sqnr_fq = compute_error(y_smooth_fq_only, y_dynamic_q)
-        # print('sqnr_smooth', sqnr_smooth_fq, 'sqnr_dynamic', sqnr_dynamic_q, 'sqnr_fq', sqnr_fq)
-
-        assert torch.allclose(y_ref, y_smooth_nocalib), (
-            "y_ref not close to y_smooth_nocalib"
-        )
-        # after https://github.com/pytorch-labs/ao_benchmarks/pull/32,
-        # numerics do not match exactly between production c++ code
-        # and this Python code
-        # assert torch.allclose(
-        #     y_smooth_fq_only, y_dynamic_q,
-        #     atol=torch.max(y_smooth_fq_only).item()*0.01,
-        #     rtol=0.00001), \
-        #     'y_smooth_fq_only not close to y_dynamic_q'
-
-        self.assertTrue(sqnr_smooth_fq.item() >= 40.0, f"got: {sqnr_smooth_fq.item()}")
-        self.assertTrue(sqnr_dynamic_q.item() >= 40.0, f"got: {sqnr_dynamic_q.item()}")
-        self.assertTrue(sqnr_fq.item() >= 40.0, f"got: {sqnr_fq.item()}")
-
-        # Restore backend
-        torch.backends.quantized.engine = orig_backend
-
-    def test_smooth_linear_cpu(self):
-        self._test_smooth_linear_impl((1, 5, 3), (3, 4), "cpu")
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_smooth_linear_cuda(self):
-        self._test_smooth_linear_impl((1, 32, 32), (32, 16), "cuda")
-
-    def test_smooth_linear_edge_cases(self):
-        orig_backend = torch.backends.quantized.engine
-        # so we can use the full range
-        torch.backends.quantized.engine = "qnnpack"
-        lin_fp32 = nn.Linear(3, 4)
-        lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
-            lin_fp32, alpha=0.25
-        )
-
-        # test different ranks
-        x0 = torch.randn(4, 5, 3)
-        x1 = torch.randn(1, 8, 5, 3)
-        x2 = torch.randn(2, 3, 7, 5, 3)
-
-        # calibrate
-        _ = lin_smooth(x0)
-        _ = lin_smooth(x1)
-        _ = lin_smooth(x2)
-
-        # inference
-        lin_smooth.to_inference()
-        _ = lin_smooth(x0)
-        _ = lin_smooth(x1)
-        _ = lin_smooth(x2)
-
-        # Restore backend
-        torch.backends.quantized.engine = orig_backend
-
-    def test_swap(self):
-        m = nn.Sequential(
-            nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 4)),
-            nn.Linear(4, 4),
-        )
-        m_copy = copy.deepcopy(m)
-        swap_linear_with_smooth_fq_linear(m_copy, skip_fqn_list=["0.2"])
-
-        # verify all linears are swapped
-        assert isinstance(m_copy[0][0], SmoothFakeDynamicallyQuantizedLinear)
-        assert isinstance(m_copy[0][1], nn.ReLU)
-        # this one was skipped
-        assert isinstance(m_copy[0][2], nn.Linear)
-        assert isinstance(m_copy[1], SmoothFakeDynamicallyQuantizedLinear)
-
-        # verify results do not change without smoothing
-        x = torch.randn(4, 4)
-        y_ref = m(x)
-        y = m_copy(x)
-        assert torch.allclose(y_ref, y)
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_weight_t_and_non_t_numerics_match(self):
-        # verify that numerics match whether weight is stored
-        # in transposed format (for cuBLAS) vs non-transposed format
-        # (for torch.compile)
-        dtype = torch.half
-        device = "cuda"
-        lin_ref = nn.Linear(32, 16, dtype=dtype, device=device)
-        lin_eager_t = copy.deepcopy(lin_ref)
-        lin_opt_t = copy.deepcopy(lin_eager_t)
-        lin_opt = copy.deepcopy(lin_eager_t)
-        lin_eager_t = SmoothFakeDynamicallyQuantizedLinear.from_float(lin_eager_t)
-        lin_opt_t = SmoothFakeDynamicallyQuantizedLinear.from_float(lin_opt_t)
-        lin_opt = SmoothFakeDynamicallyQuantizedLinear.from_float(lin_opt)
-        lin_opt.store_w_int_repr_t = False
-
-        x = torch.randn(32, 32, dtype=dtype, device=device)
-
-        y_calib_eager_t = lin_eager_t(x)
-        y_calib_opt_t = lin_opt_t(x)
-        y_calib_opt = lin_opt(x)
-        torch.testing.assert_close(y_calib_eager_t, y_calib_opt_t)
-        torch.testing.assert_close(y_calib_eager_t, y_calib_opt)
-
-        lin_eager_t.to_inference()
-        lin_opt_t.to_inference()
-        lin_opt.to_inference()
-
-        torch.testing.assert_close(lin_eager_t.W_int_repr, lin_opt_t.W_int_repr)
-        torch.testing.assert_close(lin_eager_t.W_int_repr, lin_opt.W_int_repr)
-
-        lin_opt_t = torch.compile(lin_opt_t, mode="max-autotune")
-        lin_opt = torch.compile(lin_opt, mode="max-autotune")
-
-        y_ref = lin_ref(x)
-        y_eager = lin_eager_t(x)
-        y_opt_t = lin_opt_t(x)
-        y_opt = lin_opt(x)
-
-        if not torch.any(torch.isinf(y_ref)) and torch.any(torch.isinf(y_eager)):
-            # eager mode torch._int_mm is sometimes buggy, when this happens
-            # we can't really compare the compiled version against it properly
-            print("eager mode torch._int_mm known bad, test is inconclusive")
-            return
-
-        sqnr_eager_opt_t = compute_error(y_eager, y_opt_t)
-        sqnr_eager_opt = compute_error(y_eager, y_opt)
-        # since torch.compile for a torch.half model can
-        # change numerics significantly, we can only test for a high SQNR here
-        # and not for closeness
-        self.assertTrue(sqnr_eager_opt_t >= 45.0)
-        self.assertTrue(sqnr_eager_opt >= 45.0)
-        # y_opt_t and y_opt should be equivalent
-        torch.testing.assert_close(y_opt_t, y_opt)
-
-    def test_selective_torch_compile(self):
-        m = nn.Sequential(
-            nn.Linear(4, 4),
-            nn.Sequential(
-                nn.Linear(4, 4),
-                nn.Linear(4, 4),
-            ),
-            nn.Linear(4, 4),
-        )
-        x = torch.randn(4, 4)
-        y_ref = m(x)
-
-        _replace_with_custom_fn_if_matches_filter(
-            m,
-            lambda mod: torch.compile(mod),
-            lambda mod, fqn: isinstance(mod, nn.Linear) and fqn != "1.0",
-        )
-
-        self.assertTrue(isinstance(m[0], torch._dynamo.eval_frame.OptimizedModule))
-        self.assertTrue(isinstance(m[1][0], nn.Linear))
-        self.assertTrue(isinstance(m[1][1], torch._dynamo.eval_frame.OptimizedModule))
-        self.assertTrue(isinstance(m[2], torch._dynamo.eval_frame.OptimizedModule))
-
-        y = m(x)
-        torch.testing.assert_close(y, y_ref)
-
-    def test_debug_x_absmax(self):
-        m = nn.Sequential(nn.Linear(3, 4))
-        x0 = torch.randn(4, 5, 3)
-        m(x0)
-        swap_linear_with_smooth_fq_linear(m)
-        # no calibration, straight to inference, should not crash
-        smooth_fq_linear_to_inference(m, debug_skip_calibration=True)
-        m(x0)
+            self.assertEqual(
+                output.shape, (2, 64), "Output shape should match expected dimensions"
+            )
 
 
 class PythonQuantUtilOpUnitTest(unittest.TestCase):
@@ -1310,30 +1208,6 @@ class TestSaveLoadMeta(unittest.TestCase):
         self._test_handle_save_load_meta_impl(_int4wo_api, device, 20, test_dtype=dtype)
 
 
-class TorchCompileUnitTest(unittest.TestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_fullgraph(self):
-        lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
-        lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
-            lin_fp16, alpha=0.25
-        )
-
-        x0 = torch.randn(17, 1, 32, device="cuda", dtype=torch.float16)
-
-        # calibrate
-        _ = lin_smooth(x0)
-
-        # inference
-        lin_smooth.to_inference()
-
-        # torch.compile
-        lin_smooth_opt = torch.compile(lin_smooth, fullgraph=True)
-        # print(lin_smooth_opt)
-
-        lin_smooth_opt(x0)
-        # print(y)
-
-
 class UtilsUnitTest(unittest.TestCase):
     def test_shape_logger(self):
         x = torch.randn(4, 4)
@@ -1355,88 +1229,6 @@ class UtilsUnitTest(unittest.TestCase):
                 for shape, count in d2.items():  # noqa: PERF102
                     # print(fqn, op, shape, count)
                     pass
-
-
-class SmoothquantIntegrationTest(unittest.TestCase):
-    @torch.no_grad()
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skip("Seg fault?")
-    def test_non_dynamically_quantizable_linear(self):
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
-            self.skipTest("test requires SM capability of at least (8, 0).")
-        model = (
-            torch.nn.Sequential(
-                torch.nn.modules.linear.NonDynamicallyQuantizableLinear(32, 32),
-                torch.nn.ReLU(),
-            )
-            .to("cuda")
-            .to(torch.bfloat16)
-        )
-        example_input = torch.randn(32, 32, device="cuda", dtype=torch.bfloat16)
-        ref = model(example_input)
-        swap_linear_with_smooth_fq_linear(model)
-        model(ref)
-        smooth_fq_linear_to_inference(model)
-        model_c = torch.compile(model, mode="max-autotune")
-        out = model_c(example_input)
-        sqnr = SQNR(ref, out)
-        self.assertTrue(sqnr >= 25)
-        self.assertTrue(isinstance(model[0], SmoothFakeDynamicallyQuantizedLinear))
-
-    @torch.inference_mode()
-    @unittest.skipIf(is_fbcode(), "can't load tokenizer")
-    def test_on_dummy_distilbert(self):
-        # https://huggingface.co/distilbert-base-uncased#how-to-use
-        from transformers import (  # type: ignore[import-untyped]
-            DistilBertModel,
-            DistilBertTokenizer,
-        )
-
-        tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
-        model = DistilBertModel.from_pretrained("distilbert-base-uncased")
-        # print(model)
-        text = "Replace me by any text you'd like."
-        encoded_input = tokenizer(text, return_tensors="pt")
-        output_ref = model(**encoded_input)
-        # print(output_ref)
-
-        #
-        # smooth_quant
-        #
-        model_copy = copy.deepcopy(model)
-        swap_linear_with_smooth_fq_linear(model_copy, alpha=0.75)
-        # calibrate
-        model_copy(**encoded_input)
-        # inference
-        smooth_fq_linear_to_inference(model_copy)
-        output_1_2 = model_copy(**encoded_input)
-        # print(output_1_1)
-        # print(output_1_2)
-        sqnr_sq = compute_error(
-            output_ref.last_hidden_state, output_1_2.last_hidden_state
-        )
-        print("sqnr_sq", sqnr_sq)
-        self.assertTrue(sqnr_sq >= 20.0)
-
-        #
-        # reference - dynamic linear quant
-        #
-        model_copy2 = copy.deepcopy(model)
-        qconfig = torch.ao.quantization.QConfig(
-            activation=None,
-            weight=torch.ao.quantization.default_per_channel_weight_observer,
-        )
-        model_copy2 = torch.ao.quantization.quantize_dynamic(
-            model_copy2,
-            {torch.nn.Linear: qconfig},
-        )
-        output_2_2 = model_copy2(**encoded_input)
-        # print(output_2_2)
-        sqnr_pt_quant = compute_error(
-            output_ref.last_hidden_state, output_2_2.last_hidden_state
-        )
-        print("sqnr_pt_quant", sqnr_pt_quant)
-        self.assertTrue(sqnr_sq >= 8.0)
 
 
 class TestAutoQuant(unittest.TestCase):
