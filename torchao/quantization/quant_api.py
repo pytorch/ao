@@ -43,6 +43,7 @@ from torchao.dtypes import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
+    Int4NPULayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
@@ -164,6 +165,7 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
     Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
+    Int4NPULayout: [ZeroPointDomain.FLOAT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
@@ -171,6 +173,7 @@ LAYOUT_TO_PRESERVE_ZEROS = {
     MarlinSparseLayout: True,
     Int4CPULayout: False,
     Int4XPULayout: False,
+    Int4NPULayout: False,
 }
 
 
@@ -1160,7 +1163,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     quant_max = 15
     eps = 1e-6
     zero_point_dtype = (
-        weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
+        weight.dtype if ( isinstance(layout, Int4CPULayout) or isinstance(layout, Int4NPULayout) ) else torch.bfloat16
     )
 
     # nonlocal zero_point_domain
