@@ -110,7 +110,7 @@ class WandaSparsifier(BaseSparsifier):
             :, :num_specified
         ]
 
-        # Step 6 : Reshape and zeroize lower-boundary elements
+        # Step 6 : Reshape and prune weights
         mask.data.view(-1, block_size).scatter_(
             1, pruning_inds, torch.zeros_like(pruning_inds, dtype=mask.dtype)
         )
