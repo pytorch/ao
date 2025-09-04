@@ -24,7 +24,15 @@ class MOEFeedForwardAOQuantizable(nn.Module):
         super().__init__()
         self.router = nn.Linear(hidden_dim, num_experts, bias=False)
         self.experts = ConditionalFeedForwardAOQuantizable(
-            num_experts, hidden_dim, expert_dim, act_fn, empty_init, with_bias, gpt_oss_mlp, limit, alpha
+            num_experts,
+            hidden_dim,
+            expert_dim,
+            act_fn,
+            empty_init,
+            with_bias,
+            gpt_oss_mlp,
+            limit,
+            alpha,
         )
         self.hidden_dim = hidden_dim
         self.top_k = top_k
@@ -59,7 +67,18 @@ class MOEFeedForwardAOQuantizable(nn.Module):
 
 
 class ConditionalFeedForwardAOQuantizable(nn.Module):
-    def __init__(self, num_experts, hidden_dim, expert_dim, act_fn, empty_init=True, with_bias=False, gpt_oss_mlp=False, limit=7.0, alpha=1.0):
+    def __init__(
+        self,
+        num_experts,
+        hidden_dim,
+        expert_dim,
+        act_fn,
+        empty_init=True,
+        with_bias=False,
+        gpt_oss_mlp=False,
+        limit=7.0,
+        alpha=1.0,
+    ):
         super().__init__()
         if empty_init:
             self.w1 = nn.Parameter(
@@ -72,16 +91,10 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                 torch.empty(num_experts, expert_dim, hidden_dim)
             )  # E, I, D
             if with_bias:
-                self.bias1 = nn.Parameter(
-                    torch.empty(num_experts, expert_dim)
-                )  # E, I
-                self.bias2 = nn.Parameter(
-                    torch.empty(num_experts, hidden_dim)
-                )  # E, D
-                self.bias3 = nn.Parameter(
-                    torch.empty(num_experts, expert_dim)
-                )  # E, I
-                
+                self.bias1 = nn.Parameter(torch.empty(num_experts, expert_dim))  # E, I
+                self.bias2 = nn.Parameter(torch.empty(num_experts, hidden_dim))  # E, D
+                self.bias3 = nn.Parameter(torch.empty(num_experts, expert_dim))  # E, I
+
         else:
             self.w1 = nn.Parameter(
                 torch.randn(num_experts, expert_dim, hidden_dim)
@@ -93,15 +106,9 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                 torch.randn(num_experts, expert_dim, hidden_dim)
             )  # E, I, D
             if with_bias:
-                self.bias1 = nn.Parameter(
-                    torch.randn(num_experts, expert_dim)
-                )  # E, I
-                self.bias2 = nn.Parameter(
-                    torch.randn(num_experts, hidden_dim)
-                )  # E, D
-                self.bias3 = nn.Parameter(
-                    torch.randn(num_experts, expert_dim)
-                )  # E, I
+                self.bias1 = nn.Parameter(torch.randn(num_experts, expert_dim))  # E, I
+                self.bias2 = nn.Parameter(torch.randn(num_experts, hidden_dim))  # E, D
+                self.bias3 = nn.Parameter(torch.randn(num_experts, expert_dim))  # E, I
         self.num_experts = num_experts
         self.act_fn = act_fn
         self.hidden_dim = hidden_dim
@@ -144,7 +151,7 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                         up += bias3[index]
                     gate = gate.clamp(min=None, max=self.limit)
                     up = up.clamp(min=-self.limit, max=self.limit)
-                    glu= gate * self.act_fn(gate * self.alpha)
+                    glu = gate * self.act_fn(gate * self.alpha)
                     gated_output = (up + 1) * glu
                     cur_out = F.linear(gated_output, down)
                     if self.with_bias:

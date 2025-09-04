@@ -250,7 +250,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         assert isinstance(_layout, Int4XPULayout)
-        
+
         def quant_2d(int_data_2d):
             if TORCH_VERSION_AT_LEAST_2_8:
                 packed_weight = (int_data_2d[::, 1::2] << 4 | int_data_2d[::, ::2]).to(
@@ -262,7 +262,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 return packed_weight
             else:
                 assert False, "INT4 not supported on XPU until 2.8"
-        
+
         if int_data.dim() == 3:  # for moe quant
             num_experts = int_data.shape[0]
             packed_weight_list = []
@@ -339,7 +339,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
-         
+
         if func in [aten.select.int, aten.index.Tensor]:
             assert not (func is aten.select.int and args[1] != 0), (
                 "aten.select.int currently only has support for dim=0"
