@@ -300,7 +300,10 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
         )
 
-    @skip_if_no_cuda()
+    @unittest.skipIf(
+        not torch.cuda.is_available() or not is_sm_at_least_90(),
+        "Test requires a CUDA device with SM 9.0 or higher"
+    )
     @parameterized.expand(
         [
             ("single_token", 1, False),
@@ -308,9 +311,6 @@ class TestMoEQuantCompile(unittest.TestCase):
         ]
     )
     def test_fp8dq_fake_dim(self, name, num_tokens, fullgraph):
-        if not is_sm_at_least_90():
-            self.skipTest("Requires CUDA capability >= 9.0")
-
         config = MoEQuantConfig(
             Float8DynamicActivationFloat8WeightConfig(),
             use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
