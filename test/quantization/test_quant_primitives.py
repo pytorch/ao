@@ -29,17 +29,17 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor_from_qparams,
 )
 from torchao.utils import (
+    auto_detect_device,
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
-    auto_detect_device,
 )
-from torchao.testing.utils import skip_if_xpu
 
 _SEED = 1234
 torch.manual_seed(_SEED)
 
 _DEVICE = auto_detect_device()
+
 
 # Helper function to run a function twice
 # and verify that the result is the same.

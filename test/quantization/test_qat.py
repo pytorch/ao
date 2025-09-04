@@ -92,8 +92,8 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor,
 )
 from torchao.utils import (
-    auto_detect_device,
     _is_fbgemm_genai_gpu_available,
+    auto_detect_device,
     is_sm_at_least_89,
 )
 
@@ -597,7 +597,9 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available")
+    @unittest.skipIf(
+        not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available"
+    )
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
@@ -682,7 +684,7 @@ class TestQAT(TestCase):
         qat_out = qat_linear(x)
         ptq_out = ptq_linear(x2)
         self._assert_close_4w(qat_out, ptq_out)
-    
+
     def test_qat_4w_quantizer_gradients(self):
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 

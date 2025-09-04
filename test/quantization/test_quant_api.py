@@ -64,14 +64,13 @@ from torchao.quantization.subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_rocm
-from torchao.testing.utils import skip_if_xpu
+from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
+    auto_detect_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
     unwrap_tensor_subclass,
-    auto_detect_device,
 )
 
 _DEVICE = auto_detect_device()
