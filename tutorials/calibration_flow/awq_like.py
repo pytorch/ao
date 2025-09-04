@@ -44,7 +44,6 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyTwoLinearModel
 
 
 class ObservedLinear(torch.nn.Linear):
@@ -122,7 +121,9 @@ def _apply_awq_transform(
                 weight, weight_scale, weight_zero_point, block_size, target_dtype
             )
         elif target_dtype == torch.float8_e4m3fn:
-            scale_2d = weight_scale.view(-1, 1)
+            scale_2d = (
+                weight_scale.view(1, -1) if weight_scale.dim() == 1 else weight_scale
+            )
             return to_affine_quantized_floatx_static(
                 weight,
                 scale_2d,
@@ -164,14 +165,34 @@ def _apply_awq_transform(
 
 
 ######## Test ##########
+class ToyLinearModel(torch.nn.Module):
+    def __init__(self, m=64, n=32, k=64):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, k, bias=False)
+        self.linear2 = torch.nn.Linear(k, n, bias=False)
+
+    def example_inputs(self, batch_size=1, dtype=torch.float32, device="cpu"):
+        return (
+            torch.randn(
+                batch_size, self.linear1.in_features, dtype=dtype, device=device
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
+        return x
+
+
 def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     print(f"Testing {target_dtype} static quantization:")
     torch.manual_seed(0)
 
-    m = ToyTwoLinearModel(64, 32, 64).eval().to(torch.bfloat16).to("cuda")
+    dtype = torch.bfloat16
+    m = ToyLinearModel().eval().to(dtype).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
-    example_inputs = m.example_inputs()
+    example_inputs = m.example_inputs(dtype=dtype, device="cuda")
     print("example inputs shape:", example_inputs[0].shape)
 
     m_bf16 = torch.compile(m_bf16, mode="max-autotune")

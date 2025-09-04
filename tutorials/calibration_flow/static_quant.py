@@ -37,7 +37,6 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import is_sm_at_least_90
 
 
@@ -242,14 +241,34 @@ def apply_static_quant(
     return QuantizedLinear.from_observed(module, config.target_dtype)
 
 
+class ToyLinearModel(torch.nn.Module):
+    def __init__(self, m=64, n=32, k=64):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, k, bias=False)
+        self.linear2 = torch.nn.Linear(k, n, bias=False)
+
+    def example_inputs(self, batch_size=1, dtype=torch.float32, device="cpu"):
+        return (
+            torch.randn(
+                batch_size, self.linear1.in_features, dtype=dtype, device=device
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
+        return x
+
+
 def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     print(f"Testing {target_dtype} static quantization:")
     torch.manual_seed(0)
 
-    m = ToyTwoLinearModel(64, 32, 64).eval().to(torch.bfloat16).to("cuda")
+    dtype = torch.bfloat16
+    m = ToyLinearModel().eval().to(dtype).to("cuda")
 
     m_bf16 = copy.deepcopy(m)
-    example_inputs = m.example_inputs()
+    example_inputs = m.example_inputs(dtype=dtype, device="cuda")
     print("example inputs shape:", example_inputs[0].shape)
 
     m_bf16 = torch.compile(m_bf16, mode="max-autotune")
