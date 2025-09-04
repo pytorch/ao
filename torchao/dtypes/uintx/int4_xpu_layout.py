@@ -130,6 +130,10 @@ def _linear_fp_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias
 
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
+    if act_mat.numel() == 0 or packed_weight.numel() == 0:
+        out_size = [s for s in orig_act_size]
+        out_size[-1] = weight_tensor.size(0)
+        return torch.zeros((out_size), dtype=orig_dtype, device=input_tensor.device)
 
     act_mat = act_mat.reshape(-1, act_mat.shape[-1])
 

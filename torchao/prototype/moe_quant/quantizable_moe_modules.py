@@ -46,7 +46,8 @@ class MOEFeedForwardAOQuantizable(nn.Module):
             scores /= scores.sum(dim=-1, keepdim=True).to(x.dtype)  # [T, A]
         else:
             scores, expert_indices = self.router(x)
-            
+            scores = scores.gather(1, expert_indices)
+
         out = self.experts(x, expert_indices, scores, self.top_k)
         if self.shared_expert:
             out += self.shared_expert(x)
@@ -127,8 +128,11 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
             expert_indices = expert_indices.view(top_k)
             # collect used experts
             w1 = self.w1[expert_indices]
+            bias1 = self.bias1[expert_indices]
             w2 = self.w2[expert_indices]
+            bias2 = self.bias2[expert_indices]
             w3 = self.w3[expert_indices]
+            bias3 = self.bias3[expert_indices]
             # run token through each expert
             for index in range(top_k):
                 if self.gpt_oss_mlp:
@@ -136,16 +140,15 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                     up = F.linear(x, w3[index])
                     down = w2[index]
                     if self.with_bias:
-                        gate += self.bias1[index]
-                        up += self.bias3[index]
-                        down += self.bias2[index]
+                        gate += bias1[index]
+                        up += bias3[index]
                     gate = gate.clamp(min=None, max=self.limit)
                     up = up.clamp(min=-self.limit, max=self.limit)
                     glu= gate * self.act_fn(gate * self.alpha)
                     gated_output = (up + 1) * glu
                     cur_out = F.linear(gated_output, down)
                     if self.with_bias:
-                        cur_out += self.bias2[index]                                               
+                        cur_out += bias2[index]
                 else:
                     y1 = F.silu(F.linear(x, w1[index]))
                     y3 = F.linear(x, w3[index])
@@ -220,7 +223,6 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                     if self.with_bias:
                         gate += self.bias1[expert]  # [I]
                         up += self.bias3[expert]  # [I]
-                        down += self.bias2[expert]  # [D]
                     gate = gate.clamp(min=None, max=self.limit)
                     up = up.clamp(min=-self.limit, max=self.limit)
                     glu = gate * self.act_fn(gate * self.alpha)
