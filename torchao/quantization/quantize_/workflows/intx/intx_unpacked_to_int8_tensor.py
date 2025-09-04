@@ -32,42 +32,6 @@ aten = torch.ops.aten
 _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
 
 
-def _fake_apply_int8_act_asym_per_token_quant(hp_tensor):
-    target_dtype = torch.int8
-    mapping_type = MappingType.ASYMMETRIC
-    block_size = _get_per_token_block_size(hp_tensor)
-    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
-    scale, zero_point = choose_qparams_affine(
-        hp_tensor,
-        mapping_type,
-        block_size,
-        target_dtype=target_dtype,
-        quant_min=qmin,
-        quant_max=qmax,
-        zero_point_dtype=torch.int8,
-    )
-    qdata = quantize_affine(
-        hp_tensor,
-        block_size,
-        scale,
-        zero_point,
-        output_dtype=torch.int8,
-        quant_min=qmin,
-        quant_max=qmax,
-    )
-    dequantized_affine = dequantize_affine(
-        qdata,
-        block_size,
-        scale,
-        zero_point,
-        torch.int8,
-        qmin,
-        qmax,
-        output_dtype=hp_tensor.dtype,
-    )
-    return dequantized_affine
-
-
 class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
     """
     intx quantization with unpacked format.  Subbyte quantized data is represented as int8.
@@ -151,8 +115,12 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
             n_blocks.append(qdata.shape[i] // block_size[i])
 
         # Assert shapes
-        assert scale.shape == tuple(n_blocks)
-        assert zero_point.shape == tuple(n_blocks)
+        assert scale.shape == tuple(n_blocks), (
+            f"Expected scale to have shape {n_blocks} (inferred from block_size={block_size}), but got {scale.shape}"
+        )
+        assert zero_point.shape == tuple(n_blocks), (
+            f"Expected zero_point to have shape {n_blocks} (inferred from block_size={block_size}), but got {zero_point.shape}"
+        )
 
         assert dtype in _FLOAT_TYPES, (
             f"dtype must be one of {_FLOAT_TYPES}, but got {dtype}"
@@ -243,6 +211,42 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
             qmax,
             output_dtype=self.dtype,
         )
+
+
+def _fake_apply_int8_act_asym_per_token_quant(hp_tensor):
+    target_dtype = torch.int8
+    mapping_type = MappingType.ASYMMETRIC
+    block_size = _get_per_token_block_size(hp_tensor)
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
+    scale, zero_point = choose_qparams_affine(
+        hp_tensor,
+        mapping_type,
+        block_size,
+        target_dtype=target_dtype,
+        quant_min=qmin,
+        quant_max=qmax,
+        zero_point_dtype=torch.int8,
+    )
+    qdata = quantize_affine(
+        hp_tensor,
+        block_size,
+        scale,
+        zero_point,
+        output_dtype=torch.int8,
+        quant_min=qmin,
+        quant_max=qmax,
+    )
+    dequantized_affine = dequantize_affine(
+        qdata,
+        block_size,
+        scale,
+        zero_point,
+        torch.int8,
+        qmin,
+        qmax,
+        output_dtype=hp_tensor.dtype,
+    )
+    return dequantized_affine
 
 
 implements = IntxUnpackedToInt8Tensor.implements
