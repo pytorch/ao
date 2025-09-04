@@ -14,8 +14,8 @@ import torch
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
-    IntxUnpackedToInt8Tensor,
     ActivationQuantization,
+    IntxUnpackedToInt8Tensor,
 )
 from torchao.utils import (
     TorchAOBaseTensor,

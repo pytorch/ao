@@ -23,7 +23,7 @@ from torchao.quantization import (
     MappingType,
     quantize_,
 )
-from torchao.quantization.granularity import PerGroup
+from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quantize_.common import PackingFormat
 from torchao.quantization.utils import compute_error
@@ -156,7 +156,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             model,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=torch.int4,
-                weight_granularity=PerGroup(64),
+                weight_granularity=PerAxis(0),
                 weight_mapping_type=MappingType.SYMMETRIC,
                 packing_format=PackingFormat.UNPACKED_TO_INT8,
                 version=2,
