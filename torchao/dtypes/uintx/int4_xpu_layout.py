@@ -20,8 +20,8 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_8,
     fill_defaults,
-    torch_version_at_least,
 )
 
 aten = torch.ops.aten
