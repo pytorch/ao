@@ -306,7 +306,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
-    def test_fp8wo_fake_dim(self, name, num_tokens, fullgraph):
+    def test_fp8dq_fake_dim(self, name, num_tokens, fullgraph):
         if not torch.cuda.is_available():
             self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
