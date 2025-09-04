@@ -453,6 +453,12 @@ the values are packed and laid out in the quantized data.</p>
 </dd></dl>
 
 <dl class="py attribute">
+<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.PLAIN_INT32">
+<span class="sig-name descname"><span class="pre">PLAIN_INT32</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'plain_int32'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.PLAIN_INT32" title="Permalink to this definition">¶</a></dt>
+<dd><p>tile_packed_to_4d is referring to the format used by tinygemm kernels for int4 quantization</p>
+</dd></dl>
+
+<dl class="py attribute">
 <dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.PRESHUFFLED">
 <span class="sig-name descname"><span class="pre">PRESHUFFLED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'preshuffled'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.PRESHUFFLED" title="Permalink to this definition">¶</a></dt>
 <dd><p>marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization</p>
@@ -469,7 +475,8 @@ needed for the rest of the system to understand the specific format that’s ado
 <dl class="py attribute">
 <dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8">
 <span class="sig-name descname"><span class="pre">UNPACKED_TO_INT8</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'unpacked_to_int8'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8" title="Permalink to this definition">¶</a></dt>
-<dd><p>tile_packed_to_4d is referring to the format used by tinygemm kernels for int4 quantization</p>
+<dd><p>plain_int32 is referring to the format used by int4 weight-only quantization.
+which is a groupwise quantization format 2*int4 is store in a byte and 4*(int4*2) is stored in a int32.</p>
 </dd></dl>
 
 </dd></dl>

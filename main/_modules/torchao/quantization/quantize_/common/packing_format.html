@@ -471,6 +471,12 @@
     <span class="n">UNPACKED_TO_INT8</span> <span class="o">=</span> <span class="s2">&quot;unpacked_to_int8&quot;</span>
 
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    plain_int32 is referring to the format used by int4 weight-only quantization.</span>
+<span class="sd">    which is a groupwise quantization format 2*int4 is store in a byte and 4*(int4*2) is stored in a int32.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">PLAIN_INT32</span> <span class="o">=</span> <span class="s2">&quot;plain_int32&quot;</span>
+
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    tile_packed_to_4d is referring to the format used by tinygemm kernels for int4 quantization</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">TILE_PACKED_TO_4D</span> <span class="o">=</span> <span class="s2">&quot;tile_packed_to_4d&quot;</span>
