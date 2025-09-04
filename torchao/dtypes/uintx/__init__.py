@@ -36,8 +36,8 @@ from .tensor_core_tiled_layout import (
 from .uintx_layout import (
     UintxLayout,
 )
-from .int4_npu_layout import (
-    Int4NPULayout,
+from .int4_storage_quantization_layout import (
+    Int4StorageQuantizationLayout,
 )
 
 __all__ = [
@@ -55,5 +55,5 @@ __all__ = [
     "QDQLayout",
     "Int4XPULayout",
     "Int8DynamicActInt4WeightCPULayout",
-    "Int4NPULayout",
+    "Int4StorageQuantizationLayout",
 ]

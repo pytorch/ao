@@ -31,7 +31,7 @@ __all__ = [
     "_choose_qparams_affine_tinygemm",
     "_choose_qparams_affine_dont_preserve_zero",
     "_choose_qparams_affine_floatx",
-    "_choose_qparams_affine_int4_npu",
+    "_choose_qparams_affine_int4_common",
     "_choose_qparams_and_quantize_affine_hqq",
     "_choose_qparams_and_quantize_affine_qqq",
     "_choose_scale_float8",
@@ -40,7 +40,7 @@ __all__ = [
     "_quantize_affine_tinygemm",
     "_quantize_affine_floatx",
     "_quantize_affine_float8",
-    "_quantize_affine_int4_npu",
+    "_quantize_affine_int4_common",
     "_quantize_gguf",
     "_dequantize_affine_no_zero_point",
     "_dequantize_affine_tinygemm",
@@ -48,7 +48,7 @@ __all__ = [
     "_dequantize_affine_qqq",
     "_dequantize_affine_float8",
     "_dequantize_gguf",
-    "_dequantize_affine_int4_npu",
+    "_dequantize_affine_int4_common",
     "_fake_quantize_affine",
     "_fake_quantize_affine_cachemask",
 ]
@@ -1033,7 +1033,7 @@ def _dequantize_affine_tinygemm(
         output_dtype,
     )
 
-def _dequantize_affine_int4_npu_no_dtype_check(
+def _dequantize_affine_int4_common_no_dtype_check(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -1076,7 +1076,7 @@ def _dequantize_affine_int4_npu_no_dtype_check(
 
     return dequant.view(original_shape).to(output_dtype)
 
-def _dequantize_affine_int4_npu(
+def _dequantize_affine_int4_common(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -1115,7 +1115,7 @@ def _dequantize_affine_int4_npu(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return _dequantize_affine_int4_npu_no_dtype_check(
+    return _dequantize_affine_int4_common_no_dtype_check(
         input,
         block_size,
         scale,
@@ -1742,7 +1742,7 @@ def _choose_qparams_and_quantize_affine_qqq(
 
 # TODO: lower this op to custom op library
 @torch.no_grad()
-def _choose_qparams_affine_int4_npu(
+def _choose_qparams_affine_int4_common(
     input: torch.Tensor,
     mapping_type: MappingType,
     block_size: Tuple[int],
@@ -2484,7 +2484,7 @@ def _dequantize_affine_float8_meta(
 ) -> torch.Tensor:
     return torch.empty_like(tensor, dtype=output_dtype)
 
-def _quantize_affine_int4_npu(
+def _quantize_affine_int4_common(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -2524,7 +2524,7 @@ def _quantize_affine_int4_npu(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return _quantize_affine_int4_npu_no_dtype_cast(
+    return _quantize_affine_int4_common_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -2533,7 +2533,7 @@ def _quantize_affine_int4_npu(
         quant_max,
     ).to(output_dtype)
 
-def _quantize_affine_int4_npu_no_dtype_cast(
+def _quantize_affine_int4_common_no_dtype_cast(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -2542,8 +2542,6 @@ def _quantize_affine_int4_npu_no_dtype_cast(
     quant_max: Optional[Union[int, float]] = None,
 ) -> torch.Tensor:
     """Quantize tensor using affine quantization with float zero point domain without dtype casting.
-
-    Specialized quantization for int4_npu int4mm kernel where zero point is in floating point domain.
 
     Args:
         input: Input tensor to quantize (float32, float16, or bfloat16)

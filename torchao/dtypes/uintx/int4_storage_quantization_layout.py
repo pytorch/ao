@@ -20,7 +20,7 @@ from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _get_reduction_params,
-    _quantize_affine_int4_npu,
+    _quantize_affine_int4_common,
 )
 from torchao.utils import (
     fill_defaults,
@@ -29,10 +29,10 @@ from torchao.utils import (
 aten = torch.ops.aten
 
 
-def _same_metadata(self: "Int4NPUAQTTensorImpl", src: "Int4NPUAQTTensorImpl") -> bool:
+def _same_metadata(self: "Int4StorageQuantizationAQTTensorImpl", src: "Int4StorageQuantizationAQTTensorImpl") -> bool:
     return (
-        isinstance(self, Int4NPUAQTTensorImpl)
-        and isinstance(src, Int4NPUAQTTensorImpl)
+        isinstance(self, Int4StorageQuantizationAQTTensorImpl)
+        and isinstance(src, Int4StorageQuantizationAQTTensorImpl)
         and self.shape == src.shape
         and self.packed_weight.shape == src.packed_weight.shape
         and self.scale.shape == src.scale.shape
@@ -47,22 +47,22 @@ def _same_metadata(self: "Int4NPUAQTTensorImpl", src: "Int4NPUAQTTensorImpl") ->
 
 
 @dataclass(frozen=True)
-class Int4NPULayout(Layout):
-    """Layout class for int4 NPU layout for affine quantized tensor."""
+class Int4StorageQuantizationLayout(Layout):
+    """Layout class for int4 storage quantization layout for affine quantized tensor."""
 
     pass
 
 
-@register_layout(Int4NPULayout)
-class Int4NPUAQTTensorImpl(AQTTensorImpl):
-    """TensorImpl for int4 NPU layout for affine quantized tensor, this is for int4 only,
+@register_layout(Int4StorageQuantizationLayout)
+class Int4StorageQuantizationAQTTensorImpl(AQTTensorImpl):
+    """TensorImpl for int4 storage quantization layout for affine quantized tensor, this is for int4 only,
 
     It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 2-d tensor of
     dimension: [n][k / 2] (uint8 dtype)
     (unpacked Tensor shape is n * k)
 
     fields:
-      packed_weight (torch.Tensor): the 2-d packed tensor in a Int4 NPU layout
+      packed_weight (torch.Tensor): the 2-d packed tensor in a Int4 storage quantization layout
       scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
       zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
     """
@@ -151,7 +151,7 @@ class Int4NPUAQTTensorImpl(AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
-        assert isinstance(_layout, Int4NPULayout)
+        assert isinstance(_layout, Int4StorageQuantizationLayout)
 
         assert int_data.dtype == torch.int32, " int_data expects `int32` dtype"
 
@@ -165,7 +165,7 @@ class Int4NPUAQTTensorImpl(AQTTensorImpl):
             packed_weight = quant_2d(int_data)
         else:
             raise NotImplementedError(
-                f"Int4NPUAQTTensorImpl Not supported dim {int_data.dim()} quantization"
+                f"Int4StorageQuantizationAQTTensorImpl Not supported dim {int_data.dim()} quantization"
             )
 
         return cls(packed_weight, scale, zero_point, _layout)

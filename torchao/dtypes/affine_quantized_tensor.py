@@ -21,19 +21,19 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_affine_dont_preserve_zero,
     _choose_qparams_affine_floatx,
     _choose_qparams_affine_tinygemm,
-    _choose_qparams_affine_int4_npu,
+    _choose_qparams_affine_int4_common,
     _choose_qparams_and_quantize_affine_hqq,
     _choose_scale_float8,
     _dequantize_affine_float8,
     _dequantize_affine_floatx,
     _dequantize_affine_no_zero_point,
     _dequantize_affine_tinygemm,
-    _dequantize_affine_int4_npu,
+    _dequantize_affine_int4_common,
     _quantize_affine_float8,
     _quantize_affine_floatx,
     _quantize_affine_no_zero_point,
     _quantize_affine_tinygemm,
-    _quantize_affine_int4_npu,
+    _quantize_affine_int4_common,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -140,7 +140,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         from torchao.dtypes.floatx import Float8Layout, FloatxTensorCoreLayout
-        from torchao.dtypes.uintx import Int4NPULayout
+        from torchao.dtypes.uintx import Int4StorageQuantizationLayout
 
         if isinstance(self._layout, FloatxTensorCoreLayout):
             int_data, scale = self.tensor_impl.get_plain()
@@ -154,9 +154,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         elif isinstance(self._layout, Float8Layout):
             data, scale, _ = self.tensor_impl.get_plain()
             return _dequantize_affine_float8(data, scale, output_dtype)
-        elif isinstance(self._layout, Int4NPULayout):
+        elif isinstance(self._layout, Int4StorageQuantizationLayout):
             data, scale, zero_point = self.tensor_impl.get_plain()
-            return _dequantize_affine_int4_npu(
+            return _dequantize_affine_int4_common(
                 data, 
                 self.block_size,
                 scale, 
@@ -304,9 +304,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             data = data.to(target_dtype)
         else:
-            from torchao.dtypes.uintx import Int4NPULayout
-            if isinstance(_layout, Int4NPULayout):
-                scale, zero_point = _choose_qparams_affine_int4_npu(
+            from torchao.dtypes.uintx import Int4StorageQuantizationLayout
+            if isinstance(_layout, Int4StorageQuantizationLayout):
+                scale, zero_point = _choose_qparams_affine_int4_common(
                     input_float,
                     mapping_type,
                     block_size,
@@ -355,8 +355,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 )
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             
-            if isinstance(_layout, Int4NPULayout):
-                data = _quantize_affine_int4_npu(
+            if isinstance(_layout, Int4StorageQuantizationLayout):
+                data = _quantize_affine_int4_common(
                     input_float,
                     block_size,
                     scale,
