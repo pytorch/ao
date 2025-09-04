@@ -55,28 +55,29 @@ jobs:
           python torchao/experimental/tests/test_quant_passes.py
           pytest -s test/prototype/test_dynamic_activation_lut.py
           pytest -s test/quantization/quantize_/workflows/intx/test_intx_opaque_tensor.py
-      - name: Run kernels/cpu/aarch64/tests
+      - name: torchao/csrc/cpu - build and run C++ tests
         if: runner.os == 'macOS'
         run: |
           conda activate venv
-          pushd torchao/experimental/kernels/cpu/aarch64/tests
+          pushd torchao/csrc/cpu
           sh build_and_run_tests.sh
-          rm -rf /tmp/cmake-out
+          rm -rf cmake-out
           popd
-      - name: Run torchao/experimental/ops/tests
+      - name: torchao/csrc/cpu - build benchmarks
         if: runner.os == 'macOS'
         run: |
           conda activate venv
-          pushd torchao/experimental/ops/tests
-          sh build_and_run_tests.sh
-          rm -rf /tmp/cmake-out
+          pushd torchao/csrc/cpu
+          sh build_and_run_benchmarks.sh build_only
+          rm -rf cmake-out
           popd
-      - name: ET ops build
+      - name: torchao/csrc/cpu - build shared_kernels with ExecuTorch
         if: runner.os == 'macOS'
         run: |
           conda activate venv
-          pushd torchao/experimental
-          sh build_torchao_ops.sh executorch
+          pushd torchao/csrc/cpu
+          sh build_shared_kernels.sh executorch
+          rm -rf cmake-out
           popd
 
   # test-mps-ops:
