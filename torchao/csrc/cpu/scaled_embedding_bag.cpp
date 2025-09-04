@@ -11,19 +11,55 @@ namespace torchao {
 namespace {
 
 #if defined(CPU_CAPABILITY_AVX512)
+using CHUNK =
+    std::tuple<__m512, __m512, __m512, __m512, __m512, __m512, __m512, __m512>;
 static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn *x) {
   __m512 o;
   __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(x));
   at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(v, o);
   return o;
 }
+
+static inline __m512 _mm512_cvt_s8_ps(__m128i x) {
+  return _mm512_cvt_roundepi32_ps(
+      _mm512_cvtepi8_epi32(x), (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+}
+
+static inline CHUNK load_chunk(const at::Float8_e4m3fn *x) {
+  __m512 x0, x1, x2, x3, x4, x5, x6, x7;
+  x0 = _mm512_load_e4m3_cvt_ps(x + 0);
+  x1 = _mm512_load_e4m3_cvt_ps(x + 16);
+  x2 = _mm512_load_e4m3_cvt_ps(x + 32);
+  x3 = _mm512_load_e4m3_cvt_ps(x + 48);
+  x4 = _mm512_load_e4m3_cvt_ps(x + 64);
+  x5 = _mm512_load_e4m3_cvt_ps(x + 80);
+  x6 = _mm512_load_e4m3_cvt_ps(x + 96);
+  x7 = _mm512_load_e4m3_cvt_ps(x + 112);
+  return {x0, x1, x2, x3, x4, x5, x6, x7};
+}
+
+static inline CHUNK load_chunk(const int8_t *x) {
+  __m512i x00, x64;
+  __m512 x0, x1, x2, x3, x4, x5, x6, x7;
+  x00 = _mm512_load_si512(x);
+  x64 = _mm512_load_si512(x + 64);
+  x0 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 0));
+  x1 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 1));
+  x2 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 2));
+  x3 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 3));
+  x4 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 0));
+  x5 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 1));
+  x6 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 2));
+  x7 = _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 3));
+  return {x0, x1, x2, x3, x4, x5, x6, x7};
+}
 #endif
 
-template <typename index_t>
+template <typename index_t, typename data_t>
 inline void _scaled_embedding_bag_krnl(
     const int64_t bs_begin, const int64_t bs_end, const int64_t num_emb,
     const int64_t emb_dim, const index_t last_offset, const index_t *indices,
-    const index_t *offsets, const at::Float8_e4m3fn *weight, const double scale,
+    const index_t *offsets, const data_t *weight, const double scale,
     float *result, const int64_t num_batch) {
 #if defined(CPU_CAPABILITY_AVX512)
   if (emb_dim % 128 == 0) {
@@ -32,6 +68,7 @@ inline void _scaled_embedding_bag_krnl(
     __m512 scale_v = _mm512_set1_ps(scale);
     for (int64_t b = bs_begin; b < bs_end; ++b) {
       __m512 x0, x1, x2, x3, x4, x5, x6, x7;
+      __m512 y0, y1, y2, y3, y4, y5, y6, y7;
       int64_t start_idx = offsets[b];
       int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
                             ? last_offset
@@ -40,25 +77,19 @@ inline void _scaled_embedding_bag_krnl(
         // load first indices
         int64_t idx = indices[start_idx] * emb_dim + block_dim * block_id;
         float *block_result = result + block_dim * block_id;
-        x0 = _mm512_load_e4m3_cvt_ps(&weight[idx]);
-        x1 = _mm512_load_e4m3_cvt_ps(&weight[idx + 16]);
-        x2 = _mm512_load_e4m3_cvt_ps(&weight[idx + 32]);
-        x3 = _mm512_load_e4m3_cvt_ps(&weight[idx + 48]);
-        x4 = _mm512_load_e4m3_cvt_ps(&weight[idx + 64]);
-        x5 = _mm512_load_e4m3_cvt_ps(&weight[idx + 80]);
-        x6 = _mm512_load_e4m3_cvt_ps(&weight[idx + 96]);
-        x7 = _mm512_load_e4m3_cvt_ps(&weight[idx + 112]);
+        std::tie(x0, x1, x2, x3, x4, x5, x6, x7) = load_chunk(weight + idx);
         for (int64_t j = start_idx + 1; j < end_idx; ++j) {
           // add following idx
           idx = indices[j] * emb_dim + block_dim * block_id;
-          x0 = _mm512_add_ps(x0, _mm512_load_e4m3_cvt_ps(&weight[idx]));
-          x1 = _mm512_add_ps(x1, _mm512_load_e4m3_cvt_ps(&weight[idx + 16]));
-          x2 = _mm512_add_ps(x2, _mm512_load_e4m3_cvt_ps(&weight[idx + 32]));
-          x3 = _mm512_add_ps(x3, _mm512_load_e4m3_cvt_ps(&weight[idx + 48]));
-          x4 = _mm512_add_ps(x4, _mm512_load_e4m3_cvt_ps(&weight[idx + 64]));
-          x5 = _mm512_add_ps(x5, _mm512_load_e4m3_cvt_ps(&weight[idx + 80]));
-          x6 = _mm512_add_ps(x6, _mm512_load_e4m3_cvt_ps(&weight[idx + 96]));
-          x7 = _mm512_add_ps(x7, _mm512_load_e4m3_cvt_ps(&weight[idx + 112]));
+          std::tie(y0, y1, y2, y3, y4, y5, y6, y7) = load_chunk(weight + idx);
+          x0 = _mm512_add_ps(x0, y0);
+          x1 = _mm512_add_ps(x1, y1);
+          x2 = _mm512_add_ps(x2, y2);
+          x3 = _mm512_add_ps(x3, y3);
+          x4 = _mm512_add_ps(x4, y4);
+          x5 = _mm512_add_ps(x5, y5);
+          x6 = _mm512_add_ps(x6, y6);
+          x7 = _mm512_add_ps(x7, y7);
         }
         x0 = _mm512_mul_ps(x0, scale_v);
         x1 = _mm512_mul_ps(x1, scale_v);
@@ -77,119 +108,6 @@ inline void _scaled_embedding_bag_krnl(
         _mm512_store_ps(block_result + 80, x5);
         _mm512_store_ps(block_result + 96, x6);
         _mm512_store_ps(block_result + 112, x7);
-      }
-      result += num_emb * emb_dim;
-    }
-    return;
-  }
-#endif
-  for (int64_t b = bs_begin; b < bs_end; ++b) {
-    int64_t start_idx = offsets[b];
-    int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
-                          ? last_offset
-                          : offsets[b + 1];
-    for (int64_t d = 0; d < emb_dim; d++) {
-      int64_t idx = indices[start_idx] * emb_dim;
-      float value = float(weight[idx + d]);
-      for (int64_t j = start_idx + 1; j < end_idx; ++j) {
-        idx = indices[j] * emb_dim;
-        value += float(weight[idx + d]);
-      }
-      value = value * scale;
-      result[d] = value;
-    }
-    result += num_emb * emb_dim;
-  }
-}
-
-template <typename index_t>
-inline void _scaled_embedding_bag_krnl(
-    const int64_t bs_begin, const int64_t bs_end, const int64_t num_emb,
-    const int64_t emb_dim, const index_t last_offset, const index_t *indices,
-    const index_t *offsets, const int8_t *weight, const double scale,
-    float *result, const int64_t num_batch) {
-#if defined(CPU_CAPABILITY_AVX512)
-  if (emb_dim % 128 == 0) {
-    constexpr int64_t block_dim = 128;
-    const int64_t num_blocks = emb_dim / block_dim;
-    __m512 scale_v = _mm512_set1_ps(scale);
-    for (int64_t b = bs_begin; b < bs_end; ++b) {
-      __m512i x00, x64;
-      __m512i y0, y1, y2, y3, y4, y5, y6, y7;
-      __m512 f0, f1, f2, f3, f4, f5, f6, f7;
-      int64_t start_idx = offsets[b];
-      int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
-                            ? last_offset
-                            : offsets[b + 1];
-      for (int64_t block_id = 0; block_id < num_blocks; block_id++) {
-        // load first indices
-        int64_t idx = indices[start_idx] * emb_dim + block_dim * block_id;
-        float *block_result = result + block_dim * block_id;
-        x00 = _mm512_load_si512(&weight[idx]);
-        x64 = _mm512_load_si512(&weight[idx + 64]);
-        y0 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 0));
-        y1 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 1));
-        y2 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 2));
-        y3 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 3));
-        y4 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 0));
-        y5 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 1));
-        y6 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 2));
-        y7 = _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 3));
-        for (int64_t j = start_idx + 1; j < end_idx; ++j) {
-          // add following idx
-          idx = indices[j] * emb_dim + block_dim * block_id;
-          x00 = _mm512_load_si512(&weight[idx]);
-          x64 = _mm512_load_si512(&weight[idx + 64]);
-          y0 = _mm512_add_epi32(
-              y0, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 0)));
-          y1 = _mm512_add_epi32(
-              y1, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 1)));
-          y2 = _mm512_add_epi32(
-              y2, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 2)));
-          y3 = _mm512_add_epi32(
-              y3, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x00, 3)));
-          y4 = _mm512_add_epi32(
-              y4, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 0)));
-          y5 = _mm512_add_epi32(
-              y5, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 1)));
-          y6 = _mm512_add_epi32(
-              y6, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 2)));
-          y7 = _mm512_add_epi32(
-              y7, _mm512_cvtepi8_epi32(_mm512_extracti32x4_epi32(x64, 3)));
-        }
-        f0 = _mm512_cvt_roundepi32_ps(
-            y0, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f1 = _mm512_cvt_roundepi32_ps(
-            y1, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f2 = _mm512_cvt_roundepi32_ps(
-            y2, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f3 = _mm512_cvt_roundepi32_ps(
-            y3, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f4 = _mm512_cvt_roundepi32_ps(
-            y4, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f5 = _mm512_cvt_roundepi32_ps(
-            y5, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f6 = _mm512_cvt_roundepi32_ps(
-            y6, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f7 = _mm512_cvt_roundepi32_ps(
-            y7, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-        f0 = _mm512_mul_ps(f0, scale_v);
-        f1 = _mm512_mul_ps(f1, scale_v);
-        f2 = _mm512_mul_ps(f2, scale_v);
-        f3 = _mm512_mul_ps(f3, scale_v);
-        f4 = _mm512_mul_ps(f4, scale_v);
-        f5 = _mm512_mul_ps(f5, scale_v);
-        f6 = _mm512_mul_ps(f6, scale_v);
-        f7 = _mm512_mul_ps(f7, scale_v);
-        // store
-        _mm512_store_ps(block_result, f0);
-        _mm512_store_ps(block_result + 16, f1);
-        _mm512_store_ps(block_result + 32, f2);
-        _mm512_store_ps(block_result + 48, f3);
-        _mm512_store_ps(block_result + 64, f4);
-        _mm512_store_ps(block_result + 80, f5);
-        _mm512_store_ps(block_result + 96, f6);
-        _mm512_store_ps(block_result + 112, f7);
       }
       result += num_emb * emb_dim;
     }
