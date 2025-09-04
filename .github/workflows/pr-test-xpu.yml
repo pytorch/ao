@@ -6,11 +6,11 @@ name: xpu-test
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - ciflow/xpu/*
   pull_request:
     branches:
-      - ciflow/xpu/*
+      - main
 
 concurrency:
   group: xpu_ci_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
