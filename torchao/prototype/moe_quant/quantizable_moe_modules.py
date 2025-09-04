@@ -135,11 +135,12 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
             expert_indices = expert_indices.view(top_k)
             # collect used experts
             w1 = self.w1[expert_indices]
-            bias1 = self.bias1[expert_indices]
             w2 = self.w2[expert_indices]
-            bias2 = self.bias2[expert_indices]
             w3 = self.w3[expert_indices]
-            bias3 = self.bias3[expert_indices]
+            if self.with_bias:
+                bias1 = self.bias1[expert_indices]
+                bias2 = self.bias2[expert_indices]
+                bias3 = self.bias3[expert_indices]
             # run token through each expert
             for index in range(top_k):
                 if self.gpt_oss_mlp:
