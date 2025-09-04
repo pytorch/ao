@@ -31,6 +31,7 @@ aten = torch.ops.aten
 
 _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
 
+
 def _fake_apply_int8_act_asym_per_token_quant(hp_tensor):
     target_dtype = torch.int8
     mapping_type = MappingType.ASYMMETRIC
@@ -65,8 +66,6 @@ def _fake_apply_int8_act_asym_per_token_quant(hp_tensor):
         output_dtype=hp_tensor.dtype,
     )
     return dequantized_affine
-
-
 
 
 class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
@@ -150,8 +149,10 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         for i in range(len(block_size)):
             assert qdata.shape[i] % block_size[i] == 0
             n_blocks.append(qdata.shape[i] // block_size[i])
-        scale = scale.reshape(*n_blocks)
-        zero_point = zero_point.reshape(*n_blocks)
+
+        # Assert shapes
+        assert scale.shape == tuple(n_blocks)
+        assert zero_point.shape == tuple(n_blocks)
 
         assert dtype in _FLOAT_TYPES, (
             f"dtype must be one of {_FLOAT_TYPES}, but got {dtype}"

@@ -27,7 +27,7 @@ from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quantize_.common import PackingFormat
 from torchao.quantization.utils import compute_error
-from torchao.utils import torch_version_at_least
+from torchao.utils import torch_version_at_least, unwrap_tensor_subclass
 
 
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
@@ -163,6 +163,44 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             ),
         )
         eager_results = model(activations)
+
+        exported = torch.export.export(model, (activations,))
+
+        exported_results = exported.module()(activations)
+        self.assertTrue(torch.allclose(eager_results, exported_results))
+
+        expected_counts = {
+            "torch.ops.torchao.choose_qparams_affine.default": 1,
+            "torch.ops.torchao.quantize_affine.default": 1,
+            "torch.ops.torchao.dequantize_affine.default": 2,
+            "torch.ops.aten.linear.default": 1,
+            "torch.ops.aten.reshape.default": 0,
+        }
+        for line, count in expected_counts.items():
+            FileCheck().check_count(line, count, exactly=True).run(
+                exported.graph_module.code
+            )
+
+    def test_export_int8_dyn_act_intx_weight_config_with_unwrap(self):
+        layers = [
+            torch.nn.Linear(512, 256, bias=False),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                weight_mapping_type=MappingType.SYMMETRIC,
+                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                version=2,
+            ),
+        )
+        eager_results = model(activations)
+
+        unwrap_tensor_subclass(model)
 
         exported = torch.export.export(model, (activations,))
 
