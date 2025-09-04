@@ -154,13 +154,13 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
         )
 
-    @skip_if_no_cuda()
     @parameterized.expand(
         [
             ("single_token", 1, False),
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8wo_fake_dim(self, name, num_tokens, fullgraph):
 
         config = MoEQuantConfig(
@@ -212,13 +212,13 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
             device="cpu",
         )
-
-    @skip_if_no_cuda()
+        
     @parameterized.expand(
         [
             ("multiple_tokens", 32, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8dq_fake_dim(self, name, num_tokens, fullgraph):
         config = MoEQuantConfig(
             Int8DynamicActivationInt8WeightConfig(),
@@ -234,12 +234,12 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
         )
 
-    @skip_if_no_cuda()
     @parameterized.expand(
         [
             ("multiple_tokens", 32, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8dq_base(self, name, num_tokens, fullgraph):
 
         config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
@@ -253,13 +253,13 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
         )
 
-    @skip_if_no_cuda()
     @parameterized.expand(
         [
             ("single_token", 1, False),
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_fp8wo_fake_dim(self, name, num_tokens, fullgraph):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
