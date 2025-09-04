@@ -169,17 +169,14 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         exported_results = exported.module()(activations)
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
-        expected_lines = [
-            "torch.ops.torchao.choose_qparams_affine.default",
-            "torch.ops.torchao.quantize_affine.default",
-            "torch.ops.torchao.dequantize_affine.default",
-            "torch.ops.torchao.dequantize_affine.default",
-            "torch.ops.aten.linear.default",
-        ]
-        for line in expected_lines:
-            count = 1
-            if line == "torch.ops.torchao.dequantize_affine.default":
-                count = 2
+        expected_counts = {
+            "torch.ops.torchao.choose_qparams_affine.default": 1,
+            "torch.ops.torchao.quantize_affine.default": 1,
+            "torch.ops.torchao.dequantize_affine.default": 2,
+            "torch.ops.aten.linear.default": 1,
+            "torch.ops.aten.reshape.default": 0,
+        }
+        for line, count in expected_counts.items():
             FileCheck().check_count(line, count, exactly=True).run(
                 exported.graph_module.code
             )

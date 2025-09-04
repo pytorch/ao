@@ -31,6 +31,43 @@ aten = torch.ops.aten
 
 _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
 
+def _fake_apply_int8_act_asym_per_token_quant(hp_tensor):
+    target_dtype = torch.int8
+    mapping_type = MappingType.ASYMMETRIC
+    block_size = _get_per_token_block_size(hp_tensor)
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
+    scale, zero_point = choose_qparams_affine(
+        hp_tensor,
+        mapping_type,
+        block_size,
+        target_dtype=target_dtype,
+        quant_min=qmin,
+        quant_max=qmax,
+        zero_point_dtype=torch.int8,
+    )
+    qdata = quantize_affine(
+        hp_tensor,
+        block_size,
+        scale,
+        zero_point,
+        output_dtype=torch.int8,
+        quant_min=qmin,
+        quant_max=qmax,
+    )
+    dequantized_affine = dequantize_affine(
+        qdata,
+        block_size,
+        scale,
+        zero_point,
+        torch.int8,
+        qmin,
+        qmax,
+        output_dtype=hp_tensor.dtype,
+    )
+    return dequantized_affine
+
+
+
 
 class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
     """
@@ -221,12 +258,7 @@ def _(func, types, args, kwargs):
 
     # Apply dynamic activation quant
     if weight_tensor.apply_int8_act_asym_per_token_quant:
-        input_tensor = IntxUnpackedToInt8Tensor.from_hp(
-            hp_tensor=input_tensor,
-            block_size=_get_per_token_block_size(input_tensor),
-            target_dtype=torch.int8,
-            mapping_type=MappingType.ASYMMETRIC,
-        ).dequantize()
+        input_tensor = _fake_apply_int8_act_asym_per_token_quant(input_tensor)
 
     weight_tensor = weight_tensor.dequantize()
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
