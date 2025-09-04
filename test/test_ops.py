@@ -768,7 +768,6 @@ EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
 EMBEDINGBAG_BAG_SIZES = [1, 2, 128, 1024]
 EMBEDINGBAG_VECTOR_SIZES = [1, 128, 512]
 EMBEDINGBAG_INDEX_DTYPES = [torch.int64, torch.int32]
-EMBEDINGBAG_QTYPE = [torch.float8_e4m3fn, torch.int8]
 
 EMBEDINGBAG_TEST_PARAMS = list(
     itertools.product(
@@ -776,21 +775,13 @@ EMBEDINGBAG_TEST_PARAMS = list(
         EMBEDINGBAG_BAG_SIZES,
         EMBEDINGBAG_VECTOR_SIZES,
         EMBEDINGBAG_INDEX_DTYPES,
-        EMBEDINGBAG_QTYPE,
     )
 )
 
 
-@pytest.mark.skipif(
-    "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
-    reason="cpp kernels not built",
-)
-@pytest.mark.parametrize(
-    "multi_hot, batch_size, vector_size, index_type, qtype",
-    EMBEDINGBAG_TEST_PARAMS,
-    ids=str,
-)
-def test_scaled_embedding_bag_cpu(multi_hot, batch_size, vector_size, index_type, qtype):
+def _test_scaled_embedding_bag_cpu_helper(
+    multi_hot, batch_size, vector_size, index_type, qtype
+):
     dtype = torch.float32
     include_last_offset = True
     mode = "sum"
@@ -813,7 +804,7 @@ def test_scaled_embedding_bag_cpu(multi_hot, batch_size, vector_size, index_type
     )
     if qtype == torch.int8:
         weight_scale = 127.0 / m.weight.data.abs().max()
-        qweight = (m.weight.data*weight_scale).to(qtype)
+        qweight = (m.weight.data * weight_scale).to(qtype)
     else:
         weight_scale = torch.tensor([2.0])
         qweight = m.weight.data.to(qtype)
@@ -831,6 +822,36 @@ def test_scaled_embedding_bag_cpu(multi_hot, batch_size, vector_size, index_type
             include_last_offset,
         ).to(dtype)
         torch.testing.assert_close(refe_out, test_out, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.skipif(
+    "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+    reason="cpp kernels not built",
+)
+@pytest.mark.parametrize(
+    "multi_hot, batch_size, vector_size, index_type",
+    EMBEDINGBAG_TEST_PARAMS,
+    ids=str,
+)
+def test_scaled_embedding_bag_int8_cpu(multi_hot, batch_size, vector_size, index_type):
+    _test_scaled_embedding_bag_cpu_helper(
+        multi_hot, batch_size, vector_size, index_type, torch.int8
+    )
+
+
+@pytest.mark.skipif(
+    "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+    reason="cpp kernels not built",
+)
+@pytest.mark.parametrize(
+    "multi_hot, batch_size, vector_size, index_type",
+    EMBEDINGBAG_TEST_PARAMS,
+    ids=str,
+)
+def test_scaled_embedding_bag_fp8_cpu(multi_hot, batch_size, vector_size, index_type):
+    _test_scaled_embedding_bag_cpu_helper(
+        multi_hot, batch_size, vector_size, index_type, torch.float8_e4m3fn
+    )
 
 
 if __name__ == "__main__":
