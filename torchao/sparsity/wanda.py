@@ -48,7 +48,6 @@ class WandaSparsifier(BaseSparsifier):
             )
         super().__init__(defaults=defaults)
 
-    #  `typing.dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     def prepare(self, model: nn.Module, config: list[dict]) -> None:
         # activation: use PerChannelNormObserver
         # use no-op placeholder weight observer
@@ -101,12 +100,12 @@ class WandaSparsifier(BaseSparsifier):
 
         # Step 4 : Define pruning boundary : N(elements) * (pruning ratio)
         num_specified = int(block_size * sparsity_level)
-        # if set to use semi-structured, ignore sparsity_level and apply 1:2 sparsity
+        # if set to use semi-structured, ignore sparsity_level and apply 2:4 sparsity
         if kwargs.get("semi_structured_block_size", None) is not None:
             block_size = kwargs["semi_structured_block_size"]
             num_specified = block_size // 2
 
-        # Step 5 : Flatten it for sorting and prune lower-boundary weights
+        # Step 5 : Flatten it for sorting and prune weights
         pruning_inds = pruning_metric.view(-1, block_size).argsort(dim=1)[
             :, :num_specified
         ]
