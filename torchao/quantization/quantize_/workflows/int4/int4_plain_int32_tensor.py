@@ -76,7 +76,9 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
             f"Expecting 2D tensor on XPU, but got: {w.shape} on {w.device.type}"
         )
         assert len(block_size) == w.ndim
-
+        assert w.dtype in [torch.float16, torch.bfloat16], (
+            f"Expecting float16 or bfloat16 weight tensor, but got: {w.dtype}"
+        )
         original_shape = w.shape
         mapping_type = MappingType.ASYMMETRIC
         target_dtype = torch.int32
