@@ -43,51 +43,55 @@ class TestSmoothQuant(unittest.TestCase):
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
     @common_utils.parametrize("input_dtype", [torch.bfloat16])
-    # TODO: Replace ToyLinearModel with Transformer for real run.
-    # For verifying SmoothQuant, we have to compare if accuracy with SmoothQuant is higher than basic quantization
-    # See https://github.com/pytorch/ao/pull/2728#discussion_r2319143330 for more info
     def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
-        """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
+        """Test if SmoothQuant achieves lower loss than basic quantization."""
+        in_features = 64
+        out_features = 128
 
-        m = self.ToyLinearModel(32, 16, 8).eval().to(device).to(input_dtype)
-        m_ref = deepcopy(m)
-        test_data = torch.randn(32, 32, dtype=input_dtype, device=device)
+        # Note: This is sanity check. For real run, consider Transformer model to reproduce.
+        X = torch.randn(16, in_features, dtype=input_dtype, device=device)
+        W = torch.randn(out_features, in_features, dtype=input_dtype, device=device)
 
-        # Step 1: Setup quantized model with observer insertion and calibration
+        # Create linear layer
+        linear = (
+            torch.nn.Linear(in_features, out_features, bias=False)
+            .to(device)
+            .to(input_dtype)
+        )
+        with torch.no_grad():
+            linear.weight.copy_(W)
+
+        # Reference output
+        out_ref = linear(X)
+
+        # Step 1. Basic quantization
+        basic_model = deepcopy(linear)
+        quantize_(basic_model, base_config)
+        out_basic = basic_model(X)
+        loss_base = torch.nn.functional.mse_loss(out_basic, out_ref).item()
+
+        # SmoothQuant quantization
+        model = deepcopy(linear)
         config = SmoothQuantConfig(
             base_config=base_config,
             step=SmoothQuantStep.PREPARE,
             alpha=alpha,
         )
-        quantize_(m, config)
+        quantize_(model, config)
 
         # Perform calibration with test data
-        m(test_data)
+        model(X)
 
-        # Apply quantization configuration
+        # Step 2. SmoothQuant
         config.step = SmoothQuantStep.CONVERT
-        quantize_(m, config)
+        quantize_(model, config)
 
-        # Step 2: Inference quantized model
-        with torch.inference_mode():
-            q_out = m(test_data)
-            ref_out = m_ref(test_data)
+        out_smoothquant = model(X)
+        loss_smoothquant = torch.nn.functional.mse_loss(out_smoothquant, out_ref).item()
 
-            # Simple validation - ensure quantized model produces reasonable outputs
-            self.assertIsNotNone(q_out, "Quantized model output should not be None")
-            self.assertFalse(
-                torch.isnan(q_out).any(),
-                f"Quantized model should not produce NaN values for "
-                f"alpha={alpha}, base_config={type(base_config).__name__}, "
-                f"device={device}, dtype={input_dtype}",
-            )
-
-            # Check output shapes match
-            self.assertEqual(
-                q_out.shape,
-                ref_out.shape,
-                f"Output shapes should match: quantized={q_out.shape}, reference={ref_out.shape}",
-            )
+        assert loss_smoothquant < loss_base, (
+            f"SmoothQuant loss ({loss_smoothquant:.6f}) should not be higher than basic loss ({loss_base:.6f})"
+        )
 
     @common_utils.parametrize(
         "base_config",
