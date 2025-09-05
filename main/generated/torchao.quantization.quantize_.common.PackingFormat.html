@@ -441,42 +441,17 @@
 <dd><p>Packing format for quantized data in Tensor subclasses in torchao, represents how
 the values are packed and laid out in the quantized data.</p>
 <dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.MARLIN_SPARSE">
-<span class="sig-name descname"><span class="pre">MARLIN_SPARSE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'marlin_sparse'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.MARLIN_SPARSE" title="Permalink to this definition">¶</a></dt>
-<dd><p>Unpacked to int8 means the subbyte quantized data is stored as int8</p>
-</dd></dl>
-
-<dl class="py attribute">
 <dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.PLAIN">
 <span class="sig-name descname"><span class="pre">PLAIN</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'plain'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.PLAIN" title="Permalink to this definition">¶</a></dt>
-<dd><p>preshuffled is referring to the preshuffled format used by fbgemm kernels</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.PLAIN_INT32">
-<span class="sig-name descname"><span class="pre">PLAIN_INT32</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'plain_int32'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.PLAIN_INT32" title="Permalink to this definition">¶</a></dt>
-<dd><p>tile_packed_to_4d is referring to the format used by tinygemm kernels for int4 quantization</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.PRESHUFFLED">
-<span class="sig-name descname"><span class="pre">PRESHUFFLED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'preshuffled'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.PRESHUFFLED" title="Permalink to this definition">¶</a></dt>
-<dd><p>marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.TILE_PACKED_TO_4D">
-<span class="sig-name descname"><span class="pre">TILE_PACKED_TO_4D</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'tile_packed_to_4d'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.TILE_PACKED_TO_4D" title="Permalink to this definition">¶</a></dt>
-<dd><p>Opaque packing format that’s used for tensors that does not have a predefined packing format
-(that may be decided on hardware, tensor shape, library availability etc.) and it’s not
-needed for the rest of the system to understand the specific format that’s adopted.</p>
+<dd><p>Unpacked to int8 means the subbyte quantized data is stored as int8</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8">
 <span class="sig-name descname"><span class="pre">UNPACKED_TO_INT8</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'unpacked_to_int8'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.PackingFormat.UNPACKED_TO_INT8" title="Permalink to this definition">¶</a></dt>
-<dd><p>plain_int32 is referring to the format used by int4 weight-only quantization.
-which is a groupwise quantization format 2*int4 is store in a byte and 4*(int4*2) is stored in a int32.</p>
+<dd><p>Opaque packing format that’s used for tensors that does not have a predefined packing format
+(that may be decided on hardware, tensor shape, library availability etc.) and it’s not
+needed for the rest of the system to understand the specific format that’s adopted.</p>
 </dd></dl>
 
 </dd></dl>

@@ -437,14 +437,14 @@
 <h1>Float8DynamicActivationInt4WeightConfig<a class="headerlink" href="#float8dynamicactivationint4weightconfig" title="Permalink to this heading">¶</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.quantization.Float8DynamicActivationInt4WeightConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">packing_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.quantize_.common.PackingFormat.html#torchao.quantization.quantize_.common.PackingFormat" title="torchao.quantization.quantize_.common.packing_format.PackingFormat"><span class="pre">PackingFormat</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'preshuffled'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#Float8DynamicActivationInt4WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Float8DynamicActivationInt4WeightConfig" title="Permalink to this definition">¶</a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">int4_packing_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Int4PackingFormat</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'preshuffled'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#Float8DynamicActivationInt4WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Float8DynamicActivationInt4WeightConfig" title="Permalink to this definition">¶</a></dt>
 <dd><p>Configuration for apply float8 dynamic per row quantization and int4
 per group weight quantization to linear
 (only group_size 128 is supported right now since underlying kernel used only supports 128
 and above and no benefits of making it bigger)</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>packing_format</strong> – how the weight is packed, only preshuffled is supported</p>
+<dd class="field-odd"><p><strong>int4_packing_format</strong> – how the weight is packed, only preshuffled is supported</p>
 </dd>
 </dl>
 </dd></dl>
