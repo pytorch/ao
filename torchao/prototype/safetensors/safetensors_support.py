@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import torch
 
-from torchao.prototype.safetensors.safetensors_serialization import (
+from torchao.prototype.safetensors.safetensors_utils import (
     Float8TensorAttributeJSONEncoder,
     object_from_dict,
 )
