@@ -11,7 +11,6 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.core.config import AOBaseConfig
 from torchao.dtypes import Int4CPULayout
 from torchao.prototype.parq.optim import (
     ProxHardQuant,
@@ -39,6 +38,7 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import check_cpu_version
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -106,7 +106,6 @@ def compare_parq_convert(
     model: nn.Module,
     m_ref: nn.Module,
     optimizer: QuantOptimizer,
-    config: AOBaseConfig,
 ):
     # do not update model weights, just quantize
     optimizer.zero_grad()
@@ -115,19 +114,17 @@ def compare_parq_convert(
     orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
 
     # equivalent to torchao's convert step
-    model.eval()
-    optimizer.restore_latent_params()
-    quantize_(model, config, filter_fn=optimizer.get_filter_fn(model))
+    optimizer.torchao_convert(model)
 
     for n, module in model.named_modules():
         if not _is_linear(module):
             continue
 
         p_orig = getattr(orig_model, n).weight  # PARQ weight
-        p = module.weight.dequantize()  # PARQ weight after quantize_
         p_ref = getattr(m_ref, n).weight.dequantize()  # native quantize_
-
         torch.testing.assert_close(p_orig, p_ref, atol=0, rtol=0)
+
+        p = module.weight.dequantize()  # PARQ weight after quantize_
         torch.testing.assert_close(p, p_ref, atol=0, rtol=0)
 
 
@@ -257,7 +254,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ProxHardQuant(),
             quant_per_channel=True,
         )
-        compare_parq_convert(model, m_ref, optimizer, config)
+        compare_parq_convert(model, m_ref, optimizer)
 
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("b", [2, 3, 4, 8])
@@ -278,7 +275,10 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ProxHardQuant(),
             quant_per_channel=True,
         )
-        compare_parq_convert(model, m_ref, optimizer, config)
+        compare_parq_convert(model, m_ref, optimizer)
+        for layer in (model.linear1, model.linear2):
+            assert isinstance(layer.weight, IntxUnpackedToInt8Tensor)
+            assert layer.weight.activation_quantization == "int8_asym_per_token"
 
 
 class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
@@ -353,7 +353,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
             ProxHardQuant(),
             quant_per_channel=True,
         )
-        compare_parq_convert(model, m_ref, optimizer, config)
+        compare_parq_convert(model, m_ref, optimizer)
 
 
 class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
@@ -402,15 +402,15 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
             scale_precision=model_dtype,
         )
         qat_config = QATConfig(activation_config=activation_config, step="prepare")
-        filter_fn = optimizer.get_filter_fn(model)
-        quantize_(model, qat_config, filter_fn=filter_fn)
+        for filter_fn in optimizer.get_filter_fns(model):
+            quantize_(model, qat_config, filter_fn=filter_fn)
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
-        # equivalent to torchao's convert step
         model.eval()
         optimizer.restore_latent_params()
-        quantize_(model, QATConfig(config, step="convert"), filter_fn=filter_fn)
+        for filter_fn in optimizer.get_filter_fns(model):
+            quantize_(model, QATConfig(config, step="convert"), filter_fn=filter_fn)
         converted_out = model(x)
         torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)
 
