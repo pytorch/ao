@@ -37,6 +37,7 @@ def _untie_weights_and_save_locally(model_id):
     untied_model = AutoModelForCausalLM.from_pretrained(
         model_id, torch_dtype="auto", device_map="auto"
     )
+
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     from transformers.modeling_utils import find_tied_parameters
@@ -91,9 +92,9 @@ language:
 
 Install the required packages:
 ```Shell
+pip install torch
 pip install git+https://github.com/huggingface/transformers@main
 pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
-pip install torch
 pip install accelerate
 ```
 
@@ -229,14 +230,15 @@ from torchao.quantization.granularity import PerGroup, PerAxis
 embedding_config = IntxWeightOnlyConfig(
     weight_dtype=torch.int8,
     granularity=PerAxis(0),
+    version=2,
 )
 linear_config = Int8DynamicActivationIntxWeightConfig(
     weight_dtype=torch.int4,
     weight_granularity=PerGroup(32),
-    weight_scale_dtype=torch.bfloat16,
+    version=2,
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
-quantization_config = TorchAoConfig(quant_type=quant_config, include_embedding=True, untie_embedding_weights=True, modules_to_not_convert=[])
+quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
 quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
@@ -520,7 +522,7 @@ python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --
 _mobile_inference_recipe = """
 # Running in a mobile app
 (TODO: pte file name generation)
-The [pte file](https://huggingface.co/{quantized_model}/blob/main/qwen3-4B-INT8-INT4-1024-cxt.pte) can be run with ExecuTorch on a mobile phone.  See the [instructions](https://pytorch.org/executorch/main/llm/llama-demo-ios.html) for doing this in iOS.
+The [pte file](https://huggingface.co/{quantized_model}/blob/main/model.pte) can be run with ExecuTorch on a mobile phone.  See the [instructions](https://pytorch.org/executorch/main/llm/llama-demo-ios.html) for doing this in iOS.
 On iPhone 15 Pro, the model runs at (to be filled) tokens/sec and uses (to be filled) Mb of memory.
 
 TODO: attach image
@@ -583,30 +585,32 @@ _mobile_export_to_executorch = """
 We can run the quantized model on a mobile phone using [ExecuTorch](https://github.com/pytorch/executorch).
 Once ExecuTorch is [set-up](https://pytorch.org/executorch/main/getting-started.html), exporting and running the model on device is a breeze.
 
-We first convert the [quantized checkpoint](https://huggingface.co/{quantized_model}/blob/main/pytorch_model.bin) to one ExecuTorch's LLM export script expects by renaming some of the checkpoint keys.
-The following script does this for you.  We have uploaded the converted checkpoint [pytorch_model_converted.bin](https://huggingface.co/{quantized_model}/blob/main/pytorch_model_converted.bin) for convenience.
+ExecuTorch's LLM export scripts require the checkpoint keys and parameters have certain names, which differ from those used in Hugging Face.
+So we first use a conversion script that converts the Hugging Face checkpoint key names to ones that ExecuTorch expects:
+
+[TODO: fix command below where necessary]
 ```Shell
-python -m executorch.examples.models.qwen3.convert_weights $(huggingface-cli download {quantized_model}) pytorch_model_converted.bin
+python -m executorch.examples.models.qwen3_4b.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
 ```
 
-Once the checkpoint is converted, we can export to ExecuTorch's pte format with the XNNPACK delegate.
-The below command exports with a max_seq_length/max_context_length of 1024, but it can be changed as desired.
+Once we have the checkpoint, we export it to ExecuTorch with the XNNPACK backend as follows.
+(ExecuTorch LLM export script requires config.json have certain key names.  The correct config to use for the LLM export script is located at [TODO: fill in, e.g., examples/models/qwen3/config/4b_config.json] within the ExecuTorch repo.)
 
-(TODO: pte file name, model config path, model name auto generation)
+[TODO: fix command below where necessary]
 ```Shell
-PARAMS="executorch/examples/models/qwen3/4b_config.json"
 python -m executorch.examples.models.llama.export_llama \
-  --model "qwen3-4b" \
-  --checkpoint "pytorch_model_converted.bin" \
-  --params "$PARAMS" \
-  -kv \
-  --use_sdpa_with_kv_cache \
-  -d fp32
-  -X \
-  --metadata '{{"get_bos_id":199999, "get_eos_ids":[200020,199999]}}' \
-  --max_seq_length 1024 \
-  --max_context_length 1024 \
-  --output_name="qwen3-4b-INT8-INT4-1024-cxt.pte"
+    --model "qwen3_4b" \
+	--checkpoint pytorch_model_converted.bin \
+	--params examples/models/qwen3/config/4b_config.json \
+	--output_name="model.pte" \
+	-kv \
+	--use_sdpa_with_kv_cache \
+	-X \
+	--xnnpack-extended-ops \
+	--max_context_length 1024 \
+	--max_seq_length 1024 \
+	--dtype fp32 \
+	--metadata '{{"get_bos_id":199999, "get_eos_ids":[200020,199999]}}'
 ```
 
 After that you can run the model in a mobile app (see [Running in a mobile app](#running-in-a-mobile-app)).
@@ -619,11 +623,12 @@ def quantize_and_upload(
     _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
         weight_granularity=PerGroup(32),
-        weight_scale_dtype=torch.bfloat16,
+        version=2,
     )
     _int8_int4_embedding_config = IntxWeightOnlyConfig(
         weight_dtype=torch.int8,
         granularity=PerAxis(0),
+        version=2,
     )
     quant_to_config = {
         "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
@@ -684,7 +689,15 @@ def quantize_and_upload(
         # other quantization are integrated with `from_pretrained` in huggingface transformers
         assert quant in quant_to_config, f"Unsupported quant option: {quant}"
         quant_config = quant_to_config[quant]
-        quantization_config = TorchAoConfig(quant_type=quant_config)
+
+        torchao_config_kwargs = {}
+        if "INT8-INT4" in quant:
+            torchao_config_kwargs["modules_to_not_convert"] = []
+            torchao_config_kwargs["include_input_output_embeddings"] = True
+
+        quantization_config = TorchAoConfig(
+            quant_type=quant_config, **torchao_config_kwargs
+        )
         quantized_model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
             device_map="auto",
