@@ -590,7 +590,7 @@ So we first use a conversion script that converts the Hugging Face checkpoint ke
 
 [TODO: fix command below where necessary]
 ```Shell
-python -m executorch.examples.models.qwen3_4b.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
+python -m executorch.examples.models.qwen3.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
 ```
 
 Once we have the checkpoint, we export it to ExecuTorch with the XNNPACK backend as follows.
