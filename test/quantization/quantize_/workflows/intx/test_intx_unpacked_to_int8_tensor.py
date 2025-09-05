@@ -194,7 +194,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
                 weight_mapping_type=MappingType.SYMMETRIC,
-                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
