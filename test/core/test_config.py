@@ -53,6 +53,12 @@ configs = [
     Int4WeightOnlyConfig(
         group_size=32,
     ),
+    Int4WeightOnlyConfig(
+        group_size=128,
+        packing_format="tile_packed_to_4d",
+        int4_choose_qparams_algorithm="hqq",
+        version=2,
+    ),
     Int8DynamicActivationInt4WeightConfig(
         group_size=64,
     ),
