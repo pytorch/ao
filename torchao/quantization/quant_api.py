@@ -1092,7 +1092,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
@@ -1175,6 +1175,9 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
     assert config.version == 1
 
+    warnings.warn(
+        "Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details"
+    )
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
     quant_min = 0
@@ -1583,7 +1586,7 @@ float8_weight_only = Float8WeightOnlyConfig
 def _float8_weight_only_quant_tensor(weight, config):
     if config.version == 1:
         warnings.warn(
-            "version 1 of Float8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
+            "Config Deprecation: version 1 of Float8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
         )
         from torchao.dtypes import to_affine_quantized_floatx
 
@@ -1763,7 +1766,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 
     if config.version == 1:
         warnings.warn(
-            "version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
+            "Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
         )
 
         block_size = get_block_size(weight.shape[-2:], weight_granularity)

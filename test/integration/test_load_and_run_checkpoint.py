@@ -24,9 +24,22 @@ else:
 
 # please check model card for how to generate these models
 
-_DEPRECATED_SINGLE_LINEAR_MODEL_NAMES = [
+# high precision model, used for testing config deprecation warning
+_HIGH_PRECISION_MODEL = "facebook/opt-125m"
+
+_DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
     # model card: https://huggingface.co/torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v1-0.13.dev
-    "torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v1-0.13.dev"
+    (
+        "torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v1-0.13.dev",
+        1,
+        "Float8DynamicActivationFloat8WeightConfig",
+    ),
+    # model card: https://huggingface.co/torchao-testing/single-linear-Int4WeightOnlyConfig-v1-0.14.dev
+    (
+        "torchao-testing/single-linear-Int4WeightOnlyConfig-v1-0.14.dev",
+        1,
+        "Int4WeightOnlyConfig",
+    ),
 ]
 
 _DEPRECATED_MODEL_INFO = [
@@ -36,15 +49,33 @@ _DEPRECATED_MODEL_INFO = [
         1,
         "Float8DynamicActivationFloat8WeightConfig",
     ),
+    # model card: https://huggingface.co/torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev
+    (
+        "torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev",
+        1,
+        "Int4WeightOnlyConfig",
+    ),
 ]
 
-_SINGLE_LINEAR_MODEL_NAMES = [
+_SINGLE_LINEAR_MODEL_INFO = [
     # model card: https://huggingface.co/torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v2-0.13.dev
-    "torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v2-0.13.dev",
+    (
+        "torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v2-0.13.dev",
+        2,
+        "Float8DynamicActivationFloat8WeightConfig",
+    ),
     # model card: https://huggingface.co/torchao-testing/single-linear-Int4WeightOnlyConfig-v2-0.13.dev
-    "torchao-testing/single-linear-Int4WeightOnlyConfig-v2-0.13.dev",
+    (
+        "torchao-testing/single-linear-Int4WeightOnlyConfig-v2-0.13.dev",
+        2,
+        "Int4WeightOnlyConfig",
+    ),
     # model card: https://huggingface.co/torchao-testing/single-linear-Int4WeightOnlyConfig-preshuffled-v2-0.13.dev
-    "torchao-testing/single-linear-Int4WeightOnlyConfig-preshuffled-v2-0.13.dev",
+    (
+        "torchao-testing/single-linear-Int4WeightOnlyConfig-preshuffled-v2-0.13.dev",
+        2,
+        "Int4WeightOnlyConfig",
+    ),
 ]
 
 
@@ -55,7 +86,9 @@ _SINGLE_LINEAR_MODEL_NAMES = [
     "Skipping the test in fbcode for now, not sure how to download from transformers",
 )
 class TestLoadAndRunCheckpoint(TestCase):
-    def _test_single_linear_helper(self, model_name):
+    def _test_single_linear_helper(
+        self, model_name, version, config_name, is_deprecated
+    ):
         from huggingface_hub import hf_hub_download
 
         downloaded_model = hf_hub_download(model_name, filename="model.pt")
@@ -69,8 +102,20 @@ class TestLoadAndRunCheckpoint(TestCase):
             model = torch.nn.Sequential(
                 torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
             )
-        with open(downloaded_model, "rb") as f:
+
+        with (
+            open(downloaded_model, "rb") as f,
+            warnings.catch_warnings(record=True) as caught_warnings,
+        ):
             model.load_state_dict(torch.load(f), assign=True)
+            if is_deprecated:
+                assert any(
+                    f"Models quantized with version {version} of {config_name} is deprecated"
+                    in str(w.message)
+                    for w in caught_warnings
+                ), (
+                    f"Didn't get expected warning message for deprecation for model: {model_name}"
+                )
 
         downloaded_example_inputs = hf_hub_download(
             model_name, filename="model_inputs.pt"
@@ -84,17 +129,23 @@ class TestLoadAndRunCheckpoint(TestCase):
         output = model(*example_inputs)
         self.assertTrue(torch.equal(output, ref_output))
 
-    @common_utils.parametrize("model_name", _DEPRECATED_SINGLE_LINEAR_MODEL_NAMES)
-    def test_deprecated_single_linear(self, model_name):
-        self._test_single_linear_helper(model_name)
+    @common_utils.parametrize("model_info", _DEPRECATED_SINGLE_LINEAR_MODEL_INFO)
+    def test_deprecated_single_linear(self, model_info):
+        model_name, version, config_name = model_info
+        self._test_single_linear_helper(
+            model_name, version, config_name, is_deprecated=True
+        )
 
-    @common_utils.parametrize("model_name", _SINGLE_LINEAR_MODEL_NAMES)
-    def test_single_linear(self, model_name):
+    @common_utils.parametrize("model_info", _SINGLE_LINEAR_MODEL_INFO)
+    def test_single_linear(self, model_info):
         """Test that we can load and run the quantized linear checkpoint with saved sample input
         and match the saved output, to make sure there is no BC breaking changes
         when we make changes to tensor subclass implementations
         """
-        self._test_single_linear_helper(model_name)
+        model_name, version, config_name = model_info
+        self._test_single_linear_helper(
+            model_name, version, config_name, is_deprecated=False
+        )
 
     @common_utils.parametrize("model_info", _DEPRECATED_MODEL_INFO)
     def test_deprecated_hf_models(self, model_info):
@@ -109,17 +160,23 @@ class TestLoadAndRunCheckpoint(TestCase):
                 torch_dtype="bfloat16",
                 device_map="cuda:0",
             )
+            # version mismatch check in config.py
             assert any(
                 "Stored version is not the same as current default version of the config"
                 in str(w.message)
                 for w in caught_warnings
-            ), "Didn't get expected warning message for version mismatch"
+            ), (
+                f"Didn't get expected warning message for version mismatch for config {config_name}, model {model_name}"
+            )
 
+            # checkpoint deprecation
             assert any(
-                f"Models quantized with version 1 of {config_name} is deprecated"
+                f"Models quantized with version {version} of {config_name} is deprecated"
                 in str(w.message)
                 for w in caught_warnings
-            ), "Didn't get expected warning message for deprecation"
+            ), (
+                f"Didn't get expected warning message for deprecation for model {model_name}"
+            )
             assert isinstance(quantized_model.config.quantization_config, TorchAoConfig)
             assert (
                 quantized_model.config.quantization_config.quant_type.version == version
@@ -139,7 +196,8 @@ class TestLoadAndRunCheckpoint(TestCase):
             return_tensors="pt",
         ).to("cuda")
         generated_ids = quantized_model.generate(
-            **inputs, max_new_tokens=128, temperature=0
+            **inputs,
+            max_new_tokens=128,
         )
 
         downloaded_output = hf_hub_download(model_name, filename="model_output.pt")
@@ -152,6 +210,23 @@ class TestLoadAndRunCheckpoint(TestCase):
         _ = tokenizer.batch_decode(
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
+
+        # make sure we throw warning for config deprecation
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            _ = AutoModelForCausalLM.from_pretrained(
+                _HIGH_PRECISION_MODEL,
+                torch_dtype="bfloat16",
+                device_map="cuda:0",
+                quantization_config=quantized_model.config.quantization_config,
+            )
+            # config version deprecation in quant_api.py
+            assert any(
+                f"Config Deprecation: version {version} of {config_name} is deprecated and will no longer be supported in a future release"
+                in str(w.message)
+                for w in caught_warnings
+            ), (
+                f"Didn't get expected warning message for version deprecation for config {config_name}, model {model_name}"
+            )
 
 
 common_utils.instantiate_parametrized_tests(TestLoadAndRunCheckpoint)
