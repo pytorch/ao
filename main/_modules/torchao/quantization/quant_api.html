@@ -1262,7 +1262,7 @@
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">weight_dtype</span><span class="p">,</span>
             <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
-            <span class="n">apply_int8_act_asym_per_token_quant</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">activation_quantization</span><span class="o">=</span><span class="s2">&quot;int8_asym_per_token&quot;</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="n">weight_scale_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">weight_scale_dtype</span> <span class="o">!=</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">:</span>
             <span class="n">_adjust_scale_dtype_in_intx_unpacked_tensor</span><span class="p">(</span>
