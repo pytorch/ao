@@ -521,7 +521,6 @@ python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --
 
 _mobile_inference_recipe = """
 # Running in a mobile app
-(TODO: pte file name generation)
 The [pte file](https://huggingface.co/{quantized_model}/blob/main/model.pte) can be run with ExecuTorch on a mobile phone.  See the [instructions](https://pytorch.org/executorch/main/llm/llama-demo-ios.html) for doing this in iOS.
 On iPhone 15 Pro, the model runs at (to be filled) tokens/sec and uses (to be filled) Mb of memory.
 
