@@ -68,7 +68,6 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
 from torchao.quantization.quantize_.common import (
     KernelPreference,
-    PackingFormat,
 )
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
