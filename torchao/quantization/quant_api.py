@@ -75,6 +75,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
+    Int4PackingFormat,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
@@ -1075,7 +1076,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     Note:
         Current state for Int4WeightOnlyConfig is that it supports both v1 (legacy) and v2
 
-        For v2 (version = 2), only `group_size`, `packing_format`, `int4_choose_qparams_algorithm` and `set_inductor_config` are valid, all other args will be ignored
+        For v2 (version = 2), only `group_size`, `int4_packing_format`, `int4_choose_qparams_algorithm` and `set_inductor_config` are valid, all other args will be ignored
         For v1 (version = 1), only `group_size`, `layout`, `use_hqq`, `zero_point_domain`, `preserve_zero` and `set_inductor_config` are valid, we plan to deprecate v1 in torchao 0.15 to make this config
         less confusing
     """
@@ -1087,7 +1088,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     set_inductor_config: bool = True
     preserve_zero: Optional[bool] = None
     # only used in version >= 2
-    packing_format: PackingFormat = PackingFormat.PLAIN
+    int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
@@ -1113,7 +1114,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     use_hqq = config.use_hqq
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
     zero_point_domain = config.zero_point_domain
-    packing_format = config.packing_format
+    int4_packing_format = config.int4_packing_format
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -1127,42 +1128,42 @@ def _int4_weight_only_quantize_tensor(weight, config):
         block_size = list(block_size)
 
         if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
-            assert packing_format == PackingFormat.TILE_PACKED_TO_4D, (
-                f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {packing_format}, it's only supported by PackingFormat.TILE_PACKED_TO_4D curretnly"
+            assert int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D, (
+                f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D curretnly"
             )
 
-        if packing_format == PackingFormat.PRESHUFFLED:
+        if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
             new_weight = Int4PreshuffledTensor.from_hp(
                 weight,
                 block_size,
                 activation_dtype=torch.bfloat16,
             )
             return new_weight
-        elif packing_format == PackingFormat.PLAIN:
+        elif int4_packing_format == Int4PackingFormat.PLAIN:
             new_weight = Int4Tensor.from_hp(
                 weight,
                 block_size,
             )
             return new_weight
-        elif packing_format == PackingFormat.PLAIN_INT32:
+        elif int4_packing_format == Int4PackingFormat.PLAIN_INT32:
             new_weight = Int4PlainInt32Tensor.from_hp(
                 weight,
                 block_size,
             )
             return new_weight
-        elif packing_format == PackingFormat.MARLIN_SPARSE:
+        elif int4_packing_format == Int4PackingFormat.MARLIN_SPARSE:
             new_weight = Int4MarlinSparseTensor.from_hp(
                 weight,
                 block_size,
             )
             return new_weight
-        elif packing_format == PackingFormat.OPAQUE:
+        elif int4_packing_format == Int4PackingFormat.OPAQUE:
             new_weight = Int4OpaqueTensor.from_hp(
                 weight,
                 block_size,
             )
             return new_weight
-        elif packing_format == PackingFormat.TILE_PACKED_TO_4D:
+        elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:
             new_weight = Int4TilePackedTo4dTensor.from_hp(
                 weight,
                 block_size,
@@ -1170,7 +1171,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             )
             return new_weight
         else:
-            raise ValueError(f"Unsupported packing format: {packing_format}")
+            raise ValueError(f"Unsupported int4 packing format: {int4_packing_format}")
 
     assert config.version == 1
 
@@ -1254,10 +1255,10 @@ class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     and above and no benefits of making it bigger)
 
     Args:
-        `packing_format`: how the weight is packed, only preshuffled is supported
+        `int4_packing_format`: how the weight is packed, only preshuffled is supported
     """
 
-    packing_format: PackingFormat = "preshuffled"
+    int4_packing_format: Int4PackingFormat = "preshuffled"
 
 
 @register_quantize_module_handler(Float8DynamicActivationInt4WeightConfig)
@@ -1268,10 +1269,10 @@ def _float8_dynamic_activation_int4_weight_transform(
         "applying int8 weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
-    packing_format = config.packing_format
+    int4_packing_format = config.int4_packing_format
 
-    assert packing_format == "preshuffled", (
-        f"only preshuffled packing_format supported right now, got: {packing_format}"
+    assert int4_packing_format == "preshuffled", (
+        f"only preshuffled int4_packing_format supported right now, got: {int4_packing_format}"
     )
     weight = module.weight
     group_size = 128

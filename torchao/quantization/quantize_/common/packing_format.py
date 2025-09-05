@@ -16,7 +16,7 @@ class PackingFormat(str, Enum):
 
     """
     plain means the format that quantized Tensor data lays out elements in Tensor sequentially,
-    for example:                                                                                                                                                                                                          for a Tensor of shape (4, 6):
+    for example:                                                                                                                                                                                          for a Tensor of shape (4, 6):
     a_0_0, a_0_1, ..., a_0_5,
     ...
     a_3_0, a_3_1, ..., a_3_5
@@ -27,30 +27,9 @@ class PackingFormat(str, Enum):
     PLAIN = "plain"
 
     """
-    preshuffled is referring to the preshuffled format used by fbgemm kernels
-    """
-    PRESHUFFLED = "preshuffled"
-
-    """
-    marlin_sparse is referring to the format used by marlin kernels, only supports symmetric quantization
-    """
-    MARLIN_SPARSE = "marlin_sparse"
-
-    """
     Unpacked to int8 means the subbyte quantized data is stored as int8
     """
     UNPACKED_TO_INT8 = "unpacked_to_int8"
-
-    """
-    plain_int32 is referring to the format used by int4 weight-only quantization.
-    which is a groupwise quantization format 2*int4 is store in a byte and 4*(int4*2) is stored in a int32.
-    """
-    PLAIN_INT32 = "plain_int32"
-
-    """
-    tile_packed_to_4d is referring to the format used by tinygemm kernels for int4 quantization
-    """
-    TILE_PACKED_TO_4D = "tile_packed_to_4d"
 
     """
     Opaque packing format that's used for tensors that does not have a predefined packing format
