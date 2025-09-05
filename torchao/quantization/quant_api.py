@@ -833,7 +833,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
             block_size,
             weight_dtype,
             mapping_type=weight_mapping_type,
-            apply_int8_act_asym_per_token_quant=True,
+            activation_quantization="int8_asym_per_token",
         )
         if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
             _adjust_scale_dtype_in_intx_unpacked_tensor(
