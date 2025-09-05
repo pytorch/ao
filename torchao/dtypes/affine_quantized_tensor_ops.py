@@ -15,6 +15,10 @@ from torchao.dtypes.floatx.cutlass_semi_sparse_layout import (
     _linear_fp8_act_fp8_weight_sparse_cutlass_check,
     _linear_fp8_act_fp8_weight_sparse_cutlass_impl,
 )
+from torchao.dtypes.floatx.dyn_float8_act_float8_wei_cpu_layout import (
+    _float8_linear_cpu_check,
+    _float8_linear_cpu_impl,
+)
 from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_check,
     _linear_fp8_act_fp8_weight_impl,
@@ -254,6 +258,10 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int4_weight_cpu_check,
             _linear_int8_act_int4_weight_cpu_impl,
+        ),
+        (
+            _float8_linear_cpu_check,
+            _float8_linear_cpu_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
