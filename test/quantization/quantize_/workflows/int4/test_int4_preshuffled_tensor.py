@@ -30,7 +30,6 @@ from torchao.utils import (
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     int4_packing_format="preshuffled",
-    version=2,
 )
 
 # only 128 group_size is supported

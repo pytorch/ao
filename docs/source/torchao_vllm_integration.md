@@ -45,6 +45,7 @@ from torchao.quantization import Int4WeightOnlyConfig
 config = Int4WeightOnlyConfig(
     group_size=128,
     use_hqq=True,
+    version=1,
 )
 assert isinstance(config, AOBaseConfig)
 ```
@@ -81,7 +82,7 @@ from torchao.quantization import Int4WeightOnlyConfig
 
 # Create quantization configuration
 quantization_config = TorchAoConfig(
-    quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True)
+    quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
 )
 
 # Load and automatically quantize the model
