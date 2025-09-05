@@ -7,13 +7,31 @@
 from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 from torch.optim import Optimizer
 
+from torchao.quantization import (
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationIntxWeightConfig,
+    IntxWeightOnlyConfig,
+    MappingType,
+    PerGroup,
+    PerRow,
+    quantize_,
+)
+from torchao.quantization.quantize_.common import PackingFormat
+
 from ..quant import Quantizer
+from ..quant.quant_api import StretchedIntxWeightOnlyConfig
+from ..quant.uniform_torchao import (
+    _BIT_WIDTH_TO_DTYPE,
+    Int4UnifTorchaoQuantizer,
+    StretchedUnifTorchaoQuantizer,
+    UnifTorchaoQuantizer,
+)
 from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
@@ -106,32 +124,86 @@ class QuantOptimizer(Optimizer):
         quants.copy_(Q)
         return q
 
-    def regularized_param_groups(self):  # pyre-ignore[3]
+    def regularized_param_groups(self) -> Generator[dict[str, Any], None, None]:
         """Yield parameter groups that need to be quantized."""
         for group in self.param_groups:
             if group.get("quant_bits", 16) < 16:
                 yield group
 
-    @property
-    def _param_set(self) -> set[int]:
-        return {
-            p.data_ptr()
-            for group in self.regularized_param_groups()
-            for p in group["params"]
-        }
+    def _param_sets(self) -> Generator[set[int], None, None]:
+        for group in self.regularized_param_groups():
+            yield {p.data_ptr() for p in group["params"]}
 
-    def get_filter_fn(
-        self, module: torch.nn.Module
-    ) -> Callable[[torch.nn.Module], bool]:
-        param_set = self._param_set
-
-        def _filter_fn(module: torch.nn.Module, *args) -> bool:
+    def get_filter_fns(
+        self, module: nn.Module
+    ) -> Generator[Callable[[nn.Module], bool], None, None]:
+        def _filter_fn(module: nn.Module, *args, param_set) -> bool:
             for p in module.parameters(recurse=False):
                 if p.data_ptr() in param_set:
                     return True
             return False
 
-        return _filter_fn
+        for param_set in self._param_sets():
+            yield partial(_filter_fn, param_set=param_set)
+
+    def torchao_convert(
+        self,
+        model: nn.Module,
+    ) -> None:
+        """Converts model parameters to torchao quantized tensor subclasses."""
+        model.eval()
+        self.restore_latent_params()
+
+        # TODO(lvj): find more robust way to identify embedding layers
+        embed_data_ptrs = {
+            module.weight.data_ptr()
+            for module in model.modules()
+            if isinstance(module, nn.Embedding)
+        }
+
+        for group, filter_fn in zip(
+            self.regularized_param_groups(), self.get_filter_fns(model)
+        ):
+            quantizer = group.get("quantizer", self.quantizer)
+            if not isinstance(quantizer, UnifTorchaoQuantizer):
+                continue
+
+            weight_dtype = _BIT_WIDTH_TO_DTYPE[group["quant_bits"]]
+            granularity = (
+                PerGroup(group["quant_block_size"])
+                if "quant_block_size" in group
+                else PerRow()
+            )
+            if isinstance(quantizer, Int4UnifTorchaoQuantizer):
+                config = Int4WeightOnlyConfig(
+                    group_size=group["quant_block_size"],
+                    packing_format=PackingFormat.PLAIN,
+                )
+            elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
+                config = StretchedIntxWeightOnlyConfig(
+                    b=group["quant_bits"],
+                    quant_min=quantizer.quant_min,
+                    quant_max=quantizer.quant_max,
+                    granularity=granularity,
+                )
+            elif all(p.data_ptr() in embed_data_ptrs for p in group["params"]):
+                config = IntxWeightOnlyConfig(
+                    weight_dtype=weight_dtype,
+                    granularity=granularity,
+                    mapping_type=quantizer.mapping_type,
+                    packing_format=PackingFormat.UNPACKED_TO_INT8,
+                    version=2,
+                )
+            else:
+                config = Int8DynamicActivationIntxWeightConfig(
+                    weight_dtype=weight_dtype,
+                    weight_granularity=granularity,
+                    weight_mapping_type=quantizer.mapping_type,
+                    act_mapping_type=MappingType.ASYMMETRIC,
+                    packing_format=PackingFormat.UNPACKED_TO_INT8,
+                    version=2,
+                )
+            quantize_(model, config, filter_fn=filter_fn)
 
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:
