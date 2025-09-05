@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 
 import pytest
@@ -27,7 +33,13 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_90
+from torchao.testing.utils import skip_if_no_cuda
+from torchao.utils import (
+    auto_detect_device,
+    is_sm_at_least_90,
+)
+
+_DEVICE = auto_detect_device()
 
 if torch.version.hip is not None:
     pytest.skip(
@@ -48,7 +60,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         base_class=AffineQuantizedTensor,
         tensor_impl_class=None,
         dtype=torch.bfloat16,
-        device="cuda",
+        device=_DEVICE,
         fullgraph=False,
     ):
         """
@@ -109,10 +121,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int4wo_fake_dim(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-
         config = MoEQuantConfig(
             Int4WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
         )
@@ -131,6 +141,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int4wo_base(self, name, num_tokens, fullgraph):
         if not torch.cuda.is_available():
             self.skipTest("Need CUDA available")
@@ -153,10 +164,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8wo_fake_dim(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-
         config = MoEQuantConfig(
             Int8WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
         )
@@ -175,10 +184,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8wo_base(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-
         config = MoEQuantConfig(Int8WeightOnlyConfig())
         tensor_impl_class = PlainAQTTensorImpl
 
@@ -195,6 +202,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8wo_base_cpu(self, name, num_tokens, fullgraph):
         config = MoEQuantConfig(Int8WeightOnlyConfig())
         tensor_impl_class = PlainAQTTensorImpl
@@ -212,10 +220,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 32, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8dq_fake_dim(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-
         config = MoEQuantConfig(
             Int8DynamicActivationInt8WeightConfig(),
             use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
@@ -235,10 +241,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 32, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_int8dq_base(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-
         config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
         base_class = LinearActivationQuantizedTensor
 
@@ -256,9 +260,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_fp8wo_fake_dim(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
@@ -328,9 +331,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             ("multiple_tokens", 8, False),
         ]
     )
+    @skip_if_no_cuda()
     def test_fp8dq_base(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
