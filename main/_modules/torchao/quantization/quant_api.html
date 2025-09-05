@@ -501,6 +501,7 @@
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.workflows</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Float8Tensor</span><span class="p">,</span>
+    <span class="n">Int4ChooseQParamsAlgorithm</span><span class="p">,</span>
     <span class="n">Int4MarlinSparseTensor</span><span class="p">,</span>
     <span class="n">Int4OpaqueTensor</span><span class="p">,</span>
     <span class="n">Int4PlainInt32Tensor</span><span class="p">,</span>
@@ -1483,27 +1484,29 @@
 <div class="viewcode-block" id="Int4WeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
-<span class="sd">    &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</span>
-
-<span class="sd">    Note:</span>
-<span class="sd">        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`</span>
-<span class="sd">        and `torch.ops.aten._weight_int4pack_mm_for_cpu`), the main difference</span>
-<span class="sd">        of quantization algorithm compared to the more traditional type of integer quantization is the following:</span>
-<span class="sd">        1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)</span>
-<span class="sd">        2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)</span>
-<span class="sd">        please follow the relevant code in `choose_qparams_affine`, `quantize_affine` and `dequantize_affine`</span>
-<span class="sd">        to learn about how the quantization parameters are chosen and how the Tensor is quantized/dequantized for tinygemm</span>
+<span class="sd">    Configuration for int4 weight only quantization, only groupwise quantization is supported</span>
+<span class="sd">    right now, and we support version 1 and version 2, that are implemented differently although with</span>
+<span class="sd">    same support. In version 2, different target are mainly distinguished by `packing_format` arg, and in version 1, mainly by `layout`.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        `group_size`: parameter for quantization, controls the granularity of quantization, smaller</span>
-<span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
-<span class="sd">        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`</span>
-<span class="sd">        `use_hqq`: whether to use hqq or default quantization mode, default is False</span>
-<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
-<span class="sd">        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.</span>
-<span class="sd">        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT</span>
-<span class="sd">        `packing_format`: the packing format for int4 tensor, available from version 2 and above</span>
+<span class="sd">         size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2</span>
+<span class="sd">        `packing_format`: the packing format for int4 tensor, used in version 2 only</span>
+<span class="sd">         `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,</span>
+<span class="sd">         currently support TINYGEMM (&quot;tinygemm&quot;) and HQQ (&quot;hqq&quot;), used in version 2 only</span>
+<span class="sd">        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`, used in version 1 only</span>
+<span class="sd">        `use_hqq`: whether to use hqq or default quantization mode, default is False, used in version 1 only</span>
+<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE], used in version 1 only</span>
+<span class="sd">        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2</span>
+<span class="sd">        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT, used in version 1 only</span>
+<span class="sd">        `version`: version of the config to use, only subset of above args are valid for version 1, and subset of above args are valid for version 2, default is 1, see note for more details</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        Current state for Int4WeightOnlyConfig is that it supports both v1 (legacy) and v2</span>
+
+<span class="sd">        For v2 (version = 2), only `group_size`, `packing_format`, `int4_choose_qparams_algorithm` and `set_inductor_config` are valid, all other args will be ignored</span>
+<span class="sd">        For v1 (version = 1), only `group_size`, `layout`, `use_hqq`, `zero_point_domain`, `preserve_zero` and `set_inductor_config` are valid, we plan to deprecate v1 in torchao 0.15 to make this config</span>
+<span class="sd">        less confusing</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
@@ -1514,6 +1517,9 @@
     <span class="n">preserve_zero</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="c1"># only used in version &gt;= 2</span>
     <span class="n">packing_format</span><span class="p">:</span> <span class="n">PackingFormat</span> <span class="o">=</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span>
+    <span class="n">int4_choose_qparams_algorithm</span><span class="p">:</span> <span class="n">Int4ChooseQParamsAlgorithm</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">Int4ChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">TINYGEMM</span>
+    <span class="p">)</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -1534,6 +1540,7 @@
     <span class="n">group_size</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">group_size</span>
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
     <span class="n">use_hqq</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">use_hqq</span>
+    <span class="n">int4_choose_qparams_algorithm</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">int4_choose_qparams_algorithm</span>
     <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">zero_point_domain</span>
     <span class="n">packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">packing_format</span>
 
@@ -1547,6 +1554,12 @@
 
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">int4_choose_qparams_algorithm</span> <span class="o">==</span> <span class="n">Int4ChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">HQQ</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">TILE_PACKED_TO_4D</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format </span><span class="si">{</span><span class="n">packing_format</span><span class="si">}</span><span class="s2">, it&#39;s only supported by PackingFormat.TILE_PACKED_TO_4D curretnly&quot;</span>
+            <span class="p">)</span>
+
         <span class="k">if</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">PackingFormat</span><span class="o">.</span><span class="n">PRESHUFFLED</span><span class="p">:</span>
             <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
                 <span class="n">weight</span><span class="p">,</span>
@@ -1582,6 +1595,7 @@
             <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4TilePackedTo4dTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
                 <span class="n">weight</span><span class="p">,</span>
                 <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">int4_choose_qparams_algorithm</span><span class="o">=</span><span class="n">int4_choose_qparams_algorithm</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="k">return</span> <span class="n">new_weight</span>
         <span class="k">else</span><span class="p">:</span>
