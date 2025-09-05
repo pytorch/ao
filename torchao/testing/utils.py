@@ -96,6 +96,7 @@ def skip_if_rocm(message=None):
         return decorator(func)
     return decorator
 
+
 def skip_if_no_xpu(message=None):
     """Decorator to skip tests on ROCm platform with custom message.
 
@@ -118,6 +119,7 @@ def skip_if_no_xpu(message=None):
 
     return decorator
 
+
 def skip_if_xpu(message=None):
     """
     Decorator to skip tests if XPU is available.
@@ -125,6 +127,7 @@ def skip_if_xpu(message=None):
     Args:
         message (str, optional): Additional information about why the test is skipped.
     """
+
     def decorator(func):
         reason = "Skipping the test on XPU"
         if message:
@@ -133,6 +136,7 @@ def skip_if_xpu(message=None):
         return unittest.skipIf(torch.xpu.is_available(), reason)(func)
 
     return decorator
+
 
 def skip_if_no_cuda():
     import unittest
