@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 from pathlib import Path
 
@@ -173,7 +179,7 @@ class TestMultiTensorInputRecorder(TestCase):
 
         model2 = copy.deepcopy(model)
         out = model(*test_input)
-        quantize_(model2, Int4WeightOnlyConfig())
+        quantize_(model2, Int4WeightOnlyConfig(version=1))
 
         outq = model2(*test_input)
         del model2

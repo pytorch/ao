@@ -226,7 +226,7 @@ def quantize_and_eval(
         # TODO: this is temporary, we'll be using Int4WeightOnlyConfig soon
         from torchao.quantization import Int4WeightOnlyConfig
 
-        base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         print(f"running {quant} prepare and calibrate")
         t0 = time.time()
         quant_config = AWQConfig(base_config, step="prepare")

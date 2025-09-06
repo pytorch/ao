@@ -73,7 +73,7 @@ class TestAWQ(TestCase):
         m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
 
         # baseline quantization
-        base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config)
 
@@ -123,7 +123,7 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
@@ -177,7 +177,7 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 

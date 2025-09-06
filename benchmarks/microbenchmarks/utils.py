@@ -206,7 +206,7 @@ def string_to_config(
             128,
             256,
         ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        return Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
+        return Int4WeightOnlyConfig(group_size=group_size, use_hqq=True, version=1)
     elif "int8adq-int4w-symm" in quantization:
         from torchao.dtypes import CutlassInt4PackedLayout
 

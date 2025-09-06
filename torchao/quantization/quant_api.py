@@ -1092,7 +1092,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
