@@ -33,7 +33,6 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     Target,
 )
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
@@ -44,6 +43,9 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _check_torchao_lowbit_kernels_loaded,
+)
 
 
 @dataclass
@@ -207,7 +209,7 @@ def _replace_embedding_with_quantized_embedding(
                     mapping_type,
                 )
             else:
-                _check_torchao_ops_loaded()
+                _check_torchao_lowbit_kernels_loaded()
                 if embedding_fqn_to_quantized_unembedding is None:
                     qembedding = QuantizedEmbedding(bit_width)
                     setattr(module, name, qembedding)
