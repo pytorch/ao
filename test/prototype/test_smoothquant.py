@@ -20,6 +20,38 @@ from torchao.quantization.quant_api import (
 )
 
 
+class ToyLinearModel(torch.nn.Module):
+    def __init__(self, m=512, n=256, k=128):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, n, bias=False)
+        self.linear2 = torch.nn.Linear(n, k, bias=False)
+        self.linear3 = torch.nn.Linear(k, 64, bias=False)
+
+    def example_inputs(
+        self,
+        batch_size,
+        sequence_length=10,
+        dtype=torch.bfloat16,
+        device="cuda",
+    ):
+        return [
+            torch.randn(
+                1,
+                sequence_length,
+                self.linear1.in_features,
+                dtype=dtype,
+                device=device,
+            )
+            for j in range(batch_size)
+        ]
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
+        x = self.linear3(x)
+        return x
+
+
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
 class TestSmoothQuant(unittest.TestCase):
     """SmoothQuant tests using only supported quantization configs."""
@@ -29,8 +61,6 @@ class TestSmoothQuant(unittest.TestCase):
         """Set up class-level configuration for tests."""
         # This test case will trigger recompilation many times, so set a large cache_size_limit here
         torch._dynamo.config.cache_size_limit = 128
-
-    from test.prototype.test_awq import ToyLinearModel
 
     @common_utils.parametrize("alpha", [0.5, 0.75])
     @common_utils.parametrize(
@@ -103,7 +133,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_observer_insertion(self, base_config):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
 
-        m = self.ToyLinearModel().eval()
+        m = ToyLinearModel().eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
@@ -142,7 +172,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_prepare_for_loading(self, base_config):
         """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
-        m = self.ToyLinearModel().eval()
+        m = ToyLinearModel().eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
