@@ -60,7 +60,7 @@ if not skip_loading_so_files:
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
-from torchao.quantization import (
+from torchao.quantization import (  # type: ignore[no-redef]
     autoquant,
     quantize_,
 )
