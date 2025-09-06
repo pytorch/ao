@@ -146,10 +146,7 @@ class QuantOptimizer(Optimizer):
         for param_set in self._param_sets():
             yield partial(_filter_fn, param_set=param_set)
 
-    def torchao_convert(
-        self,
-        model: nn.Module,
-    ) -> None:
+    def torchao_convert(self, model: nn.Module) -> None:
         """Converts model parameters to torchao quantized tensor subclasses."""
         model.eval()
         self.restore_latent_params()
@@ -174,17 +171,16 @@ class QuantOptimizer(Optimizer):
                 if "quant_block_size" in group
                 else PerRow()
             )
+            version = 2
             if isinstance(quantizer, Int4UnifTorchaoQuantizer):
-                config = Int4WeightOnlyConfig(
-                    group_size=group["quant_block_size"],
-                    packing_format=PackingFormat.PLAIN,
-                )
+                config = Int4WeightOnlyConfig(group_size=group["quant_block_size"])
             elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
                 config = StretchedIntxWeightOnlyConfig(
                     b=group["quant_bits"],
                     quant_min=quantizer.quant_min,
                     quant_max=quantizer.quant_max,
                     granularity=granularity,
+                    version=version,
                 )
             elif all(p.data_ptr() in embed_data_ptrs for p in group["params"]):
                 config = IntxWeightOnlyConfig(
@@ -192,7 +188,7 @@ class QuantOptimizer(Optimizer):
                     granularity=granularity,
                     mapping_type=quantizer.mapping_type,
                     packing_format=PackingFormat.UNPACKED_TO_INT8,
-                    version=2,
+                    version=version,
                 )
             else:
                 config = Int8DynamicActivationIntxWeightConfig(
@@ -201,7 +197,7 @@ class QuantOptimizer(Optimizer):
                     weight_mapping_type=quantizer.mapping_type,
                     act_mapping_type=MappingType.ASYMMETRIC,
                     packing_format=PackingFormat.UNPACKED_TO_INT8,
-                    version=2,
+                    version=version,
                 )
             quantize_(model, config, filter_fn=filter_fn)
 
