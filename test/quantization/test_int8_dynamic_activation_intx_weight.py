@@ -27,9 +27,20 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _check_torchao_lowbit_kernels_loaded,
+)
 from torchao.quantization.utils import compute_error
 
+_TORCHAO_LOWBIT_KERNELS_LOADED = False
+try:
+    _check_torchao_lowbit_kernels_loaded()
+    _TORCHAO_LOWBIT_KERNELS_LOADED = True
+except Exception:
+    pass
 
+
+@unittest.skipIf(not _TORCHAO_LOWBIT_KERNELS_LOADED, "Need torchao lowbit kernels")
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
     TEST_ACCURACY_CASES = [
         param(
