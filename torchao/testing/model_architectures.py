@@ -12,29 +12,32 @@ import torch.nn.functional as F
 
 
 class ToySingleLinearModel(torch.nn.Module):
-    """Single linear for m * k * n problem size"""
+    """Single linear for input_dim*output_dim problem size"""
 
     def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.bfloat16, device="cuda"
+        self,
+        input_dim,
+        output_dim,
+        has_bias=False,
+        dtype=torch.bfloat16,
+        device="cuda",
     ):
         super().__init__()
         self.dtype = dtype
         self.device = device
-        self.m = m
-        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
-            dtype=self.dtype, device=self.device
+        self.linear1 = torch.nn.Linear(
+            input_dim, output_dim, bias=has_bias, dtype=dtype, device=device
         )
 
     def example_inputs(self, batch_size=1):
-        return [
+        return (
             torch.randn(
-                1, self.linear.in_features, dtype=self.dtype, device=self.device
-            )
-            for _ in range(batch_size)
-        ]
+                batch_size, self.linear1.in_features, dtype=self.dtype, device=self.device
+            ),
+        )
 
     def forward(self, x):
-        x = self.linear(x)
+        x = self.linear1(x)
         return x
 
 
