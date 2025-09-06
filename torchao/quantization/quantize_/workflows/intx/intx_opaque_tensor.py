@@ -11,7 +11,6 @@ from typing import Optional, Union
 
 import torch
 
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
@@ -25,6 +24,18 @@ from torchao.utils import (
 __all__ = [
     "IntxOpaqueTensor",
 ]
+
+
+def _check_torchao_lowbit_kernels_loaded():
+    # Check kernels are installed/loaded
+    try:
+        torch.ops.torchao._pack_8bit_act_4bit_weight
+    except AttributeError:
+        raise Exception(
+            "TorchAO lowbit kernels are not loaded.  To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU."
+            + " You can also set target to 'aten' if you are using ARM CPU."
+        )
+
 
 aten = torch.ops.aten
 
@@ -206,7 +217,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             )
 
         # Handle TORCHAO
-        _check_torchao_ops_loaded()
+        _check_torchao_lowbit_kernels_loaded()
         compute_target_map = {
             ComputeTarget.TORCHAO_AUTO: None,
             ComputeTarget.TORCHAO_KLEIDIAI: "kleidiai",
