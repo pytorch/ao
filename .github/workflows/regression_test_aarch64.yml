@@ -44,6 +44,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           conda activate venv
+          pip install coremltools
           pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
           BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install .
@@ -53,9 +54,8 @@ jobs:
           pytest -s test/quantization/test_int8_dynamic_activation_intx_weight.py
           pytest -s test/quantization/test_embedding_xbit_quantizer.py
           pytest -s test/quantization/test_groupwise_lowbit_weight_lut_quantizer.py
-          pytest -s test/quantization/
-          pytest -s test/prototype/test_dynamic_activation_lut.py
           pytest -s test/quantization/quantize_/workflows/intx/test_intx_opaque_tensor.py
+          pytest -s test/prototype/test_dynamic_activation_lut.py
       - name: torchao/csrc/cpu - build and run C++ tests
         if: runner.os == 'macOS'
         run: |
