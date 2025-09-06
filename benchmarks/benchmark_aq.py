@@ -20,17 +20,17 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
 )
+from torchao.testing.model_architectures import ToySingleLinearModel
 
 
 def _int8wo_api(mod, **kwargs):
-    quantize_(mod, int8_weight_only(**kwargs), set_inductor_config=False)
+    quantize_(mod, int8_weight_only(**kwargs))
 
 
 def _int8da_int8w_api(mod, **kwargs):
     quantize_(
         mod,
         int8_dynamic_activation_int8_weight(**kwargs),
-        set_inductor_config=False,
     )
 
 
@@ -39,33 +39,7 @@ def _int4wo_api(mod, **kwargs):
     if "groupsize" in kwargs_copy:
         kwargs_copy["group_size"] = kwargs_copy["groupsize"]
         del kwargs_copy["groupsize"]
-    quantize_(mod, int4_weight_only(**kwargs_copy), set_inductor_config=False)
-
-
-class ToyLinearModel(torch.nn.Module):
-    """Single linear for m * k * n problem size"""
-
-    def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
-    ):
-        super().__init__()
-        self.m = m
-        self.dtype = dtype
-        self.device = device
-        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
-            dtype=self.dtype, device=self.device
-        )
-
-    def example_inputs(self):
-        return (
-            torch.randn(
-                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear(x)
-        return x
+    quantize_(mod, int4_weight_only(**kwargs_copy))
 
 
 def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
@@ -133,12 +107,10 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     if kwargs is None:
         kwargs = {}
 
-    m = ToyLinearModel(
-        M, N, K, has_bias=True, dtype=torch.bfloat16, device="cuda"
-    ).eval()
+    m = ToySingleLinearModel(M, N, has_bias=True).eval()
     m_bf16 = copy.deepcopy(m)
     m_ref = copy.deepcopy(m)
-    example_inputs = m.example_inputs()
+    example_inputs = m.example_inputs(batch_size=32)
 
     api(m, **kwargs)
 
@@ -179,7 +151,7 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
 
 if __name__ == "__main__" and torch.cuda.is_available():
     all_shapes = [
-        (20, 2048, 2048),
+        (32, 2048, 2048),
     ]
 
     print("_int8da_int8w_api")
