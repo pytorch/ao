@@ -2221,11 +2221,12 @@ def _choose_scale_float8(
     return scale.to(dtype=torch.float32)
 
 
-def _expand_scale_to_tensor_shape(
+def _maybe_expand_scale_to_tensor_shape(
     scale: torch.Tensor, target_shape: torch.Size
 ) -> torch.Tensor:
     """
     Expand a scale tensor to match the target tensor shape for block-wise quantization.
+    If this is rowwise quantization, however, just return the scale as is.
 
     Args:
         scale (torch.Tensor): Scale tensor with shape corresponding to block structure
@@ -2240,6 +2241,11 @@ def _expand_scale_to_tensor_shape(
 
     if scale.numel() == 1:
         # Scalar scale - can broadcast naturally
+        return scale
+
+    # If the scale can be broadcast as is, then we don't need to expand it
+    # E.g. for rowwise quantization, scale = [256, 1] and target_shape = [256, 512]
+    if all(a == b or a == 1 for a, b in zip(scale.shape, target_shape)):
         return scale
 
     # Calculate block sizes from shape difference
@@ -2283,7 +2289,7 @@ def _quantize_affine_float8(
     tensor_fp32 = tensor.to(torch.float32)
 
     # Expand scale to match tensor dimensions for block-wise quantization
-    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+    scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
     tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
@@ -2306,7 +2312,7 @@ def _dequantize_affine_float8(
     fp8_tensor = tensor.to(torch.float32)
 
     # Expand scale to match tensor dimensions for block-wise quantization
-    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+    scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
     hp_tensor = fp8_tensor * scale_expanded
     return hp_tensor.to(output_dtype)
