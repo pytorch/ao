@@ -219,6 +219,20 @@ class _Round(torch.autograd.Function):
         return gy
 
 
+class _RoundToFloat8(torch.autograd.Function):
+    """
+    Implementation of `tensor.to(float8_dtype)` with backward STE.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, float8_dtype: torch.dtype) -> torch.Tensor:
+        return x.to(float8_dtype)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        return gy, None
+
+
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     """Get quant_min and quant_max args based on dtype and also verify bounds.
@@ -2275,7 +2289,6 @@ def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
-    cast_to_float8_dtype: bool = True,
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
@@ -2288,9 +2301,7 @@ def _quantize_affine_float8(
     tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
-    if cast_to_float8_dtype:
-        tensor_clamped = tensor_clamped.to(float8_dtype)
-    return tensor_clamped
+    return _RoundToFloat8.apply(tensor_clamped, float8_dtype)
 
 
 # TODO: don't register as custom op?
