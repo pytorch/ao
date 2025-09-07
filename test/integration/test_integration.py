@@ -205,9 +205,7 @@ def run_supported_device_dtype(test_method):
     return wrapper
 
 
-class TestSmoothQuant(unittest.TestCase):
-    """SmoothQuant tests using only supported quantization configs."""
-
+class SmoothquantUnitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up class-level configuration for tests."""
