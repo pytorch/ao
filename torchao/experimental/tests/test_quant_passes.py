@@ -57,7 +57,6 @@ class TestQuantPasses(unittest.TestCase):
                     weight_dtype=layer_to_weight_dtype[idx],
                     weight_mapping_type=layer_to_weight_mapping_type[idx],
                     weight_granularity=layer_to_weight_granularity[idx],
-                    layout=QDQLayout(),
                 ),
                 lambda m, fqn: fqn == str(idx),
             )

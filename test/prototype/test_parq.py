@@ -127,8 +127,8 @@ def compare_parq_convert(
         p = module.weight.dequantize()  # PARQ weight after quantize_
         p_ref = getattr(m_ref, n).weight.dequantize()  # native quantize_
 
-        torch.testing.assert_true(p_orig, p_ref, atol=0, rtol=0)
-        torch.testing.assert_true(p, p_ref, atol=0, rtol=0)
+        torch.testing.assert_close(p_orig, p_ref, atol=0, rtol=0)
+        torch.testing.assert_close(p, p_ref, atol=0, rtol=0)
 
 
 class M(nn.Module):
@@ -361,7 +361,9 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         torch.manual_seed(123)
 
     @common_utils.parametrize("b", [2, 3, 4, 8])
-    @common_utils.parametrize("model_dtype", [torch.float16, torch.float32])
+    @common_utils.parametrize(
+        "model_dtype", [torch.float16, torch.float32, torch.bfloat16]
+    )
     @common_utils.parametrize("group_size", [32, 128])
     def test_int8_dynamic_activation_intx_e2e(
         self,
@@ -394,7 +396,10 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         # apply torchao quantized activations on top
         activation_config = IntxFakeQuantizeConfig(
-            torch.int8, "per_token", is_symmetric=False
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+            scale_precision=model_dtype,
         )
         qat_config = QATConfig(activation_config=activation_config, step="prepare")
         filter_fn = optimizer.get_filter_fn(model)
