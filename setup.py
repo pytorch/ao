@@ -73,7 +73,7 @@ build_macos_arm_auto = use_cpp == "1" and is_arm64 and is_macos
 #   ├── USE_CPU_KERNELS="1" + Linux → Include optimized CPU kernels (AVX512, etc.)
 #   └── ARM64 + macOS → Auto-enable experimental builds (build_macos_arm_auto)
 #
-# Level 3: Experimental builds (cmake-based)
+# Level 3: Shared CPU kernel builds (cmake-based)
 #   ├── BUILD_TORCHAO_EXPERIMENTAL="1" → Force experimental builds
 #   ├── build_macos_arm_auto → Auto-enable on ARM64 macOS
 #   └── When enabled, provides access to:
@@ -322,6 +322,19 @@ class TorchAOBuildExt(BuildExtension):
         ext_filename = os.path.basename(self.get_ext_filename(ext.name))
         ext_basename = os.path.splitext(ext_filename)[0]
 
+        print(
+            "CMAKE COMMANG",
+            [
+                "cmake",
+                ext.cmake_lists_dir,
+            ]
+            + ext.cmake_args
+            + [
+                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
+                "-DTORCHAO_CMAKE_EXT_SO_NAME=" + ext_basename,
+            ],
+        )
+
         subprocess.check_call(
             [
                 "cmake",
@@ -433,6 +446,7 @@ def get_extensions():
             extra_link_args.append("/DEBUG")
 
     rocm_sparse_marlin_supported = False
+    rocm_tiled_layout_supported = False
     if use_rocm:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
@@ -472,10 +486,24 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+
+    # Exclude C++ CPU sources that are built by CMake
+    cpu_cmake_sources = glob.glob(
+        os.path.join(extensions_dir, "cpu", "torch_free_kernels", "**", "*.cpp"),
+        recursive=True,
+    )
+    cpu_cmake_sources += glob.glob(
+        os.path.join(extensions_dir, "cpu", "shared_kernels", "**", "*.cpp"),
+        recursive=True,
+    )
+    sources = [s for s in sources if s not in cpu_cmake_sources]
+
     if not use_cpu_kernels or not is_linux:
         # Remove csrc/cpu/*.cpp
         excluded_sources = list(
-            glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
+            glob.glob(
+                os.path.join(extensions_dir, "cpu/aten_kernels/*.cpp"), recursive=False
+            )
         )
         sources = [s for s in sources if s not in excluded_sources]
 
@@ -488,8 +516,11 @@ def get_extensions():
     # Define ROCm source directories
     rocm_source_dirs = [
         os.path.join(extensions_dir, "rocm", "swizzle"),
-        os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
     ]
+    if rocm_tiled_layout_supported:
+        rocm_source_dirs.append(
+            os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
+        )
     if rocm_sparse_marlin_supported:
         rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
@@ -512,14 +543,8 @@ def get_extensions():
     sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    # TODO: Add support for other ROCm GPUs
     if use_rocm:
-        # Add ROCm GPU architecture check
-        gpu_arch = None
-        if torch.cuda.is_available():
-            gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch and gpu_arch != "gfx942":
-            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print("Currently only gfx942 is supported. Compiling only for gfx942.")
         extra_compile_args["nvcc"].append("--offload-arch=gfx942")
         sources += rocm_sources
     else:
@@ -616,6 +641,7 @@ def get_extensions():
 
     ext_modules = []
     if len(sources) > 0:
+        print("SOURCES", sources)
         # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
         sources = [
             s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
@@ -703,7 +729,7 @@ def get_extensions():
             )
         )
 
-    # Build CMakeLists from /torchao/experimental - additional options become available : TORCHAO_BUILD_CPU_AARCH64, TORCHAO_BUILD_KLEIDIAI, TORCHAO_BUILD_MPS_OPS, TORCHAO_PARALLEL_BACKEND
+    # Build CMakeLists from /torchao/csrc/cpu - additional options become available : TORCHAO_BUILD_CPU_AARCH64, TORCHAO_BUILD_KLEIDIAI, TORCHAO_BUILD_MPS_OPS, TORCHAO_PARALLEL_BACKEND
     if build_macos_arm_auto or os.getenv("BUILD_TORCHAO_EXPERIMENTAL") == "1":
         build_options = BuildOptions()
 
@@ -716,24 +742,20 @@ def get_extensions():
 
         ext_modules.append(
             CMakeExtension(
-                "torchao._experimental_aten_ops",
-                cmake_lists_dir="torchao/experimental",
+                "torchao._C_cpu_shared_kernels_aten",
+                cmake_lists_dir="torchao/csrc/cpu",
                 cmake_args=(
                     [
                         f"-DCMAKE_BUILD_TYPE={'Debug' if use_debug_mode() else 'Release'}",
                         f"-DTORCHAO_BUILD_CPU_AARCH64={bool_to_on_off(build_options.build_cpu_aarch64)}",
                         f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
-                        f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
                         f"-DTORCHAO_ENABLE_ARM_NEON_DOT={bool_to_on_off(build_options.enable_arm_neon_dot)}",
                         f"-DTORCHAO_ENABLE_ARM_I8MM={bool_to_on_off(build_options.enable_arm_i8mm)}",
                         f"-DTORCHAO_PARALLEL_BACKEND={build_options.parallel_backend}",
+                        "-DTORCHAO_BUILD_TESTS=OFF",
+                        "-DTORCHAO_BUILD_BENCHMARKS=OFF",
                         "-DTorch_DIR=" + torch_dir,
                     ]
-                    + (
-                        ["-DCMAKE_INSTALL_PREFIX=cmake-out"]
-                        if build_options.build_experimental_mps
-                        else []
-                    )
                 ),
             )
         )

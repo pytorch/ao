@@ -113,6 +113,7 @@ pip install torchao
   ```
 </details>
 
+Please see the [torchao compability table](https://github.com/pytorch/ao/issues/2919) for version requirements for dependencies.
 
 ## 🔗 Integrations
 

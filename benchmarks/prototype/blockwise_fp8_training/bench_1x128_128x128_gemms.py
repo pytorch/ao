@@ -15,9 +15,9 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.blockwise_fp8_training.kernels import (
-    blockwise_fp8_gemm_1x128_128x128,
-    fp8_blockwise_act_quant_lhs,
-    fp8_blockwise_weight_quant_transposed_rhs,
+    triton_fp8_blockwise_act_quant_lhs,
+    triton_fp8_blockwise_weight_quant_transposed_rhs,
+    triton_fp8_gemm_1x128_128x128,
 )
 
 device = torch.device("cuda")
@@ -58,7 +58,7 @@ def get_configs() -> List[ExperimentConfig]:
         (16640, 5120, 8192),
         (16640, 8192, 5120),
     ]
-    out_dtypes = [torch.float32, torch.bfloat16]
+    out_dtypes = [torch.bfloat16]
     configs = []
     for mnk, out_dtype in itertools.product(mnk_list, out_dtypes):
         m, n, k = mnk
@@ -78,8 +78,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     M, N, K = config.m, config.n, config.k
     A = torch.randn(M, K, dtype=config.out_dtype, device="cuda")
     B = torch.randn(N, K, dtype=config.out_dtype, device="cuda")
-    A_q, A_s = fp8_blockwise_act_quant_lhs(A, dtype=torch.float8_e4m3fn)
-    B_t_q, B_t_s = fp8_blockwise_weight_quant_transposed_rhs(
+    A_q, A_s = triton_fp8_blockwise_act_quant_lhs(A, dtype=torch.float8_e4m3fn)
+    B_t_q, B_t_s = triton_fp8_blockwise_weight_quant_transposed_rhs(
         B, dtype=torch.float8_e4m3fn
     )
 
@@ -94,19 +94,21 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Warm up then run triton bench
     warmup(
-        blockwise_fp8_gemm_1x128_128x128,
+        triton_fp8_gemm_1x128_128x128,
         A_q,
-        1.0 / A_s,
         B_t_q,
+        1.0 / A_s,
         1.0 / B_t_s,
+        out_dtype=config.out_dtype,
     )
 
     fp8_triton_us = benchmark_cuda_function_in_microseconds(
-        blockwise_fp8_gemm_1x128_128x128,
+        triton_fp8_gemm_1x128_128x128,
         A_q,
-        1.0 / A_s,
         B_t_q,
+        1.0 / A_s,
         1.0 / B_t_s,
+        out_dtype=config.out_dtype,
     )
 
     # Warm up then run torch bench

@@ -83,6 +83,7 @@ def run_before_and_after_tests():
 @pytest.mark.parametrize("lead_dim", [(5,), (2, 3)])
 @pytest.mark.skipif(not is_arm64_mac, reason="requires arm64 mac")
 def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
+    torch.manual_seed(0)
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
     config = StretchedIntxWeightOnlyConfig(
         b=bit_width,
@@ -126,7 +127,7 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
     if dtype == torch.float32:
         assert sqnr > 40.0, f"sqnr {sqnr} is too low"
     elif dtype == torch.bfloat16:
-        assert sqnr > 15.0, f"sqnr {sqnr} is too low"
+        assert sqnr > 25.0, f"sqnr {sqnr} is too low"
     else:
         raise ValueError(f"Unsupported dtype {dtype}")
 
