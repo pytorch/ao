@@ -30,7 +30,6 @@ from torchao.dtypes import (
     Int4CPULayout,
     Int4XPULayout,
     PlainLayout,
-    QDQLayout,
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
@@ -59,6 +58,9 @@ from torchao.quantization.quant_api import (
     uintx_weight_only,
 )
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
+    IntxUnpackedToInt8Tensor,
+)
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -714,8 +716,7 @@ class TestQuantFlow(TestCase):
         )
         model(*example_inputs)
 
-        assert isinstance(model.emb.weight, AffineQuantizedTensor)
-        assert isinstance(model.emb.weight._layout, QDQLayout)
+        assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
         assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
