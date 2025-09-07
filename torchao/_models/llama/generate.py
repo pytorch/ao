@@ -561,7 +561,6 @@ def main(
                 "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
             )
 
-            from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
             from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
@@ -581,8 +580,7 @@ def main(
                     weight_mapping_type=MappingType.ASYMMETRIC
                     if is_asymmetric
                     else MappingType.SYMMETRIC,
-                    weight_scale_dtype=torch.bfloat16,
-                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                    packing_format="opaque_torchao_auto",
                 ),
             )
         elif "float8wo" in quantization:

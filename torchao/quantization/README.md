@@ -199,27 +199,20 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     quantize_,
 )
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-    Target,
-)
 from torchao.quantization.granularity import PerGroup, PerAxis
 from torchao.quantization.quant_primitives import MappingType
 from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
 
 my_model = Model()
 
-# Set quantization layout
-layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.ATEN)
-
 quantize_(
     my_model,
     Int8DynamicActivationIntxWeightConfig(
-        weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  #PerAxis is also supported
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
-        layout=layout,
         weight_dtype=torch.int4,
+        weight_scale_dtype=torch.float32,
+        weight_granularity=PerGroup(32),  # PerAxis is also supported
+        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
+        packing_format="opaque_torchao_aten",
     ),
 )
 ```
