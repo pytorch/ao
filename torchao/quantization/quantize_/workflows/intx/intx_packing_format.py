@@ -20,8 +20,32 @@ class IntxPackingFormat(str, Enum):
     UNPACKED_TO_INT8 = "unpacked_to_int8"
 
     """
-    Opaque packing format that's used for tensors that does not have a predefined packing format
+    Opaque packing formats are used for tensors that does not have a predefined packing format
     (that may be decided on hardware, tensor shape, library availability etc.) and it's not
     needed for the rest of the system to understand the specific format that's adopted.
     """
-    OPAQUE = "opaque"
+
+    """
+    This packs the tensor for PyTorch CPU kernels in ATen.
+    It does not require installing torchao C++ kernels.
+    """
+    OPAQUE_ATEN = "opaque_aten"
+
+    """
+    This packs the tensor for TorchAO CPU kernels by selecting the best available kernel
+    based on the quantization scheme, either using KlediAI kernels or lowbit kernels.
+    It requires TorchAO C++ kernels to be installed.
+    """
+    OPAQUE_TORCHAO_AUTO = "opaque_torchao_auto"
+
+    """
+    This packs the tensor for TorchAO CPU kernels using KlediAI kernels.
+    It requires TorchAO C++ kernels to be installed.
+    """
+    OPAQUE_TORCHAO_KLEIDIAI = "opaque_torchao_kleidiai"
+
+    """
+    This packs the tensor for TorchAO CPU kernels using lowbit kernels.
+    It requires TorchAO C++ kernels to be installed.
+    """
+    OPAQUE_TORCHAO_LOWBIT = "opaque_torchao_lowbit"

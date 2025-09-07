@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import enum
 import logging
 from typing import Optional, Union
 
@@ -13,6 +12,9 @@ import torch
 
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
+from torchao.quantization.quantize_.workflows.intx.intx_packing_format import (
+    IntxPackingFormat,
+)
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
     IntxUnpackedToInt8TensorActivationQuantization,
@@ -29,34 +31,6 @@ __all__ = [
 aten = torch.ops.aten
 
 
-class ComputeTarget(enum.Enum):
-    """
-    This packs the tensor for PyTorch CPU kernels in ATen.
-    It does not require installing torchao C++ kernels.
-    """
-
-    ATEN = "aten"
-
-    """
-    This packs the tensor for TorchAO CPU kernels by selecting the best available kernel
-    based on the quantization scheme, either using KlediAI kernels or lowbit kernels.
-    It requires TorchAO C++ kernels to be installed.
-    """
-    TORCHAO_AUTO = "torchao_auto"
-
-    """
-    This packs the tensor for TorchAO CPU kernels using KlediAI kernels.
-    It requires TorchAO C++ kernels to be installed.
-    """
-    TORCHAO_KLEIDIAI = "torchao_kleidiai"
-
-    """
-    This packs the tensor for TorchAO CPU kernels using lowbit kernels.
-    It requires TorchAO C++ kernels to be installed.
-    """
-    TORCHAO_LOWBIT = "torchao_lowbit"
-
-
 class IntxOpaqueTensor(TorchAOBaseTensor):
     """
     intx quantization with tile packed format for CPUs
@@ -71,7 +45,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         dtype: dtype for activations/outputs
         packed_weights_has_zeros: whether zeros are present in packed_weights
         packed_weights_has_bias: whether bias is present in packed_weights
-        compute_target: the compute target for the packed data.  Compute targets may pack the data differently.  See ComputeTarget enum for details.
+        packing_format: the packing format for the packed data.  See IntxPackingFormat enum for details.
     """
 
     tensor_data_names = ["packed_weights"]
@@ -82,7 +56,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         "dtype",
         "packed_weights_has_zeros",
         "packed_weights_has_bias",
-        "compute_target",
+        "packing_format",
     ]
 
     def __new__(
@@ -94,7 +68,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         dtype,
         packed_weights_has_zeros,
         packed_weights_has_bias,
-        compute_target,
+        packing_format,
     ):
         kwargs = {}
         kwargs["device"] = packed_weights.device
@@ -111,7 +85,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         dtype,
         packed_weights_has_zeros,
         packed_weights_has_bias,
-        compute_target,
+        packing_format,
     ):
         super().__init__()
         assert packed_weights.device == torch.device("cpu")
@@ -120,10 +94,10 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         self.block_size = block_size
         self.packed_weights_has_zeros = packed_weights_has_zeros
         self.packed_weights_has_bias = packed_weights_has_bias
-        self.compute_target = compute_target
+        self.packing_format = packing_format
 
     def _quantization_type(self):
-        return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device} compute_target={self.compute_target}"
+        return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device} packing_format={self.packing_format}"
 
     def to(self, *args, **kwargs):
         raise NotImplementedError("to() is not implemented for IntxOpaqueTensor")
@@ -134,15 +108,24 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         tensor: IntxUnpackedToInt8Tensor,
         *,
         bias: Optional[torch.Tensor] = None,
-        compute_target: Union[ComputeTarget, str] = ComputeTarget.TORCHAO_AUTO,
+        packing_format: Union[
+            IntxPackingFormat, str
+        ] = IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
     ):
         """
         Constructs a IntxOpaqueTensor from an IntxUnpackedToInt8Tensor.
         If bias is passed, bias is packed into the tensor.
-        The compute_target indicates how the data is packed.
+        The packing_format indicates how the data is packed.
         """
-        if isinstance(compute_target, str):
-            compute_target = ComputeTarget[compute_target.upper()]
+        if isinstance(packing_format, str):
+            packing_format = IntxPackingFormat[packing_format.upper()]
+
+        assert packing_format in [
+            IntxPackingFormat.OPAQUE_ATEN,
+            IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+            IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
+            IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
+        ]
 
         # Extract data from IntxUnpackedToInt8Tensor
         assert (
@@ -171,7 +154,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         ) or torch.allclose(scale, scale.to(torch.bfloat16).to(torch.float32))
 
         # Handle ATEN
-        if compute_target == ComputeTarget.ATEN:
+        if packing_format == IntxPackingFormat.OPAQUE_ATEN:
             assert torch_version_at_least("2.6.0"), (
                 "ATEN target requires torch version > 2.6.0"
             )
@@ -202,23 +185,23 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
                 dtype,
                 packed_weights_has_zeros,
                 packed_weights_has_bias,
-                compute_target,
+                packing_format,
             )
 
         # Handle TORCHAO
         _check_torchao_ops_loaded()
-        compute_target_map = {
-            ComputeTarget.TORCHAO_AUTO: None,
-            ComputeTarget.TORCHAO_KLEIDIAI: "kleidiai",
-            ComputeTarget.TORCHAO_LOWBIT: "universal",
+        packing_format_map = {
+            IntxPackingFormat.OPAQUE_TORCHAO_AUTO: None,
+            IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI: "kleidiai",
+            IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT: "universal",
         }
-        assert compute_target in compute_target_map, (
-            f"compute_target {compute_target} not supported"
+        assert packing_format in packing_format_map, (
+            f"packing_format {packing_format} not supported"
         )
 
-        if not scale_is_bfloat16_or_is_rounded_to_bf16 and compute_target in [
-            ComputeTarget.TORCHAO_AUTO,
-            ComputeTarget.TORCHAO_KLEIDIAI,
+        if not scale_is_bfloat16_or_is_rounded_to_bf16 and packing_format in [
+            IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+            IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
         ]:
             logging.info("scale may be rounded to bf16 in the kernel")
         if scale.dtype != torch.float32:
@@ -239,7 +222,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             zero_point.reshape(-1) if packed_weights_has_zeros else None,
             group_size,
             bias,
-            compute_target_map[compute_target],
+            packing_format_map[packing_format],
         )
         return cls(
             packed_weights,
@@ -249,7 +232,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             dtype,
             packed_weights_has_zeros,
             packed_weights_has_bias,
-            compute_target,
+            packing_format,
         )
 
 
@@ -258,7 +241,7 @@ implements = IntxOpaqueTensor.implements
 
 def _linear_impl_2d_aten(input_tensor, weight_tensor):
     assert isinstance(weight_tensor, IntxOpaqueTensor)
-    assert weight_tensor.compute_target == ComputeTarget.ATEN
+    assert weight_tensor.packing_format == IntxPackingFormat.OPAQUE_ATEN
     assert input_tensor.dim() == 2
     assert weight_tensor.dim() == 2
     assert weight_tensor.block_size[0] == 1
@@ -277,7 +260,7 @@ def _linear_impl_2d_aten(input_tensor, weight_tensor):
 
 
 def _linear_impl_2d_torchao(input_tensor, weight_tensor):
-    assert weight_tensor.compute_target != ComputeTarget.ATEN
+    assert weight_tensor.packing_format != IntxPackingFormat.OPAQUE_ATEN
     assert input_tensor.dim() == 2
     assert weight_tensor.dim() == 2
     assert weight_tensor.block_size[0] == 1
@@ -313,7 +296,7 @@ def _(func, types, args, kwargs):
         args[2] if len(args) > 2 else None,
     )
 
-    if weight_tensor.compute_target == ComputeTarget.ATEN:
+    if weight_tensor.packing_format == IntxPackingFormat.OPAQUE_ATEN:
         _impl_2d = _linear_impl_2d_aten
     else:
         _impl_2d = _linear_impl_2d_torchao
@@ -347,4 +330,4 @@ def _(func, types, args, kwargs):
 
 IntxOpaqueTensor.__module__ = "torchao.quantization"
 
-torch.serialization.add_safe_globals([IntxOpaqueTensor, ComputeTarget])
+torch.serialization.add_safe_globals([IntxOpaqueTensor, IntxPackingFormat])
