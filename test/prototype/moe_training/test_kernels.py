@@ -283,7 +283,6 @@ def test_mxfp8_per_group_blocked_scales_2d2d(
     device = "cuda"
     block_size = 32
     input_data = torch.randn(m, total_k, device=device)
-
     e8m0_scales, _ = to_mx(
         input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
     )
