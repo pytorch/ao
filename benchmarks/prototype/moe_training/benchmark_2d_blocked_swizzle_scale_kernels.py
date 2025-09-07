@@ -84,7 +84,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     # bench torch
     compiled_run_torch = torch.compile(torch_to_blocked_per_group_2d)
     torch_out_scales, torch_group_offs = compiled_run_torch(
-        input_tensor, input_group_offsets, Mg, K
+        input_tensor, input_group_offsets, K
     )
     torch_time_us = benchmark_cuda_function_in_microseconds(
         compiled_run_torch,
