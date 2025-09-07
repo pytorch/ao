@@ -13,15 +13,15 @@ In this implementation, weights are smoothed (equalized) and quantized to int8 d
 Run the example code with
 
 ```bash
-python example.py --repo <MODEL_ID>  --device <cuda/cpu>
+python example.py --model <MODEL_ID>  --device <cuda/cpu>
 # An example
-python example.py --repo meta-llama/Llama-2-7b-chat-hf  --alpha 0.8
+python example.py --model meta-llama/Llama-2-7b-chat-hf
 ```
 
 To save a quantized model for reuse, specify `--model_save_path`
 
 ```bash
-python example.py --repo <MODEL_ID> --model_save_path ./model_smoothquant.pt
+python example.py --model <MODEL_ID> --model_save_path ./model_smoothquant.pt
 ```
 
 ## Usage of API
@@ -53,23 +53,24 @@ quantize_(model, quant_config)
 
 ## Benchmarks
 
-All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence length (SeqLen) 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance. For comprehensive benchmarking, we compare three cases: 1. origin, 2. W8A8-dynamic, 3. SmoothQuant (W8A8-dynamic)
+All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence length (SeqLen) 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance. For comprehensive benchmarking, we compare three cases: 1. origin, 2. W8A8, 3. SmoothQuant (W8A8).
 
 ### Benchmark Results
 
-*Used with `torch.compile`, **Used with **SmoothQuant**
+Result shows SmoothQuant with W8A8 slightly increase perplexity, reducing latency 33.82%. Since tinygemm kernel only uses bfloat16 inputs, Tokens/sec decreases for float16 input.
 
 | Precision dtype | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
 |-----------|--------------|------------|------------|------------|--------------|
 | bfloat16  |  -             | 6.93       | 667        |  -         |  -          |
 | bfloat16* |  -             | 6.93       | 27    🐌   |  -         |  -          |
 | bfloat16  | W8A8-dynamic   | 7.35       | 1,967      | +6.07%     | +33.89%     |
-| bfloat16  | W8A8-dynamic** | 7.03       | **1,972**  | **+1.39%** | +33.82%     |
+| bfloat16  | W8A8-dynamic** | 7.03       | **1,972**  | **+1.39%** | **+33.82%**     |
 | float16   |  -             | 6.93       | 625        |  -         |  -          |
 | float16   | W8A8-dynamic   | 7.29       | 523        | +5.21%     | -19.42%     |
 | float16   | W8A8-dynamic** | 6.94       | 516        | **+0.21%** | -21.23%     |
-| bfloat16* | W8A8-dynamic** | 6.92       | 3          | -0.18%     | -768.29% 🐌 |
+| bfloat16* | W8A8-dynamic** | 6.92       | 3        🐌  | -0.18%     | -768.29%  |
 
+> *Used with `torch.compile`, **Used with **SmoothQuant**
 
 ### Key Findings
 
