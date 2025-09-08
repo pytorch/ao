@@ -75,7 +75,12 @@ from torchao.prototype.moe_quant.utils import (
 )
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
-quantize_(model, MoEQuantConfig(Int4WeightOnlyConfig()), cond_ffn_filter, device="cuda")
+quantize_(
+    model,
+    MoEQuantConfig(Int4WeightOnlyConfig(version=1)),
+    cond_ffn_filter,
+    device="cuda",
+)
 
 model.cuda()
 

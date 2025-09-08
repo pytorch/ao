@@ -275,11 +275,11 @@ def main(
             )
 
         elif "int4wo-base" in moe_quant:
-            config = MoEQuantConfig(Int4WeightOnlyConfig())
+            config = MoEQuantConfig(Int4WeightOnlyConfig(version=1))
 
         elif "int4wo" in moe_quant:
             config = MoEQuantConfig(
-                Int4WeightOnlyConfig(),
+                Int4WeightOnlyConfig(version=1),
                 use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
             )
 

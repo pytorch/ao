@@ -226,7 +226,7 @@ class TestQuantFlow(TestCase):
         m = ToyLinearModel().eval().cpu()
 
         def api(model):
-            quantize_(model, int4_weight_only(layout=Int4XPULayout()))
+            quantize_(model, int4_weight_only(layout=Int4XPULayout(), version=1))
             unwrap_tensor_subclass(model)
 
         api(m)
@@ -457,10 +457,13 @@ class TestQuantFlow(TestCase):
             group_size = 32
             if device == "xpu":
                 quantize_(
-                    m, int4_weight_only(group_size=group_size, layout=Int4XPULayout())
+                    m,
+                    int4_weight_only(
+                        group_size=group_size, layout=Int4XPULayout(), version=1
+                    ),
                 )
             else:
-                quantize_(m, int4_weight_only(group_size=group_size))
+                quantize_(m, int4_weight_only(group_size=group_size, version=1))
             assert isinstance(m.linear1.weight, AffineQuantizedTensor)
             assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
@@ -579,7 +582,7 @@ class TestQuantFlow(TestCase):
             quantize_(
                 m,
                 int4_weight_only(
-                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq, version=1
                 ),
             )
             # ensure the expected op is in the code
@@ -595,7 +598,7 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize(
         "config",
         [
-            int4_weight_only(),
+            int4_weight_only(version=1),
             float8_weight_only(),
             float8_dynamic_activation_float8_weight(),
             float8_static_activation_float8_weight(scale=torch.tensor([1.0])),
@@ -661,7 +664,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_default(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
@@ -675,7 +678,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_module_name(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
@@ -720,7 +723,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_skip(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
@@ -732,7 +735,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int4wo_cuda_serialization(self):
-        config = Int4WeightOnlyConfig(group_size=32)
+        config = Int4WeightOnlyConfig(group_size=32, version=1)
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         # quantize in cuda
         quantize_(model, config)

@@ -47,11 +47,11 @@ class SparseMarlin24(TestCase):
         model_copy = copy.deepcopy(self.model)
 
         # Quantized
-        quantize_(model_copy.bfloat16(), int4_weight_only())
+        quantize_(model_copy.bfloat16(), int4_weight_only(version=1))
         dense_result = model_copy(self.input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
+        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
         sparse_result = self.model(self.input)
         assert torch.allclose(dense_result, sparse_result, atol=3e-1), (
             "Results are not close"
@@ -64,12 +64,12 @@ class SparseMarlin24(TestCase):
         model_copy = copy.deepcopy(self.model)
 
         # Quantized
-        quantize_(model_copy.bfloat16(), int4_weight_only())
+        quantize_(model_copy.bfloat16(), int4_weight_only(version=1))
         model_copy.foward = torch.compile(model_copy.forward, fullgraph=True)
         dense_result = model_copy(self.input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
+        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
         self.model.forward = torch.compile(self.model.forward, fullgraph=True)
         sparse_result = self.model(self.input)
 

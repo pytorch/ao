@@ -519,7 +519,7 @@ def quantize_(
         from torchao.quantization.quant_api import int4_weight_only
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        quantize_(m, int4_weight_only(group_size=32))
+        quantize_(m, int4_weight_only(group_size=32, version=1))
 
     """
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
@@ -2027,7 +2027,7 @@ def _uintx_weight_only_transform(
     if use_hqq:
         if dtype == torch.uint4:
             logger.warning(
-                "Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance"
+                "Recommended to use `int4_weight_only(group_size, use_hqq=True, version=1)` for the best performance"
             )
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
         dtype = torch.uint8

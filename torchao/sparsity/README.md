@@ -57,7 +57,7 @@ from torchao.dtypes import MarlinSparseLayout
 
 # Your FP16 model
 model = model.cuda().half()
-quantize_(model, Int4WeightOnlyConfig(layout=MarlinSparseLayout()))
+quantize_(model, Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1))
 ```
 
 Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
