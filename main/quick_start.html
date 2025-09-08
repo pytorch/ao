@@ -482,7 +482,7 @@ weight-only asymmetric per-group quantization, leveraging the
 for efficient mixed dtype matrix multiplication:</p>
 <div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="c1"># torch 2.4+ only</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span> <span class="n">quantize_</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">))</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 </pre></div>
 </div>
 <p>The quantized model is now ready to use! Note that the quantization
