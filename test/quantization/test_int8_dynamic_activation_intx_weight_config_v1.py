@@ -27,9 +27,13 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    is_kernel_library_loaded,
+)
 from torchao.quantization.utils import compute_error
 
 
+@unittest.skipIf(not is_kernel_library_loaded(), "Kernel library not loaded")
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
     TEST_ACCURACY_CASES = [
         param(
