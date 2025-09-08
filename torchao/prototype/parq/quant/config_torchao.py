@@ -11,8 +11,10 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
 )
-from torchao.quantization.quantize_.common.packing_format import PackingFormat
-from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
+from torchao.quantization.quantize_.workflows import (
+    IntxPackingFormat,
+    IntxUnpackedToInt8Tensor,
+)
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.utils import check_cpu_version
 
@@ -126,7 +128,7 @@ def get_config_from_quantizer(
             weight_dtype=weight_dtype,
             granularity=granularity,
             mapping_type=quantizer.mapping_type,
-            packing_format=PackingFormat.UNPACKED_TO_INT8,
+            packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=version,
         )
     else:
@@ -135,7 +137,7 @@ def get_config_from_quantizer(
             weight_granularity=granularity,
             weight_mapping_type=quantizer.mapping_type,
             act_mapping_type=MappingType.ASYMMETRIC,
-            packing_format=PackingFormat.UNPACKED_TO_INT8,
+            packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=version,
         )
     return config

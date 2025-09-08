@@ -131,14 +131,16 @@ def compare_parq_convert(
         torch.testing.assert_close(p, p_ref, atol=0, rtol=0)
 
 
-def check_torchao_tensor_subclass(model):
+def check_torchao_tensor_subclass(test_case: common_utils.TestCase, model):
     for module in model.modules():
         if _is_linear(module):
-            assert isinstance(module.weight, IntxUnpackedToInt8Tensor)
-            assert module.weight.activation_quantization == "int8_asym_per_token"
+            test_case.assertTrue(isinstance(module.weight, IntxUnpackedToInt8Tensor))
+            test_case.assertTrue(
+                module.weight.activation_quantization == "int8_asym_per_token"
+            )
         elif isinstance(module, nn.Embedding):
-            assert isinstance(module.weight, IntxUnpackedToInt8Tensor)
-            assert module.weight.activation_quantization is None
+            test_case.assertTrue(isinstance(module.weight, IntxUnpackedToInt8Tensor))
+            test_case.assertTrue(module.weight.activation_quantization is None)
 
 
 class M(nn.Module):
@@ -289,7 +291,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             quant_per_channel=True,
         )
         compare_parq_convert(model, m_ref, optimizer)
-        check_torchao_tensor_subclass(model)
+        check_torchao_tensor_subclass(self, model)
 
 
 class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
@@ -365,7 +367,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
             quant_per_channel=True,
         )
         compare_parq_convert(model, m_ref, optimizer)
-        check_torchao_tensor_subclass(model)
+        check_torchao_tensor_subclass(self, model)
 
 
 class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
