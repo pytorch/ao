@@ -23,7 +23,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quantize_.workflows import IntxPackingFormat
 from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
-    is_kernel_library_loaded,
+    _is_kernel_library_loaded,
 )
 from torchao.quantization.utils import compute_error
 
@@ -116,7 +116,7 @@ def _get_accuracy_test_cases():
     return test_cases
 
 
-@unittest.skipIf(not is_kernel_library_loaded(), "Kernel library not loaded")
+@unittest.skipIf(not _is_kernel_library_loaded(), "Kernel library not loaded")
 class TestIntxOpaqueTensor(TestCase):
     @parameterized.expand(
         _get_accuracy_test_cases(),

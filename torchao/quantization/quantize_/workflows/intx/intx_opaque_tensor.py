@@ -29,7 +29,7 @@ __all__ = [
 aten = torch.ops.aten
 
 
-def is_kernel_library_loaded():
+def _is_kernel_library_loaded():
     loaded = False
     try:
         _check_torchao_ops_loaded()
@@ -216,7 +216,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             )
 
         # Handle TORCHAO
-        assert is_kernel_library_loaded(), "TorchAO kernel library is not loaded"
+        assert _is_kernel_library_loaded(), "TorchAO kernel library is not loaded"
         compute_target_map = {
             ComputeTarget.TORCHAO_AUTO: None,
             ComputeTarget.TORCHAO_KLEIDIAI: "kleidiai",
