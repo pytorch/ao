@@ -24,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOCKER_IMAGE: ci-image:pytorch-linux-jammy-xpu-n-py3
-      TEST_COMMAND: .github/scripts/ci_test_xpu.sh
       PYTORCH_RETRY_TEST_CASES: 1
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
       XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
@@ -51,7 +50,7 @@ jobs:
         id: calculate-docker-image
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         with:
-          docker-image-name: ${{ DOCKER_IMAGE }}
+          docker-image-name: ${{ env.DOCKER_IMAGE }}
 
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror
@@ -79,17 +78,11 @@ jobs:
             exit 1
           fi
 
-      - name: Use following to pull public copy of the image
-        id: print-ghcr-mirror
-        shell: bash
-        run: |
-          echo "docker pull ${DOCKER_IMAGE}"
-          docker pull ${DOCKER_IMAGE}
-
       - name: Test
         id: test
         env:
-          BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
+          TEST_COMMAND: .github/scripts/ci_test_xpu.sh
+          DOCKER_IMAGE: ci-image:pytorch-linux-jammy-xpu-n-py3
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
@@ -107,7 +100,6 @@ jobs:
           # shellcheck disable=SC2086,SC2090
           container_name=$(docker run \
             ${GPU_FLAG:-} \
-            -e BUILD_ENVIRONMENT \
             -e PR_NUMBER \
             -e GITHUB_ACTIONS \
             -e GITHUB_REPOSITORY \
@@ -137,7 +129,7 @@ jobs:
           # save container name for later step
           echo "CONTAINER_NAME=${container_name}" >> "$GITHUB_ENV"
           # jenkins user does not have write permission to mounted workspace; work-around by copying within container to jenkins home
-          docker exec -t "${container_name}" sh -c "bash ${TEST_COMMAND}"
+          docker exec -t "${container_name}" sh -c "bash ${env.TEST_COMMAND}"
 
       - name: Change permissions
         if: ${{ always() && steps.test.conclusion }}
