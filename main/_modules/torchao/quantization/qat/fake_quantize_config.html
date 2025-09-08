@@ -849,7 +849,7 @@
         <span class="p">)</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">):</span>
         <span class="n">act_config</span> <span class="o">=</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">(</span>
-            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">e4m3_dtype</span><span class="p">,</span>
             <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">(),</span>
         <span class="p">)</span>
         <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">(</span>
