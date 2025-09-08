@@ -15,7 +15,6 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
@@ -23,6 +22,9 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quantize_.workflows import IntxPackingFormat
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    is_kernel_library_loaded,
+)
 from torchao.quantization.utils import compute_error
 
 
@@ -114,15 +116,7 @@ def _get_accuracy_test_cases():
     return test_cases
 
 
-_TORCHAO_OPS_LOADED = False
-try:
-    _check_torchao_ops_loaded()
-    _TORCHAO_OPS_LOADED = True
-except Exception:
-    pass
-
-
-@unittest.skipIf(not _TORCHAO_OPS_LOADED, "Need torchao ops")
+@unittest.skipIf(not is_kernel_library_loaded(), "Kernel library not loaded")
 class TestIntxOpaqueTensor(TestCase):
     @parameterized.expand(
         _get_accuracy_test_cases(),
