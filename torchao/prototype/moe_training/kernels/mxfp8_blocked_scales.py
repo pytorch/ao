@@ -491,13 +491,12 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
         scales_tensor.stride(1),
         rows,
         cols,
+        padded_rows,
         num_groups,
         # Original offsets (to read from)
         input_group_end_offsets,
         # Output scales tensor and group offsets after padding (to write to)
         output.view(torch.uint8),
-        output.stride(0),
-        output.stride(1),
         output_group_start_offsets,
         output_stride_per_block,
         output_stride_per_row_of_blocks,
@@ -514,11 +513,10 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
     scales_stride_dim1,
     scale_rows,
     scale_cols,
+    padded_rows,
     num_groups,
     orig_offsets,  # (num_groups,)
     output_scales_ptr,
-    output_scales_stride_dim0,
-    output_scales_stride_dim1,
     output_scales_group_offsets,  # (num_groups,)
     output_stride_per_block,
     output_stride_per_row_of_blocks_ptr,
@@ -577,13 +575,15 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
 
         output_block_offsets = tgt_row_off + tgt_col_off
         if DEBUG:
-            tl.device_print("block_row_pid: ", block_row_pid)
+            tl.device_print("\nblock_row_pid: ", block_row_pid)
             tl.device_print("group_pid: ", group_pid)
             tl.device_print("tgt_row_block", block_row_pid)
+            tl.device_print("output_group_start_col: ", output_group_start_col)
             tl.device_print("tgt_col_block", curr_out_start_col_block)
             tl.device_print("tgt_row_off: ", tgt_row_off)
             tl.device_print("tgt_col_off: ", tgt_col_off)
             tl.device_print("global_off:", tgt_row_off + tgt_col_off)
+            tl.device_print("writing: ", scales_flat)
 
         # Apply swizzling for write to gmem
         tl.store(
