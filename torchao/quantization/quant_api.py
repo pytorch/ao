@@ -747,8 +747,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
     packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
 
-    # Used with IntxPackingFormat.OPAQUE
-    compute_target: Optional[str] = None
     version: int = 1
 
     def __post_init__(self):
@@ -805,7 +803,6 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     act_mapping_type = config.act_mapping_type
     layout = config.layout
     packing_format = config.packing_format
-    compute_target = config.compute_target
 
     assert weight.dim() == 2, (
         f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -826,10 +823,16 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
 
     if config.version == 2:
         assert act_mapping_type == MappingType.ASYMMETRIC
-        assert packing_format in [
-            IntxPackingFormat.UNPACKED_TO_INT8,
-            IntxPackingFormat.OPAQUE,
-        ], f"Unsupported packing format: {packing_format}"
+        opaque_formats = [
+            IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
+            IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+            IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
+            IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
+        ]
+        assert (
+            packing_format == IntxPackingFormat.UNPACKED_TO_INT8
+            or packing_format in opaque_formats
+        ), f"Unsupported packing format: {packing_format}"
         new_weight = IntxUnpackedToInt8Tensor.from_hp(
             weight,
             block_size,
@@ -845,12 +848,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         new_bias = bias
 
         # Create packed tensor
-        if packing_format == IntxPackingFormat.OPAQUE:
-            assert compute_target is not None, (
-                "Must specify a compute target for IntxPackingFormat.OPAQUE"
-            )
+        if packing_format in opaque_formats:
             new_weight = IntxOpaqueTensor.from_intx_unpacked_to_int8_tensor(
-                new_weight, bias=new_bias, compute_target=compute_target
+                new_weight, bias=new_bias, packing_format=packing_format
             )
             new_bias = None  # bias is packed with weights
 
