@@ -420,7 +420,7 @@ def _infer_fake_quantize_configs(
         )
     elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig):
         act_config = Float8FakeQuantizeConfig(
-            dtype=torch.float8_e4m3fn,
+            dtype=e4m3_dtype,
             granularity=PerRow(),
         )
         weight_config = Int4WeightPreshuffledFakeQuantizeConfig(
