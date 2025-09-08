@@ -9,7 +9,7 @@
 # Example uses
 # release with default quant options (FP8, INT4, INT8-INT4)
 # ./release.sh --model_id Qwen/Qwen3-8B
-# release custom quant options
+# release a custom set of quant options
 # ./release.sh --model_id Qwen/Qwen3-8B --quants INT4 FP8
 
 # Default quantization options
