@@ -440,6 +440,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">PerAxis</span><span class="p">,</span>
     <span class="n">PerGroup</span><span class="p">,</span>
+    <span class="n">PerRow</span><span class="p">,</span>
     <span class="n">PerToken</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_block_size</span>
@@ -449,6 +450,7 @@
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">_choose_scale_float8</span><span class="p">,</span>
     <span class="n">_dequantize_affine_float8</span><span class="p">,</span>
+    <span class="n">_fake_quantize_affine</span><span class="p">,</span>
     <span class="n">_quantize_affine_float8</span><span class="p">,</span>
     <span class="n">_Round</span><span class="p">,</span>
     <span class="n">choose_qparams_affine</span><span class="p">,</span>
@@ -462,6 +464,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantize_config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizeConfigBase</span><span class="p">,</span>
     <span class="n">Float8FakeQuantizeConfig</span><span class="p">,</span>
+    <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">,</span>
     <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -494,6 +497,8 @@
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">IntxFakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">Int4WeightPreshuffledFakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">Float8FakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">):</span>
@@ -522,11 +527,66 @@
             <span class="n">hp_value_lb</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">hp_value_lb</span><span class="p">,</span>
             <span class="n">hp_value_ub</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">hp_value_ub</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">q</span> <span class="o">=</span> <span class="n">_quantize_affine_float8</span><span class="p">(</span>
-            <span class="n">x</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">cast_to_float8_dtype</span><span class="o">=</span><span class="kc">False</span>
-        <span class="p">)</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="n">_quantize_affine_float8</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="n">dq</span> <span class="o">=</span> <span class="n">_dequantize_affine_float8</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">original_dtype</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">dq</span></div></div>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightPreshuffledFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generic module for applying int4 fake quantization to a weight tensor,</span>
+<span class="sd">    targeting the following FBGEMM kernel:</span>
+<span class="sd">        torch.ops.fbgemm.f8i4bf16_shuffled</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
+            <span class="s2">&quot;torchao.quantization.qat.Int4WeightPreshuffledFakeQuantizer&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Apply int4 fake quantization to the weight tensor, using the following as a reference:</span>
+<span class="sd">        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L112</span>
+
+<span class="sd">        Currently, we expect the activations to always be rowwise float8.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">w</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+
+        <span class="c1"># First quantize weights to fp8 per row</span>
+        <span class="c1"># This simulates the numerics of fbgemm_gpu.experimental.gen_ai.quantize.quantize_fp8_row</span>
+        <span class="n">per_row_block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">())</span>
+        <span class="n">fp8_scale</span> <span class="o">=</span> <span class="n">_choose_scale_float8</span><span class="p">(</span>
+            <span class="n">w</span><span class="p">,</span>
+            <span class="n">per_row_block_size</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+            <span class="n">hp_value_lb</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">w_fp8</span> <span class="o">=</span> <span class="n">_quantize_affine_float8</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">fp8_scale</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">)</span>
+        <span class="n">w_fp8</span> <span class="o">=</span> <span class="n">_dequantize_affine_float8</span><span class="p">(</span><span class="n">w_fp8</span><span class="p">,</span> <span class="n">fp8_scale</span><span class="p">,</span> <span class="n">w</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="c1"># Now quantize to int4 per group</span>
+        <span class="c1"># This simulates the numerics of fbgemm_gpu.experimental.gen_ai.quantize.int4_row_quantize</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
+        <span class="n">fbgemm_scale_quant_max</span> <span class="o">=</span> <span class="mi">8</span>
+        <span class="n">w_fp8_grouped</span> <span class="o">=</span> <span class="n">w_fp8</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">w_fp8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">group_size</span><span class="p">)</span>
+        <span class="n">max_abs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">w_fp8_grouped</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">max_abs</span> <span class="o">/</span> <span class="n">fbgemm_scale_quant_max</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span>
+        <span class="n">zero_point</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">scale</span><span class="p">)</span>
+        <span class="n">per_group_block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">group_size</span><span class="p">)</span>
+        <span class="n">fq</span> <span class="o">=</span> <span class="n">_fake_quantize_affine</span><span class="p">(</span>
+            <span class="n">w_fp8</span><span class="p">,</span>
+            <span class="n">per_group_block_size</span><span class="p">,</span>
+            <span class="n">scale</span><span class="p">,</span>
+            <span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">quant_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+            <span class="n">quant_min</span><span class="o">=-</span><span class="mi">8</span><span class="p">,</span>
+            <span class="n">quant_max</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">fq</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="IntxFakeQuantizer"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.IntxFakeQuantizer.html#torchao.quantization.qat.IntxFakeQuantizer">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">IntxFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>

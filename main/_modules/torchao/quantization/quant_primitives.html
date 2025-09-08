@@ -648,6 +648,20 @@
         <span class="k">return</span> <span class="n">gy</span>
 
 
+<span class="k">class</span><span class="w"> </span><span class="nc">_RoundToFloat8</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Implementation of `tensor.to(float8_dtype)` with backward STE.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">gy</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">gy</span><span class="p">,</span> <span class="kc">None</span>
+
+
 <span class="c1"># TODO: decide on if we want to allow custom quant_min/quant_max here</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_and_check_qmin_qmax</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get quant_min and quant_max args based on dtype and also verify bounds.</span>
@@ -2704,7 +2718,6 @@
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
-    <span class="n">cast_to_float8_dtype</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.</span>
@@ -2717,9 +2730,7 @@
     <span class="n">tensor_scaled</span> <span class="o">=</span> <span class="n">tensor_fp32</span> <span class="o">/</span> <span class="n">scale_expanded</span>
     <span class="n">max_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
     <span class="n">tensor_clamped</span> <span class="o">=</span> <span class="n">tensor_scaled</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="nb">min</span><span class="o">=-</span><span class="n">max_value</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="n">max_value</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">cast_to_float8_dtype</span><span class="p">:</span>
-        <span class="n">tensor_clamped</span> <span class="o">=</span> <span class="n">tensor_clamped</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">tensor_clamped</span>
+    <span class="k">return</span> <span class="n">_RoundToFloat8</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">tensor_clamped</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="p">)</span>
 
 
 <span class="c1"># TODO: don&#39;t register as custom op?</span>
