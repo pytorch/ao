@@ -402,7 +402,7 @@ def run(
         )
         quantize_(
             predictor.model.image_encoder,
-            int4_weight_only(layout=MarlinSparseLayout()),
+            int4_weight_only(layout=MarlinSparseLayout(), version=1),
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)

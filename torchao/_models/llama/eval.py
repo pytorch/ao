@@ -89,7 +89,7 @@ def run_evaluation(
             )
             quantize_(
                 model.to(device),
-                int4_weight_only(group_size=groupsize, use_hqq=use_hqq),
+                int4_weight_only(group_size=groupsize, use_hqq=use_hqq, version=1),
             )
         if "uintx" in quantization:
             # uintx-nbits-groupsize
@@ -116,7 +116,7 @@ def run_evaluation(
         if "marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayout
 
-            quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+            quantize_(model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import LMEvalInputRecorder
