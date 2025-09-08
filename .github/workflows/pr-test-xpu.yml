@@ -158,4 +158,4 @@ jobs:
           path: ./**/core.[1-9]*
 
       - name: Teardown XPU
-        uses: pytorch/pytorch/.github/actions/teardown-xpu
+        uses: pytorch/pytorch/.github/actions/teardown-xpu@main
