@@ -36,7 +36,7 @@ def _get_accuracy_test_cases():
 
     PACKING_FORMATS = [
         IntxPackingFormat.UNPACKED_TO_INT8,
-        IntxPackingFormat.OPAQUE_ATEN,
+        IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
         IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
         IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
         IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
@@ -69,7 +69,7 @@ def _get_accuracy_test_cases():
         weight_granularity,
     ):
         # ATEN restrictions
-        if packing_format == IntxPackingFormat.OPAQUE_ATEN:
+        if packing_format == IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI:
             if weight_dtype != torch.int4:
                 return False
             if weight_mapping_type == MappingType.ASYMMETRIC:
@@ -236,7 +236,7 @@ class TestIntxOpaqueTensor(TestCase):
             param(packing_format=pf)
             for pf in [
                 IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
-                IntxPackingFormat.OPAQUE_ATEN,
+                IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
             ]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
