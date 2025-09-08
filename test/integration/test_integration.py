@@ -554,6 +554,11 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl("cuda", dtype)
 
+    @unittest.skipIf(not torch.xpu.is_available(), "XPU not available")
+    def test_quantize_per_token_xpu(self):
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            self._test_quantize_per_token_impl("xpu", dtype)
+
     def _test_per_token_linear_impl(self, device, dtype):
         x = torch.randn(2, 16, 8, device=device, dtype=dtype)
         w = torch.randn(16, 8, device=device, dtype=dtype)
