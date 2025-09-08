@@ -14,8 +14,10 @@ import torch
 import torch.nn as nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.parq.quant import StretchedUnifTorchaoQuantizer
-from torchao.prototype.parq.quant.quant_api import StretchedIntxWeightOnlyConfig
+from torchao.prototype.parq.quant import (
+    StretchedIntxWeightOnlyConfig,
+    StretchedUnifTorchaoQuantizer,
+)
 from torchao.prototype.quantization.dynamic_activation_lut import (
     StretchedAffineQuantizedTensor_to_Int8DynamicActivationLutTensorConfig,
 )

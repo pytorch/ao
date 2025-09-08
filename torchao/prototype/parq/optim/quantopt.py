@@ -13,25 +13,9 @@ import torch
 from torch import Tensor, nn
 from torch.optim import Optimizer
 
-from torchao.quantization import (
-    Int4WeightOnlyConfig,
-    Int8DynamicActivationIntxWeightConfig,
-    IntxWeightOnlyConfig,
-    MappingType,
-    PerGroup,
-    PerRow,
-    quantize_,
-)
-from torchao.quantization.quantize_.common import PackingFormat
+from torchao.quantization import quantize_
 
-from ..quant import Quantizer
-from ..quant.quant_api import StretchedIntxWeightOnlyConfig
-from ..quant.uniform_torchao import (
-    _BIT_WIDTH_TO_DTYPE,
-    Int4UnifTorchaoQuantizer,
-    StretchedUnifTorchaoQuantizer,
-    UnifTorchaoQuantizer,
-)
+from ..quant import Quantizer, UnifTorchaoQuantizer, get_config_from_quantizer
 from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
@@ -109,6 +93,23 @@ class QuantOptimizer(Optimizer):
     def state(self) -> defaultdict[Tensor, Any]:  # pyre-ignore[3]
         return self._state if hasattr(self, "_state") else self.base_optimizer.state
 
+    @property
+    def num_steps(self) -> int:
+        for group in self.regularized_param_groups():
+            return group.setdefault("num_steps", 0)
+
+    @num_steps.setter
+    def num_steps(self, value: int) -> None:
+        for group in self.regularized_param_groups():
+            group["num_steps"] = value
+            return
+
+    @num_steps.deleter
+    def num_steps(self) -> None:
+        for group in self.regularized_param_groups():
+            group.pop("num_steps", None)
+            return
+
     @staticmethod
     def quantize_(
         p: Tensor,
@@ -165,40 +166,15 @@ class QuantOptimizer(Optimizer):
             if not isinstance(quantizer, UnifTorchaoQuantizer):
                 continue
 
-            weight_dtype = _BIT_WIDTH_TO_DTYPE[group["quant_bits"]]
-            granularity = (
-                PerGroup(group["quant_block_size"])
-                if "quant_block_size" in group
-                else PerRow()
+            device = group["params"][0].device
+            is_embed = all(p.data_ptr() in embed_data_ptrs for p in group["params"])
+            config = get_config_from_quantizer(
+                quantizer,
+                is_embed,
+                device,
+                group["quant_bits"],
+                group.get("quant_block_size"),
             )
-            version = 2
-            if isinstance(quantizer, Int4UnifTorchaoQuantizer):
-                config = Int4WeightOnlyConfig(group_size=group["quant_block_size"])
-            elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
-                config = StretchedIntxWeightOnlyConfig(
-                    b=group["quant_bits"],
-                    quant_min=quantizer.quant_min,
-                    quant_max=quantizer.quant_max,
-                    granularity=granularity,
-                    version=version,
-                )
-            elif all(p.data_ptr() in embed_data_ptrs for p in group["params"]):
-                config = IntxWeightOnlyConfig(
-                    weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    mapping_type=quantizer.mapping_type,
-                    packing_format=PackingFormat.UNPACKED_TO_INT8,
-                    version=version,
-                )
-            else:
-                config = Int8DynamicActivationIntxWeightConfig(
-                    weight_dtype=weight_dtype,
-                    weight_granularity=granularity,
-                    weight_mapping_type=quantizer.mapping_type,
-                    act_mapping_type=MappingType.ASYMMETRIC,
-                    packing_format=PackingFormat.UNPACKED_TO_INT8,
-                    version=version,
-                )
             quantize_(model, config, filter_fn=filter_fn)
 
     @torch._disable_dynamo

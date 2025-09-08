@@ -21,12 +21,12 @@ from torchao.prototype.parq.quant import (
     Int4UnifTorchaoQuantizer,
     LSBQuantizer,
     Quantizer,
+    StretchedIntxWeightOnlyConfig,
     StretchedUnifTorchaoQuantizer,
     TernaryUnifQuantizer,
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
-from torchao.prototype.parq.quant.quant_api import StretchedIntxWeightOnlyConfig
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig

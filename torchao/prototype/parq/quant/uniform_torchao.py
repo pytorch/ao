@@ -27,10 +27,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 
-from .quant_api import (
-    choose_qparams_stretched_affine,
-    quantize_stretched_affine,
-)
+from .quant_api import choose_qparams_stretched_affine, quantize_stretched_affine
 from .quantizer import Quantizer
 
 _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
