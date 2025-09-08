@@ -272,7 +272,7 @@ def test_mxfp8_per_group_blocked_scales_3d(
 
 
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("m,total_k,n_groups", [(256, 64, 2)])
+@pytest.mark.parametrize("m,total_k,n_groups", [(256, 128, 4)])
 def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
     m: int,
     total_k: int,
@@ -280,16 +280,23 @@ def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
 ):
     device = "cuda"
     block_size = 32
-    input_data = torch.randn(m, total_k, device=device)
+    input_data = torch.cat(
+        [
+            torch.ones(m // 2, total_k, device=device),
+            torch.full((m // 2, total_k), 999, device=device),
+        ]
+    )
+
     e8m0_scales, _ = to_mx(
         input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
     )
 
     # Generate group end offsets along total_K, then divide by block_size to get scale group end offsets
-    input_group_offsets = generate_jagged_offs(
-        n_groups, total_k, multiple_of=block_size, device=device
-    )
-    input_group_offsets //= block_size
+    # input_group_offsets = generate_jagged_offs(
+    #     n_groups, total_k, multiple_of=block_size, device=device
+    # )
+    # input_group_offsets //= block_size
+    input_group_offsets = torch.tensor([1, 4], device=device, dtype=torch.int32)
 
     # torch reference
     ref_out_scales, ref_start_cols_after_padding = torch_to_blocked_per_group_2d2d_lhs(

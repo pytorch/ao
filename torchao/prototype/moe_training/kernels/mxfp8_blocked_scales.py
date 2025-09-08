@@ -90,23 +90,17 @@ def torch_to_blocked_per_group_2d2d_lhs(
         # Convert group scales to blocked format
         group_scales = x_scales[:, group_start_idx:group_end_idx]
         group_scales_blocked = to_blocked(group_scales)
-        blocked_scales_list.append(group_scales_blocked)
+        cols_after_padding = ceil_div(group_size, 4) * 4
+        blocked_scales_list.append(group_scales_blocked.reshape(-1, cols_after_padding))
 
         # Calculate the start row after padding
-        cols_after_padding = ceil_div(group_size, 4) * 4
         new_start_col = prev_start_row_after_padding + cols_after_padding
         start_col_after_padding_list.append(new_start_col)
 
         # Update next group start index
         group_start_idx = group_end_idx
 
-    M = x_scales.shape[0]
-    padded_M = ceil_div(M, 128) * 128
-    # blocked_scales = torch.cat(blocked_scales_list, dim=0)
-    # blocked_scales = blocked_scales.reshape(padded_M, -1)
-    blocked_scales = torch.cat(
-        [s.reshape(padded_M, -1) for s in blocked_scales_list], dim=1
-    )
+    blocked_scales = torch.cat(blocked_scales_list, dim=1)
     start_cols_after_padding = torch.tensor(
         start_col_after_padding_list, device=x_scales.device, dtype=torch.int64
     )
@@ -286,10 +280,13 @@ def triton_scale_swizzle_per_group_2d(
     col_offs = tl.arange(0, BLOCK_COLS)[None, :]
     r_div_32 = row_offs // 32
     r_mod_32 = row_offs % 32
+
     # Rearrange to (32, 4, 4) then to final (32, 16) coordinates
     dest_indices = r_mod_32 * 16 + r_div_32 * 4 + col_offs
+
     # Flatten
     dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+
     # For this group and col block, we iterate through row blocks, reading (BLOCK_ROWS, BLOCK_COLS) from the input scales.
     # We track how many row blocks we have iterated through.
     block_row_id = 0
@@ -470,17 +467,19 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
     num_groups = input_group_end_offsets.numel()
     num_row_blocks = ceil_div(rows, 128)
     padded_rows = num_row_blocks * 128
+
+    # output_group_start_offsets always starts with 0 and ends with the total number of cols
     padded_cols = output_group_start_offsets[-1]
     output = scales_tensor.new_empty((padded_rows, padded_cols))
-    # We probably want handle multiple blocks per tile but for now keep it simple
-    BLOCK_ROWS, BLOCK_COLS = 128, 4
+
     # Output block stride for the rearranged format
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
     output_stride_per_block = BLOCK_ROWS * BLOCK_COLS
     num_col_blocks = padded_cols // BLOCK_COLS
     output_stride_per_row_of_blocks = output_stride_per_block * num_col_blocks
 
-    # We parallelize per group and per row of blocks.
-    # Cols per group is variable, so we just loop through col blocks per group, per row block.
+    # We parallelize per group and per row block.
+    # Cols per group is variable, so we just loop through col blocks for each group.
     grid = lambda META: (
         num_groups,
         num_row_blocks,
@@ -529,6 +528,7 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
 ):
     group_pid = tl.program_id(0)
     block_row_pid = tl.program_id(1)
+
     # Input scales row range for this group
     input_group_start_col = tl.load(
         orig_offsets + group_pid - 1, mask=group_pid > 0, other=0
@@ -541,8 +541,7 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
         output_scales_group_offsets + group_pid, mask=group_pid < num_groups, other=0
     )
 
-    # Output stride per row of blocks is a tensor, so we need to load it
-    output_stride_per_row_of_blocks = tl.load(output_stride_per_row_of_blocks_ptr)
+    out_stride_per_row_of_blocks = tl.load(output_stride_per_row_of_blocks_ptr)
 
     # Calculate destination indices for each row and col in block swizzled layout.
     # We can reuse this swizzle transformation on each block of data we read.
@@ -559,13 +558,12 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
 
     # For this group and row block, we iterate through col blocks, reading (BLOCK_ROWS, BLOCK_COLS) from the input scales.
     # We track how many col blocks we have iterated through.
-    out_group_block_id = output_group_start_col // BLOCK_COLS
-
-    current_start_col = input_group_start_col
-    while current_start_col < input_group_end_col:
+    curr_input_start_col = input_group_start_col
+    curr_out_start_col_block = output_group_start_col // BLOCK_COLS
+    while curr_input_start_col < input_group_end_col:
         # Read block of input scales
         block_row_offs = block_row_pid * BLOCK_ROWS + row_offs
-        block_col_offs = current_start_col + col_offs
+        block_col_offs = curr_input_start_col + col_offs
         block_offs = (
             block_row_offs * scales_stride_dim0 + block_col_offs * scales_stride_dim1
         )
@@ -574,31 +572,25 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
         scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
 
         # Calculate block offset using provided output block stride
-        tgt_row_off = block_row_pid * output_stride_per_row_of_blocks
-        tgt_col_off = out_group_block_id * output_stride_per_block
+        tgt_row_off = block_row_pid * out_stride_per_row_of_blocks
+        tgt_col_off = curr_out_start_col_block * output_stride_per_block
+
+        output_block_offsets = tgt_row_off + tgt_col_off
         if DEBUG:
-            tl.device_print(
-                "block_row_pid * BLOCK_ROWS * output_scales_stride_dim0: ",
-                block_row_pid * BLOCK_ROWS * output_scales_stride_dim0,
-            )
-            tl.device_print(
-                "block_row_pid * output_stride_per_row_of_blocks: ",
-                block_row_pid * output_stride_per_row_of_blocks,
-            )
             tl.device_print("block_row_pid: ", block_row_pid)
             tl.device_print("group_pid: ", group_pid)
             tl.device_print("tgt_row_block", block_row_pid)
-            tl.device_print("tgt_col_block", out_group_block_id)
+            tl.device_print("tgt_col_block", curr_out_start_col_block)
             tl.device_print("tgt_row_off: ", tgt_row_off)
             tl.device_print("tgt_col_off: ", tgt_col_off)
             tl.device_print("global_off:", tgt_row_off + tgt_col_off)
 
-        output_block_offsets = tgt_row_off + tgt_col_off
         # Apply swizzling for write to gmem
         tl.store(
             output_scales_ptr + output_block_offsets + dest_indices_flat,
             scales_flat,
         )
-        # Update row block id to next block
-        out_group_block_id += 1
-        current_start_col += BLOCK_COLS
+
+        # Advance to next col block
+        curr_input_start_col += BLOCK_COLS
+        curr_out_start_col_block += 1
