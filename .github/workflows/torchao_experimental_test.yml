@@ -50,9 +50,9 @@ jobs:
       - name: Run python tests
         run: |
           conda activate venv
-          pytest - s test/quantization/test_int8_dynamic_activation_intx_weight_config_v1.py
-          python torchao/experimental/tests/test_embedding_xbit_quantizer.py
-          python torchao/experimental/tests/test_quant_passes.py
+          pytest -s test/quantization/test_int8_dynamic_activation_intx_weight_config_v1.py
+          pytest -s torchao/experimental/tests/test_embedding_xbit_quantizer.py
+          pytest -s torchao/experimental/tests/test_quant_passes.py
           pytest -s test/prototype/test_dynamic_activation_lut.py
           pytest -s test/quantization/quantize_/workflows/intx/test_intx_opaque_tensor.py
       - name: torchao/csrc/cpu - build and run C++ tests
