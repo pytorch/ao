@@ -164,7 +164,7 @@ class TestDa8w4Cpu(TestCase):
             # The trailing "(" is to avoid matching the op in the comment
             assert code[0].count("torch.ops.torchao.da8w4_linear_cpu.default(") == 1
 
-            # ensure the custom DA8W4ConcatLinearCPUPass is properly cached as fxgraph
+            # ensure the custom DA8W4ConcatLinearCPUPass is not bypassed when saving as fxgraph
             enable_fxgraph_cache_bypass = counters["inductor"]["fxgraph_cache_bypass"]
             assert enable_fxgraph_cache_bypass == 0
 
