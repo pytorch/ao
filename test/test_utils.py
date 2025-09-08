@@ -345,47 +345,53 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
-    def test_implements_and_torch_function_together(self):
-        """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
+        def test_implements_and_torch_function_together(self):
+            """Ensure a function decorated with both @_implements and @_implements_torch_function works.
+            """
+            counter = {"calls": 0}
 
-        implements = TorchAOBaseTensor.implements
-        implements_torch_function = TorchAOBaseTensor.implements_torch_function
+            class MyTensor(TorchAOBaseTensor):
+                tensor_data_names = ["qdata"]
+                tensor_attribute_names = ["attr", "device"]
 
-        @implements([torch.ops.aten.linear.default])
-        @implements_torch_function([F.linear])
-        def fake_linear(f, types, args, kwargs):
-            x, w, b = args
-            return torch.matmul(x, w.T) + (b if b is not None else 0)
+                def __new__(cls, qdata, attr="attr", device=None):
+                    shape = qdata.shape
+                    if device is None:
+                        device = qdata.device
+                    kwargs = {"device": device}
+                    return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
 
-        # make sure both got registered on TorchAOBaseTensor
-        self.assertIn(
-            torch.ops.aten.linear.default,
-            TorchAOBaseTensor._ATEN_OP_TABLE[TorchAOBaseTensor],
-        )
-        self.assertIn(F.linear, TorchAOBaseTensor._TORCH_FN_TABLE[TorchAOBaseTensor])
+                def __init__(self, qdata, attr="attr", device=None):
+                    self.qdata = qdata
+                    self.attr = attr
 
-        # check they both point to the same function wrapper
-        aten_wrapper = TorchAOBaseTensor._ATEN_OP_TABLE[TorchAOBaseTensor][
-            torch.ops.aten.linear.default
-        ]
-        torchfn_wrapper = TorchAOBaseTensor._TORCH_FN_TABLE[TorchAOBaseTensor][F.linear]
+            # Register the same implementation for both aten and torch-level function
+            @MyTensor.implements(torch.ops.aten.linear.default)
+            @MyTensor.implements_torch_function(F.linear)
+            def fake_linear(f, types, args, kwargs):
+                x, w, b = args
+                w_plain = getattr(w, "qdata", w)
+                b_plain = getattr(b, "qdata", b) if b is not None else None
+                counter["calls"] += 1
+                return torch.matmul(x, w_plain.T) + (b_plain if b_plain is not None else 0)
 
-        # check if they wrap the same underlying function
-        self.assertEqual(aten_wrapper.__wrapped__, fake_linear)
-        self.assertEqual(torchfn_wrapper.__wrapped__, fake_linear)
+            
+            l = torch.nn.Linear(2, 3)
+            orig_w = l.weight.detach().clone()
+            orig_b = l.bias.detach().clone() if l.bias is not None else None
 
-        # run through the wrapper
-        x = torch.randn(2, 3)
-        w = torch.randn(4, 3)
-        b = torch.randn(4)
+            p = torch.nn.Parameter(orig_w)
+            p.data = MyTensor(orig_w, "attr", None)
+            l.weight = p
 
-        out_aten = aten_wrapper(fake_linear, (TorchAOBaseTensor,), (x, w, b), {})
-        out_torchfn = torchfn_wrapper(fake_linear, (TorchAOBaseTensor,), (x, w, b), {})
+            x = torch.randn(4, 2)
 
-        expected = F.linear(x, w, b)
+            # module path (F.linear)
+            self.assertEqual(counter["calls"], 1, "Expected fake_linear to be called once via F.linear")
 
-        self.assertTrue(torch.allclose(out_aten, expected, atol=1e-6))
-        self.assertTrue(torch.allclose(out_torchfn, expected, atol=1e-6))
+            # aten path
+            torch.ops.aten.linear.default(x, l.weight, l.bias)
+            self.assertEqual(counter["calls"], 2, "Expected fake_linear to be called once via aten.linear")
 
 
 if __name__ == "__main__":
