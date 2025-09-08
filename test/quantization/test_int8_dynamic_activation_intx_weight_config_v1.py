@@ -101,6 +101,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=layout,
+                version=1,
             ),
         )
 
@@ -113,6 +114,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
+                version=1,
             ),
         )
 
@@ -146,6 +148,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="kleidiai"
                 ),
+                version=1,
             ),
         )
 
@@ -158,6 +161,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
+                version=1,
             ),
         )
 
@@ -199,6 +203,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
+                version=1,
             ),
         )
 
@@ -211,6 +216,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
+                version=1,
             ),
         )
 
@@ -270,6 +276,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=torch.bfloat16,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                version=1,
             ),
         )
         eager_results = model(activations)
@@ -331,6 +338,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=torch.bfloat16,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                version=1,
             ),
         )
         eager_results = model(activations)
@@ -359,6 +367,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_granularity=PerGroup(64),
                 weight_mapping_type=MappingType.SYMMETRIC,
                 layout=QDQLayout(),
+                version=1,
             ),
         )
         eager_results = model(activations)
@@ -407,6 +416,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
                 layout=layout,
+                version=1,
             ),
         )
         expected = model(activations)
@@ -421,18 +431,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             model2.load_state_dict(state_dict, assign=True)
             actual = model2(activations)
             self.assertTrue(torch.allclose(expected, actual))
-
-    def test_moved_error(self):
-        from torchao.experimental.quant_api import Int8DynamicActivationIntxWeightConfig
-
-        with self.assertRaisesRegex(
-            NotImplementedError,
-            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api",
-        ):
-            config = Int8DynamicActivationIntxWeightConfig(  # noqa: F841
-                weight_dtype=torch.int4,
-                granularity=PerGroup(64),
-            )
 
     @parameterized.expand(
         [
@@ -473,6 +471,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=mapping_type,
                 weight_scale_dtype=None,
                 act_mapping_type=act_mapping_type,
+                version=1,
             ),
         )
         quantize_(
@@ -571,6 +570,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=mapping_type,
                 weight_scale_dtype=scale_dtype,
                 act_mapping_type=act_mapping_type,
+                version=1,
             ),
         )
         converted_out = model(activations)
@@ -625,6 +625,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_mapping_type=MappingType.SYMMETRIC,
                 weight_scale_dtype=scale_dtype,
                 act_mapping_type=MappingType.ASYMMETRIC,
+                version=1,
             ),
         )
         converted_out1 = model(activations)
@@ -663,7 +664,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         out = model(x).clone()
 
         base_config = Int8DynamicActivationIntxWeightConfig(
-            layout=PackedLinearInt8DynamicActivationIntxWeightLayout()
+            layout=PackedLinearInt8DynamicActivationIntxWeightLayout(), version=1
         )
         moe_config = MoEQuantConfig(
             base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
