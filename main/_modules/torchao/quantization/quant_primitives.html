@@ -2664,11 +2664,12 @@
     <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_expand_scale_to_tensor_shape</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_maybe_expand_scale_to_tensor_shape</span><span class="p">(</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">target_shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Expand a scale tensor to match the target tensor shape for block-wise quantization.</span>
+<span class="sd">    If this is rowwise quantization, however, just return the scale as is.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        scale (torch.Tensor): Scale tensor with shape corresponding to block structure</span>
@@ -2683,6 +2684,11 @@
 
     <span class="k">if</span> <span class="n">scale</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
         <span class="c1"># Scalar scale - can broadcast naturally</span>
+        <span class="k">return</span> <span class="n">scale</span>
+
+    <span class="c1"># If the scale can be broadcast as is, then we don&#39;t need to expand it</span>
+    <span class="c1"># E.g. for rowwise quantization, scale = [256, 1] and target_shape = [256, 512]</span>
+    <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="n">a</span> <span class="o">==</span> <span class="n">b</span> <span class="ow">or</span> <span class="n">a</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">target_shape</span><span class="p">)):</span>
         <span class="k">return</span> <span class="n">scale</span>
 
     <span class="c1"># Calculate block sizes from shape difference</span>
@@ -2725,7 +2731,7 @@
     <span class="n">tensor_fp32</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
     <span class="c1"># Expand scale to match tensor dimensions for block-wise quantization</span>
-    <span class="n">scale_expanded</span> <span class="o">=</span> <span class="n">_expand_scale_to_tensor_shape</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="n">scale_expanded</span> <span class="o">=</span> <span class="n">_maybe_expand_scale_to_tensor_shape</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
     <span class="n">tensor_scaled</span> <span class="o">=</span> <span class="n">tensor_fp32</span> <span class="o">/</span> <span class="n">scale_expanded</span>
     <span class="n">max_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
@@ -2746,7 +2752,7 @@
     <span class="n">fp8_tensor</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
     <span class="c1"># Expand scale to match tensor dimensions for block-wise quantization</span>
-    <span class="n">scale_expanded</span> <span class="o">=</span> <span class="n">_expand_scale_to_tensor_shape</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="n">scale_expanded</span> <span class="o">=</span> <span class="n">_maybe_expand_scale_to_tensor_shape</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
     <span class="n">hp_tensor</span> <span class="o">=</span> <span class="n">fp8_tensor</span> <span class="o">*</span> <span class="n">scale_expanded</span>
     <span class="k">return</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
