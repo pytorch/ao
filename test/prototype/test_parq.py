@@ -44,8 +44,8 @@ from torchao.utils import check_cpu_version
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def split_param_groups(model):
-    params_quant, params_no_quant = [], []
+def split_param_groups(model) -> tuple[list, list, list]:
+    params_quant, params_embed, params_no_quant = [], [], []
 
     def get_param_groups(model):
         for module in model.children():
@@ -53,11 +53,13 @@ def split_param_groups(model):
             for n, p in module.named_parameters():
                 if is_linear and n == "weight":
                     params_quant.append(p)
+                elif isinstance(module, nn.Embedding) and n == "weight":
+                    params_embed.append(p)
                 else:
                     params_no_quant.append(p)
 
     get_param_groups(model)
-    return params_quant, params_no_quant
+    return params_quant, params_embed, params_no_quant
 
 
 def build_param_groups(
@@ -66,7 +68,7 @@ def build_param_groups(
     group_size: Optional[int] = None,
     quantizer: Optional[Quantizer] = None,
 ):
-    params_quant, params_no_quant = split_param_groups(model)
+    params_quant, params_embed, params_no_quant = split_param_groups(model)
     quant_kwargs = {}
     if group_size:
         quant_kwargs["quant_block_size"] = group_size
@@ -74,6 +76,7 @@ def build_param_groups(
         quant_kwargs["quantizer"] = quantizer
     return [
         {"params": params_quant, "quant_bits": b, **quant_kwargs},
+        {"params": params_embed, "quant_bits": 4, "quantizer": UnifTorchaoQuantizer()},
         {"params": params_no_quant},
     ]
 
@@ -126,6 +129,16 @@ def compare_parq_convert(
 
         p = module.weight.dequantize()  # PARQ weight after quantize_
         torch.testing.assert_close(p, p_ref, atol=0, rtol=0)
+
+
+def check_torchao_tensor_subclass(model):
+    for module in model.modules():
+        if _is_linear(module):
+            assert isinstance(module.weight, IntxUnpackedToInt8Tensor)
+            assert module.weight.activation_quantization == "int8_asym_per_token"
+        elif isinstance(module, nn.Embedding):
+            assert isinstance(module.weight, IntxUnpackedToInt8Tensor)
+            assert module.weight.activation_quantization is None
 
 
 class M(nn.Module):
@@ -276,9 +289,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             quant_per_channel=True,
         )
         compare_parq_convert(model, m_ref, optimizer)
-        for layer in (model.linear1, model.linear2):
-            assert isinstance(layer.weight, IntxUnpackedToInt8Tensor)
-            assert layer.weight.activation_quantization == "int8_asym_per_token"
+        check_torchao_tensor_subclass(model)
 
 
 class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
@@ -354,6 +365,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
             quant_per_channel=True,
         )
         compare_parq_convert(model, m_ref, optimizer)
+        check_torchao_tensor_subclass(model)
 
 
 class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
