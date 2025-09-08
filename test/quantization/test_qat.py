@@ -94,6 +94,7 @@ from torchao.quantization.utils import (
 )
 from torchao.utils import (
     _is_fbgemm_genai_gpu_available,
+    is_fbcode,
     is_sm_at_least_89,
 )
 
@@ -1938,6 +1939,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(
         not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
+    @unittest.skipIf(is_fbcode(), "cutlass cannot initialize")
     @parametrize("version", [1, 2])
     def test_quantize_api_int4(self, version: int):
         """
