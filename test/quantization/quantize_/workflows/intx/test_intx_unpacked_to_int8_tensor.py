@@ -158,7 +158,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 weight_dtype=torch.int4,
                 weight_granularity=PerAxis(0),
                 weight_mapping_type=MappingType.SYMMETRIC,
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -194,7 +194,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
                 weight_mapping_type=MappingType.SYMMETRIC,
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -232,7 +232,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -262,7 +262,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             IntxWeightOnlyConfig(
                 weight_dtype=torch.int4,
                 granularity=PerGroup(64),
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -321,7 +321,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             weight_granularity=PerGroup(group_size),
             weight_mapping_type=mapping_type,
             weight_scale_dtype=scale_dtype,
-            packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+            intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=2,
         )
 
@@ -429,7 +429,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 weight_mapping_type=mapping_type,
                 weight_scale_dtype=scale_dtype,
                 act_mapping_type=act_mapping_type,
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
