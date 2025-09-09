@@ -206,7 +206,7 @@ def _(func, types, args, kwargs):
             "Activation quantization args not provided for Float8OpaqueTensor"
         )
 
-    # groupwise int4 quantization
+    # float8 quantized linear operation
     y = torch.ops.torchao.float8_linear_cpu.default(
         act_mat,
         act_scale,
