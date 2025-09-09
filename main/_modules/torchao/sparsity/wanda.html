@@ -433,7 +433,7 @@
 <span class="c1"># This source code is licensed under the BSD 3-Clause license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
@@ -477,8 +477,7 @@
             <span class="p">)</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">defaults</span><span class="o">=</span><span class="n">defaults</span><span class="p">)</span>
 
-    <span class="c1">#  `typing.Dict[&lt;key type&gt;, &lt;value type&gt;]` to avoid runtime subscripting errors.</span>
-<div class="viewcode-block" id="WandaSparsifier.prepare"><a class="viewcode-back" href="../../../generated/torchao.sparsity.WandaSparsifier.html#torchao.sparsity.WandaSparsifier.prepare">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<div class="viewcode-block" id="WandaSparsifier.prepare"><a class="viewcode-back" href="../../../generated/torchao.sparsity.WandaSparsifier.html#torchao.sparsity.WandaSparsifier.prepare">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># activation: use PerChannelNormObserver</span>
         <span class="c1"># use no-op placeholder weight observer</span>
         <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -517,35 +516,38 @@
 <span class="sd">        by comparing this metric across the whole current layer.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
 
-        <span class="c1"># Step 1: get the tensor and the mask from the parametrizations</span>
+        <span class="c1"># Step 1: get the attributes (tensor and mask) from the parametrizations</span>
         <span class="n">mask</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">parametrizations</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mask</span>
         <span class="n">tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">parametrizations</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">original</span>
         <span class="n">activation_norm_per_channel</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">activation_post_process</span><span class="o">.</span><span class="n">norm</span>
 
-        <span class="c1"># Step 2: Calculate Wx</span>
+        <span class="c1"># Step 2: Calculate pruning criteria : &#39;|weight| * ||activation||&#39;</span>
         <span class="n">pruning_metric</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">tensor</span><span class="p">)</span> <span class="o">*</span> <span class="n">activation_norm_per_channel</span>
 
-        <span class="c1"># defaults for unstructured sparsity</span>
+        <span class="c1"># Step 3 : Calculate the number of elements (weight params)</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">pruning_metric</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+
+        <span class="c1"># Step 4 : Define pruning boundary : N(elements) * (pruning ratio)</span>
         <span class="n">num_specified</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">block_size</span> <span class="o">*</span> <span class="n">sparsity_level</span><span class="p">)</span>
-        <span class="c1"># if set to use semi-structured, ignore sparsity_level</span>
+        <span class="c1"># if set to use semi-structured, ignore sparsity_level and apply 2:4 sparsity</span>
         <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;semi_structured_block_size&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">block_size</span> <span class="o">=</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;semi_structured_block_size&quot;</span><span class="p">]</span>
             <span class="n">num_specified</span> <span class="o">=</span> <span class="n">block_size</span> <span class="o">//</span> <span class="mi">2</span>
 
-        <span class="c1"># get indicies to prune</span>
+        <span class="c1"># Step 5 : Flatten it for sorting and prune weights</span>
         <span class="n">pruning_inds</span> <span class="o">=</span> <span class="n">pruning_metric</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)[</span>
             <span class="p">:,</span> <span class="p">:</span><span class="n">num_specified</span>
         <span class="p">]</span>
-        <span class="c1"># update mask</span>
+
+        <span class="c1"># Step 6 : Reshape and prune weights</span>
         <span class="n">mask</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span><span class="o">.</span><span class="n">scatter_</span><span class="p">(</span>
             <span class="mi">1</span><span class="p">,</span> <span class="n">pruning_inds</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">pruning_inds</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">mask</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="p">)</span></div>
 
 <div class="viewcode-block" id="WandaSparsifier.squash_mask"><a class="viewcode-back" href="../../../generated/torchao.sparsity.WandaSparsifier.html#torchao.sparsity.WandaSparsifier.squash_mask">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">squash_mask</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">params_to_keep</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">params_to_keep_per_layer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">params_to_keep</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">params_to_keep_per_layer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">,</span>
         <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
     <span class="p">):</span>
