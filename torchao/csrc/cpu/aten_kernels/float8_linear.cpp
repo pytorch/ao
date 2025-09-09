@@ -56,7 +56,7 @@ float8_linear_prepack_impl(
     new_scales.unsqueeze_(1);
   }
   new_scales = new_scales.to(at::kFloat);
-  int G = scales.size(1);
+  int G = is_per_tensor ? 1 : new_scales.size(1);
   TORCH_CHECK(K % G == 0, "K should be divisible by num_groups");
   int group_size = K / G;
   int block_k = group_size > 128 ? 128 : group_size;

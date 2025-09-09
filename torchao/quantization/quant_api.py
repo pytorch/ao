@@ -1753,7 +1753,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
         activation_granularity, weight_granularity = _normalize_granularity(
-            self.granularity,
+            self.granularity
         )
         if self.packing_format == Float8PackingFormat.PLAIN:
             assert isinstance(activation_granularity, (PerTensor, PerRow)), (
@@ -1981,6 +1981,9 @@ def _float8_static_activation_float8_weight_transform(
 
     weight = module.weight
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
+    assert activation_granularity == weight_granularity, (
+        "Different granularities for activation and weight are not supported"
+    )
     assert isinstance(activation_granularity, PerTensor), (
         "Static quantization only supports PerTensor granularity"
     )
