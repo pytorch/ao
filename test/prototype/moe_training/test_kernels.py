@@ -24,7 +24,9 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
 from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
     compute_per_group_blocked_scale_offsets,
     torch_to_blocked_per_group_2d,
+    torch_to_blocked_per_group_3d,
     triton_mx_block_rearrange_per_group_2d,
+    triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
@@ -237,6 +239,30 @@ def test_mxfp8_per_group_blocked_scales_2d(
         input_group_offsets,
         output_group_offsets,
     )
+    assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
+        "blocked scales not equal"
+    )
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("e,n,k", [(1, 8192, 5120), (2, 8192, 5120), (8, 5120, 8192)])
+def test_mxfp8_per_group_blocked_scales_3d(
+    e: int,
+    n: int,
+    k: int,
+):
+    device = "cuda"
+    block_size = 32
+    weights = torch.randn(e, n, k // block_size, device=device)
+    weight_scales, _ = to_mx(
+        weights, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+
+    # torch reference
+    ref_out_scales = torch_to_blocked_per_group_3d(weight_scales)
+
+    # triton kernel
+    triton_out_scales = triton_mx_block_rearrange_per_group_3d(weight_scales)
     assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
         "blocked scales not equal"
     )

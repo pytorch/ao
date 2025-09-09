@@ -6,6 +6,7 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 import argparse
 import itertools
+import logging
 from dataclasses import dataclass
 from typing import List
 
@@ -13,7 +14,11 @@ import torch
 from tabulate import tabulate
 from tqdm import tqdm
 
-from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
+from benchmarks.utils import (
+    bench_fwd_bwd_microseconds,
+    bench_fwd_microseconds,
+    profile_fwd_bwd,
+)
 from torchao.prototype.moe_training import _scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
@@ -34,9 +39,12 @@ class ExperimentConfig:
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    bf16_us: float
-    scaled_us: float
-    scaled_speedup: float
+    bf16_e2e_us: float
+    scaled_e2e_us: float
+    scaled_e2e_speedup: float
+    bf16_fwd_us: float
+    scaled_fwd_us: float
+    scaled_fwd_speedup: float
 
 
 @dataclass(frozen=True)
@@ -100,8 +108,8 @@ def run_experiment(
         (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
     )
 
-    # benchmark bf16 grouped mm
-    bf16_us = bench_fwd_bwd_microseconds(
+    # E2E bf16 benchmark + profiling
+    bf16_e2e_us = bench_fwd_bwd_microseconds(
         torch._grouped_mm,
         A,
         B_t,
@@ -122,8 +130,8 @@ def run_experiment(
             profile_name="bf16_profile",
         )
 
-    # benchmark scaled grouped mm with dynamic fp8 rowwise quant
-    scaled_us = bench_fwd_bwd_microseconds(
+    # E2E scaled benchmark + profiling
+    scaled_e2e_us = bench_fwd_bwd_microseconds(
         _scaled_grouped_mm,
         A,
         B_t,
@@ -146,10 +154,32 @@ def run_experiment(
             fullgraph=False,
         )
 
+    # Forward pass benchmarks
+    bf16_fwd_us = bench_fwd_microseconds(
+        torch._grouped_mm,
+        A,
+        B_t,
+        offs,
+        use_compile=args.compile,
+        fullgraph=True,
+    )
+    scaled_fwd_us = bench_fwd_microseconds(
+        _scaled_grouped_mm,
+        A,
+        B_t,
+        offs,
+        scaling_type=config.recipe,
+        use_compile=args.compile,
+        fullgraph=True,
+    )
+
     return ExperimentResult(
-        bf16_us=round(bf16_us, 3),
-        scaled_us=round(scaled_us, 3),
-        scaled_speedup=round(bf16_us / scaled_us, 3),
+        bf16_e2e_us=round(bf16_e2e_us, 3),
+        scaled_e2e_us=round(scaled_e2e_us, 3),
+        scaled_e2e_speedup=round(bf16_e2e_us / scaled_e2e_us, 3),
+        bf16_fwd_us=round(bf16_fwd_us, 3),
+        scaled_fwd_us=round(scaled_fwd_us, 3),
+        scaled_fwd_speedup=round(bf16_fwd_us / scaled_fwd_us, 3),
     )
 
 
@@ -158,9 +188,12 @@ def print_results(experiments: List[Experiment]):
         "A_shape",
         "B_shape",
         "recipe",
-        "bf16_time_us",
-        "scaled_time_us",
-        "scaled_speedup",
+        "bf16_e2e_us",
+        "scaled_e2e_us",
+        "scaled_e2e_speedup",
+        "bf16_fwd_us",
+        "scaled_fwd_us",
+        "scaled_fwd_speedup",
     ]
     rows = []
     for experiment in experiments:
@@ -171,9 +204,12 @@ def print_results(experiments: List[Experiment]):
                 A_shape,
                 B_shape,
                 experiment.config.recipe,
-                experiment.result.bf16_us,
-                experiment.result.scaled_us,
-                f"{experiment.result.scaled_speedup}x",
+                experiment.result.bf16_e2e_us,
+                experiment.result.scaled_e2e_us,
+                f"{experiment.result.scaled_e2e_speedup}x",
+                experiment.result.bf16_fwd_us,
+                experiment.result.scaled_fwd_us,
+                f"{experiment.result.scaled_fwd_speedup}x",
             ]
         )
     print(tabulate(rows, headers=headers))
@@ -184,6 +220,24 @@ def main(args: argparse.Namespace):
     configs = get_configs()
     results = []
     for config in tqdm(configs):
+        if (
+            config.recipe == MoEScalingType.FP8_ROWWISE
+            and torch.cuda.get_device_capability() != (9, 0)
+        ):
+            logging.warning(
+                f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+            )
+            continue
+
+        elif (
+            config.recipe == MoEScalingType.MXFP8
+            and torch.cuda.get_device_capability() != (10, 0)
+        ):
+            logging.warning(
+                f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            )
+            continue
+
         result = run_experiment(config, args)
         results.append(Experiment(config=config, result=result))
 

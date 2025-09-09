@@ -22,23 +22,43 @@ except PackageNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-try:
-    from pathlib import Path
+skip_loading_so_files = False
+# if torchao version has "+git", assume it's locally built and we don't know
+#   anything about the PyTorch version used to build it
+# otherwise, assume it's prebuilt by torchao's build scripts and we can make
+#   assumptions about the PyTorch version used to build it.
+if (not "+git" in __version__) and not ("unknown" in __version__):
+    # torchao v0.13.0 is built with PyTorch 2.8.0. We know that torchao .so
+    # files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+.
+    # The following code skips importing the .so files if PyTorch 2.9+ is
+    # detected, to avoid crashing the Python process with "Aborted (core
+    # dumped)".
+    # TODO(#2901, and before next torchao release): make this generic for
+    # future torchao and torch versions
+    if __version__.startswith("0.13.0") and str(torch.__version__) >= "2.9":
+        logger.warning(
+            f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__}"
+        )
+        skip_loading_so_files = True
 
-    so_files = list(Path(__file__).parent.glob("_C*.so"))
-    if len(so_files) > 0:
-        for file in so_files:
-            torch.ops.load_library(str(file))
-        from . import ops
+if not skip_loading_so_files:
+    try:
+        from pathlib import Path
 
-    # The following library contains CPU kernels from torchao/experimental
-    # They are built automatically by ao/setup.py if on an ARM machine.
-    # They can also be built outside of the torchao install process by
-    # running the script `torchao/experimental/build_torchao_ops.sh <aten|executorch>`
-    # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
-    from torchao.experimental.op_lib import *  # noqa: F403
-except Exception as e:
-    logger.debug(f"Skipping import of cpp extensions: {e}")
+        so_files = list(Path(__file__).parent.glob("_C*.so"))
+        if len(so_files) > 0:
+            for file in so_files:
+                torch.ops.load_library(str(file))
+            from . import ops
+
+        # The following library contains CPU kernels from torchao/experimental
+        # They are built automatically by ao/setup.py if on an ARM machine.
+        # They can also be built outside of the torchao install process by
+        # running the script `torchao/experimental/build_torchao_ops.sh <aten|executorch>`
+        # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
+        from torchao.experimental.op_lib import *  # noqa: F403
+    except Exception as e:
+        logger.debug(f"Skipping import of cpp extensions: {e}")
 
 from torchao.quantization import (
     autoquant,

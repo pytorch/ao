@@ -29,13 +29,13 @@ from torchao.utils import (
 
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
-    packing_format="preshuffled",
+    int4_packing_format="preshuffled",
     version=2,
 )
 
 # only 128 group_size is supported
 FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
-    packing_format="preshuffled",
+    int4_packing_format="preshuffled",
 )
 
 

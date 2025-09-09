@@ -197,7 +197,7 @@ if __name__ == "__main__" and torch.cuda.is_available():
         )
 
     print("_int4wo_api")
-    kwargs = {"groupsize": 32}
+    kwargs = {"groupsize": 32, "version": 1}
 
     for M, N, K in all_shapes:
         _bench_quantized_tensor_subclass_perf(

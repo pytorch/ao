@@ -15,6 +15,7 @@ from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
+    IntxUnpackedToInt8TensorActivationQuantization,
 )
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -26,6 +27,16 @@ __all__ = [
 ]
 
 aten = torch.ops.aten
+
+
+def _is_kernel_library_loaded():
+    loaded = False
+    try:
+        _check_torchao_ops_loaded()
+        loaded = True
+    except Exception:
+        pass
+    return loaded
 
 
 class ComputeTarget(enum.Enum):
@@ -144,7 +155,10 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             compute_target = ComputeTarget[compute_target.upper()]
 
         # Extract data from IntxUnpackedToInt8Tensor
-        assert tensor.apply_int8_act_asym_per_token_quant
+        assert (
+            tensor.activation_quantization
+            == IntxUnpackedToInt8TensorActivationQuantization.INT8_ASYM_PER_TOKEN
+        )
         qdata, scale, zero_point = tensor.qdata, tensor.scale, tensor.zero_point
         bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
         dtype = tensor.dtype
@@ -202,7 +216,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             )
 
         # Handle TORCHAO
-        _check_torchao_ops_loaded()
+        assert _is_kernel_library_loaded(), "TorchAO kernel library is not loaded"
         compute_target_map = {
             ComputeTarget.TORCHAO_AUTO: None,
             ComputeTarget.TORCHAO_KLEIDIAI: "kleidiai",

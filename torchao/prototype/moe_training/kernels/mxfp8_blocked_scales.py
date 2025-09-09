@@ -211,6 +211,7 @@ def triton_scale_swizzle_per_group_2d(
     # We track how many row blocks we have iterated through.
     block_row_id = 0
     current_start_row = input_group_start_row
+
     # TODO: Investigate if it is possible and beneficial to parallelize along
     # row blocks as well, and get rid of this loop.
     while current_start_row < input_group_end_row:
@@ -237,3 +238,122 @@ def triton_scale_swizzle_per_group_2d(
         # Update row block id to next block
         block_row_id += 1
         current_start_row += BLOCK_ROWS
+
+
+def triton_mx_block_rearrange_per_group_3d(scale_tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Rearranges an E8M0 tensor scale to block-scaled swizzle format.
+
+    This format is suitable for Tmem as described in NVIDIA documentation:
+    https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+    Args:
+        scale_tensor: Input tensor in row-major format with 8-bit elements
+
+    Returns:
+        Rearranged tensor in block-scaled swizzle format
+    """
+    assert scale_tensor.ndim == 3, "scales tensor must be 3d"
+    assert scale_tensor.element_size() == 1, (
+        "Expected element size to be 1 byte (8 bits)"
+    )
+
+    num_groups, rows, cols = scale_tensor.shape
+    input_stride_dim0 = scale_tensor.stride(0)
+    input_stride_dim1 = scale_tensor.stride(1)
+    input_stride_dim2 = scale_tensor.stride(2)
+
+    # Calculate blocks needed and allocate output tensor
+    num_row_blocks = triton.cdiv(rows, 128)
+    num_col_blocks = triton.cdiv(cols, 4)
+    padded_rows = num_row_blocks * 128
+    padded_cols = num_col_blocks * 4
+    output = scale_tensor.new_empty((num_groups, padded_rows * padded_cols))
+    output_stride_dim0 = output.stride(0)
+
+    # We probably want handle multiple blocks per tile but for now keep it simple
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+
+    # Output block stride for the rearranged format
+    output_block_stride = BLOCK_ROWS * BLOCK_COLS * (padded_cols // BLOCK_COLS)
+
+    grid = lambda META: (
+        num_groups,
+        num_row_blocks,
+        num_col_blocks,
+    )
+
+    triton_scale_swizzle_per_group_3d[grid](
+        scale_tensor.view(torch.uint8),
+        input_stride_dim0,
+        input_stride_dim1,
+        input_stride_dim2,
+        output.view(torch.uint8),
+        output_stride_dim0,
+        output_block_stride,
+        rows,
+        cols,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
+
+    return output
+
+
+@triton.jit
+def triton_scale_swizzle_per_group_3d(
+    input_ptr,
+    input_stride_dim0,
+    input_stride_dim1,
+    input_stride_dim2,
+    output_ptr,
+    output_stride_dim0,
+    output_block_stride,
+    scale_rows,
+    scale_cols,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+):
+    pid_group = tl.program_id(0)
+    pid_row = tl.program_id(1)
+    pid_col = tl.program_id(2)
+
+    # Update base pointers based on this group id
+    input_ptr += pid_group * input_stride_dim0
+    output_ptr += pid_group * output_stride_dim0
+
+    rows = tl.arange(0, BLOCK_ROWS)[:, None]
+    cols = tl.arange(0, BLOCK_COLS)[None, :]
+
+    # Calculate starting row and column for this tile
+    start_row = pid_row * BLOCK_ROWS
+    start_col = pid_col * BLOCK_COLS
+    global_rows = start_row + rows
+    global_cols = start_col + cols
+
+    mask = (global_rows < scale_rows) & (global_cols < scale_cols)
+
+    input_scales = tl.load(
+        input_ptr + global_rows * input_stride_dim1 + global_cols * input_stride_dim2,
+        mask=mask,
+        other=0.0,
+    )
+
+    r_div_32 = rows // 32
+    r_mod_32 = rows % 32
+
+    # 2) Rearrange to (32, 4, 4) then to final (32, 16) coordinates
+    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + cols
+
+    # Flatten
+    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+    scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
+
+    # Calculate block offset using provided output block stride
+    LOCAL_NUMEL = BLOCK_ROWS * BLOCK_COLS
+    block_offset = pid_col * LOCAL_NUMEL + (pid_row * output_block_stride)
+
+    tl.store(
+        output_ptr + block_offset + dest_indices_flat,
+        scales_flat,
+    )

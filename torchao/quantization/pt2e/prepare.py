@@ -38,6 +38,7 @@ from torchao.quantization.pt2e.quantizer import (
     SharedQuantizationSpec,
 )
 from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
+from torchao.utils import _assert_and_get_unique_device
 
 # TODO: make pt2e folder private?
 __all__ = [
@@ -408,6 +409,7 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     named_modules: dict[str, torch.nn.Module],
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
     is_qat: bool,
+    model_device: Optional[torch.device] = None,
 ) -> Argument:
     """
     Given a `node` and an `arg`, inserts an input observer between
@@ -426,6 +428,7 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
                 named_modules,
                 obs_or_fq_map,
                 is_qat,
+                model_device,
             )
             new_arg_to_return.append(new_inner_arg)
         return type(arg)(new_arg_to_return)
@@ -478,6 +481,7 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
             return maybe_obs_node
 
     assert isinstance(model.graph, Graph)
+    # TODO: pass in model_device here after https://github.com/pytorch/pytorch/pull/159901
     new_arg = _insert_obs_or_fq(
         arg, input_edge_obs_or_fq, model, named_modules, model.graph
     )
@@ -491,6 +495,7 @@ def _maybe_insert_input_observers_for_node(
     named_modules: dict[str, torch.nn.Module],
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
     is_qat: bool,
+    model_device: Optional[torch.device] = None,
 ) -> None:
     """
     If needed, inserts observers to the input args and kwargs of `node`.
@@ -517,6 +522,7 @@ def _maybe_insert_input_observers_for_node(
             named_modules,
             obs_or_fq_map,
             is_qat,
+            model_device,
         )
         new_args.append(new_arg)
 
@@ -541,9 +547,11 @@ def _maybe_insert_output_observer_for_node(
     graph: Graph,
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
     is_qat: bool,
+    model_device: Optional[torch.device] = None,
 ) -> Optional[Node]:
     if node in obs_or_fq_map:
         output_act_obs_or_fq = obs_or_fq_map[node]
+        # TODO: pass in model_device here after https://github.com/pytorch/pytorch/pull/159901
         new_output = _insert_obs_or_fq(
             node, output_act_obs_or_fq, model, named_modules, graph
         )
@@ -563,6 +571,7 @@ def _maybe_insert_input_and_output_observers_for_node(
     model: torch.fx.GraphModule,
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
     is_qat: bool,
+    model_device: Optional[torch.device] = None,
 ):
     this_node_quantization_annotation = (
         node.meta[Q_ANNOTATION_KEY] if Q_ANNOTATION_KEY in node.meta else None
@@ -578,6 +587,7 @@ def _maybe_insert_input_and_output_observers_for_node(
         named_modules,
         obs_or_fq_map,
         is_qat,
+        model_device,
     )
 
     output_is_a_tensor = "val" in node.meta and isinstance(node.meta["val"], FakeTensor)
@@ -586,7 +596,13 @@ def _maybe_insert_input_and_output_observers_for_node(
 
     # this returns the new observer node if it was needed
     maybe_output_obs_node = _maybe_insert_output_observer_for_node(
-        node, model, named_modules, model.graph, obs_or_fq_map, is_qat
+        node,
+        model,
+        named_modules,
+        model.graph,
+        obs_or_fq_map,
+        is_qat,
+        model_device,
     )
 
     if maybe_output_obs_node is None:
@@ -634,11 +650,16 @@ def prepare(
     )
     if obs_or_fq_callback:
         obs_or_fq_callback(model, obs_or_fq_map)
+    model_device = _assert_and_get_unique_device(model)
 
     for node in nodes_before_observation:
         # TODO: simplify logic for inserting observers
         _maybe_insert_input_and_output_observers_for_node(
-            node, model, obs_or_fq_map, is_qat
+            node,
+            model,
+            obs_or_fq_map,
+            is_qat,
+            model_device,
         )
 
     model = GraphModule(model, model.graph)
