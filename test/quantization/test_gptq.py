@@ -176,7 +176,7 @@ class TestMultiTensorInputRecorder(TestCase):
 
         model2 = copy.deepcopy(model)
         out = model(*test_input)
-        quantize_(model2, Int4WeightOnlyConfig())
+        quantize_(model2, Int4WeightOnlyConfig(version=1))
 
         outq = model2(*test_input)
         del model2

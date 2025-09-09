@@ -211,7 +211,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size)
+        config = int4_weight_only(group_size=group_size, version=1)
         if check_cpu_version(_DEVICE):
             config.layout = Int4CPULayout()
         quantize_(m_ref, config)
@@ -244,7 +244,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size)
+        config = int4_weight_only(group_size=group_size, version=1)
         if check_cpu_version(_DEVICE):
             config.layout = Int4CPULayout()
         quantize_(m_ref, config)

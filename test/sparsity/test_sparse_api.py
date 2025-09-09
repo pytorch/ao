@@ -110,11 +110,11 @@ class TestQuantSemiSparse(common_utils.TestCase):
         model_copy = copy.deepcopy(model)
 
         # Quantized
-        quantize_(model_copy.bfloat16(), int4_weight_only())
+        quantize_(model_copy.bfloat16(), int4_weight_only(version=1))
         dense_result = model_copy(input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+        quantize_(model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)

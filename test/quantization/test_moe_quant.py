@@ -124,7 +124,8 @@ class TestMoEQuantCompile(unittest.TestCase):
     @skip_if_no_cuda()
     def test_int4wo_fake_dim(self, name, num_tokens, fullgraph):
         config = MoEQuantConfig(
-            Int4WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+            Int4WeightOnlyConfig(version=1),
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
         )
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
@@ -148,7 +149,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
-        config = MoEQuantConfig(Int4WeightOnlyConfig())
+        config = MoEQuantConfig(Int4WeightOnlyConfig(version=1))
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
         self._test_impl_moe_quant(

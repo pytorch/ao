@@ -418,7 +418,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     # https://github.com/pytorch/ao/issues/2649
     @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
     def test_expected_gpu_kernel_fbgemm(self):
-        """Making sure KernelPreference.FBGEMM calls correct quantize and gemm kernels"""
+        """Making sure KernelPreference.FBGEMM calls correct quantize and gemm kernels
+        and the bias add happens in the gemm kernel for per row quantization
+        """
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
@@ -434,10 +436,15 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
         out, code = run_and_get_code(m, x)
 
-        # check at least one occurrence of the quantize op and rowwise gemm op
+        # 1. check at least one occurrence of the quantize op and rowwise gemm op
+        # 2. check that there are no additional kernels like `triton_poi_fused_add_0`
+        # are run, since the bias add should happen in the `f8f8bf16_rowwise.default`
+        # op instead of separately
         FileCheck().check_count(
-            "torch.ops.triton.quantize_fp8_row.default", 1
-        ).check_count("torch.ops.fbgemm.f8f8bf16_rowwise.default", 1).run(code[0])
+            "torch.ops.triton.quantize_fp8_row.default(", 1
+        ).check_count("torch.ops.fbgemm.f8f8bf16_rowwise.default(", 1).check_not(
+            ".run("
+        ).run(code[0])
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

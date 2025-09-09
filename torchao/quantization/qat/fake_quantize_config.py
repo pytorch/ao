@@ -78,6 +78,25 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
 
 
 @dataclass
+class Int4WeightPreshuffledFakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
+        torch.ops.fbgemm.f8i4bf16_shuffled
+
+    Currently this only supports float8 input activations. It is expected to be used in conjunction with
+    :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend
+    this to support bfloat16 as well.
+    """
+
+    group_size: int = 128
+    activation_dtype: torch.dtype = e4m3_dtype
+
+    def __post_init__(self):
+        if self.activation_dtype != e4m3_dtype:
+            raise ValueError(f"Only {e4m3_dtype} activation is supported currently")
+
+
+@dataclass
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
@@ -401,13 +420,12 @@ def _infer_fake_quantize_configs(
         )
     elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig):
         act_config = Float8FakeQuantizeConfig(
-            dtype=torch.float8_e4m3fn,
+            dtype=e4m3_dtype,
             granularity=PerRow(),
         )
-        weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
+        weight_config = Int4WeightPreshuffledFakeQuantizeConfig(
             group_size=128,
-            is_symmetric=True,
+            activation_dtype=e4m3_dtype,
         )
     elif isinstance(base_config, NVFP4InferenceConfig):
         # Note: today the PTQ config does not allow the user to specify

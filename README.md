@@ -74,7 +74,7 @@ pip install torchao
 Quantize your model weights to int4!
 ```
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-quantize_(model, Int4WeightOnlyConfig(group_size=32))
+quantize_(model, Int4WeightOnlyConfig(group_size=32, version=1))
 ```
 Compared to a `torch.compiled` bf16 baseline, your quantized model should be significantly smaller and faster on a single A100 GPU:
 ```
@@ -102,7 +102,7 @@ pip install torchao
   ```
   # Nightly
   pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
-  
+
   # Different CUDA versions
   pip install torchao --index-url https://download.pytorch.org/whl/cu126  # CUDA 12.6
   pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
@@ -113,6 +113,7 @@ pip install torchao
   ```
 </details>
 
+Please see the [torchao compability table](https://github.com/pytorch/ao/issues/2919) for version requirements for dependencies.
 
 ## 🔗 Integrations
 
@@ -143,7 +144,7 @@ Quantize any model with `nn.Linear` layers in just one line (Option 1), or load 
 
 ```python
 from torchao.quantization.quant_api import quantize_, Int4WeightOnlyConfig
-quantize_(model, Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+quantize_(model, Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1))
 ```
 
 #### Option 2: HuggingFace Integration
@@ -153,7 +154,7 @@ from transformers import TorchAoConfig, AutoModelForCausalLM
 from torchao.quantization.quant_api import Int4WeightOnlyConfig
 
 # Create quantization configuration
-quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1))
 
 # Load and automatically quantize
 quantized_model = AutoModelForCausalLM.from_pretrained(

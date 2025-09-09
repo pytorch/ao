@@ -15,14 +15,16 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
     quantize_,
 )
-from torchao.quantization.quantize_.common import PackingFormat
+from torchao.quantization.quantize_.workflows import IntxPackingFormat
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
+)
 from torchao.quantization.utils import compute_error
 
 
@@ -33,11 +35,11 @@ def _get_accuracy_test_cases():
     ]
 
     PACKING_FORMATS = [
-        (PackingFormat.UNPACKED_TO_INT8, None),
-        (PackingFormat.OPAQUE, "aten"),
-        (PackingFormat.OPAQUE, "torchao_auto"),
-        (PackingFormat.OPAQUE, "torchao_lowbit"),
-        (PackingFormat.OPAQUE, "torchao_kleidiai"),
+        (IntxPackingFormat.UNPACKED_TO_INT8, None),
+        (IntxPackingFormat.OPAQUE, "aten"),
+        (IntxPackingFormat.OPAQUE, "torchao_auto"),
+        (IntxPackingFormat.OPAQUE, "torchao_lowbit"),
+        (IntxPackingFormat.OPAQUE, "torchao_kleidiai"),
     ]
 
     WEIGHT_DTYPES = [
@@ -68,7 +70,7 @@ def _get_accuracy_test_cases():
         weight_granularity,
     ):
         # ATEN restrictions
-        if (packing_format == PackingFormat.OPAQUE) and (compute_target == "aten"):
+        if (packing_format == IntxPackingFormat.OPAQUE) and (compute_target == "aten"):
             if weight_dtype != torch.int4:
                 return False
             if weight_mapping_type == MappingType.ASYMMETRIC:
@@ -77,7 +79,7 @@ def _get_accuracy_test_cases():
                 return False
 
         # TORCHAO_KLEIDIAI restrictions
-        if (packing_format == PackingFormat.OPAQUE) and (
+        if (packing_format == IntxPackingFormat.OPAQUE) and (
             compute_target == "torchao_kleidiai"
         ):
             if weight_dtype != torch.int4:
@@ -114,15 +116,7 @@ def _get_accuracy_test_cases():
     return test_cases
 
 
-_TORCHAO_OPS_LOADED = False
-try:
-    _check_torchao_ops_loaded()
-    _TORCHAO_OPS_LOADED = True
-except Exception:
-    pass
-
-
-@unittest.skipIf(not _TORCHAO_OPS_LOADED, "Need torchao ops")
+@unittest.skipIf(not _is_kernel_library_loaded(), "Kernel library not loaded")
 class TestIntxOpaqueTensor(TestCase):
     @parameterized.expand(
         _get_accuracy_test_cases(),
@@ -168,7 +162,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=PackingFormat.UNPACKED_TO_INT8,
+                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 compute_target=None,
                 version=2,
             ),
@@ -215,7 +209,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=PackingFormat.OPAQUE,
+                packing_format=IntxPackingFormat.OPAQUE,
                 compute_target="torchao_auto",
                 version=2,
             ),
@@ -249,8 +243,8 @@ class TestIntxOpaqueTensor(TestCase):
         [
             param(packing_format=pf, compute_target=ct)
             for (pf, ct) in [
-                (PackingFormat.OPAQUE, "torchao_auto"),
-                (PackingFormat.OPAQUE, "aten"),
+                (IntxPackingFormat.OPAQUE, "torchao_auto"),
+                (IntxPackingFormat.OPAQUE, "aten"),
             ]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
@@ -311,7 +305,7 @@ class TestIntxOpaqueTensor(TestCase):
         out = model(x).clone()
 
         base_config = Int8DynamicActivationIntxWeightConfig(
-            packing_format=PackingFormat.OPAQUE,
+            packing_format=IntxPackingFormat.OPAQUE,
             compute_target="torchao_auto",
             version=2,
         )

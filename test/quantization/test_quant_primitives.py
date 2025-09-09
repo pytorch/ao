@@ -16,6 +16,7 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_affine_tinygemm,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
+    _maybe_expand_scale_to_tensor_shape,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -773,6 +774,32 @@ class TestQuantPrimitives(unittest.TestCase):
         expected_mask = torch.full(input.shape, True)
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
+
+    def test_maybe_expand_scale_to_tensor_shape(self):
+        # rowwise quantization: if all dimensions match except for the last one,
+        # and the last dimension is 1, then just return the scale as is
+        scale = torch.randn([3, 2, 1])
+        target_shape = torch.Size([3, 2, 8])
+        new_scale = _maybe_expand_scale_to_tensor_shape(scale, target_shape)
+        self.assertIs(scale, new_scale)
+        # other broadcastable shapes
+        scale1 = torch.randn([3, 1, 1])
+        scale2 = torch.randn([1, 2, 1])
+        scale3 = torch.randn([1, 1, 8])
+        scale4 = torch.randn([1, 1, 1])
+        new_scale1 = _maybe_expand_scale_to_tensor_shape(scale1, target_shape)
+        new_scale2 = _maybe_expand_scale_to_tensor_shape(scale2, target_shape)
+        new_scale3 = _maybe_expand_scale_to_tensor_shape(scale3, target_shape)
+        new_scale4 = _maybe_expand_scale_to_tensor_shape(scale4, target_shape)
+        self.assertIs(scale1, new_scale1)
+        self.assertIs(scale2, new_scale2)
+        self.assertIs(scale3, new_scale3)
+        self.assertIs(scale4, new_scale4)
+        # blockwise quantization: scales are repeated to fit target_shape
+        scale5 = torch.randn([3, 2, 2])
+        new_scale5 = _maybe_expand_scale_to_tensor_shape(scale5, target_shape)
+        self.assertEqual(new_scale5.shape, torch.Size([3, 2, 8]))
+        self.assertEqual(new_scale5.unique(dim=-1).shape, torch.Size([3, 2, 2]))
 
 
 if __name__ == "__main__":

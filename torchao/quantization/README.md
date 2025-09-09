@@ -131,7 +131,7 @@ group_size = 32
 # you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
 # use_hqq flag for `Int4WeightOnlyConfig` quantization
 use_hqq = False
-quantize_(model, Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq))
+quantize_(model, Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1))
 ```
 
 Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
@@ -285,9 +285,9 @@ m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
 group_size = 32
 # only works for torch 2.4+
-quantize_(m, Int4WeightOnlyConfig(group_size=group_size))
+quantize_(m, Int4WeightOnlyConfig(group_size=group_size, version=1))
 ## If different zero_point_domain needed
-# quantize_(m, Int4WeightOnlyConfig(group_size=group_size, zero_point_domain=ZeroPointDomain.FLOAT))
+# quantize_(m, Int4WeightOnlyConfig(group_size=group_size, zero_point_domain=ZeroPointDomain.FLOAT, version=1))
 
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
