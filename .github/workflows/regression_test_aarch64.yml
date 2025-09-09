@@ -1,4 +1,4 @@
-name: Run TorchAO Experimental Tests
+name: Run Regression Tests (aarch64)
 
 on:
   push:
@@ -44,6 +44,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           conda activate venv
+          pip install coremltools
           pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
           BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install .

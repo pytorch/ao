@@ -32,9 +32,13 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
+)
 from torchao.quantization.utils import compute_error
 
 
+@unittest.skipIf(not _is_kernel_library_loaded(), "Need torchao lowbit kernels")
 class TestEmbeddingQuantizer(unittest.TestCase):
     def test_accuracy(self):
         granularity = PerGroup(128)
