@@ -502,6 +502,7 @@ void _float8_linear_impl(
   const float* bias_ptr = bias.has_value() ? bias.value().data_ptr<float>() : nullptr;
 
   at::parallel_for(0, num_blocks, 1, [&](int64_t begin, int64_t end) {
+    auto y_buf = new (std::align_val_t(8)) float[block_m * block_n];
     for (const auto i : c10::irange(begin, end)) {
       int64_t mc = parallel_on_M ? i / Nc : 0;
       int64_t nc = parallel_on_M ? i % Nc : i;
@@ -509,12 +510,12 @@ void _float8_linear_impl(
 
       for (int mci = mc; mci < mc_end; ++mci) {
         int64_t m_size = mci * block_m + block_m > M ? M - mci * block_m : block_m;
-        alignas(64) float y_buf[m_size][block_n] = {0};
+        memset(y_buf, 0, sizeof(float) * m_size * block_n);
         for (int kci = 0; kci < Kc; ++kci) {
           auto scales_a = a_scales_ptr + mci * block_m * num_groups + kci / block_per_group;
           auto scales_b = b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n;
           _micro_gemm<cpublas_can_pack, block_n, act_quant_mode, wei_quant_mode>(
-            y_buf[0] /*C*/,
+            y_buf /*C*/,
             a_ptr + mci * block_m * K + kci * block_k /*A*/,
             scales_a /*scales_a*/,
             b_ptr + (nc * Kc + kci) * block_n * block_k /*B*/,
@@ -532,7 +533,7 @@ void _float8_linear_impl(
           wei_quant_mode == PER_ROW ? b_scales_ptr + nc * block_n : nullptr;
         auto bias_data = bias_ptr ? bias_ptr + nc * block_n : nullptr;
         store_out<out_dtype, block_n, act_quant_mode, wei_quant_mode>(
-          y_buf[0],
+          y_buf,
           c_ptr + mci * block_m * N + nc * block_n,
           m_size,
           N /*lda*/,
@@ -541,6 +542,7 @@ void _float8_linear_impl(
           bias_data);
       }
     }
+    delete[] y_buf;
     if constexpr (cpublas_can_pack) {
       at::native::cpublas::brgemm_release();
     }
