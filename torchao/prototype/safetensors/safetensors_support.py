@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import torch
 
-from torchao.prototype.safetensors.safetensors_serialization import (
+from torchao.prototype.safetensors.safetensors_utils import (
     Float8TensorAttributeJSONEncoder,
     object_from_dict,
 )
@@ -15,19 +15,20 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 def unflatten_tensor_state_dict(
     tensors_data_dict: Dict[str, Any],
-    metadata_dict: Dict[str, Any],
+    metadata: Dict[str, Any],
 ):
     """
-    Reconstructs tensor subclass state dict from provided torch.Tensor data and metadata
+    Reconstructs tensor subclass state dict from provided torch.Tensor data and metadata dictionary
+    The naming of metadata is so that it is consistent with safetensors naming to avoid confusion
     This function is used after loading in previously saved model state dict (using safetensors.save_file) to reconstruct tensor subclass structure
 
-    For example, given a previously flattened tensors_data_dict and metadata_dict:
+    For example, given a previously flattened tensors_data_dict and metadata:
     tensors_data_dict = {
         '0.weight:qdata': torch.Tensor(...),
         '0.weight:scale': torch.Tensor(...),
         '0.bias:_data': torch.Tensor(...),
     }
-    metadata_dict = {
+    metadata = {
         '0.weight': {
             '_type': 'Float8Tensor',
             '_data': {
@@ -53,17 +54,17 @@ def unflatten_tensor_state_dict(
 
     Args:
         tensors_data_dict: a dictionary from "tensor_name:tensor_data_attribute_name" to flattened torch.Tensor data for tensor subclass instance
-        metadata_dict: a dictionary from "tensor_name" to another dictionary that contains type and attributes for tensor subclass instance
+        metadata: a dictionary from "tensor_name" to another dictionary that contains type and attributes for tensor subclass instance
 
     Returns:
         Dictionary of reconstructed tensor subclasses
     """
-    combined_data = {**tensors_data_dict, **metadata_dict}
+    combined_data = {**tensors_data_dict, **metadata}
 
-    if "tensor_names" not in metadata_dict:
+    if "tensor_names" not in metadata:
         raise ValueError("No tensors found")
 
-    tensor_names = json.loads(metadata_dict["tensor_names"])
+    tensor_names = json.loads(metadata["tensor_names"])
     result = {}
 
     for tensor_name in tensor_names:
@@ -73,7 +74,7 @@ def unflatten_tensor_state_dict(
                 # Remove the prefix
                 tensor_tensors[key[len(tensor_name) + 1 :]] = value
 
-        tensor_metadata = json.loads(metadata_dict.get(tensor_name))
+        tensor_metadata = json.loads(metadata.get(tensor_name))
         tensor_type = tensor_metadata.get("_type")
 
         if tensor_type == Float8Tensor.__name__:
@@ -92,7 +93,8 @@ def flatten_tensor_state_dict(
 ):
     """
     Flattens a dictionary of tensor subclasses so that it is compatible with safetensors.save_file
-    We disconstruct tensor subclass structure into torch.Tensor data and metadata
+    We disconstruct tensor subclass structure into torch.Tensor data and metadata dictionary
+    The naming of metadata is so that it is consistent with safetensors naming to avoid confusion
 
     For example, given something like:
     tensor_dict = {
@@ -134,7 +136,7 @@ def flatten_tensor_state_dict(
         This structure is compatible with safetensors.save_file
     """
 
-    metadata_dict = {}
+    metadata = {}
     tensors_data_dict = {}
 
     for tensor_name, tensor in tensors_dict.items():
@@ -158,8 +160,8 @@ def flatten_tensor_state_dict(
             for key, value in tensor_dict.items()
         }
 
-        metadata_dict[tensor_name] = tensor_metadata
+        metadata[tensor_name] = tensor_metadata
         tensors_data_dict.update(prefixed_tensors_dict)
 
-    metadata_dict["tensor_names"] = json.dumps(list(tensors_dict.keys()))
-    return tensors_data_dict, metadata_dict
+    metadata["tensor_names"] = json.dumps(list(tensors_dict.keys()))
+    return tensors_data_dict, metadata
