@@ -272,7 +272,7 @@ def test_mxfp8_per_group_blocked_scales_3d(
 
 
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("m,total_k,n_groups", [(256, 128, 4)])
+@pytest.mark.parametrize("m,total_k,n_groups", [(256, 512, 4)])#, (256, 128, 4), (512, 128, 4), (1024, 128, 4), (1024, 256, 4), (1024, 512, 4), (1024, 1024, 4), (1024, 2048, 4), (1024, 4096, 4), (1024, 8192, 4), (1024, 16384, 4)])
 def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
     m: int,
     total_k: int,
@@ -280,12 +280,15 @@ def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
 ):
     device = "cuda"
     block_size = 32
+
+    # Make each group of row blocks have distinct, constinent data for debugging
     input_data = torch.cat(
         [
             torch.ones(m // 2, total_k, device=device),
             torch.full((m // 2, total_k), 999, device=device),
         ]
     )
+    #input_data= torch.randn(m, total_k, device=device)
 
     e8m0_scales, _ = to_mx(
         input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
@@ -296,7 +299,8 @@ def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
     #     n_groups, total_k, multiple_of=block_size, device=device
     # )
     # input_group_offsets //= block_size
-    input_group_offsets = torch.tensor([1, 4], device=device, dtype=torch.int32)
+    input_group_offsets = torch.tensor([3, 8, 12, 16], device=device, dtype=torch.int32)
+    #print(input_group_offsets)
 
     # torch reference
     ref_out_scales, ref_start_cols_after_padding = torch_to_blocked_per_group_2d2d_lhs(
@@ -316,6 +320,11 @@ def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
         input_group_offsets,
         output_group_offsets,
     )
+    print(ref_start_cols_after_padding)
+    with open('tmp-ref.txt', 'w') as f:
+        f.write(str(ref_out_scales.storage()))
+    with open('tmp-triton.txt', 'w') as f:
+        f.write(str(triton_out_scales.storage()))
     breakpoint()
     assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
         "blocked scales not equal"

@@ -91,7 +91,7 @@ def torch_to_blocked_per_group_2d2d_lhs(
         group_scales = x_scales[:, group_start_idx:group_end_idx]
         group_scales_blocked = to_blocked(group_scales)
         cols_after_padding = ceil_div(group_size, 4) * 4
-        blocked_scales_list.append(group_scales_blocked.reshape(-1, cols_after_padding))
+        blocked_scales_list.append(group_scales_blocked)
 
         # Calculate the start row after padding
         new_start_col = prev_start_row_after_padding + cols_after_padding
@@ -100,7 +100,11 @@ def torch_to_blocked_per_group_2d2d_lhs(
         # Update next group start index
         group_start_idx = group_end_idx
 
-    blocked_scales = torch.cat(blocked_scales_list, dim=1)
+    # blocked_scales = torch.cat(blocked_scales_list, dim=1)
+    M = x_scales.shape[0]
+    padded_M = ceil_div(M, 128) * 128
+    blocked_scales = torch.cat(blocked_scales_list)
+    blocked_scales = blocked_scales.reshape(padded_M, -1)
     start_cols_after_padding = torch.tensor(
         start_col_after_padding_list, device=x_scales.device, dtype=torch.int64
     )
@@ -475,8 +479,8 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
     # Output block stride for the rearranged format
     BLOCK_ROWS, BLOCK_COLS = 128, 4
     output_stride_per_block = BLOCK_ROWS * BLOCK_COLS
-    num_col_blocks = padded_cols // BLOCK_COLS
-    output_stride_per_row_of_blocks = output_stride_per_block * num_col_blocks
+    num_row_blocks = padded_rows // BLOCK_ROWS
+    output_stride_per_col_of_blocks = output_stride_per_block * num_row_blocks
 
     # We parallelize per group and per row block.
     # Cols per group is variable, so we just loop through col blocks for each group.
@@ -491,7 +495,6 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
         scales_tensor.stride(1),
         rows,
         cols,
-        padded_rows,
         num_groups,
         # Original offsets (to read from)
         input_group_end_offsets,
@@ -499,9 +502,10 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
         output.view(torch.uint8),
         output_group_start_offsets,
         output_stride_per_block,
-        output_stride_per_row_of_blocks,
+        output_stride_per_col_of_blocks,
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
+        DEBUG=True,
     )
     return output
 
@@ -513,16 +517,15 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
     scales_stride_dim1,
     scale_rows,
     scale_cols,
-    padded_rows,
     num_groups,
     orig_offsets,  # (num_groups,)
     output_scales_ptr,
     output_scales_group_offsets,  # (num_groups,)
     output_stride_per_block,
-    output_stride_per_row_of_blocks_ptr,
+    output_stride_per_col_of_blocks,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_COLS: tl.constexpr,
-    DEBUG: tl.constexpr = True,
+    DEBUG: tl.constexpr = False,
 ):
     group_pid = tl.program_id(0)
     block_row_pid = tl.program_id(1)
@@ -538,8 +541,6 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
     output_group_start_col = tl.load(
         output_scales_group_offsets + group_pid, mask=group_pid < num_groups, other=0
     )
-
-    out_stride_per_row_of_blocks = tl.load(output_stride_per_row_of_blocks_ptr)
 
     # Calculate destination indices for each row and col in block swizzled layout.
     # We can reuse this swizzle transformation on each block of data we read.
@@ -570,8 +571,8 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
         scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
 
         # Calculate block offset using provided output block stride
-        tgt_row_off = block_row_pid * out_stride_per_row_of_blocks
-        tgt_col_off = curr_out_start_col_block * output_stride_per_block
+        tgt_row_off = block_row_pid * output_stride_per_block
+        tgt_col_off = curr_out_start_col_block * output_stride_per_col_of_blocks
 
         output_block_offsets = tgt_row_off + tgt_col_off
         if DEBUG:
