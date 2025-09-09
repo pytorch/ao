@@ -275,11 +275,7 @@ def test_mxfp8_per_group_blocked_scales_3d(
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
 @pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
-<<<<<<< HEAD
 def test_mxfp8_per_group_blocked_scales_2d2d(
-=======
-def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
->>>>>>> 25f4c23fd (row of blocks within groups only)
     m: int,
     total_k: int,
     n_groups: int,
@@ -296,24 +292,24 @@ def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
     input_group_offsets = generate_jagged_offs(
         n_groups, total_k, multiple_of=block_size, device=device
     )
-    input_group_offsets //= block_size
+    scale_group_offsets = input_group_offsets // block_size
 
     # torch reference
     ref_out_scales, ref_start_cols_after_padding = torch_to_blocked_2d_K_groups(
         e8m0_scales,
-        input_group_offsets,
+        scale_group_offsets,
     )
 
     # triton kernel
     _, output_group_offsets = compute_blocked_scale_offsets_for_K_groups(
-        input_group_offsets
+        scale_group_offsets
     )
     assert torch.equal(output_group_offsets, ref_start_cols_after_padding), (
         "output scale group start offsets not equal"
     )
     triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
         e8m0_scales,
-        input_group_offsets,
+        scale_group_offsets,
         output_group_offsets,
     )
     assert torch.equal(ref_out_scales, triton_out_scales), "blocked scales not equal"
