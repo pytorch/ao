@@ -2053,6 +2053,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(
         not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
+    @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_fp8_primitives(self):
         """
         Compare numerics between:
@@ -2092,6 +2093,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(
         not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
+    @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_int4_preshuffled_primitives(self):
         """
         Compare numerics between:
