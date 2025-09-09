@@ -16,10 +16,10 @@ class Float8PackingFormat(str, Enum):
 
     """
     plain means the format that quantized Tensor data lays out elements in Tensor sequentially,
-    for example:                                                                                                                                                                                            for a Tensor of shape (4, 6):
-    a_0_0, a_0_1, ..., a_0_5,
-    ...
-    a_3_0, a_3_1, ..., a_3_5
+    for example, for a Tensor of shape (4, 6):
+        a_0_0, a_0_1, ..., a_0_5,
+        ...
+        a_3_0, a_3_1, ..., a_3_5
 
     """
     PLAIN = "plain"

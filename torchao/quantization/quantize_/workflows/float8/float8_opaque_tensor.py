@@ -107,9 +107,6 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
             128,
             K,
         ), f"Unsupported block_size: {block_size} for tensor shape {hp_tensor}"
-        # assert N % 32 == 0, (
-        #     f"Expecting out_features {N} to be multiple of 32, but got {N}"
-        # )
         assert act_quant_kwargs is not None, (
             "Activation quantization args must be provided for Float8OpaqueTensor"
         )
