@@ -363,7 +363,7 @@ class SharedEmbeddingQuantizer:
                 weight_granularity=self.granularity,
                 weight_mapping_type=self.mapping_type,
                 # Only universal layout is supported for shared embedding
-                packing_format="opaque_torchao_lowbit",
+                intx_packing_format="opaque_torchao_lowbit",
             ),
             filter_fn=lambda m, fqn: isinstance(m, nn.Linear)
             and fqn in list(embedding_to_unembedding.values()),
