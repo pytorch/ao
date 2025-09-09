@@ -53,7 +53,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         dtype: dtype for activations/outputs
         packed_weights_has_zeros: whether zeros are present in packed_weights
         packed_weights_has_bias: whether bias is present in packed_weights
-        packing_format: the packing format for the packed data.  See IntxPackingFormat enum for details.
+        packing_format: the packing format for the packed data.  See :class:`~torchao.quantization.quantize_.workflows.intx.intx_packing_format.IntxPackingFormat` enum for details.
     """
 
     tensor_data_names = ["packed_weights"]
