@@ -275,7 +275,11 @@ def test_mxfp8_per_group_blocked_scales_3d(
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
 @pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
+<<<<<<< HEAD
 def test_mxfp8_per_group_blocked_scales_2d2d(
+=======
+def test_mxfp8_per_group_blocked_scales_2d2d_lhs(
+>>>>>>> 25f4c23fd (row of blocks within groups only)
     m: int,
     total_k: int,
     n_groups: int,
