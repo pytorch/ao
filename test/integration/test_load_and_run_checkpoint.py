@@ -40,6 +40,18 @@ _DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
         1,
         "Int4WeightOnlyConfig",
     ),
+    # model card: https://huggingface.co/torchao-testing/single-linear-IntxWeightOnlyConfig-v1-0.14.dev
+    (
+        "torchao-testing/single-linear-IntxWeightOnlyConfig-v1-0.14.dev",
+        1,
+        "IntxWeightOnlyConfig",
+    ),
+    # model card: https://huggingface.co/torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v1-0.14.dev
+    (
+        "torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v1-0.14.dev",
+        1,
+        "Int8DynamicActivationIntxWeightConfig",
+    ),
 ]
 
 _DEPRECATED_MODEL_INFO = [
@@ -54,6 +66,18 @@ _DEPRECATED_MODEL_INFO = [
         "torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev",
         1,
         "Int4WeightOnlyConfig",
+    ),
+    # https://huggingface.co/torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev
+    (
+        "torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev",
+        1,
+        "IntxWeightOnlyConfig",
+    ),
+    # https://huggingface.co/torchao-testing/opt-125m-Int8DynamicActivationIntxWeightConfig-v1-0.14.0.dev
+    (
+        "torchao-testing/opt-125m-Int8DynamicActivationIntxWeightConfig-v1-0.14.0.dev",
+        1,
+        "Int8DynamicActivationIntxWeightConfig",
     ),
 ]
 
@@ -75,6 +99,18 @@ _SINGLE_LINEAR_MODEL_INFO = [
         "torchao-testing/single-linear-Int4WeightOnlyConfig-preshuffled-v2-0.13.dev",
         2,
         "Int4WeightOnlyConfig",
+    ),
+    # model card: https://huggingface.co/torchao-testing/single-linear-IntxWeightOnlyConfig-v2-0.14.dev
+    (
+        "torchao-testing/single-linear-IntxWeightOnlyConfig-v2-0.14.dev",
+        2,
+        "IntxWeightOnlyConfig",
+    ),
+    # model card: https://huggingface.co/torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v2-0.14.dev
+    (
+        "torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v2-0.14.dev",
+        2,
+        "Int8DynamicActivationIntxWeightConfig",
     ),
 ]
 
