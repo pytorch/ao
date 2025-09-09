@@ -11,9 +11,8 @@ import torch
 
 from torchao.quantization.granularity import (
     PerGroup,
-    PerTensor,
-    PerToken,
 )
+from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
     _quantize_affine_float8,
@@ -48,20 +47,26 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
                     block_size is (1, group_size). we only support group_size = 32/64/128. For per-row
                     quantization, blocks_size is (1, K). For per-tensor quantization, block_size is (N, K).
         shape: shape of the original Tensor
-        act_quant_args: the kwargs for from_hp
+        act_quant_kwargs: the kwargs for from_hp
     """
 
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = ["block_size", "shape", "act_quant_args"]
+    tensor_attribute_names = ["block_size", "act_quant_kwargs"]
 
     def __new__(
         cls,
         qdata,
         scale,
         block_size,
-        act_quant_args,
+        act_quant_kwargs,
     ):
-        shape = qdata.shape
+        if qdata.ndim == 2:
+            shape = qdata.shape
+        else:
+            assert qdata.ndim == 4
+            shape = torch.Size(
+                [qdata.size(0) * qdata.size(3), qdata.size(1) * qdata.size(2)]
+            )
         kwargs = {}
         kwargs["device"] = qdata.device
         kwargs["dtype"] = scale.dtype
@@ -73,12 +78,12 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
         qdata: torch.Tensor,
         scale: torch.Tensor,
         block_size: List[int],
-        act_quant_args: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
-        self.act_quant_args = act_quant_args
+        self.act_quant_kwargs = act_quant_kwargs
 
     def _quantization_type(self):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}, {self.act_quant_kwargs=}"
@@ -88,7 +93,7 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
         cls,
         hp_tensor: torch.Tensor,
         block_size: List[int],
-        act_quant_args: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         assert hp_tensor.ndim == 2 and hp_tensor.device.type == "cpu", (
             f"Expecting 2D tensor on CPU, but got: {hp_tensor.shape} on {hp_tensor.device.type}"
@@ -102,12 +107,29 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
             128,
             K,
         ), f"Unsupported block_size: {block_size} for tensor shape {hp_tensor}"
-        assert N % 32 == 0, (
-            f"Expecting out_features {N} to be multiple of 32, but got {N}"
+        # assert N % 32 == 0, (
+        #     f"Expecting out_features {N} to be multiple of 32, but got {N}"
+        # )
+        assert act_quant_kwargs is not None, (
+            "Activation quantization args must be provided for Float8OpaqueTensor"
         )
-        assert K % block_size[1] == 0, (
-            f"Expecting in_features {K} to be multiple of group_size {block_size[1]}, but got {K}"
-        )
+        act_per_group_quant = isinstance(act_quant_kwargs.granularity, PerGroup)
+        wei_per_group_quant = block_size[1] < K
+        if act_per_group_quant:
+            group_size = act_quant_kwargs.granularity.group_size
+            if wei_per_group_quant:
+                # weight_tensor is also per group quantized
+                assert block_size[1] == group_size, (
+                    "input and weight should have the same group size but got"
+                    f" {block_size[1]} and {group_size}"
+                )
+        if act_per_group_quant or wei_per_group_quant:
+            assert N % 32 == 0, (
+                f"Expecting out_features {N} to be multiple of 32, but got {N}"
+            )
+            assert K % block_size[1] == 0, (
+                f"Expecting in_features {K} to be multiple of group_size {block_size[1]}, but got {K}"
+            )
         scale = _choose_scale_float8(
             hp_tensor,
             float8_dtype=torch.float8_e4m3fn,
@@ -124,7 +146,7 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
             qdata=packed_weight,
             scale=packed_scale,
             block_size=block_size,
-            act_quant_args=act_quant_args,
+            act_quant_kwargs=act_quant_kwargs,
         )
 
 
@@ -144,7 +166,8 @@ def _(func, types, args, kwargs):
     assert isinstance(weight_tensor, Float8OpaqueTensor), (
         f"Expected weight_tensor to be Float8OpaqueTensor, got: {type(weight_tensor)}"
     )
-    assert input_tensor.shape[-1] == weight_tensor.shape[1], (
+    assert weight_tensor.ndim in [2, 4]
+    assert input_tensor.size(-1) == weight_tensor.size(-1), (
         f"Shapes of input and weight do not match, input:{input_tensor.shape}, weight: {weight_tensor.shape}"
     )
 
@@ -159,23 +182,11 @@ def _(func, types, args, kwargs):
 
     # activation float8 quantization
     if (
-        weight_tensor.act_quant_args is not None
-        and weight_tensor.act_quant_args.granularity is not None
+        weight_tensor.act_quant_kwargs is not None
+        and weight_tensor.act_quant_kwargs.granularity is not None
     ):
-        granularity = weight_tensor.act_quant_args.granularity
-        if isinstance(granularity, PerTensor):
-            act_scale = _choose_scale_float8(
-                act_mat,
-                float8_dtype=torch.float8_e4m3fn,
-                block_size=list(act_mat.shape),
-            )
-        elif isinstance(granularity, PerToken):
-            act_scale = _choose_scale_float8(
-                act_mat,
-                float8_dtype=torch.float8_e4m3fn,
-                block_size=[1, act_mat.size(-1)],
-            )
-        elif isinstance(granularity, PerGroup):
+        granularity = weight_tensor.act_quant_kwargs.granularity
+        if isinstance(granularity, PerGroup):
             group_size = granularity.group_size
             if weight_tensor.block_size[1] < weight_tensor.size(-1):
                 # weight_tensor is also per group quantized
@@ -183,15 +194,12 @@ def _(func, types, args, kwargs):
                     "input and weight should have the same group size but got"
                     f" {weight_tensor.block_size[1]} and {group_size}"
                 )
-            act_scale = _choose_scale_float8(
-                act_mat,
-                float8_dtype=torch.float8_e4m3fn,
-                block_size=[1, group_size],
-            )
-        else:
-            raise ValueError(
-                f"Unsupported activation quantization granularity: {granularity}"
-            )
+        act_block_size = get_block_size(act_mat.shape, granularity)
+        act_scale = _choose_scale_float8(
+            act_mat,
+            float8_dtype=torch.float8_e4m3fn,
+            block_size=act_block_size,
+        )
         act_mat = _quantize_affine_float8(act_mat, act_scale, torch.float8_e4m3fn)
     else:
         raise NotImplementedError(

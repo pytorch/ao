@@ -1641,7 +1641,11 @@ def _input_activation_quant_cpu_fp8(
     activation_dtype: torch.dtype,
 ):
     """Dynamic quantize activation to fp8 for CPU."""
-    block_size = get_block_size(x.shape, activation_granularity)
+    if not isinstance(activation_granularity, PerGroup):
+        block_size = get_block_size(x.shape, activation_granularity)
+    else:
+        group_size = activation_granularity.group_size
+        block_size = (*([1] * (len(x.shape) - 1)), group_size)
     return to_affine_quantized_floatx(
         input_float=x,
         block_size=block_size,
@@ -1718,8 +1722,19 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
         activation_granularity, weight_granularity = _normalize_granularity(
-            self.granularity
+            self.granularity,
         )
+        if self.packing_format == PackingFormat.PLAIN:
+            assert isinstance(activation_granularity, (PerTensor, PerRow)), (
+                f"Unsupported granularity {activation_granularity}, only PerTensor or PerRow are supported."
+            )
+            assert isinstance(weight_granularity, (PerTensor, PerRow)), (
+                f"Unsupported granularity {weight_granularity}, only PerTensor or PerRow are supported."
+            )
+            if not isinstance(activation_granularity, type(weight_granularity)):
+                raise ValueError(
+                    f"Different granularities for activation and weight are not supported: {activation_granularity, weight_granularity}"
+                )
         self.granularity = [activation_granularity, weight_granularity]
 
 
@@ -1740,13 +1755,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
     is_cpu = weight.device.type == "cpu"
-    if is_cpu:
-        assert not (
-            isinstance(activation_granularity, PerTensor)
-            or isinstance(weight_granularity, PerTensor)
-        ), "PerTensor quantization is not supported for CPU float8 quantization"
-    else:
-        _check_hardware_support(granularity)
+    _check_hardware_support(granularity, weight.device.type)
 
     if not is_cpu and not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently

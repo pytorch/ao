@@ -1184,6 +1184,6 @@ def _(
     bias: Optional[Tensor],
     out_dtype: torch.dtype,
 ) -> Tensor:
-    assert weight.dim() == 4
-    N = weight.size(0) * weight.size(3)
+    assert weight.dim() in (2, 4)
+    N = weight.size(0) * weight.size(3) if weight.dim() == 4 else weight.size(0)
     return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)
