@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+from typing import List
 
 import torch
 from huggingface_hub import ModelCard, get_token, whoami
@@ -617,7 +618,14 @@ After that you can run the model in a mobile app (see [Running in a mobile app](
 
 
 def quantize_and_upload(
-    model_id, quant, tasks, calibration_limit, max_seq_length, push_to_hub
+    model_id: str,
+    quant: str,
+    tasks: List[str],
+    calibration_limit: int,
+    max_seq_length: int,
+    push_to_hub: bool,
+    push_to_user_id: str,
+    update_model_card: bool,
 ):
     _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
@@ -713,7 +721,9 @@ def quantize_and_upload(
     username = _get_username()
 
     MODEL_NAME = model_id.split("/")[-1]
-    save_to = f"{username}/{MODEL_NAME}-{quant}"
+
+    save_to_user_id = username if push_to_user_id is None else push_to_user_id
+    save_to = f"{save_to_user_id}/{MODEL_NAME}-{quant}"
     untied_model_path = 'f"{{MODEL_NAME}}-untied-weights"'
     is_mobile = quant == "INT8-INT4"
     quantized_model_id = save_to
@@ -759,7 +769,8 @@ def quantize_and_upload(
     if push_to_hub:
         quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
         tokenizer.push_to_hub(quantized_model_id)
-        card.push_to_hub(quantized_model_id)
+        if update_model_card:
+            card.push_to_hub(quantized_model_id)
     else:
         quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
         tokenizer.save_pretrained(quantized_model_id)
@@ -828,6 +839,18 @@ if __name__ == "__main__":
         default=False,
         help="Flag to indicate whether push to huggingface hub or not",
     )
+    parser.add_argument(
+        "--push_to_user_id",
+        type=str,
+        default=None,
+        help="The user_id to use for pushing the quantized model, only used when --push_to_hub is set",
+    )
+    parser.add_argument(
+        "--update_model_card",
+        action="store_true",
+        default=False,
+        help="Flag to indicate whether push model card to huggingface hub or not",
+    )
     args = parser.parse_args()
     quantize_and_upload(
         args.model_id,
@@ -836,4 +859,6 @@ if __name__ == "__main__":
         args.calibration_limit,
         args.max_seq_length,
         args.push_to_hub,
+        args.push_to_user_id,
+        args.update_model_card,
     )
