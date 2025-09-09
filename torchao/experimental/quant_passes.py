@@ -83,11 +83,11 @@ def _get_q_dq_linear_patterns_replacements_and_filters(
     glbs["w_quant_min"] = -(1 << (weight_bit_width - 1))
     glbs["w_quant_max"] = (1 << (weight_bit_width - 1)) - 1
     glbs["a_target_dtype"] = torch.int8
-    glbs["a_quant_min"] = None
-    glbs["a_quant_max"] = None
+    glbs["a_quant_min"] = -128
+    glbs["a_quant_max"] = 127
     glbs["a_mapping_type"] = "ASYMMETRIC"
-    glbs["a_scale_dtype"] = torch.float32
-    glbs["a_eps"] = torch.finfo(torch.float32).eps
+    glbs["a_scale_dtype"] = None
+    glbs["a_eps"] = None
 
     lcls = {}
 

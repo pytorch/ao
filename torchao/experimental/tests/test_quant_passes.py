@@ -11,7 +11,6 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.dtypes import QDQLayout
 from torchao.experimental.quant_passes import (
     replace_q_dq_patterns_with_quantized_embedding_ops_pass,
     replace_q_dq_patterns_with_quantized_linear_ops_pass,
@@ -57,7 +56,6 @@ class TestQuantPasses(unittest.TestCase):
                     weight_dtype=layer_to_weight_dtype[idx],
                     weight_mapping_type=layer_to_weight_mapping_type[idx],
                     weight_granularity=layer_to_weight_granularity[idx],
-                    layout=QDQLayout(),
                 ),
                 lambda m, fqn: fqn == str(idx),
             )
@@ -124,7 +122,6 @@ class TestQuantPasses(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 mapping_type=mapping_type,
-                layout=QDQLayout(),
             ),
             lambda m, fqn: isinstance(m, torch.nn.Embedding),
         )
