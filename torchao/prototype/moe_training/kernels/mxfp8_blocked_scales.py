@@ -9,16 +9,17 @@ from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import ceil_div
 
 
-def torch_to_blocked_per_group_2d(
+def torch_to_blocked_2d_M_groups(
     x_scales: Tensor, group_offs: Tensor, K: int, block_size: int = 32
 ) -> Tuple[Tensor, Tensor]:
     """
-    Convert scales to blocked format for a 2D tensor (input activations / token groups)
+    Convert scales to blocked format for a 2D tensor (input activations / token groups),
+    where groups are along the total_M dimension (rows).
 
     Args:
         x_scales: Tensor with per group scales in blocked format concatenated into one tensor.
-        group_offs: Tensor of shape (num_groups,) which contains the end index of each group along the Mg dimension.
-        Mg: total size of all groups summed together
+        group_offs: Tensor of shape (num_groups,) which contains the end index of each group along the total_M dimension.
+        total_M: total size of all groups summed together
         K: K dim size
 
     Returns:
@@ -60,11 +61,12 @@ def torch_to_blocked_per_group_2d(
     return blocked_scales, start_row_after_padding
 
 
-def torch_to_blocked_per_group_2d2d_lhs(
+def torch_to_blocked_2d_K_groups(
     x_scales: Tensor, group_offs: Tensor, block_size: int = 32
 ) -> Tuple[Tensor, Tensor]:
     """
-    Convert scales to blocked format for a 2D tensor (input activations) when scaling along the contraction dimension.
+    Convert scales to blocked format for a 2D tensor (input activations),
+    when groups are along the scaled (K) dimension.
 
     Args:
         x_scales: Tensor with per group scales in blocked format concatenated into one tensor.
@@ -131,12 +133,15 @@ def torch_to_blocked_per_group_3d(weight_scales: Tensor) -> Tensor:
     return weight_scales_blocked
 
 
-def compute_per_group_blocked_scale_offsets(offsets: torch.Tensor):
+def compute_blocked_scale_offsets_for_M_groups(offsets: torch.Tensor):
     """
-    Rounds each integer in a 1D PyTorch tensor up to the nearest multiple of 128.
+    Given a 1D tensor of input group offsets along the total_M dimension (rows),
+    compute the starting row offset of the scales for each group after padding to blocked format.
+
+    In effect, this rrounds each integer in a 1D PyTorch tensor up to the nearest multiple of 128.
 
     Args:
-    offsets: A 1D PyTorch tensor of integers in ascending sorted order, representing the end index of each group along the Mg dimension.
+        - offsets: A 1D PyTorch tensor of integers in ascending sorted order, representing the end index of each group along the total_M dimension.
 
     Returns:
         - group_sizes: A 1D PyTorch tensor of integers representing the size of each group.
@@ -157,13 +162,13 @@ def compute_per_group_blocked_scale_offsets(offsets: torch.Tensor):
     return group_sizes, starting_row_after_padding
 
 
-def compute_per_group_blocked_scale_offsets_2d2d_lhs(offsets: torch.Tensor):
+def compute_blocked_scale_offsets_for_K_groups(offsets: torch.Tensor):
     """
     Performs round_up(x, 4) on each element in a 1D offsets tensor,
     to compute the starting offsets of each group after scaling along the contraction dimension.
 
     Args:
-        offsets: A 1D PyTorch tensor of integers in ascending sorted order, representing the end index of each group along the Mg dimension.
+        offsets: A 1D PyTorch tensor of integers in ascending sorted order, representing the end index of each group along the total_M dimension.
 
     Returns:
         - starting_row_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
@@ -183,15 +188,18 @@ def compute_per_group_blocked_scale_offsets_2d2d_lhs(offsets: torch.Tensor):
     return group_sizes, starting_col_after_padding
 
 
-def triton_mx_block_rearrange_per_group_2d(
+def triton_mx_block_rearrange_2d_M_groups(
     scales_tensor: torch.Tensor,
     input_group_end_offsets: torch.Tensor,
     output_group_start_offsets: torch.Tensor,
 ) -> torch.Tensor:
     """
-    Rearranges an E8M0 tensor scale to block-scaled swizzle format.
+    Rearranges an E8M0 tensor scale to block-scaled swizzle format,
+    where groups are along the total_M dimension (rows).
+
     This format is suitable for Tmem as described in NVIDIA documentation:
     https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
     Args:
         scales_tensor: Input tensor containing e8m0 scales for each logical group of a target tensor.
         input_group_end_offsets: tensor of int32 values representing group end indexes for the input scales
@@ -226,7 +234,7 @@ def triton_mx_block_rearrange_per_group_2d(
         num_groups,
         num_col_blocks,
     )
-    triton_scale_swizzle_per_group_2d[grid](
+    triton_scale_swizzle_M_groups[grid](
         # Input scales
         scales_tensor.view(torch.uint8),
         scales_tensor.stride(0),
@@ -249,7 +257,7 @@ def triton_mx_block_rearrange_per_group_2d(
 
 
 @triton.jit
-def triton_scale_swizzle_per_group_2d(
+def triton_scale_swizzle_M_groups(
     scales_ptr,  # (M, K//block_size)
     scales_stride_dim0,
     scales_stride_dim1,
@@ -282,14 +290,14 @@ def triton_scale_swizzle_per_group_2d(
     # We can reuse this swizzle transformation on each block of data we read.
     row_offs = tl.arange(0, BLOCK_ROWS)[:, None]
     col_offs = tl.arange(0, BLOCK_COLS)[None, :]
-    r_div_32 = row_offs // 32
-    r_mod_32 = row_offs % 32
 
-    # Rearrange to (32, 4, 4) then to final (32, 16) coordinates
-    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + col_offs
-
-    # Flatten
-    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+    # Compute desination indices for each elem in block swizzled layout
+    dest_indices_flat = _dest_indices_for_block(
+        row_offs,
+        col_offs,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
 
     # For this group and col block, we iterate through row blocks, reading (BLOCK_ROWS, BLOCK_COLS) from the input scales.
     # We track how many row blocks we have iterated through.
@@ -406,14 +414,22 @@ def triton_scale_swizzle_per_group_3d(
     input_ptr += pid_group * input_stride_dim0
     output_ptr += pid_group * output_stride_dim0
 
-    rows = tl.arange(0, BLOCK_ROWS)[:, None]
-    cols = tl.arange(0, BLOCK_COLS)[None, :]
+    row_offs = tl.arange(0, BLOCK_ROWS)[:, None]
+    col_offs = tl.arange(0, BLOCK_COLS)[None, :]
+
+    # Compute desination offs for each elem in block swizzled layout
+    dest_indices_flat = _dest_indices_for_block(
+        row_offs,
+        col_offs,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
 
     # Calculate starting row and column for this tile
     start_row = pid_row * BLOCK_ROWS
     start_col = pid_col * BLOCK_COLS
-    global_rows = start_row + rows
-    global_cols = start_col + cols
+    global_rows = start_row + row_offs
+    global_cols = start_col + col_offs
 
     mask = (global_rows < scale_rows) & (global_cols < scale_cols)
 
@@ -422,15 +438,6 @@ def triton_scale_swizzle_per_group_3d(
         mask=mask,
         other=0.0,
     )
-
-    r_div_32 = rows // 32
-    r_mod_32 = rows % 32
-
-    # 2) Rearrange to (32, 4, 4) then to final (32, 16) coordinates
-    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + cols
-
-    # Flatten
-    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
     scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
 
     # Calculate block offset using provided output block stride
@@ -443,7 +450,7 @@ def triton_scale_swizzle_per_group_3d(
     )
 
 
-def triton_mx_block_rearrange_per_group_2d2d_lhs(
+def triton_mx_block_rearrange_2d_K_groups(
     scales_tensor: torch.Tensor,
     input_group_end_offsets: torch.Tensor,
     output_group_start_offsets: torch.Tensor,
@@ -479,8 +486,6 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
     # Output block stride for the rearranged format
     BLOCK_ROWS, BLOCK_COLS = 128, 4
     output_stride_per_block = BLOCK_ROWS * BLOCK_COLS
-    num_row_blocks = padded_rows // BLOCK_ROWS
-    output_stride_per_col_of_blocks = output_stride_per_block * num_row_blocks
 
     # We parallelize per group and per row block.
     # Cols per group is variable, so we just loop through col blocks for each group.
@@ -488,13 +493,14 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
         num_groups,
         num_row_blocks,
     )
-    triton_scale_swizzle_per_group_2d2d_lhs[grid](
+    triton_scale_swizzle_2d_K_groups[grid](
         # Input scales
         scales_tensor.view(torch.uint8),
         scales_tensor.stride(0),
         scales_tensor.stride(1),
         rows,
         cols,
+        padded_rows,
         num_groups,
         # Original offsets (to read from)
         input_group_end_offsets,
@@ -502,27 +508,26 @@ def triton_mx_block_rearrange_per_group_2d2d_lhs(
         output.view(torch.uint8),
         output_group_start_offsets,
         output_stride_per_block,
-        output_stride_per_col_of_blocks,
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
-        DEBUG=True,
+        DEBUG=False,
     )
     return output
 
 
 @triton.jit
-def triton_scale_swizzle_per_group_2d2d_lhs(
-    scales_ptr,  # (K, total_M//block_size)
+def triton_scale_swizzle_2d_K_groups(
+    scales_ptr,  # (M, total_K//block_size)
     scales_stride_dim0,
     scales_stride_dim1,
     scale_rows,
     scale_cols,
+    padded_rows,
     num_groups,
     orig_offsets,  # (num_groups,)
     output_scales_ptr,
     output_scales_group_offsets,  # (num_groups,)
     output_stride_per_block,
-    output_stride_per_col_of_blocks,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_COLS: tl.constexpr,
     DEBUG: tl.constexpr = False,
@@ -534,31 +539,27 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
     input_group_start_col = tl.load(
         orig_offsets + group_pid - 1, mask=group_pid > 0, other=0
     )
-    input_group_end_col = tl.load(
-        orig_offsets + group_pid, mask=group_pid < num_groups, other=0
-    )
-    # Output scales start row we will begin writing to
-    output_group_start_col = tl.load(
-        output_scales_group_offsets + group_pid, mask=group_pid < num_groups, other=0
-    )
+    input_group_end_col = tl.load(orig_offsets + group_pid)
 
-    # Calculate destination indices for each row and col in block swizzled layout.
-    # We can reuse this swizzle transformation on each block of data we read.
+    # Output scales start row we will begin writing to
+    output_group_start_col = tl.load(output_scales_group_offsets + group_pid)
+
     row_offs = tl.arange(0, BLOCK_ROWS)[:, None]
     col_offs = tl.arange(0, BLOCK_COLS)[None, :]
-    r_div_32 = row_offs // 32
-    r_mod_32 = row_offs % 32
 
-    # Rearrange to (32, 4, 4) then to final (32, 16) coordinates
-    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + col_offs
-
-    # Flatten
-    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+    # Compute desination offs for each elem in block swizzled layout
+    dest_indices_flat = _dest_indices_for_block(
+        row_offs,
+        col_offs,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
 
     # For this group and row block, we iterate through col blocks, reading (BLOCK_ROWS, BLOCK_COLS) from the input scales.
     # We track how many col blocks we have iterated through.
+    out_group_base_offset = output_group_start_col * padded_rows
     curr_input_start_col = input_group_start_col
-    curr_out_start_col_block = output_group_start_col // BLOCK_COLS
+    curr_out_start_col_block = 0
     while curr_input_start_col < input_group_end_col:
         # Read block of input scales
         block_row_offs = block_row_pid * BLOCK_ROWS + row_offs
@@ -570,28 +571,44 @@ def triton_scale_swizzle_per_group_2d2d_lhs(
         input_scales = tl.load(scales_ptr + block_offs, mask=mask, other=0.0)
         scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
 
-        # Calculate block offset using provided output block stride
-        tgt_row_off = block_row_pid * output_stride_per_block
-        tgt_col_off = curr_out_start_col_block * output_stride_per_col_of_blocks
-
-        output_block_offsets = tgt_row_off + tgt_col_off
-        if DEBUG:
-            tl.device_print("\nblock_row_pid: ", block_row_pid)
-            tl.device_print("group_pid: ", group_pid)
-            tl.device_print("tgt_row_block", block_row_pid)
-            tl.device_print("output_group_start_col: ", output_group_start_col)
-            tl.device_print("tgt_col_block", curr_out_start_col_block)
-            tl.device_print("tgt_row_off: ", tgt_row_off)
-            tl.device_print("tgt_col_off: ", tgt_col_off)
-            tl.device_print("global_off:", tgt_row_off + tgt_col_off)
-            tl.device_print("writing: ", scales_flat)
+        # Get offset within the group to add to the group's base offset
+        num_cols_in_group = input_group_end_col - input_group_start_col
+        num_col_blocks_in_group = tl.cdiv(num_cols_in_group, BLOCK_COLS)
+        stride_per_row_of_blocks_in_group = (
+            num_col_blocks_in_group * output_stride_per_block
+        )
+        offset_in_group = (
+            block_row_pid * stride_per_row_of_blocks_in_group
+            + curr_out_start_col_block * output_stride_per_block
+        )
+        final_offset = out_group_base_offset + offset_in_group
 
         # Apply swizzling for write to gmem
         tl.store(
-            output_scales_ptr + output_block_offsets + dest_indices_flat,
+            output_scales_ptr + final_offset + dest_indices_flat,
             scales_flat,
         )
 
         # Advance to next col block
         curr_input_start_col += BLOCK_COLS
         curr_out_start_col_block += 1
+
+
+@triton.jit
+def _dest_indices_for_block(
+    row_offs,
+    col_offs,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+):
+    # Calculate destination indices for each row and col in block swizzled layout.
+    # We can reuse this swizzle transformation on each block of data we read.
+    r_div_32 = row_offs // 32
+    r_mod_32 = row_offs % 32
+
+    # Rearrange to (32, 4, 4) then to final (32, 16) coordinates
+    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + col_offs
+
+    # Flatten
+    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+    return dest_indices_flat
