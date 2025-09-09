@@ -500,6 +500,7 @@ def triton_mx_block_rearrange_2d_K_groups(
         scales_tensor.stride(1),
         rows,
         cols,
+        padded_rows,
         num_groups,
         # Original offsets (to read from)
         input_group_end_offsets,
@@ -521,6 +522,7 @@ def triton_scale_swizzle_2d_K_groups(
     scales_stride_dim1,
     scale_rows,
     scale_cols,
+    padded_rows,
     num_groups,
     orig_offsets,  # (num_groups,)
     output_scales_ptr,
