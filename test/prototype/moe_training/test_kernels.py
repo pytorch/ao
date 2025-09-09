@@ -282,12 +282,15 @@ def test_mxfp8_per_group_blocked_scales_2d2d(
 ):
     device = "cuda"
     block_size = 32
+
+    # Make each group of row blocks have distinct, constinent data for debugging
     input_data = torch.cat(
         [
             torch.ones(m // 2, total_k, device=device),
             torch.full((m // 2, total_k), 999, device=device),
         ]
     )
+    #input_data= torch.randn(m, total_k, device=device)
 
     e8m0_scales, _ = to_mx(
         input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
@@ -298,7 +301,8 @@ def test_mxfp8_per_group_blocked_scales_2d2d(
     #     n_groups, total_k, multiple_of=block_size, device=device
     # )
     # input_group_offsets //= block_size
-    input_group_offsets = torch.tensor([1, 4], device=device, dtype=torch.int32)
+    input_group_offsets = torch.tensor([3, 8, 12, 16], device=device, dtype=torch.int32)
+    #print(input_group_offsets)
 
     # torch reference
     ref_out_scales, ref_start_cols_after_padding = torch_to_blocked_2d_K_groups(
