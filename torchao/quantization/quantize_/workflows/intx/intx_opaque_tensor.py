@@ -29,6 +29,16 @@ __all__ = [
 aten = torch.ops.aten
 
 
+def _is_kernel_library_loaded():
+    loaded = False
+    try:
+        _check_torchao_ops_loaded()
+        loaded = True
+    except Exception:
+        pass
+    return loaded
+
+
 class ComputeTarget(enum.Enum):
     """
     This packs the tensor for PyTorch CPU kernels in ATen.
@@ -206,7 +216,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
             )
 
         # Handle TORCHAO
-        _check_torchao_ops_loaded()
+        assert _is_kernel_library_loaded(), "TorchAO kernel library is not loaded"
         compute_target_map = {
             ComputeTarget.TORCHAO_AUTO: None,
             ComputeTarget.TORCHAO_KLEIDIAI: "kleidiai",

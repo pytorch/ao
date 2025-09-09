@@ -6,7 +6,7 @@
 
 import logging
 import sys
-from typing import Callable, List, Mapping, Optional, Tuple, Union
+from typing import Callable, List, Mapping, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -23,9 +23,7 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-from dataclasses import dataclass
 
-from torchao.core.config import AOBaseConfig
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
 )
@@ -34,42 +32,14 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     Target,
 )
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
-from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
+from torchao.quantization.granularity import Granularity, PerAxis, PerGroup
 from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
-)
-from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     MappingType,
     quantize_,
 )
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
-
-
-@dataclass
-class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
-    weight_dtype: torch.dtype = torch.int4
-    granularity: Union[PerRow, PerGroup] = PerRow()
-    has_weight_zeros: bool = False
-    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
-    act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    round_weight_scale_to_bf16: bool = True
-    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
-
-    def __post_init__(self):
-        raise NotImplementedError(
-            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
-            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
-            "* granularity -> weight_granularity\n"
-            "* has_weight_zeros=True -> weight_mapping_type=torchao.quantization.quant_api.MappingType.ASYMMETRIC\n"
-            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.MappingType.SYMMETRIC\n"
-            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
-            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
-        )
-
-
-# For BC
-int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 class QuantizedEmbedding(nn.Module):
@@ -436,7 +406,7 @@ class SharedEmbeddingQuantizer:
         # Quantize unembeddings
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig_NonExperimental(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=self.weight_dtype,
                 weight_granularity=self.granularity,
                 weight_mapping_type=self.mapping_type,
