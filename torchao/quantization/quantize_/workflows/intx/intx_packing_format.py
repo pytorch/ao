@@ -6,6 +6,8 @@
 
 from enum import Enum
 
+import torch
+
 
 # can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
 # after python 3.10 is end of life (https://devguide.python.org/versions/)
@@ -49,3 +51,6 @@ class IntxPackingFormat(str, Enum):
     It requires TorchAO C++ kernels to be installed.
     """
     OPAQUE_TORCHAO_LOWBIT = "opaque_torchao_lowbit"
+
+
+torch.serialization.add_safe_globals([IntxPackingFormat])

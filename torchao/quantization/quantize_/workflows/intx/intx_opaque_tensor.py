@@ -6,7 +6,7 @@
 
 
 import logging
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 
@@ -30,6 +30,7 @@ __all__ = [
 
 aten = torch.ops.aten
 
+
 def _is_kernel_library_loaded():
     loaded = False
     try:
@@ -38,6 +39,7 @@ def _is_kernel_library_loaded():
     except Exception:
         pass
     return loaded
+
 
 class IntxOpaqueTensor(TorchAOBaseTensor):
     """
@@ -116,9 +118,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
         tensor: IntxUnpackedToInt8Tensor,
         *,
         bias: Optional[torch.Tensor] = None,
-        intx_packing_format: Union[
-            IntxPackingFormat, str
-        ] = IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+        intx_packing_format: IntxPackingFormat = IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
     ):
         """
         Constructs a IntxOpaqueTensor from an IntxUnpackedToInt8Tensor.
@@ -338,4 +338,4 @@ def _(func, types, args, kwargs):
 
 IntxOpaqueTensor.__module__ = "torchao.quantization"
 
-torch.serialization.add_safe_globals([IntxOpaqueTensor, IntxPackingFormat])
+torch.serialization.add_safe_globals([IntxOpaqueTensor])
