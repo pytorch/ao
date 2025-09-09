@@ -1,3 +1,6 @@
+from .float8.float8_opaque_tensor import (
+    Float8OpaqueTensor,
+)
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -25,6 +28,7 @@ __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
+    "Float8OpaqueTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "IntxOpaqueTensor",

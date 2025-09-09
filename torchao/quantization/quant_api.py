@@ -71,6 +71,7 @@ from torchao.quantization.quantize_.common import (
     PackingFormat,
 )
 from torchao.quantization.quantize_.workflows import (
+    Float8OpaqueTensor,
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
@@ -1708,6 +1709,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
+    packing_format: PackingFormat = PackingFormat.PLAIN
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1733,6 +1735,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     kernel_preference = config.kernel_preference
+    packing_format = config.packing_format
 
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
@@ -1790,14 +1793,22 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             kernel_preference=kernel_preference,
         )
 
-        quantized_weight = Float8Tensor.from_hp(
-            weight,
-            float8_dtype=weight_dtype,
-            granularity=weight_granularity,
-            mm_config=mm_config,
-            kernel_preference=kernel_preference,
-            act_quant_kwargs=act_quant_kwargs,
-        )
+        if packing_format == PackingFormat.PLAIN:
+            quantized_weight = Float8Tensor.from_hp(
+                weight,
+                float8_dtype=weight_dtype,
+                granularity=weight_granularity,
+                mm_config=mm_config,
+                kernel_preference=kernel_preference,
+                act_quant_kwargs=act_quant_kwargs,
+            )
+        elif packing_format == PackingFormat.OPAQUE:
+            block_size = get_block_size(weight.shape, weight_granularity)
+            quantized_weight = Float8OpaqueTensor.from_hp(
+                weight,
+                block_size=block_size,
+                act_quant_kwargs=act_quant_kwargs,
+            )
 
     return quantized_weight
 

@@ -89,6 +89,7 @@ from .quant_primitives import (
     quantize_affine,
 )
 from .quantize_.workflows import (
+    Float8OpaqueTensor,
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
@@ -168,6 +169,7 @@ __all__ = [
     "IntxUnpackedToInt8Tensor",
     "Float8Tensor",
     "Int4OpaqueTensor",
+    "Float8OpaqueTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
