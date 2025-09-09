@@ -144,7 +144,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=packing_format,
+                intx_packing_format=packing_format,
                 version=2,
             ),
         )
@@ -156,7 +156,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -202,7 +202,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+                intx_packing_format=IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
                 version=2,
             ),
         )
@@ -254,7 +254,7 @@ class TestIntxOpaqueTensor(TestCase):
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
-                packing_format=packing_format,
+                intx_packing_format=packing_format,
                 version=2,
             ),
         )
@@ -296,7 +296,7 @@ class TestIntxOpaqueTensor(TestCase):
         out = model(x).clone()
 
         base_config = Int8DynamicActivationIntxWeightConfig(
-            packing_format=IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+            intx_packing_format=IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
             version=2,
         )
         moe_config = MoEQuantConfig(

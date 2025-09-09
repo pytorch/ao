@@ -745,7 +745,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     weight_scale_dtype: Optional[torch.dtype] = None
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     layout: Layout = QDQLayout()
-    packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
 
     version: int = 1
 
@@ -802,7 +802,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     weight_scale_dtype = config.weight_scale_dtype
     act_mapping_type = config.act_mapping_type
     layout = config.layout
-    packing_format = config.packing_format
+    intx_packing_format = config.intx_packing_format
 
     assert weight.dim() == 2, (
         f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -830,9 +830,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
             IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
         ]
         assert (
-            packing_format == IntxPackingFormat.UNPACKED_TO_INT8
-            or packing_format in opaque_formats
-        ), f"Unsupported packing format: {packing_format}"
+            intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8
+            or intx_packing_format in opaque_formats
+        ), f"Unsupported packing format: {intx_packing_format}"
         new_weight = IntxUnpackedToInt8Tensor.from_hp(
             weight,
             block_size,
@@ -848,9 +848,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         new_bias = bias
 
         # Create packed tensor
-        if packing_format in opaque_formats:
+        if intx_packing_format in opaque_formats:
             new_weight = IntxOpaqueTensor.from_intx_unpacked_to_int8_tensor(
-                new_weight, bias=new_bias, packing_format=packing_format
+                new_weight, bias=new_bias, intx_packing_format=intx_packing_format
             )
             new_bias = None  # bias is packed with weights
 
@@ -2110,7 +2110,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     mapping_type: MappingType = MappingType.SYMMETRIC
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
-    packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
     version: int = 1
 
     def __post_init__(self):
@@ -2139,7 +2139,7 @@ def _intx_weight_only_quantize_tensor(weight, config):
     mapping_type = config.mapping_type
     scale_dtype = config.scale_dtype
     layout = config.layout
-    packing_format = config.packing_format
+    intx_packing_format = config.intx_packing_format
 
     assert weight.dim() == 2, (
         f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -2157,7 +2157,7 @@ def _intx_weight_only_quantize_tensor(weight, config):
     block_size = (1, group_size)
 
     if config.version == 2:
-        if config.packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
+        if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
             new_weight = IntxUnpackedToInt8Tensor.from_hp(
                 weight,
                 block_size,
@@ -2171,7 +2171,7 @@ def _intx_weight_only_quantize_tensor(weight, config):
 
             return new_weight
         else:
-            raise ValueError(f"Unsupported packing format: {packing_format}")
+            raise ValueError(f"Unsupported packing format: {intx_packing_format}")
 
     # Version 1
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
