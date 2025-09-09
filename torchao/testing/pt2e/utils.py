@@ -143,6 +143,8 @@ class PT2ENumericDebuggerTestCase(TestCase):
         def _assert_node_has_from_node_source(node):
             if node.op == "placeholder" or node.op == "output":
                 return
+            if node.op == "call_module" and node.target == "_guards_fn":
+                return
             self.assertIn(
                 FROM_NODE_KEY,
                 node.meta,

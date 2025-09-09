@@ -97,6 +97,8 @@ def prepare_pt2e(
         # run calibration
         # calibrate(m, sample_inference_data)
     """
+    _remove_guards_fn_if_any(model)
+
     # We will temporarily make prepare_pt2e backward compatible with quantizers that configs, observers,
     # and fake quantizers from torch.ao instead of torchao
     if isinstance(quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer):
@@ -183,6 +185,8 @@ def prepare_qat_pt2e(
         train_loop(prepared_model, train_loop)
 
     """
+    _remove_guards_fn_if_any(model)
+
     # We will temporarily make prepare_qat_pt2e backward compatible with quantizers that configs, observers,
     # and fake quantizers from torch.ao instead of torchao
     if isinstance(quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer):
@@ -295,6 +299,8 @@ def convert_pt2e(
         quantized_model = convert_pt2e(prepared_model)
 
     """
+    _remove_guards_fn_if_any(model)
+
     # We will temporarily make convert_pt2e backward compatible with quantizers that configs, observers,
     # and fake quantizers from torch.ao instead of torchao
     if not _is_torchao_prepared_do_not_use_outside_this_file(model):
@@ -329,3 +335,13 @@ def convert_pt2e(
     model.meta.update(original_graph_meta)
     model = _disallow_eval_train(model)
     return model
+
+
+def _remove_guards_fn_if_any(model: GraphModule):
+    if hasattr(model, "_guards_fn"):
+        # Do not compile the guards function, since it may contain checks
+        # that are not currently supported by ExecuTorch pass infra.
+        node = next(iter(model.graph.find_nodes(op="call_module", target="_guards_fn")))
+        model.graph.erase_node(node)
+        delattr(model, "_guards_fn")
+        model.recompile()
