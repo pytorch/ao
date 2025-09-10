@@ -2018,7 +2018,8 @@ class TestBenchmarkModel(unittest.TestCase):
 
     def run_benchmark_model(self, device):
         # params
-        m = self.ToyTwoLinearModel(1024, 1024, 1024).eval()
+        dtype = torch.bfloat16
+        m = self.ToyTwoLinearModel(1024, 1024, 1024).eval().to(dtype).to(device)
         m_bf16 = copy.deepcopy(m)
         example_inputs = m.example_inputs()
         m_bf16 = torch.compile(m_bf16, mode="max-autotune")
