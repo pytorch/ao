@@ -14,11 +14,13 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.utils import AQTTensorImpl, Layout
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     ZeroPointDomain,
+)
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,7 +173,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         )
 
         if layout.target != Target.ATEN:
-            _check_torchao_ops_loaded()
+            assert _is_kernel_library_loaded(), "Kernel library is not loaded"
         else:
             assert torch.backends.kleidiai.is_available(), (
                 "ATEN target requires torch.backends.kleidiai.is_available()"

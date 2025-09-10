@@ -12,9 +12,9 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.experimental.quant_api import (
+from torchao.prototype.quantization.embedding.api import (
     EmbeddingQuantizer,
-    SharedEmbeddingQuantizer,
+    TiedEmbeddingQuantizer,
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
@@ -160,7 +160,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
 
         # Do shared embedding quantization
         quantized_model = copy.deepcopy(model)
-        SharedEmbeddingQuantizer(
+        TiedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
             granularity=PerAxis(0),
             mapping_type=weight_mapping_type,
