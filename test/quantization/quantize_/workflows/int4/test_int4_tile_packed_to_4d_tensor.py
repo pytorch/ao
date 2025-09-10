@@ -25,14 +25,12 @@ from torchao.utils import is_sm_at_least_90
 INT4_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     int4_packing_format="tile_packed_to_4d",
-    version=2,
 )
 
 INT4_HQQ_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
     int4_packing_format="tile_packed_to_4d",
     int4_choose_qparams_algorithm="hqq",
-    version=2,
 )
 
 

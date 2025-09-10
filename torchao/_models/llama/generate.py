@@ -43,6 +43,8 @@ class HostEvent:
 def device_timer(device):
     if "cuda" in device:
         return torch.cuda.Event(enable_timing=True)
+    elif "xpu" in device:
+        return torch.xpu.Event(enable_timing=True)
     elif ("cpu" in device) or ("mps" in device):
         return HostEvent()
     else:
@@ -425,7 +427,10 @@ def main(
             ], (
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
-            quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+            quantize_(
+                model,
+                int4_weight_only(group_size=group_size, use_hqq=use_hqq, version=1),
+            )
         elif "fbgemm" in quantization and "int4" in quantization:
             from torchao.quantization import FbgemmConfig
 
@@ -487,7 +492,7 @@ def main(
 
                 quantize_(
                     model,
-                    int4_weight_only(layout=MarlinSparseLayout()),
+                    int4_weight_only(layout=MarlinSparseLayout(), version=1),
                     filter_fn=ffn_or_attn_only,
                 )
         if "fp6" in quantization:

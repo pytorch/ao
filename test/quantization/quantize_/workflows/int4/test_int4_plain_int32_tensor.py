@@ -29,7 +29,6 @@ def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
         int4_packing_format="plain_int32",
-        version=2,
     )
 
 

@@ -19,6 +19,14 @@ ALLOWED_CLASSES = {
     "KernelPreference": KernelPreference,
 }
 
+ALLOWED_TENSORS = ["Float8Tensor", "Tensor"]
+
+__all__ = [
+    "Float8TensorAttributeJSONEncoder",
+    "object_from_dict",
+    "is_metadata_torchao",
+]
+
 
 class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
     def default(self, o):
@@ -159,3 +167,30 @@ def object_from_dict(data: Dict[str, Any]):
         return cls(**processed_data)
     except Exception as e:
         raise ValueError(f"Failed to create instance of {cls.__name__}: {e}")
+
+
+def is_metadata_torchao(metadata: Dict[str, Any]):
+    if not metadata or "tensor_names" not in metadata:
+        return False
+    try:
+        all_tensor_names = json.loads(metadata["tensor_names"])
+    except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
+
+    if not all_tensor_names or not isinstance(all_tensor_names, list):
+        return False
+
+    for tensor_name in all_tensor_names:
+        if tensor_name not in metadata or not isinstance(metadata[tensor_name], str):
+            return False
+        try:
+            tensor_dict = json.loads(metadata[tensor_name])
+        except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+            return False
+
+        # returns None if _type not in tensor_dict
+        tensor_type = tensor_dict.get("_type")
+        if tensor_type not in ALLOWED_TENSORS:
+            return False
+
+    return True

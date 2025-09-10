@@ -24,6 +24,10 @@ from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
     _is_kernel_library_loaded,
 )
 
+<<<<<<<< HEAD:test/quantization/test_groupwise_lowbit_weight_lut_quantizer.py
+========
+
+>>>>>>>> main:test/prototype/test_groupwise_lowbit_weight_lut_quantizer.py
 @unittest.skipIf(not _is_kernel_library_loaded(), "Need torchao lowbit kernels")
 class TestGroupwiseLowbitWeightLut(unittest.TestCase):
     """

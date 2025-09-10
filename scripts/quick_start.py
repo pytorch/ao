@@ -39,7 +39,7 @@ model_bf16 = copy.deepcopy(model)
 # ========================
 
 # torch 2.4+ only
-quantize_(model, Int4WeightOnlyConfig(group_size=32))
+quantize_(model, Int4WeightOnlyConfig(group_size=32, version=1))
 
 
 # =============

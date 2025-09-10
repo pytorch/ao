@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 
 import pytest
@@ -114,7 +120,8 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
 
         config = MoEQuantConfig(
-            Int4WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+            Int4WeightOnlyConfig(version=1),
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
         )
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
@@ -137,7 +144,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
-        config = MoEQuantConfig(Int4WeightOnlyConfig())
+        config = MoEQuantConfig(Int4WeightOnlyConfig(version=1))
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
         self._test_impl_moe_quant(

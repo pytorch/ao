@@ -23,6 +23,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao import quantize_
 from torchao.core.config import AOBaseConfig
+from torchao.float8.config import e4m3_dtype
 from torchao.quantization import Float8Tensor
 from torchao.quantization.granularity import (
     Granularity,
@@ -1978,11 +1979,11 @@ class TestQAT(TestCase):
         base_config = Float8DynamicActivationInt4WeightConfig()
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
-        self.assertEqual(act_config.dtype, torch.float8_e4m3fn)
+        self.assertEqual(act_config.dtype, e4m3_dtype)
         self.assertIsInstance(act_config.granularity, PerRow)
         self.assertIsInstance(weight_config, Int4WeightPreshuffledFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, 128)
-        self.assertEqual(weight_config.activation_dtype, torch.float8_e4m3fn)
+        self.assertEqual(weight_config.activation_dtype, e4m3_dtype)
 
     def test_infer_int4_weight_only_config(self):
         """
@@ -2052,6 +2053,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(
         not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
+    @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_fp8_primitives(self):
         """
         Compare numerics between:
@@ -2091,6 +2093,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(
         not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
+    @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_int4_preshuffled_primitives(self):
         """
         Compare numerics between:
