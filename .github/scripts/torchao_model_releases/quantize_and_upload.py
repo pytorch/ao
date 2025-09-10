@@ -625,7 +625,7 @@ def quantize_and_upload(
     max_seq_length: int,
     push_to_hub: bool,
     push_to_user_id: str,
-    update_model_card: bool,
+    populate_model_card_template: bool,
 ):
     _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
@@ -768,7 +768,7 @@ def quantize_and_upload(
     if push_to_hub:
         quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
         tokenizer.push_to_hub(quantized_model_id)
-        if update_model_card:
+        if populate_model_card_template:
             card.push_to_hub(quantized_model_id)
     else:
         quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
@@ -845,7 +845,7 @@ if __name__ == "__main__":
         help="The user_id to use for pushing the quantized model, only used when --push_to_hub is set",
     )
     parser.add_argument(
-        "--update_model_card",
+        "--populate_model_card_template",
         action="store_true",
         default=False,
         help="Flag to indicate whether push model card to huggingface hub or not",
@@ -859,5 +859,5 @@ if __name__ == "__main__":
         args.max_seq_length,
         args.push_to_hub,
         args.push_to_user_id,
-        args.update_model_card,
+        args.populate_model_card_template,
     )
