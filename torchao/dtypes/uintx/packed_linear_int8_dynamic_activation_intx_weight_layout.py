@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import warnings
 from enum import Enum, auto
 from typing import Optional, Tuple, Union
 
@@ -77,6 +78,9 @@ class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
         self,
         target: Union[str, Target] = "auto",
     ):
+        warnings.warn(
+            "Models quantized with version 1 of IntxWeightOnlyConfig/Int8DynamicActivationIntxWeightConfig are deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2967 for more details"
+        )
         if isinstance(target, str):
             target = target_from_str(target)
         self.target = target

@@ -12,9 +12,6 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.dtypes import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-)
 from torchao.prototype.quantization.embedding.api import (
     EmbeddingQuantizer,
     TiedEmbeddingQuantizer,
@@ -156,9 +153,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=PerAxis(0),
                 weight_mapping_type=weight_mapping_type,
-                layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
-                    target="universal"
-                ),
+                intx_packing_format="opaque_torchao_lowbit",
             ),
             filter_fn=lambda m, fqn: fqn == "2",
         )
