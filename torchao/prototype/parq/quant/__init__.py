@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from .config_torchao import (  # noqa: F401
-    StretchedIntxWeightOnlyConfig,
+    Int8DynamicActivationStretchedIntxWeightConfig,
     get_config_from_quantizer,
 )
 from .lsbq import LSBQuantizer  # noqa: F401

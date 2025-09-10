@@ -163,14 +163,17 @@ class QuantOptimizer(Optimizer):
             self.regularized_param_groups(), self.get_filter_fns(model)
         ):
             quantizer = group.get("quantizer", self.quantizer)
-            if not isinstance(quantizer, UnifTorchaoQuantizer):
+            if (
+                not isinstance(quantizer, UnifTorchaoQuantizer)
+                or len(group["params"]) == 0
+            ):
                 continue
 
             device = group["params"][0].device
-            is_embed = all(p.data_ptr() in embed_data_ptrs for p in group["params"])
+            weight_only = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
             config = get_config_from_quantizer(
                 quantizer,
-                is_embed,
+                weight_only,
                 device,
                 group["quant_bits"],
                 group.get("quant_block_size"),

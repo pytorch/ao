@@ -15,7 +15,7 @@ import torch.nn as nn
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.parq.quant import (
-    StretchedIntxWeightOnlyConfig,
+    Int8DynamicActivationStretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
 )
 from torchao.prototype.quantization.dynamic_activation_lut import (
@@ -87,7 +87,7 @@ def run_before_and_after_tests():
 def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
     torch.manual_seed(0)
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
-    config = StretchedIntxWeightOnlyConfig(
+    config = Int8DynamicActivationStretchedIntxWeightConfig(
         b=bit_width,
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
@@ -96,17 +96,8 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 
     parq_model = ToyLinearModel(128, 256, 128, 1).to(dtype)
     activations = parq_model.example_inputs(lead_dim=lead_dim, dtype=dtype)
-    quantize_(parq_model, config)
-
-    # Apply dynamic activation to parq model.  This will serve as the LUT reference
     parq_model_with_dyn_quant = deepcopy(parq_model)
-    quantize_(
-        parq_model_with_dyn_quant,
-        Int8DynamicActivationConfig(),
-        # We have to explicitly provide filter_fn because the default linear filter
-        # excludes modules with AffinQUnatizedTensor weights
-        filter_fn=lambda m, fqn: isinstance(m, torch.nn.Linear),
-    )
+    quantize_(parq_model_with_dyn_quant, config)
 
     # Convert PARQ model to lowbit LUT model
     lut_model = deepcopy(parq_model)
@@ -141,7 +132,7 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 @pytest.mark.skipif(not is_arm64_mac, reason="requires arm64 mac")
 def test_export(dtype, granularity, bit_width, lead_dim):
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
-    config = StretchedIntxWeightOnlyConfig(
+    config = Int8DynamicActivationStretchedIntxWeightConfig(
         b=bit_width,
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,

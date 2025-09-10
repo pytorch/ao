@@ -19,9 +19,9 @@ from torchao.prototype.parq.optim import (
 )
 from torchao.prototype.parq.quant import (
     Int4UnifTorchaoQuantizer,
+    Int8DynamicActivationStretchedIntxWeightConfig,
     LSBQuantizer,
     Quantizer,
-    StretchedIntxWeightOnlyConfig,
     StretchedUnifTorchaoQuantizer,
     TernaryUnifQuantizer,
     UnifQuantizer,
@@ -74,11 +74,19 @@ def build_param_groups(
         quant_kwargs["quant_block_size"] = group_size
     if quantizer is not None:
         quant_kwargs["quantizer"] = quantizer
-    return [
+    param_groups = [
         {"params": params_quant, "quant_bits": b, **quant_kwargs},
-        {"params": params_embed, "quant_bits": 4, "quantizer": UnifTorchaoQuantizer()},
         {"params": params_no_quant},
     ]
+    if params_embed:
+        param_groups.append(
+            {
+                "params": params_embed,
+                "quant_bits": 4,
+                "quantizer": UnifTorchaoQuantizer(),
+            }
+        )
+    return param_groups
 
 
 def compare_quantized_models(
@@ -332,11 +340,12 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         quantize_(
             m_ref,
-            StretchedIntxWeightOnlyConfig(
+            Int8DynamicActivationStretchedIntxWeightConfig(
                 b=b,
                 quant_min=quantizer.quant_min,
                 quant_max=quantizer.quant_max,
                 granularity=PerGroup(group_size),
+                activation_quantization=None,
             ),
         )
 
@@ -351,11 +360,12 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer = StretchedUnifTorchaoQuantizer(b)
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = StretchedIntxWeightOnlyConfig(
+        config = Int8DynamicActivationStretchedIntxWeightConfig(
             b=b,
             quant_min=quantizer.quant_min,
             quant_max=quantizer.quant_max,
             granularity=PerGroup(group_size),
+            activation_quantization=None,
         )
         quantize_(m_ref, config)
 
@@ -385,7 +395,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         model_dtype: torch.dtype = torch.float32,
         group_size: int = 32,
     ):
-        model = M(embedding=False).to(_DEVICE, dtype=model_dtype)
+        model = M(embedding=False, bias=True).to(_DEVICE, dtype=model_dtype)
         x = model.example_inputs(device=_DEVICE).to(model_dtype)
 
         # reference model using native quantization
@@ -421,12 +431,10 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
-        model.eval()
-        optimizer.restore_latent_params()
-        for filter_fn in optimizer.get_filter_fns(model):
-            quantize_(model, QATConfig(config, step="convert"), filter_fn=filter_fn)
+        optimizer.torchao_convert(model)
         converted_out = model(x)
-        torch.testing.assert_close(converted_out, ref_out, atol=0, rtol=0)
+        torch.testing.assert_close(converted_out, ref_out)
+        check_torchao_tensor_subclass(self, model)
 
 
 common_utils.instantiate_parametrized_tests(TestPARQuantization)

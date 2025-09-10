@@ -4,12 +4,17 @@ from typing import Optional
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import Int4CPULayout
+from torchao.dtypes import Int4CPULayout, Layout, QDQLayout
 from torchao.quantization import MappingType, PerAxis, PerGroup
+from torchao.quantization.linear_activation_quantized_tensor import (
+    to_linear_activation_quantized,
+)
 from torchao.quantization.quant_api import (
+    Granularity,
     Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
+    _int8_asymm_per_token_quant,
 )
 from torchao.quantization.quantize_.workflows import (
     IntxPackingFormat,
@@ -31,23 +36,27 @@ from .uniform_torchao import (
 
 
 @dataclass
-class StretchedIntxWeightOnlyConfig(IntxWeightOnlyConfig):
+class Int8DynamicActivationStretchedIntxWeightConfig(AOBaseConfig):
+    granularity: Granularity = PerAxis(0)
+    scale_dtype: Optional[torch.dtype] = None
+    layout: Layout = QDQLayout()
+    version: int = 1
     b: Optional[int] = None
     quant_min: Optional[int] = None
     quant_max: Optional[int] = None
     activation_quantization: Optional[str] = "int8_asym_per_token"
 
 
-@register_quantize_module_handler(StretchedIntxWeightOnlyConfig)
-def _stretched_intx_weight_only_transform(
-    module: torch.nn.Module, config: StretchedIntxWeightOnlyConfig
+@register_quantize_module_handler(Int8DynamicActivationStretchedIntxWeightConfig)
+def _int8_dynamic_activation_stretched_intx_transform(
+    module: torch.nn.Module, config: Int8DynamicActivationStretchedIntxWeightConfig
 ) -> torch.nn.Module:
     weight = module.weight
     granularity = config.granularity
     mapping_type = MappingType.ASYMMETRIC
 
     assert weight.dim() == 2, (
-        f"StretchedIntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
+        f"Int8DynamicActivationStretchedIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
     )
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
@@ -98,13 +107,17 @@ def _stretched_intx_weight_only_transform(
             scale_dtype=config.scale_dtype,
             _layout=config.layout,
         )
+        if config.activation_quantization == "int8_asym_per_token":
+            weight = to_linear_activation_quantized(weight, _int8_asymm_per_token_quant)
+        elif config.activation_quantization is not None:
+            raise ValueError(f"Unsupported {config.activation_quantization=}")
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     return module
 
 
 def get_config_from_quantizer(
     quantizer,
-    is_embed: bool,
+    weight_only: bool,
     device: torch.device,
     b: int,
     block_size: Optional[int],
@@ -116,14 +129,16 @@ def get_config_from_quantizer(
         kwargs = {"layout": Int4CPULayout()} if check_cpu_version(device) else {}
         config = Int4WeightOnlyConfig(group_size=block_size, **kwargs)
     elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
-        config = StretchedIntxWeightOnlyConfig(
+        kwargs = {"activation_quantization": None} if weight_only else {}
+        config = Int8DynamicActivationStretchedIntxWeightConfig(
             b=b,
             quant_min=quantizer.quant_min,
             quant_max=quantizer.quant_max,
             granularity=granularity,
             version=version,
+            **kwargs,
         )
-    elif is_embed:
+    elif weight_only:
         config = IntxWeightOnlyConfig(
             weight_dtype=weight_dtype,
             granularity=granularity,
