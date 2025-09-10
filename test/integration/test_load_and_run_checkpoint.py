@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import re
 import unittest
 import warnings
 
@@ -145,11 +146,10 @@ class TestLoadAndRunCheckpoint(TestCase):
         ):
             model.load_state_dict(torch.load(f), assign=True)
             if is_deprecated:
-                assert any(
-                    f"Models quantized with version {version} of {config_name} is deprecated"
-                    in str(w.message)
-                    for w in caught_warnings
-                ), (
+                pattern = re.compile(
+                    rf"Models quantized with version {version} of .*{re.escape(config_name)}.* is deprecated"
+                )
+                assert any(pattern.search(str(w.message)) for w in caught_warnings), (
                     f"Didn't get expected warning message for deprecation for model: {model_name}"
                 )
 
@@ -206,11 +206,10 @@ class TestLoadAndRunCheckpoint(TestCase):
             )
 
             # checkpoint deprecation
-            assert any(
-                f"Models quantized with version {version} of {config_name} is deprecated"
-                in str(w.message)
-                for w in caught_warnings
-            ), (
+            pattern = re.compile(
+                rf"Models quantized with version {version} of .*{re.escape(config_name)}.* is deprecated"
+            )
+            assert any(pattern.search(str(w.message)) for w in caught_warnings), (
                 f"Didn't get expected warning message for deprecation for model {model_name}"
             )
             assert isinstance(quantized_model.config.quantization_config, TorchAoConfig)
