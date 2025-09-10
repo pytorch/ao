@@ -136,7 +136,7 @@ def get_config_from_quantizer(
     weight_dtype = _BIT_WIDTH_TO_DTYPE[b]
     if isinstance(quantizer, Int4UnifTorchaoQuantizer):
         kwargs = {"layout": Int4CPULayout()} if check_cpu_version(device) else {}
-        config = Int4WeightOnlyConfig(group_size=block_size, **kwargs)
+        config = Int4WeightOnlyConfig(group_size=block_size, version=1, **kwargs)
     elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
         kwargs = {"activation_quantization": None} if weight_only else {}
         config = Int8DynamicActivationStretchedIntxWeightConfig(
