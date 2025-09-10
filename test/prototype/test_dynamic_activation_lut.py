@@ -7,13 +7,10 @@
 import platform
 import sys
 from copy import deepcopy
-from dataclasses import dataclass
 
 import pytest
 import torch
-import torch.nn as nn
 
-from torchao.core.config import AOBaseConfig
 from torchao.prototype.parq.quant import (
     Int8DynamicActivationStretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
@@ -23,31 +20,10 @@ from torchao.prototype.quantization.dynamic_activation_lut import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerAxis, PerGroup
-from torchao.quantization.linear_activation_quantized_tensor import (
-    to_linear_activation_quantized,
-)
-from torchao.quantization.quant_api import (
-    _int8_asymm_per_token_quant,
-)
-from torchao.quantization.transform_module import register_quantize_module_handler
+from torchao.quantization.quant_api import _is_linear
 from torchao.quantization.utils import compute_error
 
 is_arm64_mac = sys.platform == "darwin" and platform.machine() == "arm64"
-
-
-@dataclass
-class Int8DynamicActivationConfig(AOBaseConfig):
-    pass
-
-
-@register_quantize_module_handler(Int8DynamicActivationConfig)
-def _int8_dynamic_activation_transform(
-    module: nn.Module, config: Int8DynamicActivationConfig
-) -> nn.Module:
-    weight = module.weight
-    weight = to_linear_activation_quantized(weight, _int8_asymm_per_token_quant)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    return module
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -92,12 +68,18 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
         granularity=granularity,
+        activation_quantization=None,
     )
 
     parq_model = ToyLinearModel(128, 256, 128, 1).to(dtype)
     activations = parq_model.example_inputs(lead_dim=lead_dim, dtype=dtype)
     parq_model_with_dyn_quant = deepcopy(parq_model)
-    quantize_(parq_model_with_dyn_quant, config)
+    quantize_(parq_model, config)
+
+    # Apply dynamic activation to parq model.  This will serve as the LUT reference
+    dyn_act_config = deepcopy(config)
+    dyn_act_config.activation_quantization = "int8_asym_per_token"
+    quantize_(parq_model_with_dyn_quant, dyn_act_config, filter_fn=_is_linear)
 
     # Convert PARQ model to lowbit LUT model
     lut_model = deepcopy(parq_model)
@@ -137,6 +119,7 @@ def test_export(dtype, granularity, bit_width, lead_dim):
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
         granularity=granularity,
+        activation_quantization=None,
     )
 
     parq_model = ToyLinearModel(128, 256, 128, 8).to(dtype)
