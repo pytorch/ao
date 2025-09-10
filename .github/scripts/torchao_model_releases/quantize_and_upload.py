@@ -584,34 +584,39 @@ We can run the quantized model on a mobile phone using [ExecuTorch](https://gith
 Once ExecuTorch is [set-up](https://pytorch.org/executorch/main/getting-started.html), exporting and running the model on device is a breeze.
 
 ExecuTorch's LLM export scripts require the checkpoint keys and parameters have certain names, which differ from those used in Hugging Face.
-So we first use a conversion script that converts the Hugging Face checkpoint key names to ones that ExecuTorch expects:
+So we first use a script that converts the Hugging Face checkpoint key names to ones that ExecuTorch expects:
+The following script does this for you.
 
 [TODO: fix command below where necessary]
 ```Shell
-python -m executorch.examples.models.qwen3.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
+python -m executorch.examples.models.qwen3.convert_weights $(hf download pytorch/Qwen3-4B-INT8-INT4) pytorch_model_converted.bin
 ```
 
-Once we have the checkpoint, we export it to ExecuTorch with the XNNPACK backend as follows.
-(ExecuTorch LLM export script requires config.json have certain key names.  The correct config to use for the LLM export script is located at [TODO: fill in, e.g., examples/models/qwen3/config/4b_config.json] within the ExecuTorch repo.)
+Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows. 
+
+[TODO: fix config path in note where necessary]
+(Note: ExecuTorch LLM export script requires config.json have certain key names. The correct config to use for the LLM export script is located at examples/models/qwen3/config/4b_config.json within the ExecuTorch repo.)
 
 [TODO: fix command below where necessary]
 ```Shell
 python -m executorch.examples.models.llama.export_llama \
-    --model "qwen3_4b" \
-	--checkpoint pytorch_model_converted.bin \
-	--params examples/models/qwen3/config/4b_config.json \
-	--output_name="model.pte" \
-	-kv \
-	--use_sdpa_with_kv_cache \
-	-X \
-	--xnnpack-extended-ops \
-	--max_context_length 1024 \
-	--max_seq_length 1024 \
-	--dtype fp32 \
-	--metadata '{{"get_bos_id":199999, "get_eos_ids":[200020,199999]}}'
+  --model "qwen3_4b" \
+  --checkpoint pytorch_model_converted.bin \
+  --params examples/models/qwen3/config/4b_config.json \
+  --output_name model.pte \
+  -kv \
+  --use_sdpa_with_kv_cache \
+  -X \
+  --xnnpack-extended-ops \
+  --max_context_length 1024 \
+  --max_seq_length 1024 \
+  --dtype fp32 \
+  --metadata '{"get_bos_id":199999, "get_eos_ids":[200020,199999]}'
 ```
 
 After that you can run the model in a mobile app (see [Running in a mobile app](#running-in-a-mobile-app)).
+
+(We try to keep these instructions up-to-date, but if you find they do not work, check out our [CI test in ExecuTorch](https://github.com/pytorch/executorch/blob/main/.ci/scripts/test_torchao_huggingface_checkpoints.sh) for the latest source of truth, and let us know we need to update our model card.)
 """
 
 
