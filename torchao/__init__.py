@@ -3,6 +3,8 @@ import logging
 # torch/nested/_internal/nested_tensor.py:417: UserWarning: Failed to initialize NumPy: No module named 'numpy'
 import warnings
 
+import importlib
+import sys
 import torch
 
 warnings.filterwarnings(
@@ -56,24 +58,66 @@ if not skip_loading_so_files:
         # They can also be built outside of the torchao install process by
         # running the script `torchao/experimental/build_torchao_ops.sh <aten|executorch>`
         # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
-        from torchao.experimental.op_lib import *  # noqa: F403
+        # Avoid eagerly importing experimental op_lib as it is heavy and not always needed.
+        # Users can trigger it by importing `torchao.experimental` or setting up kernels explicitly.
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
-from torchao.quantization import (
-    autoquant,
-    quantize_,
-)
+# Lazy submodule and attribute exposure to reduce import-time overhead
+_LAZY_SUBMODULES = {
+    "dtypes": "torchao.dtypes",
+    "optim": "torchao.optim",
+    "quantization": "torchao.quantization",
+    "swizzle": "torchao.swizzle",
+    "testing": "torchao.testing",
+    "ops": "torchao.ops",
+    "kernel": "torchao.kernel",
+    "float8": "torchao.float8",
+    "sparsity": "torchao.sparsity",
+    "prototype": "torchao.prototype",
+    "experimental": "torchao.experimental",
+    "_models": "torchao._models",
+    "core": "torchao.core",
+}
 
-from . import dtypes, optim, quantization, swizzle, testing
+_LAZY_ATTRS = {
+    # Top-level convenience re-exports
+    "autoquant": ("torchao.quantization", "autoquant"),
+    "quantize_": ("torchao.quantization", "quantize_"),
+}
 
 __all__ = [
+    # Submodules
     "dtypes",
-    "autoquant",
     "optim",
-    "quantize_",
+    "quantization",
     "swizzle",
     "testing",
     "ops",
-    "quantization",
+    "kernel",
+    "float8",
+    "sparsity",
+    "prototype",
+    "experimental",
+    "_models",
+    "core",
+    # Attributes
+    "autoquant",
+    "quantize_",
 ]
+
+def __getattr__(name):
+    if name in _LAZY_SUBMODULES:
+        module = importlib.import_module(_LAZY_SUBMODULES[name])
+        setattr(sys.modules[__name__], name, module)
+        return module
+    if name in _LAZY_ATTRS:
+        mod_name, attr_name = _LAZY_ATTRS[name]
+        module = importlib.import_module(mod_name)
+        value = getattr(module, attr_name)
+        setattr(sys.modules[__name__], name, value)
+        return value
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+def __dir__():
+    return sorted(set(globals().keys()) | set(__all__))
