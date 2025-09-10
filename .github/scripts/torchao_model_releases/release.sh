@@ -6,17 +6,13 @@
 
 #!/bin/bash
 
-# Example uses
-# release with default quant options (FP8, INT4, INT8-INT4)
-# ./release.sh --model_id Qwen/Qwen3-8B
-# release a custom set of quant options
-# ./release.sh --model_id Qwen/Qwen3-8B --quants INT4 FP8
+# see README.md for instructions
 
 # Default quantization options
 default_quants=("FP8" "INT4" "INT8-INT4")
 push_to_hub=""
 push_to_user_id=""
-update_model_card=""
+populate_model_card_template=""
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,8 +36,8 @@ while [[ $# -gt 0 ]]; do
       push_to_user_id=("--push_to_user_id $2")
       shift 2
       ;;
-     --update_model_card)
-      update_model_card="--update_model_card"
+     --populate_model_card_template)
+      populate_model_card_template="--populate_model_card_template"
       shift
       ;;
     *)
@@ -53,7 +49,7 @@ done
 # Use default quants if none specified
 if [[ -z "$model_id" ]]; then
   echo "Error: --model_id is required"
-  echo "Usage: $0 --model_id <model_id> [--quants <quant1> [quant2 ...]] [--push_to_hub] [--push_to_user_id <push_to_user_id>] [--update_model_card]"
+  echo "Usage: $0 --model_id <model_id> [--quants <quant1> [quant2 ...]] [--push_to_hub] [--push_to_user_id <push_to_user_id>] [--populate_model_card_template]"
   exit 1
 fi
 if [[ ${#quants[@]} -eq 0 ]]; then
@@ -61,6 +57,6 @@ if [[ ${#quants[@]} -eq 0 ]]; then
 fi
 # Run the python command for each quantization option
 for quant in "${quants[@]}"; do
-  echo "Running: python quantize_and_upload.py --model_id $model_id --quant $quant $push_to_hub $push_to_user_id $update_model_card"
-  python quantize_and_upload.py --model_id "$model_id" --quant "$quant" $push_to_hub $push_to_user_id $update_model_card
+  echo "Running: python quantize_and_upload.py --model_id $model_id --quant $quant $push_to_hub $push_to_user_id $populate_model_card_template"
+  python quantize_and_upload.py --model_id "$model_id" --quant "$quant" $push_to_hub $push_to_user_id $populate_model_card_template
 done
