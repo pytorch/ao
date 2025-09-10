@@ -137,7 +137,7 @@ class TestLoadAndRunCheckpoint(TestCase):
             # model card:
             # https://huggingface.co/torchao-testing/single-linear-FP8-v2-0.13-dev
             model = torch.nn.Sequential(
-                torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
+                torch.nn.Linear(32, 256, dtype=torch.bfloat16)  # , device="cuda")
             )
 
         with (
@@ -147,7 +147,7 @@ class TestLoadAndRunCheckpoint(TestCase):
             model.load_state_dict(torch.load(f), assign=True)
             if is_deprecated:
                 pattern = re.compile(
-                    rf"Models quantized with version {version} of .*{re.escape(config_name)}.* is deprecated"
+                    rf"Models quantized with version {version} of .*{re.escape(config_name)}.* (is|are) deprecated"
                 )
                 assert any(pattern.search(str(w.message)) for w in caught_warnings), (
                     f"Didn't get expected warning message for deprecation for model: {model_name}"
@@ -207,7 +207,7 @@ class TestLoadAndRunCheckpoint(TestCase):
 
             # checkpoint deprecation
             pattern = re.compile(
-                rf"Models quantized with version {version} of .*{re.escape(config_name)}.* is deprecated"
+                rf"Models quantized with version {version} of .*{re.escape(config_name)}.* (is|are) deprecated"
             )
             assert any(pattern.search(str(w.message)) for w in caught_warnings), (
                 f"Didn't get expected warning message for deprecation for model {model_name}"
