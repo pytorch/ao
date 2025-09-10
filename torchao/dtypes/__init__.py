@@ -16,6 +16,7 @@ from .floatx import (
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     BlockSparseLayout,
+    CSRLayout,
     CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
@@ -48,6 +49,7 @@ __all__ = [
     "Layout",
     "PlainLayout",
     "SemiSparseLayout",
+    "CSRLayout",
     "TensorCoreTiledLayout",
     "Float8Layout",
     "MarlinSparseLayout",
