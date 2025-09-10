@@ -346,8 +346,7 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
         def test_implements_and_torch_function_together(self):
-            """Ensure a function decorated with both @_implements and @_implements_torch_function works.
-            """
+            """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
             counter = {"calls": 0}
 
             class MyTensor(TorchAOBaseTensor):
@@ -373,25 +372,31 @@ class TestTorchAOBaseTensor(unittest.TestCase):
                 w_plain = getattr(w, "qdata", w)
                 b_plain = getattr(b, "qdata", b) if b is not None else None
                 counter["calls"] += 1
-                return torch.matmul(x, w_plain.T) + (b_plain if b_plain is not None else 0)
+                return torch.matmul(x, w_plain.T) + (
+                    b_plain if b_plain is not None else 0
+                )
 
-            
             l = torch.nn.Linear(2, 3)
             orig_w = l.weight.detach().clone()
-            orig_b = l.bias.detach().clone() if l.bias is not None else None
 
-            p = torch.nn.Parameter(orig_w)
-            p.data = MyTensor(orig_w, "attr", None)
-            l.weight = p
+            l.weight = torch.nn.Parameter(MyTensor(orig_w, "attr", None))
 
             x = torch.randn(4, 2)
 
             # module path (F.linear)
-            self.assertEqual(counter["calls"], 1, "Expected fake_linear to be called once via F.linear")
+            self.assertEqual(
+                counter["calls"],
+                1,
+                "Expected fake_linear to be called once via F.linear",
+            )
 
             # aten path
             torch.ops.aten.linear.default(x, l.weight, l.bias)
-            self.assertEqual(counter["calls"], 2, "Expected fake_linear to be called once via aten.linear")
+            self.assertEqual(
+                counter["calls"],
+                2,
+                "Expected fake_linear to be called once via aten.linear",
+            )
 
 
 if __name__ == "__main__":
