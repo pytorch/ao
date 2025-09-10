@@ -12,6 +12,10 @@ on:
     branches:
       - main
 
+permissions:
+  id-token: write
+  contents: read
+
 concurrency:
   group: xpu_ci_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
   cancel-in-progress: true
