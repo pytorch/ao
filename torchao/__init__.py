@@ -53,7 +53,6 @@ if not skip_loading_so_files:
 
         # The following registers meta kernels for some CPU kernels
         from torchao.csrc_meta_ops import *  # noqa: F403
-        # from torchao. import *  # noqa: F403
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
