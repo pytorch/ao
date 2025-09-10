@@ -231,12 +231,10 @@ from torchao.quantization.granularity import PerGroup, PerAxis
 embedding_config = IntxWeightOnlyConfig(
     weight_dtype=torch.int8,
     granularity=PerAxis(0),
-    version=2,
 )
 linear_config = Int8DynamicActivationIntxWeightConfig(
     weight_dtype=torch.int4,
     weight_granularity=PerGroup(32),
-    version=2,
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
@@ -630,12 +628,10 @@ def quantize_and_upload(
     _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
         weight_dtype=torch.int4,
         weight_granularity=PerGroup(32),
-        version=2,
     )
     _int8_int4_embedding_config = IntxWeightOnlyConfig(
         weight_dtype=torch.int8,
         granularity=PerAxis(0),
-        version=2,
     )
     quant_to_config = {
         "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
