@@ -13,9 +13,11 @@ import torch.nn as nn
 from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
+
 from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
     _is_kernel_library_loaded,
 )
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
@@ -170,7 +172,9 @@ def _replace_embedding_with_quantized_embedding(
                     mapping_type,
                 )
             else:
-                assert _is_kernel_library_loaded(), "torchao kernel library is not loaded"
+                assert _is_kernel_library_loaded(), (
+                    "torchao kernel library is not loaded"
+                )
                 qembedding = QuantizedEmbedding(bit_width)
                 setattr(module, name, qembedding)
                 getattr(module, name).quantize_and_pack_weights(
