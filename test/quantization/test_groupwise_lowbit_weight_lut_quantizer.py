@@ -21,18 +21,10 @@ from torchao.prototype.quantization.codebook_utils.codebook_utils import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
-    _check_torchao_lowbit_kernels_loaded,
+    _is_kernel_library_loaded,
 )
 
-_TORCHAO_LOWBIT_KERNELS_LOADED = False
-try:
-    _check_torchao_lowbit_kernels_loaded()
-    _TORCHAO_LOWBIT_KERNELS_LOADED = True
-except Exception:
-    pass
-
-
-@unittest.skipIf(not _TORCHAO_LOWBIT_KERNELS_LOADED, "Need torchao lowbit kernels")
+@unittest.skipIf(not _is_kernel_library_loaded(), "Need torchao lowbit kernels")
 class TestGroupwiseLowbitWeightLut(unittest.TestCase):
     """
     Test suite for the GroupwiseLutWeight quantization scheme, updated for the

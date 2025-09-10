@@ -19,7 +19,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
-    _check_torchao_lowbit_kernels_loaded,
+    _is_kernel_library_loaded,
 )
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         )
 
         if layout.target != Target.ATEN:
-            _check_torchao_lowbit_kernels_loaded()
+            assert _is_kernel_library_loaded(), "Kernel library is not loaded"
         else:
             assert torch.backends.kleidiai.is_available(), (
                 "ATEN target requires torch.backends.kleidiai.is_available()"
