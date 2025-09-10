@@ -14,7 +14,6 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
