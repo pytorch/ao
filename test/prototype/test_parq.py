@@ -27,6 +27,7 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
+from torchao.prototype.parq.quant.config_torchao import TRANSFORMERS_AVAIL, is_hf_model
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
@@ -431,10 +432,27 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
+        save_hf_config = False
+        if TRANSFORMERS_AVAIL:
+            from transformers import PretrainedConfig
+
+            model.config = PretrainedConfig()  # pretend this is a HF model
+            save_hf_config = is_hf_model(model)
+            self.assertTrue(save_hf_config)
+
         optimizer.torchao_convert(model)
         converted_out = model(x)
         torch.testing.assert_close(converted_out, ref_out)
         check_torchao_tensor_subclass(self, model)
+
+        if save_hf_config:
+            reg_param_names = {n for n, m in model.named_modules() if _is_linear(m)}
+            module_fqn_to_config = (
+                model.config.quantization_config.quant_type.module_fqn_to_config
+            )
+            self.assertEqual(set(module_fqn_to_config.keys()), reg_param_names)
+            for torchao_config in module_fqn_to_config.values():
+                assert isinstance(torchao_config, config.__class__)
 
 
 common_utils.instantiate_parametrized_tests(TestPARQuantization)

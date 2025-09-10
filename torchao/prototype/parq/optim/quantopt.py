@@ -16,6 +16,7 @@ from torch.optim import Optimizer
 from torchao.quantization import quantize_
 
 from ..quant import Quantizer, UnifTorchaoQuantizer, get_config_from_quantizer
+from ..quant.config_torchao import is_hf_model, save_hf_quantization_config
 from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
@@ -159,14 +160,16 @@ class QuantOptimizer(Optimizer):
             if isinstance(module, nn.Embedding)
         }
 
+        filter_fns = []
+        configs = []
+        save_hf_config = is_hf_model(model)
         for group, filter_fn in zip(
             self.regularized_param_groups(), self.get_filter_fns(model)
         ):
+            filter_fns.append(filter_fn)
             quantizer = group.get("quantizer", self.quantizer)
-            if (
-                not isinstance(quantizer, UnifTorchaoQuantizer)
-                or len(group["params"]) == 0
-            ):
+            if not isinstance(quantizer, UnifTorchaoQuantizer) or not group["params"]:
+                configs.append(None)
                 continue
 
             device = group["params"][0].device
@@ -178,7 +181,17 @@ class QuantOptimizer(Optimizer):
                 group["quant_bits"],
                 group.get("quant_block_size"),
             )
-            quantize_(model, config, filter_fn=filter_fn)
+
+            # for HF model, delay quantize_ to after save_hf_quantization_config
+            # since it modifies p.data_ptr() and breaks filter_fn
+            if not save_hf_config:
+                quantize_(model, config, filter_fn=filter_fn)
+            configs.append(config)
+
+        if save_hf_config:
+            save_hf_quantization_config(model, filter_fns, configs)
+            for config, filter_fn in zip(configs, filter_fns):
+                quantize_(model, config, filter_fn=filter_fn)
 
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:

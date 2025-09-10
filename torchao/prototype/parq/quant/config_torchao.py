@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
+from torch import nn
 
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import Int4CPULayout, Layout, QDQLayout
@@ -14,6 +15,7 @@ from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
     _int8_asymm_per_token_quant,
 )
 from torchao.quantization.quantize_.workflows import (
@@ -34,6 +36,13 @@ from .uniform_torchao import (
     StretchedUnifTorchaoQuantizer,
 )
 
+try:
+    from transformers import PretrainedConfig, TorchAoConfig
+
+    TRANSFORMERS_AVAIL = True
+except ImportError:
+    TRANSFORMERS_AVAIL = False
+
 
 @dataclass
 class Int8DynamicActivationStretchedIntxWeightConfig(AOBaseConfig):
@@ -49,8 +58,8 @@ class Int8DynamicActivationStretchedIntxWeightConfig(AOBaseConfig):
 
 @register_quantize_module_handler(Int8DynamicActivationStretchedIntxWeightConfig)
 def _int8_dynamic_activation_stretched_intx_transform(
-    module: torch.nn.Module, config: Int8DynamicActivationStretchedIntxWeightConfig
-) -> torch.nn.Module:
+    module: nn.Module, config: Int8DynamicActivationStretchedIntxWeightConfig
+) -> nn.Module:
     weight = module.weight
     granularity = config.granularity
     mapping_type = MappingType.ASYMMETRIC
@@ -111,7 +120,7 @@ def _int8_dynamic_activation_stretched_intx_transform(
             weight = to_linear_activation_quantized(weight, _int8_asymm_per_token_quant)
         elif config.activation_quantization is not None:
             raise ValueError(f"Unsupported {config.activation_quantization=}")
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    module.weight = nn.Parameter(weight, requires_grad=False)
     return module
 
 
@@ -143,7 +152,7 @@ def get_config_from_quantizer(
             weight_dtype=weight_dtype,
             granularity=granularity,
             mapping_type=quantizer.mapping_type,
-            packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+            intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=version,
         )
     else:
@@ -152,7 +161,40 @@ def get_config_from_quantizer(
             weight_granularity=granularity,
             weight_mapping_type=quantizer.mapping_type,
             act_mapping_type=MappingType.ASYMMETRIC,
-            packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+            intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=version,
         )
     return config
+
+
+def is_hf_model(model: nn.Module) -> bool:
+    return TRANSFORMERS_AVAIL and isinstance(
+        getattr(model, "config", None), PretrainedConfig
+    )
+
+
+def save_hf_quantization_config(
+    model: nn.Module,
+    filter_fns: list[Callable[nn.Module, bool]],
+    configs: list[AOBaseConfig],
+) -> None:
+    """Save torchao quantization config to Hugging Face model."""
+    assert is_hf_model(model), "Only Hugging Face models are supported"
+    assert len(filter_fns) == len(configs), (
+        "filter_fns and configs must have the same length"
+    )
+
+    module_to_config = {}
+    for name, module in model.named_modules():
+        if not hasattr(module, "weight"):
+            continue
+
+        for i, filter_fn in enumerate(filter_fns):
+            if filter_fn(module):
+                module_to_config[name] = configs[i]
+
+    model.config.quantization_config = TorchAoConfig(
+        quant_type=ModuleFqnToConfig(module_to_config),
+        include_input_output_embeddings=True,
+        modules_to_not_convert=[],
+    )
