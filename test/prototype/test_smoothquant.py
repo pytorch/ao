@@ -52,6 +52,7 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
 class TestSmoothQuant(unittest.TestCase):
     """SmoothQuant tests using only supported quantization configs."""
