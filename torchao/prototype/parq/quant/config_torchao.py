@@ -18,10 +18,7 @@ from torchao.quantization.quant_api import (
     ModuleFqnToConfig,
     _int8_asymm_per_token_quant,
 )
-from torchao.quantization.quantize_.workflows import (
-    IntxPackingFormat,
-    IntxUnpackedToInt8Tensor,
-)
+from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.utils import check_cpu_version
 
@@ -49,7 +46,7 @@ class Int8DynamicActivationStretchedIntxWeightConfig(AOBaseConfig):
     granularity: Granularity = PerAxis(0)
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
-    version: int = 1
+    version: int = 2
     b: Optional[int] = None
     quant_min: Optional[int] = None
     quant_max: Optional[int] = None
@@ -124,7 +121,7 @@ def _int8_dynamic_activation_stretched_intx_transform(
     return module
 
 
-def get_config_from_quantizer(
+def _get_config_from_quantizer(
     quantizer,
     weight_only: bool,
     device: torch.device,
@@ -135,24 +132,28 @@ def get_config_from_quantizer(
     granularity = PerGroup(block_size) if block_size is not None else PerAxis(0)
     weight_dtype = _BIT_WIDTH_TO_DTYPE[b]
     if isinstance(quantizer, Int4UnifTorchaoQuantizer):
-        kwargs = {"layout": Int4CPULayout()} if check_cpu_version(device) else {}
-        config = Int4WeightOnlyConfig(group_size=block_size, version=1, **kwargs)
+        config = Int4WeightOnlyConfig(
+            group_size=block_size,
+            version=version,
+        )
+        if check_cpu_version(device):
+            config.layout = Int4CPULayout()
+            config.version = 1
     elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
-        kwargs = {"activation_quantization": None} if weight_only else {}
         config = Int8DynamicActivationStretchedIntxWeightConfig(
             b=b,
             quant_min=quantizer.quant_min,
             quant_max=quantizer.quant_max,
             granularity=granularity,
             version=version,
-            **kwargs,
         )
+        if weight_only:
+            config.activation_quantization = None
     elif weight_only:
         config = IntxWeightOnlyConfig(
             weight_dtype=weight_dtype,
             granularity=granularity,
             mapping_type=quantizer.mapping_type,
-            intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=version,
         )
     else:
@@ -161,25 +162,35 @@ def get_config_from_quantizer(
             weight_granularity=granularity,
             weight_mapping_type=quantizer.mapping_type,
             act_mapping_type=MappingType.ASYMMETRIC,
-            intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
             version=version,
         )
     return config
 
 
-def is_hf_model(model: nn.Module) -> bool:
+def _is_hf_model(model: nn.Module) -> bool:
     return TRANSFORMERS_AVAIL and isinstance(
         getattr(model, "config", None), PretrainedConfig
     )
 
 
-def save_hf_quantization_config(
+def _attach_hf_quantization_config(
     model: nn.Module,
     filter_fns: list[Callable[nn.Module, bool]],
     configs: list[AOBaseConfig],
 ) -> None:
-    """Save torchao quantization config to Hugging Face model."""
-    assert is_hf_model(model), "Only Hugging Face models are supported"
+    """Attaches torchao quantization config(s) to Hugging Face model.
+
+    Args:
+        model: nn.Module - Hugging Face model.
+        filter_fns: list[Callable[nn.Module, bool]] - Callables that correspond
+            to `configs`. Each `filter_fns[i]` returns whether the input module
+            should be quantized with `configs[i]`. A module can map to at most
+            one config.
+        configs: list[AOBaseConfig] - torchao quantization configs inferred by
+            `QuantOptimizer`. Each config corresponds to a param group returned
+            by `optimizer.regularized_param_groups()`.
+    """
+    assert _is_hf_model(model), "model is not a Hugging Face model"
     assert len(filter_fns) == len(configs), (
         "filter_fns and configs must have the same length"
     )

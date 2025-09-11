@@ -6,7 +6,6 @@
 
 from .config_torchao import (  # noqa: F401
     Int8DynamicActivationStretchedIntxWeightConfig,
-    get_config_from_quantizer,
 )
 from .lsbq import LSBQuantizer  # noqa: F401
 from .quantizer import Quantizer  # noqa: F401

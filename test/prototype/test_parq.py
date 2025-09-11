@@ -27,7 +27,7 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
-from torchao.prototype.parq.quant.config_torchao import TRANSFORMERS_AVAIL, is_hf_model
+from torchao.prototype.parq.quant.config_torchao import TRANSFORMERS_AVAIL, _is_hf_model
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
@@ -40,7 +40,12 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
-from torchao.utils import check_cpu_version
+from torchao.utils import (
+    _is_fbgemm_genai_gpu_available,
+    check_cpu_version,
+    is_sm_at_least_90,
+    torch_version_at_least,
+)
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -118,6 +123,7 @@ def compare_parq_convert(
     model: nn.Module,
     m_ref: nn.Module,
     optimizer: QuantOptimizer,
+    weight_only: bool = False,
 ):
     # do not update model weights, just quantize
     optimizer.zero_grad()
@@ -126,7 +132,10 @@ def compare_parq_convert(
     orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
 
     # equivalent to torchao's convert step
-    optimizer.torchao_convert(model)
+    optimizer.torchao_convert(model, weight_only=weight_only)
+
+    inputs = model.example_inputs(device=_DEVICE)
+    torch.testing.assert_close(model(inputs), orig_model(inputs))
 
     for n, module in model.named_modules():
         if not _is_linear(module):
@@ -140,14 +149,16 @@ def compare_parq_convert(
         torch.testing.assert_close(p, p_ref, atol=0, rtol=0)
 
 
-def check_torchao_tensor_subclass(test_case: common_utils.TestCase, model):
+def check_torchao_tensor_subclass(
+    test_case: common_utils.TestCase, model: nn.Module, weight_only: bool = False
+):
     for module in model.modules():
-        if _is_linear(module):
+        if not weight_only and _is_linear(module):
             test_case.assertTrue(isinstance(module.weight, IntxUnpackedToInt8Tensor))
             test_case.assertTrue(
                 module.weight.activation_quantization == "int8_asym_per_token"
             )
-        elif isinstance(module, nn.Embedding):
+        elif weight_only and _is_linear(module) or isinstance(module, nn.Embedding):
             test_case.assertTrue(isinstance(module.weight, IntxUnpackedToInt8Tensor))
             test_case.assertTrue(module.weight.activation_quantization is None)
 
@@ -226,15 +237,22 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
+    @unittest.skipIf(
+        torch.cuda.is_available()
+        and (not is_sm_at_least_90() or not _is_fbgemm_genai_gpu_available()),
+        "Requires sm90+ and fbgemm-gpu-genai >= 1.2.0 if GPU available",
+    )
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE, dtype=torch.bfloat16)
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size, version=1)
+        config = int4_weight_only(group_size=group_size)
         if check_cpu_version(_DEVICE):
             config.layout = Int4CPULayout()
+            config.version = 1
         quantize_(m_ref, config)
 
         b = 4
@@ -259,15 +277,17 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer = UnifTorchaoQuantizer()
         compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
-    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+    )
     def test_int4_weight_only_e2e(self, group_size: int = 32):
-        model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
+        model = M(m=512, n=512, embedding=False).to(torch.bfloat16).to(_DEVICE)
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size, version=1)
-        if check_cpu_version(_DEVICE):
-            config.layout = Int4CPULayout()
+        config = int4_weight_only(group_size=group_size)
         quantize_(m_ref, config)
 
         b = 4
@@ -283,7 +303,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("b", [2, 3, 4, 8])
     def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
-        model = M(m=512, n=512).to(_DEVICE)
+        model = M(m=512, n=512, embedding=False).to(_DEVICE)
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
@@ -299,8 +319,8 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ProxHardQuant(),
             quant_per_channel=True,
         )
-        compare_parq_convert(model, m_ref, optimizer)
-        check_torchao_tensor_subclass(self, model)
+        compare_parq_convert(model, m_ref, optimizer, weight_only=True)
+        check_torchao_tensor_subclass(self, model, weight_only=True)
 
 
 class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
@@ -355,7 +375,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("b", [2, 3])
     def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
-        model = M(m=512, n=512).to(_DEVICE)
+        model = M(m=512, n=512, embedding=False).to(_DEVICE)
         model.reset_parameters()
 
         quantizer = StretchedUnifTorchaoQuantizer(b)
@@ -368,7 +388,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
             granularity=PerGroup(group_size),
             activation_quantization=None,
         )
-        quantize_(m_ref, config)
+        quantize_(m_ref, config, filter_fn=_is_linear)
 
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
         optimizer = QuantOptimizer(
@@ -377,8 +397,8 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
             ProxHardQuant(),
             quant_per_channel=True,
         )
-        compare_parq_convert(model, m_ref, optimizer)
-        check_torchao_tensor_subclass(self, model)
+        compare_parq_convert(model, m_ref, optimizer, weight_only=True)
+        check_torchao_tensor_subclass(self, model, weight_only=True)
 
 
 class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
@@ -421,10 +441,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         # apply torchao quantized activations on top
         activation_config = IntxFakeQuantizeConfig(
-            torch.int8,
-            "per_token",
-            is_symmetric=False,
-            scale_precision=model_dtype,
+            torch.int8, "per_token", is_symmetric=False, scale_precision=model_dtype
         )
         qat_config = QATConfig(activation_config=activation_config, step="prepare")
         for filter_fn in optimizer.get_filter_fns(model):
@@ -432,20 +449,20 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
-        save_hf_config = False
+        attach_hf_config = False
         if TRANSFORMERS_AVAIL:
             from transformers import PretrainedConfig
 
             model.config = PretrainedConfig()  # pretend this is a HF model
-            save_hf_config = is_hf_model(model)
-            self.assertTrue(save_hf_config)
+            attach_hf_config = _is_hf_model(model)
+            self.assertTrue(attach_hf_config)
 
         optimizer.torchao_convert(model)
         converted_out = model(x)
         torch.testing.assert_close(converted_out, ref_out)
         check_torchao_tensor_subclass(self, model)
 
-        if save_hf_config:
+        if attach_hf_config:
             reg_param_names = {n for n, m in model.named_modules() if _is_linear(m)}
             module_fqn_to_config = (
                 model.config.quantization_config.quant_type.module_fqn_to_config

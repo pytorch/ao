@@ -15,8 +15,12 @@ from torch.optim import Optimizer
 
 from torchao.quantization import quantize_
 
-from ..quant import Quantizer, UnifTorchaoQuantizer, get_config_from_quantizer
-from ..quant.config_torchao import is_hf_model, save_hf_quantization_config
+from ..quant import Quantizer, UnifTorchaoQuantizer
+from ..quant.config_torchao import (
+    _attach_hf_quantization_config,
+    _get_config_from_quantizer,
+    _is_hf_model,
+)
 from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
@@ -148,7 +152,7 @@ class QuantOptimizer(Optimizer):
         for param_set in self._param_sets():
             yield partial(_filter_fn, param_set=param_set)
 
-    def torchao_convert(self, model: nn.Module) -> None:
+    def torchao_convert(self, model: nn.Module, weight_only: bool = False) -> None:
         """Converts model parameters to torchao quantized tensor subclasses."""
         model.eval()
         self.restore_latent_params()
@@ -162,7 +166,7 @@ class QuantOptimizer(Optimizer):
 
         filter_fns = []
         configs = []
-        save_hf_config = is_hf_model(model)
+        attach_hf_config = _is_hf_model(model)
         for group, filter_fn in zip(
             self.regularized_param_groups(), self.get_filter_fns(model)
         ):
@@ -173,25 +177,21 @@ class QuantOptimizer(Optimizer):
                 continue
 
             device = group["params"][0].device
-            weight_only = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
-            config = get_config_from_quantizer(
+            any_embed = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
+            config = _get_config_from_quantizer(
                 quantizer,
-                weight_only,
+                weight_only or any_embed,
                 device,
                 group["quant_bits"],
                 group.get("quant_block_size"),
             )
-
-            # for HF model, delay quantize_ to after save_hf_quantization_config
-            # since it modifies p.data_ptr() and breaks filter_fn
-            if not save_hf_config:
-                quantize_(model, config, filter_fn=filter_fn)
             configs.append(config)
 
-        if save_hf_config:
-            save_hf_quantization_config(model, filter_fns, configs)
-            for config, filter_fn in zip(configs, filter_fns):
-                quantize_(model, config, filter_fn=filter_fn)
+        if attach_hf_config:
+            _attach_hf_quantization_config(model, filter_fns, configs)
+
+        for config, filter_fn in zip(configs, filter_fns):
+            quantize_(model, config, filter_fn=filter_fn)
 
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:
