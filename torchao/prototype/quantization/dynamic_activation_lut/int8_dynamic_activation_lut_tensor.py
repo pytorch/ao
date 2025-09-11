@@ -3,230 +3,238 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
-from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.quantization.quant_primitives import _DTYPE_TO_QVALUE_BOUNDS
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_BIT_WIDTH,
+    _DTYPE_TO_QVALUE_BOUNDS,
+)
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
+)
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
+    IntxUnpackedToInt8Tensor,
+    IntxUnpackedToInt8TensorActivationQuantization,
+)
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
 
-class Int8DynamicActivationLutTensor(TorchAOBaseTensor):
+class Int8LutTensor(TorchAOBaseTensor):
     """
-    Tensor subclass that applies int8 dynamic activation quantization with lookup table quantization
-
-    Args:
-        original_weight_tensor (torch.Tensor): The weight tensor to be wrapped.
-        scale (torch.Tensor): The scale tensor to be applied to activation.
+    Tensor subclass that does int8 dynamic activation quantization with lookup table quantization
     """
 
-    packed_weight: torch.Tensor
+    tensor_data_names = ["packed_weights"]
+    tensor_attribute_names = [
+        "bit_width",
+        "block_size",
+        "shape",
+        "dtype",
+        "packed_weights_has_bias",
+    ]
+
+    packed_weights: torch.Tensor
     original_shape: Tuple[int, int]
     weight_scale_group_size: int
     bit_width: int
 
     def __new__(
         cls,
-        packed_weight: torch.Tensor,
-        original_shape: Tuple[int, int],
-        weight_scale_group_size: int,
-        bit_width: int,
+        packed_weights,
+        bit_width,
+        block_size,
+        shape,
+        dtype,
+        packed_weights_has_bias,
     ):
         kwargs = {}
-        kwargs["dtype"] = torch.float32
+        kwargs["device"] = packed_weights.device
+        kwargs["dtype"] = dtype
         kwargs["requires_grad"] = False
-        kwargs["device"] = packed_weight.device
-        return torch.Tensor._make_wrapper_subclass(cls, original_shape, **kwargs)  # type: ignore[attr-defined]
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
         self,
-        packed_weight: torch.Tensor,
-        original_shape: Tuple[int, int],
-        weight_scale_group_size,
-        bit_width: int,
+        packed_weights,
+        bit_width,
+        block_size,
+        shape,
+        dtype,
+        packed_weights_has_bias,
     ):
-        self.packed_weight = packed_weight
-        self.original_shape = original_shape
-        self.weight_scale_group_size = weight_scale_group_size
+        super().__init__()
+        assert packed_weights.device == torch.device("cpu")
+        self.packed_weights = packed_weights
         self.bit_width = bit_width
+        self.block_size = block_size
+        self.shape = shape
+        self.dtype = dtype
+        self.packed_weights_has_bias = packed_weights_has_bias
+
+    def _quantization_type(self):
+        return f"bit_width={self.bit_width}, block_size={self.block_size}, shape={self.shape}, dtype={self.dtype}, device={self.device}"
+
+    def to(self, *args, **kwargs):
+        raise NotImplementedError("to() is not implemented for IntxOpaqueTensor")
 
     @classmethod
-    def from_plain(
+    def _get_lut_params(cls, tensor: IntxUnpackedToInt8Tensor):
+        assert isinstance(tensor, IntxUnpackedToInt8Tensor)
+        assert tensor.target_dtype in [torch.int1, torch.int2, torch.int3, torch.int4]
+
+        qdata = tensor.qdata
+        scale = tensor.scale
+        zero_point = tensor.zero_point
+
+        if tensor._has_float_zero_point:
+            # Stretched tensors from PARQ should have -0.5 has zero_point
+            assert torch.all(zero_point == -0.5)
+            is_stretched_tensor = True
+        else:
+            assert torch.all(zero_point == 0)
+            is_stretched_tensor = False
+
+        quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[tensor.target_dtype]
+        lut_indices = qdata - quant_min
+        lut = torch.arange(quant_min, quant_max + 1)
+
+        # Construct LUT as 2 * ([q_min, q_max] - 0.5)
+        if is_stretched_tensor:
+            lut = 2 * lut + 1
+            scale = 0.5 * scale
+
+        # Scale must be float32 + 1D
+        scale = scale.reshape(-1).to(torch.float32)
+
+        return lut, lut_indices, scale
+
+    @classmethod
+    def from_intx_unpacked_to_int8_tensor(
         cls,
-        weight_indices: torch.Tensor,
-        weight_luts: torch.Tensor,
-        weight_scale: torch.Tensor,
-        weight_scale_group_size: int,
-        bias,
+        tensor: IntxUnpackedToInt8Tensor,
+        *,
+        bias: Optional[torch.Tensor] = None,
     ):
-        if len(weight_luts.shape) == 1:
-            weight_luts = weight_luts.unsqueeze(0)
-        assert len(weight_luts.shape) == 2, (
-            "Expected weight_luts to be 2D tensor.  Each row in the tensor is an LUT"
+        """
+        Constructs a Int8LutTensor from an IntxUnpackedToInt8Tensor.
+        If bias is passed, bias is packed into the tensor.
+        """
+
+        assert _is_kernel_library_loaded(), "TorchAO kernel library is not loaded"
+        assert (
+            tensor.activation_quantization
+            == IntxUnpackedToInt8TensorActivationQuantization.INT8_ASYM_PER_TOKEN
         )
-        bit_width = {2**b: b for b in range(1, 5)}[weight_luts.shape[1]]
 
-        int8_min, int8_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
-        assert torch.all(weight_luts >= int8_min)
-        assert torch.all(weight_luts <= int8_max)
-        weight_luts = weight_luts.to(torch.int8)
+        assert len(tensor.block_size) == 2
+        assert tensor.block_size[0] == 1
+        scale_group_size = tensor.block_size[1]
 
-        n, k = weight_indices.shape
-        # assert n % 8 == 0, f"Expected n to be divisible by 8, but got n={n}"
-        assert k % 16 == 0, f"Expected k to be divisible by 16, but got k={k}"
-        assert torch.all(weight_indices >= 0)
-        assert torch.all(weight_indices < 2**bit_width)
-
-        weight_scale = weight_scale.reshape(-1)
-        assert k % weight_scale_group_size == 0, (
-            f"Expected k to be divisible by weight_scale_group_size, but got k={k} and weight_scale_group_size={weight_scale_group_size}"
-        )
-        assert weight_scale.shape == (n * (k // weight_scale_group_size),)
-
-        if bias is not None:
+        packed_weights_has_bias = bias is not None
+        if packed_weights_has_bias:
+            n, k = tensor.shape
             assert bias.shape == (n,)
+            bias = bias.to(torch.float32)
 
-        packed_weight = getattr(
-            torch.ops.torchao, f"_pack_8bit_act_{bit_width}bit_weight_with_lut"
+        lut, lut_indices, scale = cls._get_lut_params(tensor)
+        packed_weights = getattr(
+            torch.ops.torchao, f"_pack_8bit_act_{tensor.bit_width}bit_weight_with_lut"
         )(
-            weight_indices,
-            weight_luts,
-            weight_scale,
-            weight_scale_group_size,
+            lut_indices,
+            lut,
+            scale,
+            scale_group_size,
             bias,
             None,
         )
-        return cls(packed_weight, (n, k), weight_scale_group_size, bit_width)
 
-    def __repr__(self):
-        return "Int8DynamicActivationLutTensor"
-
-    def __tensor_flatten__(self):
-        return ["packed_weight"], [
-            self.original_shape,
-            self.weight_scale_group_size,
-            self.bit_width,
-        ]
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        packed_weight = tensor_data_dict["packed_weight"]
-        original_shape, weight_scale_group_size, bitwidth = tensor_attributes
-        return cls(packed_weight, original_shape, weight_scale_group_size, bitwidth)
-
-    @staticmethod
-    def _quantized_linear_op(
-        input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
-    ):
-        def _impl_2d(
-            input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
-        ):
-            original_dtype = torch.float32
-            if input_tensor.dtype != torch.float32:
-                original_dtype = input_tensor.dtype
-                input_tensor = input_tensor.to(torch.float32)
-
-            assert input_tensor.dim() == 2
-            m, k = input_tensor.shape
-            n, k_ = weight_tensor.original_shape
-            assert k == k_, (
-                f"Incompatible input shape. Expected second dimension to be equal to {k_}, but got {k}"
-            )
-            assert bias is None, (
-                "Expected bias to be None because it should be packed with the weight tensor"
-            )
-            out = getattr(
-                torch.ops.torchao,
-                f"_linear_8bit_act_{weight_tensor.bit_width}bit_weight",
-            )(
-                input_tensor,
-                weight_tensor.packed_weight,
-                weight_tensor.weight_scale_group_size,
-                n,
-                k,
-            )
-
-            if original_dtype != torch.float32:
-                out = out.to(original_dtype)
-            return out
-
-        assert input_tensor.dim() >= 2
-        if input_tensor.dim() == 2:
-            res = _impl_2d(input_tensor, weight_tensor, bias)
-        else:
-            assert input_tensor.dim() >= 3
-            lead_shape = input_tensor.shape[0:-2]
-            m, k = input_tensor.shape[-2], input_tensor.shape[-1]
-            res = _impl_2d(input_tensor.reshape(-1, k), weight_tensor, bias)
-            res = res.reshape(*lead_shape, m, -1)
-
-        return res
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            fn(self.packed_weight),
-            self.original_shape,
-            self.weight_scale_group_size,
-            self.bit_width,
-        )
-
-    def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        device = kwargs.pop("device")
-        return self.__class__(
-            self.packed_weight.to(device),
-            self.original_shape,
-            self.weight_scale_group_size,
-            self.bit_width,
+        bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
+        return cls(
+            packed_weights,
+            bit_width,
+            tensor.block_size,
+            tensor.shape,
+            tensor.dtype,
+            packed_weights_has_bias,
         )
 
 
-implements = Int8DynamicActivationLutTensor.implements
+implements = Int8LutTensor.implements
 
 
-@implements(torch.nn.functional.linear)
+def _linear_impl_2d(
+    input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
+):
+    assert isinstance(weight_tensor, Int8LutTensor)
+    assert input_tensor.dim() == 2
+    assert weight_tensor.dim() == 2
+    assert weight_tensor.block_size[0] == 1
+    group_size = weight_tensor.block_size[1]
+
+    m, k = input_tensor.shape
+    n, k_ = weight_tensor.shape
+    assert k_ == k
+
+    packed_weights = weight_tensor.packed_weights
+    bit_width = weight_tensor.bit_width
+
+    if weight_tensor.dtype != torch.float32:
+        input_tensor = input_tensor.to(torch.float32)
+
+    res = getattr(
+        torch.ops.torchao,
+        f"_linear_8bit_act_{bit_width}bit_weight",
+    )(
+        input_tensor,
+        packed_weights,
+        group_size,
+        n,
+        k,
+    )
+    if weight_tensor.dtype != torch.float32:
+        res = res.to(weight_tensor.dtype)
+
+    return res
+
+
+@implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    if isinstance(weight_tensor, Int8DynamicActivationLutTensor):
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
 
-    raise NotImplementedError(
-        "Int8DynamicActivationLutTensor: No specialized dispatch found for linear op"
-    )
+    # TODO: why was this added https://github.com/pytorch/ao/pull/2043
+    if input_tensor.numel() == 0:
+        return input_tensor
 
+    if input_tensor.dim() == 1:
+        k = input_tensor.shape[0]
+        input_tensor = input_tensor.reshape(1, k)
+        res = _linear_impl_2d(input_tensor, weight_tensor)
+        res = res.reshape(-1)
+    elif input_tensor.dim() == 2:
+        res = _linear_impl_2d(input_tensor, weight_tensor)
+    else:
+        assert input_tensor.dim() >= 3
+        lead_shape = input_tensor.shape[0:-2]
+        m, k = input_tensor.shape[-2], input_tensor.shape[-1]
+        n, k_ = weight_tensor.shape
+        assert k_ == k
+        res = _linear_impl_2d(input_tensor.reshape(-1, k), weight_tensor)
+        res = res.reshape(*lead_shape, m, n)
 
-@implements(aten.detach.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-    )
+    if bias is not None:
+        assert not weight_tensor.packed_weights_has_bias
+        res = res + bias
 
-
-@implements(aten.clone.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
-    )
-
-
-@implements(aten._to_copy.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func,
-        args,
-        kwargs,
-        args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
-    )
+    return res
 
 
-# Allow a model with Int8DynamicActivationLutTensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Int8DynamicActivationLutTensor])
+# Allow a model with Int8LutTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([Int8LutTensor])
