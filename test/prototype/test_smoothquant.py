@@ -20,6 +20,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.testing.model_architectures import ToyTwoLinearModel
 
+
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
 class TestSmoothQuant(unittest.TestCase):
@@ -102,7 +103,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_observer_insertion(self, base_config):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
 
-        m = ToyLinearModel().eval()
+        m = ToyTwoLinearModel().eval().to(device="cuda", dtype=torch.bfloat16)
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
@@ -141,7 +142,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_prepare_for_loading(self, base_config):
         """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
-        m = ToyLinearModel().eval()
+        m = ToyTwoLinearModel().eval().to(device="cuda", dtype=torch.bfloat16)
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
