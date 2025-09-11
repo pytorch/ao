@@ -4,26 +4,20 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 
 import torch
-from torch import nn
 
 from torchao.dtypes import AffineQuantizedTensor, Layout, QDQLayout
 from torchao.quantization import (
     MappingType,
-    PerAxis,
-    PerGroup,
     ZeroPointDomain,
     dequantize_affine,
 )
-from torchao.quantization.quant_api import IntxWeightOnlyConfig
 from torchao.quantization.quant_primitives import (
     _SUB_BYTE_UINT_BOUNDS,
     _get_reduction_params,
 )
-from torchao.quantization.transform_module import register_quantize_module_handler
 
 
 def choose_qparams_stretched_affine(
@@ -179,46 +173,3 @@ class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
 
 
 to_stretched_affine_quantized_intx = StretchedAffineQuantizedTensor.from_hp_to_intx
-
-
-@dataclass
-class StretchedIntxWeightOnlyConfig(IntxWeightOnlyConfig):
-    b: Optional[int] = None
-    quant_min: Optional[int] = None
-    quant_max: Optional[int] = None
-
-
-@register_quantize_module_handler(StretchedIntxWeightOnlyConfig)
-def _stretched_intx_weight_only_transform(
-    module: nn.Module, config: StretchedIntxWeightOnlyConfig
-) -> nn.Module:
-    weight = module.weight
-    granularity = config.granularity
-    mapping_type = MappingType.ASYMMETRIC
-
-    assert weight.dim() == 2, (
-        f"StretchedIntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
-    )
-    if isinstance(granularity, PerGroup):
-        group_size = granularity.group_size
-    elif isinstance(granularity, PerAxis):
-        assert granularity.axis == 0, (
-            f"axis must be 0 with PerAxis, but got {granularity.axis}"
-        )
-        group_size = weight.shape[-1]
-    else:
-        raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
-
-    weight = to_stretched_affine_quantized_intx(
-        input_float=weight,
-        mapping_type=mapping_type,
-        block_size=(1, group_size),
-        target_dtype=torch.int8,
-        b=config.b,
-        quant_min=config.quant_min,
-        quant_max=config.quant_max,
-        scale_dtype=config.scale_dtype,
-        _layout=config.layout,
-    )
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    return module
