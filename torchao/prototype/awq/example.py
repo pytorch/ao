@@ -215,7 +215,7 @@ def quantize_and_eval(
     # load any model with torch.nn.linear layers
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
+        AutoModelForCausalLM.from_pretrained(repo_id, dtype=precision)
         .eval()
         .to(device)
     )

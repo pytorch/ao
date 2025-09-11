@@ -88,7 +88,7 @@ quantization_config = TorchAoConfig(
 # Load and automatically quantize the model
 model = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Llama-3.2-1B",
-    torch_dtype="auto",
+    dtype="auto",
     device_map="auto",
     quantization_config=quantization_config
 )
