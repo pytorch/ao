@@ -18,16 +18,20 @@ def convert_model(model):
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
             weight = module.weight
-            if isinstance(weight, IntxUnpackedToInt8Tensor):
-                try:
-                    new_weight = Int8LutTensor.from_intx_unpacked_to_int8_tensor(
-                        weight, bias=module.bias
-                    )
-                    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-                    module.bias = None
-                except Exception as e:
-                    print(
-                        f"Failed to convert {name} to Int8LutTensor.  Skipping.  The exception was: {e}"
-                    )
-                    continue
+            if not isinstance(weight, IntxUnpackedToInt8Tensor):
+                print(
+                    f"Skipping converting {name} to Int8LutTensor because its weight is not an IntxUnpackedToInt8Tensor"
+                )
+                continue
+            try:
+                new_weight = Int8LutTensor.from_intx_unpacked_to_int8_tensor(
+                    weight, bias=module.bias
+                )
+                module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+                module.bias = None
+            except Exception as e:
+                print(
+                    f"Skipping converting {name} to Int8LutTensor because an error occurred: {e}"
+                )
+                continue
     return model
