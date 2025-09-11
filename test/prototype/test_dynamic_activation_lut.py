@@ -28,6 +28,7 @@ from torchao.quantization.quant_api import (
     _int8_asymm_per_token_quant,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
+from torchao.quantization.utils import compute_error
 
 is_arm64_mac = sys.platform == "darwin" and platform.machine() == "arm64"
 
@@ -82,6 +83,7 @@ def run_before_and_after_tests():
 @pytest.mark.parametrize("lead_dim", [(5,), (2, 3)])
 @pytest.mark.skipif(not is_arm64_mac, reason="requires arm64 mac")
 def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
+    torch.manual_seed(0)
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
     config = StretchedIntxWeightOnlyConfig(
         b=bit_width,
@@ -118,11 +120,14 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
     parq_with_dyn_quant_out = parq_model_with_dyn_quant(activations)
     lut_out = lut_model(activations)
 
-    assert torch.allclose(parq_out, parq_with_dyn_quant_out, atol=1e-1, rtol=1e-1)
+    sqnr = compute_error(parq_out, parq_with_dyn_quant_out).item()
+    assert sqnr > 20.0, f"sqnr {sqnr} is too low"
+
+    sqnr = compute_error(lut_out, parq_with_dyn_quant_out).item()
     if dtype == torch.float32:
-        assert torch.allclose(lut_out, parq_with_dyn_quant_out, atol=1e-2, rtol=1e-2)
+        assert sqnr > 40.0, f"sqnr {sqnr} is too low"
     elif dtype == torch.bfloat16:
-        assert torch.allclose(lut_out, parq_with_dyn_quant_out, atol=1e-2, rtol=1e-2)
+        assert sqnr > 25.0, f"sqnr {sqnr} is too low"
     else:
         raise ValueError(f"Unsupported dtype {dtype}")
 

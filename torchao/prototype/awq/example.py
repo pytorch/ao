@@ -224,17 +224,9 @@ def quantize_and_eval(
         group_size = int(quant.split("-")[2])
         print(f"running {quant} quantization with group size {group_size}")
         # TODO: this is temporary, we'll be using Int4WeightOnlyConfig soon
-        from torchao.quantization import FbgemmConfig
+        from torchao.quantization import Int4WeightOnlyConfig
 
-        # use_hqq = True
-        # base_config = Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         print(f"running {quant} prepare and calibrate")
         t0 = time.time()
         quant_config = AWQConfig(base_config, step="prepare")
@@ -267,17 +259,10 @@ def quantize_and_eval(
     elif quant.startswith("int4wo"):
         group_size = int(quant.split("-")[1])
         print(f"running {quant} quantization with group size {group_size}")
-        # TODO: enable after refactor: https://github.com/pytorch/ao/pull/2474
+        # TODO: enable after migration: https://github.com/pytorch/ao/issues/2752
         # use_hqq = "hqq" in quant
-        # base_config = Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
-        int4_weight_only_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
-        quantize_(model, int4_weight_only_config)
+        base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+        quantize_(model, base_config)
 
     if model_save_path is not None:
         print(f"Saving model to {model_save_path}")

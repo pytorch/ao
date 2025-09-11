@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import tempfile
 import unittest
 from copy import deepcopy
 
@@ -13,229 +12,168 @@ from torch.testing._internal import common_utils
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
     SmoothQuantObservedLinear,
-    insert_smooth_quant_observer_,
-    load_smooth_quant_recipe,
-    save_smooth_quant_recipe,
 )
+from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
-from torchao.quantization.utils import (
-    dequantize_per_channel,
-    dynamically_quantize_per_channel,
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationInt8WeightConfig,
 )
 from torchao.testing.model_architectures import ToyTwoLinearModel
 
-
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
 class TestSmoothQuant(unittest.TestCase):
+    """SmoothQuant tests using only supported quantization configs."""
+
     @classmethod
     def setUpClass(cls):
         """Set up class-level configuration for tests."""
         # This test case will trigger recompilation many times, so set a large cache_size_limit here
         torch._dynamo.config.cache_size_limit = 128
 
-    @unittest.skip("This test is broken on recent PyTorch, TODO(#1639): fix it")
-    @common_utils.parametrize("bias", [True, False])
-    @common_utils.parametrize("alpha", [None, 0.5, 0.75])
-    @common_utils.parametrize("quant_mode", ["static", "dynamic"])
+    @common_utils.parametrize("alpha", [0.5, 0.75])
     @common_utils.parametrize(
-        "device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
+            # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
+        ],
     )
-    @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
-    def test_smoothquant_accuracy(self, bias, alpha, quant_mode, device, input_dtype):
-        """Test the margin error of SmoothQuant across bias, alpha, dtype, etc."""
+    @common_utils.parametrize("device", ["cpu", "cuda"])
+    @common_utils.parametrize("input_dtype", [torch.bfloat16])
+    def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
+        """Test if SmoothQuant achieves lower loss than basic quantization."""
+        in_features = 64
+        out_features = 128
 
-        class SimpleLinear(torch.nn.Module):
-            def __init__(self, bias: bool):
-                super().__init__()
-                self.fc = torch.nn.Linear(32, 32, bias)
-                self.fc.weight.data = torch.randn_like(self.fc.weight.data)
+        # Note: This is sanity check. For real run, consider Transformer model to reproduce.
+        X = torch.randn(16, in_features, dtype=input_dtype, device=device)
+        W = torch.randn(out_features, in_features, dtype=input_dtype, device=device)
 
-            def forward(self, x):
-                return self.fc(x)
+        # Create linear layer
+        linear = (
+            torch.nn.Linear(in_features, out_features, bias=False)
+            .to(device)
+            .to(input_dtype)
+        )
+        with torch.no_grad():
+            linear.weight.copy_(W)
 
-        # Create model, reference, and test data
-        m = SimpleLinear(bias).eval().to(input_dtype).to(device)
-        m_ref = deepcopy(m)
-        test_data = torch.randn(2, 32, dtype=input_dtype, device=device)
+        # Reference output
+        out_ref = linear(X)
 
-        # Step 1: Setup quantized model with observer insertion and calibration
-        insert_smooth_quant_observer_(m, alpha, quant_mode)
+        # Step 1. Basic quantization
+        basic_model = deepcopy(linear)
+        quantize_(basic_model, base_config)
+        out_basic = basic_model(X)
+        loss_base = torch.nn.functional.mse_loss(out_basic, out_ref).item()
+
+        # SmoothQuant quantization
+        model = deepcopy(linear)
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE,
+            alpha=alpha,
+        )
+        quantize_(model, config)
 
         # Perform calibration with test data
+        model(X)
+
+        # Step 2. SmoothQuant
+        config.step = SmoothQuantStep.CONVERT
+        quantize_(model, config)
+
+        out_smoothquant = model(X)
+        loss_smoothquant = torch.nn.functional.mse_loss(out_smoothquant, out_ref).item()
+
+        assert loss_smoothquant < loss_base, (
+            f"SmoothQuant loss ({loss_smoothquant:.6f}) should not be higher than basic loss ({loss_base:.6f})"
+        )
+
+    @common_utils.parametrize(
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # TODO: Check more quantization APIs
+        ],
+    )
+    def test_observer_insertion(self, base_config):
+        """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
+
+        m = ToyLinearModel().eval()
+
+        # Before quantization - should be regular Linear
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+        # PREPARE step - should insert observers
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE,
+        )
+        quantize_(m, config)
+
+        # After PREPARE - should be SmoothQuantObservedLinear
+        self.assertIsInstance(m.linear1, SmoothQuantObservedLinear)
+        self.assertTrue(hasattr(m.linear1, "obs"))
+
+        # Test calibration
+        test_data = torch.randn(2, 512)
         m(test_data)
 
-        # Apply quantization configuration
-        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-        quantize_(m, SmoothQuantConfig(), is_observed_linear)
+        # CONVERT step - should produce regular Linear with quantized weights
+        config.step = SmoothQuantStep.CONVERT
+        quantize_(m, config)
 
-        # Apply compilation if supported
-        m = torch.compile(m, fullgraph=True)
+        # After CONVERT - should be regular Linear again (but quantized)
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
 
-        # Step 2: Inference quantized model
-        with torch.inference_mode():
-            q_out = m(test_data)
-
-            # Step 3: Compute reference
-            weight = m_ref.fc.weight.data.float()
-            b = m_ref.fc.bias if bias else None
-            x_abs_max_per_ic = torch.abs(test_data).max(dim=0).values
-            w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
-
-            if alpha is not None:
-                # Apply SmoothQuant
-                smoothing_factor = torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
-                    w_abs_max_per_ic, 1 - alpha
-                )
-            else:
-                smoothing_factor = torch.ones_like(x_abs_max_per_ic)
-
-            # Apply smoothing to activations and weights
-            smoothed_activation = test_data / smoothing_factor
-            smoothed_weight = weight * smoothing_factor
-
-            # Quantize weights using per-channel quantization
-            qw, w_scales, w_zps = dynamically_quantize_per_channel(
-                smoothed_weight, -127, 127, torch.int8
-            )
-            fq_wei = dequantize_per_channel(qw, w_scales, w_zps, input_dtype)
-
-            # Handle activation quantization based on mode
-            if quant_mode == "static":
-                # activation is quantized per-tensor
-                act_min, act_max = torch.aminmax(smoothed_activation.float())
-                max_val_pos = torch.max(-act_min, act_max)
-                activation_scale = max_val_pos / 127.0
-
-                fq_act = (
-                    torch.quantize_per_tensor(
-                        smoothed_activation.float(),
-                        scale=activation_scale.item(),
-                        zero_point=0,
-                        dtype=torch.qint8,
-                    )
-                    .dequantize()
-                    .to(input_dtype)
-                )
-            else:
-                # activation is quantized per-row (batch * sequence_length)
-                qx, x_scales, x_zps = dynamically_quantize_per_channel(
-                    smoothed_activation.float(), -127, 127, torch.int8
-                )
-                fq_act = dequantize_per_channel(
-                    qx,
-                    x_scales,
-                    x_zps,
-                    input_dtype,
-                )
-
-            # Compute final linear operation
-            reference_out = torch.nn.functional.linear(fq_act, fq_wei, b)
-
-            # Step 4: Validate numerical accuracy
-            tolerance = (
-                0.1
-                if input_dtype == torch.float
-                else (0.2 if input_dtype == torch.half else 0.3)
-            )
-            torch.testing.assert_close(
-                q_out,
-                reference_out.to(input_dtype),
-                atol=tolerance,
-                msg=f"Quantized output differs from reference for "
-                f"bias={bias}, alpha={alpha}, quant_mode={quant_mode}, "
-                f"device={device}, dtype={input_dtype}",
-            )
-
-    @unittest.skip("This test is broken on recent PyTorch, TODO(#1639): fix it")
-    @common_utils.parametrize("alpha", [None, 0.5, 0.75])
-    @common_utils.parametrize("quant_mode", ["static", "dynamic"])
     @common_utils.parametrize(
-        "device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        "base_config",
+        [
+            Int8DynamicActivationInt8WeightConfig(),
+            # TODO: Check more quantization APIs
+        ],
     )
-    @common_utils.parametrize("input_dtype", [torch.float, torch.bfloat16, torch.half])
-    def test_save_load_recipe(self, alpha, quant_mode, device, input_dtype):
-        """Test save/load recipe functionality."""
-        dataset_size = 20
-        layer_dims = (512, 256, 128)  # Input, hidden, output dimensions
-        n_calib_examples = 10
-        sequence_length = 5
+    def test_prepare_for_loading(self, base_config):
+        """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
-        # Create two identical models for comparison
-        m = ToyTwoLinearModel(*layer_dims).eval().to(input_dtype).to(device)
-        m_save_load = deepcopy(m)
+        m = ToyLinearModel().eval()
 
-        # Generate calibration dataset
-        dataset = m.example_inputs(
-            dataset_size,
-            sequence_length=sequence_length,
-            dtype=input_dtype,
-            device=device,
+        # Before quantization - should be regular Linear
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
+
+        # PREPARE_FOR_LOADING step - should create quantized model ready for loading
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE_FOR_LOADING,
+            alpha=0.5,
         )
-        calibration_data = dataset[:n_calib_examples]
+        quantize_(m, config)
 
-        # Step 1: Setup first quantized model with observer insertion and calibration
-        insert_smooth_quant_observer_(m, alpha, quant_mode)
+        # After PREPARE_FOR_LOADING - should be regular Linear with quantized weights
+        self.assertIsInstance(m.linear1, torch.nn.Linear)
+        self.assertNotIsInstance(m.linear1, SmoothQuantObservedLinear)
 
-        # Perform calibration with calibration data
-        for data in calibration_data:
-            m(data)
+        # Test that model can run inference
+        test_data = torch.randn(2, 512)
+        with torch.inference_mode():
+            output = m(test_data)
 
-        # Apply quantization configuration
-        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-        quantize_(m, SmoothQuantConfig(), is_observed_linear)
-
-        # Apply compilation if supported
-        m = torch.compile(m, fullgraph=True)
-
-        # Step 2: Setup save/load model with recipe functionality
-        insert_smooth_quant_observer_(m_save_load, alpha, quant_mode)
-        for example in calibration_data:
-            m_save_load(example.to(device))
-
-        # Step 3: Test save/load recipe functionality
-        with tempfile.NamedTemporaryFile() as temp_file:
-            save_path = temp_file.name
-            save_smooth_quant_recipe(m_save_load, save_path)
-            load_smooth_quant_recipe(m_save_load, save_path)
-
-            # Step 4: Complete quantization for save/load model
-            is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-            quantize_(m_save_load, SmoothQuantConfig(), is_observed_linear)
-
-            m_save_load = torch.compile(m_save_load, fullgraph=True)
-
-            # Step 5: Validate outputs on full dataset
-            with torch.inference_mode():
-                original_outputs = []
-                save_load_outputs = []
-
-                for data in dataset:
-                    # Remove batch dimension for model input
-                    input_tensor = data.squeeze(0)
-
-                    original_output = m(input_tensor)
-                    save_load_output = m_save_load(input_tensor)
-
-                    original_outputs.append(original_output)
-                    save_load_outputs.append(save_load_output)
-
-                # Concatenate all outputs for comparison
-                original_result = torch.cat(original_outputs)
-                save_load_out = torch.cat(save_load_outputs)
-
-                self.assertIsNotNone(
-                    original_result, "Original model output should not be None"
-                )
-                self.assertIsNotNone(
-                    save_load_out, "Save/load model output should not be None"
-                )
-
-                torch.testing.assert_close(
-                    original_result,
-                    save_load_out,
-                    msg=f"Save/load recipe should produce identical results for "
-                    f"alpha={alpha}, quant_mode={quant_mode}, device={device}, dtype={input_dtype}",
-                )
+            # Validate output
+            self.assertIsNotNone(
+                output, "PREPARE_FOR_LOADING model output should not be None"
+            )
+            self.assertFalse(
+                torch.isnan(output).any(), "Model should not produce NaN values"
+            )
+            self.assertEqual(
+                output.shape, (2, 64), "Output shape should match expected dimensions"
+            )
 
 
 common_utils.instantiate_parametrized_tests(TestSmoothQuant)

@@ -14,7 +14,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.prototype.awq import AWQConfig, AWQStep
-from torchao.quantization import FbgemmConfig, Int4WeightOnlyConfig, quantize_
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.utils import _is_fbgemm_genai_gpu_available
 
 
@@ -73,13 +73,7 @@ class TestAWQ(TestCase):
         m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
 
         # baseline quantization
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config)
 
@@ -129,13 +123,7 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
@@ -189,13 +177,7 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = FbgemmConfig(
-            input_dtype=torch.bfloat16,
-            weight_dtype=torch.int4,
-            output_dtype=torch.bfloat16,
-            block_size=[1, group_size],
-            preshuffle=False,
-        )
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 

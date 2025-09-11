@@ -30,7 +30,6 @@ from torchao.dtypes import (
     Int4CPULayout,
     Int4XPULayout,
     PlainLayout,
-    QDQLayout,
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
@@ -39,7 +38,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
+    Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
@@ -59,6 +58,9 @@ from torchao.quantization.quant_api import (
     uintx_weight_only,
 )
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
+    IntxUnpackedToInt8Tensor,
+)
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -208,7 +210,7 @@ class TestQuantFlow(TestCase):
         m = ToyTwoLinearModel(64, 32, 64).eval().cpu()
 
         def api(model):
-            quantize_(model, int4_weight_only(layout=Int4XPULayout()))
+            quantize_(model, int4_weight_only(layout=Int4XPULayout(), version=1))
             unwrap_tensor_subclass(model)
 
         api(m)
@@ -439,10 +441,13 @@ class TestQuantFlow(TestCase):
             group_size = 32
             if device == "xpu":
                 quantize_(
-                    m, int4_weight_only(group_size=group_size, layout=Int4XPULayout())
+                    m,
+                    int4_weight_only(
+                        group_size=group_size, layout=Int4XPULayout(), version=1
+                    ),
                 )
             else:
-                quantize_(m, int4_weight_only(group_size=group_size))
+                quantize_(m, int4_weight_only(group_size=group_size, version=1))
             assert isinstance(m.linear1.weight, AffineQuantizedTensor)
             assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
@@ -561,7 +566,7 @@ class TestQuantFlow(TestCase):
             quantize_(
                 m,
                 int4_weight_only(
-                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq, version=1
                 ),
             )
             # ensure the expected op is in the code
@@ -577,7 +582,7 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize(
         "config",
         [
-            int4_weight_only(),
+            int4_weight_only(version=1),
             float8_weight_only(),
             float8_dynamic_activation_float8_weight(),
             float8_static_activation_float8_weight(scale=torch.tensor([1.0])),
@@ -643,7 +648,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_default(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyTwoLinearModel(64, 32, 64).cuda().to(dtype=torch.bfloat16)
@@ -657,7 +662,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_module_name(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
@@ -677,10 +682,12 @@ class TestQuantFlow(TestCase):
             weight_dtype=weight_dtype,
             granularity=granularity,
             mapping_type=mapping_type,
-            scale_dtype=None,
         )
         # example model linear is Linear(16, 8)
-        linear_config = Int8DynamicActivationInt4WeightConfig(group_size=16)
+        linear_config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=torch.int4,
+            weight_granularity=PerGroup(16),
+        )
 
         config = ModuleFqnToConfig({"emb": embedding_config, "linear": linear_config})
         indices = torch.randint(0, 10, (32,))
@@ -696,13 +703,12 @@ class TestQuantFlow(TestCase):
         )
         model(*example_inputs)
 
-        assert isinstance(model.emb.weight, AffineQuantizedTensor)
-        assert isinstance(model.emb.weight._layout, QDQLayout)
-        assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
+        assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
+        assert isinstance(model.linear.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_skip(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs()
@@ -716,6 +722,7 @@ class TestQuantFlow(TestCase):
     def test_int4wo_cuda_serialization(self):
         config = Int4WeightOnlyConfig(group_size=32)
         model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
+
         # quantize in cuda
         quantize_(model, config)
         example_inputs = model.example_inputs()

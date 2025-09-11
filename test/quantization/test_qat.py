@@ -23,6 +23,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao import quantize_
 from torchao.core.config import AOBaseConfig
+from torchao.float8.config import e4m3_dtype
 from torchao.quantization import Float8Tensor
 from torchao.quantization.granularity import (
     Granularity,
@@ -49,6 +50,7 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.fake_quantize_config import (
     Float8FakeQuantizeConfig,
+    Int4WeightPreshuffledFakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
@@ -69,6 +71,7 @@ from torchao.quantization.qat.utils import (
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
+    Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.quant_primitives import (
@@ -92,6 +95,7 @@ from torchao.quantization.utils import (
 )
 from torchao.utils import (
     _is_fbgemm_genai_gpu_available,
+    is_fbcode,
     is_sm_at_least_89,
 )
 
@@ -118,8 +122,8 @@ class M(torch.nn.Module):
         self.sub = Sub()
         self.linear2 = torch.nn.Linear(256, 512, bias=False).to(torch.float)
 
-    def example_inputs(self):
-        return (torch.randn(1, 512).to(torch.float),)
+    def example_inputs(self, device: torch.device = None):
+        return (torch.randn((1, 512), device=device).to(torch.float),)
 
     def _get_all_weight_scales(self) -> List[torch.Tensor]:
         return [
@@ -1859,7 +1863,7 @@ class TestQAT(TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(32, 64)
         out = fake_quantizer(x)
-        out_expected = Float8Tensor.to_float8(x, dtype, granularity).dequantize()
+        out_expected = Float8Tensor.from_hp(x, dtype, granularity).dequantize()
         sqnr = compute_error(out, out_expected)
         self.assertGreater(sqnr, 16)
 
@@ -1928,11 +1932,41 @@ class TestQAT(TestCase):
         """
         self._test_quantize_api_against_ptq(
             Float8DynamicActivationInt4WeightConfig(),
-            target_prepare_sqnr=15,
+            target_prepare_sqnr=22,
             target_convert_sqnr=float("inf"),
         )
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+    )
+    @unittest.skipIf(is_fbcode(), "cutlass cannot initialize")
+    @parametrize("version", [1, 2])
+    def test_quantize_api_int4(self, version: int):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int4WeightOnlyConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int4WeightOnlyConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            Int4WeightOnlyConfig(version=version),
+            target_prepare_sqnr=12,
+            target_convert_sqnr=float("inf"),
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_quantize_api_int8_int4(self):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            Int8DynamicActivationInt4WeightConfig(group_size=32),
+            target_prepare_sqnr=30,
+            target_convert_sqnr=float("inf"),
+        )
+
     def test_infer_fp8_int4_config(self):
         """
         Test that fake quantize configs are correctly inferred from
@@ -1945,12 +1979,197 @@ class TestQAT(TestCase):
         base_config = Float8DynamicActivationInt4WeightConfig()
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
-        self.assertEqual(act_config.dtype, torch.float8_e4m3fn)
+        self.assertEqual(act_config.dtype, e4m3_dtype)
         self.assertIsInstance(act_config.granularity, PerRow)
+        self.assertIsInstance(weight_config, Int4WeightPreshuffledFakeQuantizeConfig)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertEqual(weight_config.activation_dtype, e4m3_dtype)
+
+    def test_infer_int4_weight_only_config(self):
+        """
+        Test that fake quantize configs are correctly inferred from `Int4WeightOnlyConfig`.
+        """
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        base_config = Int4WeightOnlyConfig(version=1)
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsNone(act_config)
         self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.uint4)
+        self.assertEqual(weight_config.group_size, 128)
+        self.assertFalse(weight_config.is_symmetric)
+
+        base_config = Int4WeightOnlyConfig(version=2)
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsNone(act_config)
         self.assertEqual(weight_config.dtype, torch.int4)
         self.assertEqual(weight_config.group_size, 128)
         self.assertTrue(weight_config.is_symmetric)
+
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+    def test_quantize_api_nvfp4(self):
+        """
+        Test the following:
+            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="prepare"))
+            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="convert"))
+        """
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+
+        self._test_quantize_api_against_ptq(
+            NVFP4InferenceConfig(),
+            target_prepare_sqnr=8,
+            target_convert_sqnr=float("inf"),
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize("use_per_tensor_scale", [True, False])
+    def test_qat_nvfp4(self, use_per_tensor_scale: bool):
+        """
+        Test QAT with `NVFP4FakeQuantizeConfig`.
+        """
+        from torchao.prototype.qat import NVFP4FakeQuantizeConfig
+
+        torch.manual_seed(self.SEED)
+        m = M().cuda()
+        baseline_model = copy.deepcopy(m)
+        qat_config = QATConfig(
+            activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
+            weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
+            step="prepare",
+        )
+        quantize_(m, qat_config)
+
+        # Compare prepared values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs("cuda")
+        out = m(*x)
+        baseline_out = baseline_model(*x)
+        sqnr = compute_error(out, baseline_out).item()
+        self.assertGreater(sqnr, 24)
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+    )
+    @unittest.skipIf(is_fbcode(), "triton compilation error")
+    def test_fbgemm_fp8_primitives(self):
+        """
+        Compare numerics between:
+            (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_fp8_row
+            (2) Our reference QAT version in `Float8FakeQuantizer`
+        """
+        from fbgemm_gpu.experimental.gen_ai.quantize import quantize_fp8_row
+
+        from torchao.quantization.quant_primitives import (
+            _choose_scale_float8,
+            _quantize_affine_float8,
+        )
+
+        x1 = torch.randn([128, 256], dtype=torch.bfloat16).cuda()
+        x2 = copy.deepcopy(x1)
+
+        # (1) Just call `quantize_fp8_row`
+        (q1, scale1) = quantize_fp8_row(x1)
+
+        # (2) Our reference implementation for QAT without the dequantize
+        scale2 = _choose_scale_float8(
+            x2,
+            (1, x2.shape[-1]),
+            torch.float8_e4m3fn,
+            hp_value_lb=1e-12,
+        )
+        q2 = _quantize_affine_float8(x2, scale2, torch.float8_e4m3fn)
+        sqnr = compute_error(q1.to(torch.float32), q2.to(torch.float32))
+        scale_sqnr = compute_error(
+            scale1.to(torch.float32).flatten(),
+            scale2.to(torch.float32).flatten(),
+        )
+        self.assertGreater(sqnr, 40)
+        self.assertGreater(scale_sqnr, 50)
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+    )
+    @unittest.skipIf(is_fbcode(), "triton compilation error")
+    def test_fbgemm_int4_preshuffled_primitives(self):
+        """
+        Compare numerics between:
+            (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_int4_preshuffle
+            (2) Our reference QAT version in `Int4WeightPreshuffledFakeQuantizer`
+        """
+        from fbgemm_gpu.experimental.gen_ai.quantize import (
+            int4_row_quantize,
+            pack_int4,
+            quantize_fp8_row,
+            quantize_int4_preshuffle,
+        )
+
+        from torchao.quantization.quant_primitives import (
+            _choose_scale_float8,
+            _quantize_affine_float8,
+            _quantize_affine_no_dtype_cast,
+        )
+
+        group_size = 128
+        x1 = torch.randn([128, 256], dtype=torch.bfloat16).cuda()
+        x2 = copy.deepcopy(x1)
+        x3 = copy.deepcopy(x1)
+
+        # (1) Just call `quantize_int4_preshuffle`
+        (q1, (scale1, _)) = quantize_int4_preshuffle(x1, group_size, dtype="fp8")
+
+        # (2) Call `quantize_int4_preshuffle` but skip packing and shuffling
+        (q2, _) = quantize_fp8_row(x2)
+        (q2, scale2) = int4_row_quantize(q2, group_size)
+
+        # (3) Reference implementation for QAT without the dequantize
+        fp8_scale = _choose_scale_float8(
+            x3,
+            (1, x3.shape[-1]),
+            torch.float8_e4m3fn,
+            hp_value_lb=1e-12,
+        )
+        x3_fp8 = _quantize_affine_float8(x3, fp8_scale, torch.float8_e4m3fn)
+        x3_fp8 = x3_fp8.to(torch.float32)
+        x3_fp8_grouped = x3_fp8.view(x3_fp8.shape[0], -1, group_size)
+        max_abs = torch.amax(torch.abs(x3_fp8_grouped), dim=-1, keepdim=False)
+        scale = torch.clamp(max_abs / 8, min=1e-6)
+        zero_point = torch.zeros_like(scale)
+        q3 = _quantize_affine_no_dtype_cast(
+            x3_fp8,
+            (1, group_size),
+            scale,
+            zero_point,
+            quant_min=-8,
+            quant_max=7,
+        )
+        scale3 = scale
+
+        def shuffle_and_pack(t: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+            t = pack_int4(t.to(torch.int8))
+            return torch.ops.fbgemm.preshuffle_i4(t, scale.to(torch.float8_e4m3fn))[0]
+
+        # First, sanity check that shuffle_and_pack(q2) == q1
+        torch.testing.assert_close(q1, shuffle_and_pack(q2, scale2), atol=0, rtol=0)
+
+        # Now check q2 vs q3 with and without shuffle
+        sqnr_q2_q3 = compute_error(q2.to(torch.float32), q3.to(torch.float32))
+        sqnr_q2_q3_preshuffle = compute_error(
+            shuffle_and_pack(q2, scale2).to(torch.float32),
+            shuffle_and_pack(q3, scale3).to(torch.float32),
+        )
+        self.assertGreater(sqnr_q2_q3, 32)
+        self.assertGreater(sqnr_q2_q3_preshuffle, 32)
+
+        # Now check shuffle_and_pack(q3) vs q1
+        sqnr_q1_q3_preshuffle = compute_error(
+            q1.to(torch.float32),
+            shuffle_and_pack(q3, scale3).to(torch.float32),
+        )
+        self.assertGreater(sqnr_q1_q3_preshuffle, 32)
 
 
 instantiate_parametrized_tests(TestQAT)

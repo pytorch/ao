@@ -116,6 +116,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         dtype=None,
         strides=None,
     ):
+        torch._C._log_api_usage_once(str(type(self)))
         self.tensor_impl = tensor_impl
         self.block_size = block_size
         self.quant_min = quant_min

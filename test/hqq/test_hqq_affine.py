@@ -55,7 +55,7 @@ def _eval_hqq(dtype):
     )
     dummy_linear.weight.data = W
     if dtype == torch.uint4:
-        config = int4_weight_only(group_size=max(block_size), use_hqq=True)
+        config = int4_weight_only(group_size=max(block_size), use_hqq=True, version=1)
     else:
         config = uintx_weight_only(dtype, group_size=max(block_size), use_hqq=True)
     quantize_(dummy_linear, config)

@@ -22,7 +22,7 @@ from torchao.float8.inference import (
     preprocess_data,
     preprocess_scale,
 )
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
@@ -85,20 +85,17 @@ class Float8Tensor(TorchAOBaseTensor):
         sharing the same set of quantization parameters (scale), have the same rank as qdata or
         is an empty list (representing per tensor quantization)
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
-        hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
-        hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
-        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8Tensor.to_float8
+        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8Tensor.from_hp
         kernel_preference (KernelPreference): the preference for quantize, mm etc. kernel to use,
         by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
     """
 
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = [
+    tensor_attribute_names = []
+    optional_tensor_attribute_names = [
         "block_size",
         "mm_config",
-        "hp_value_lb",
-        "hp_value_ub",
         "act_quant_kwargs",
         "kernel_preference",
         "dtype",
@@ -106,15 +103,13 @@ class Float8Tensor(TorchAOBaseTensor):
 
     def __new__(
         cls,
-        qdata,
-        scale,
-        block_size,
-        mm_config,
-        hp_value_lb,
-        hp_value_ub,
-        act_quant_kwargs,
-        kernel_preference,
-        dtype,
+        qdata: torch.Tensor,
+        scale: torch.Tensor,
+        block_size: Optional[List[int]] = None,
+        mm_config: Optional[Float8MMConfig] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        dtype: Optional[torch.dtype] = None,
     ):
         shape = qdata.shape
         kwargs = {}
@@ -129,18 +124,15 @@ class Float8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         mm_config: Optional[Float8MMConfig] = None,
-        hp_value_lb: Optional[float] = None,
-        hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         dtype: Optional[torch.dtype] = None,
     ):
+        super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
         self.mm_config = mm_config
-        self.hp_value_lb = hp_value_lb
-        self.hp_value_ub = hp_value_ub
         self.act_quant_kwargs = act_quant_kwargs
         self.kernel_preference = kernel_preference
 
@@ -162,7 +154,7 @@ class Float8Tensor(TorchAOBaseTensor):
         return _dequantize_affine_float8(qdata, scale, output_dtype)
 
     @classmethod
-    def to_float8(
+    def from_hp(
         cls,
         hp_tensor: torch.Tensor,
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -176,32 +168,61 @@ class Float8Tensor(TorchAOBaseTensor):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
-        # for per row quantization and kernel_preference default setting, we'll use triton kernel for best performance
+        kernel_choice = None
         if (
             kernel_preference == KernelPreference.AUTO
             and _is_fbgemm_genai_gpu_available()
-            and (
-                tuple(block_size)
-                == (1,) * (hp_tensor.ndim - 1) + (hp_tensor.shape[-1],)
-            )
+            and is_sm_at_least_90()
+            and isinstance(granularity, PerRow)
+            and float8_dtype == torch.float8_e4m3fn
+            and hp_value_lb is None
         ):
-            assert float8_dtype == torch.float8_e4m3fn, (
-                f"Only torch.float8_e4m3fn is supported, got: {float8_dtype}"
+            # if kernel_preference is AUTO and per row quantization
+            # we'll use fbgemm quantize kernel for best performance
+            kernel_choice = "fbgemm"
+        elif kernel_preference == KernelPreference.FBGEMM:
+            # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
+            assert _is_fbgemm_genai_gpu_available() and is_sm_at_least_90(), (
+                "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
             )
+            assert hp_value_lb is None, (
+                "hp_value_lb should not be specified if with KerenelPreference.FBGEMM"
+            )
+            kernel_choice = "fbgemm"
+        else:
+            # fallback quantize kernel for everything else will be torch
+            kernel_choice = "torch"
+
+        if kernel_choice == "fbgemm":
+            assert hp_value_lb is None, f"{hp_value_lb=} is not supported"
             if hp_value_ub is not None:
                 maybe_hp_value_ub_tensor = torch.tensor(
                     hp_value_ub, dtype=torch.float, device=hp_tensor.device
                 )
             else:
                 maybe_hp_value_ub_tensor = None
-            data, scale = torch.ops.triton.quantize_fp8_row(
-                hp_tensor, scale_ub=maybe_hp_value_ub_tensor
-            )
-            scale_shape = []
-            for i in range(hp_tensor.ndim):
-                scale_shape.append(hp_tensor.shape[i] // block_size[i])
-            scale = scale.reshape(*scale_shape)
+            if isinstance(granularity, PerRow):
+                data, scale = torch.ops.triton.quantize_fp8_row(
+                    hp_tensor, scale_ub=maybe_hp_value_ub_tensor
+                )
+                scale_shape = []
+                for i in range(hp_tensor.ndim):
+                    scale_shape.append(hp_tensor.shape[i] // block_size[i])
+                scale = scale.reshape(*scale_shape)
+            else:
+                assert isinstance(granularity, PerTensor), (
+                    f"Expected per tensor, got {granularity}"
+                )
+                # current error: torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+                # TODO: enable after this is working
+                # data, scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+                #     hp_tensor, num_tokens, scale_ub=maybe_hp_value_ub_tensor
+                # )
+                raise NotImplementedError(
+                    "Currently KernelPreference.FBGEMM does not work for per tensor float8 quant"
+                )
         else:
+            assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
             scale = _choose_scale_float8(
                 hp_tensor,
                 float8_dtype=float8_dtype,
@@ -217,8 +238,6 @@ class Float8Tensor(TorchAOBaseTensor):
             scale,
             block_size=block_size,
             mm_config=mm_config,
-            hp_value_lb=hp_value_lb,
-            hp_value_ub=hp_value_ub,
             act_quant_kwargs=act_quant_kwargs,
             kernel_preference=kernel_preference,
             dtype=hp_dtype,
@@ -266,6 +285,8 @@ def _(func, types, args, kwargs):
                 "Expected fbgemm_gpu_genai package to be installed"
             )
             assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
+            mm_config = weight_tensor.mm_config
+            assert mm_config is not None
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
@@ -281,6 +302,8 @@ def _(func, types, args, kwargs):
                     wq,
                     x_scale,
                     w_scale,
+                    bias=bias,
+                    use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
             else:
                 assert _is_tensorwise_scaled(weight_tensor)
@@ -289,9 +312,10 @@ def _(func, types, args, kwargs):
                     xq,
                     wq,
                     x_scale * w_scale,
+                    use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
-            if bias is not None:
-                res = res + bias
+                if bias is not None:
+                    res = res + bias
             return res
         else:
             assert kernel_choice == "torch"
@@ -441,8 +465,6 @@ def _(func, types, args, kwargs):
             sliced_scale,
             block_size,
             self.mm_config,
-            self.hp_value_lb,
-            self.hp_value_ub,
             self.act_quant_kwargs,
             self.kernel_preference,
             dtype=self.dtype,
@@ -472,8 +494,6 @@ def _(func, types, args, kwargs):
         assert tensor_0.scale.ndim == tensors[i].scale.ndim
         assert tensor_0.block_size == tensors[i].block_size
         assert tensor_0.mm_config == tensors[i].mm_config
-        assert tensor_0.hp_value_lb == tensors[i].hp_value_lb
-        assert tensor_0.hp_value_ub == tensors[i].hp_value_ub
         assert tensor_0.act_quant_kwargs == tensors[i].act_quant_kwargs
         assert tensor_0.kernel_preference == tensors[i].kernel_preference
 
@@ -497,8 +517,6 @@ def _(func, types, args, kwargs):
         cat_scale,
         block_size,
         tensor_0.mm_config,
-        tensor_0.hp_value_lb,
-        tensor_0.hp_value_ub,
         tensor_0.act_quant_kwargs,
         tensor_0.kernel_preference,
         tensor_0.dtype,
@@ -520,8 +538,6 @@ def _(func, types, args, kwargs):
         scale,
         block_size,
         self.mm_config,
-        self.hp_value_lb,
-        self.hp_value_ub,
         self.act_quant_kwargs,
         self.kernel_preference,
         self.dtype,
@@ -572,8 +588,6 @@ def _(func, types, args, kwargs):
         scale,
         block_size,
         self.mm_config,
-        self.hp_value_lb,
-        self.hp_value_ub,
         self.act_quant_kwargs,
         self.kernel_preference,
         self.dtype,
@@ -596,8 +610,6 @@ def _(func, types, args, kwargs):
         scale,
         block_size,
         self.mm_config,
-        self.hp_value_lb,
-        self.hp_value_ub,
         self.act_quant_kwargs,
         self.kernel_preference,
         self.dtype,

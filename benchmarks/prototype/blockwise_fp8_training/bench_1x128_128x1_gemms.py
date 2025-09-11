@@ -15,9 +15,9 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.blockwise_fp8_training.kernels import (
-    blockwise_fp8_gemm_1x128_128x1,
-    fp8_blockwise_act_quant_rhs,
-    fp8_blockwise_act_quant_transposed_lhs,
+    triton_fp8_blockwise_act_quant_rhs,
+    triton_fp8_blockwise_act_quant_transposed_lhs,
+    triton_fp8_gemm_1x128_128x1,
 )
 
 device = torch.device("cuda")
@@ -58,7 +58,7 @@ def get_configs() -> List[ExperimentConfig]:
         (16640, 5120, 8192),
         (16640, 8192, 5120),
     ]
-    out_dtypes = [torch.float32, torch.bfloat16]
+    out_dtypes = [torch.bfloat16]
     configs = []
     for mnk, out_dtype in itertools.product(mnk_list, out_dtypes):
         m, n, k = mnk
@@ -78,8 +78,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     M, N, K = config.m, config.n, config.k
     A = torch.randn(M, N, dtype=config.out_dtype, device="cuda")
     B = torch.randn(M, K, dtype=config.out_dtype, device="cuda")
-    A_t_q, A_t_s = fp8_blockwise_act_quant_transposed_lhs(A, dtype=torch.float8_e4m3fn)
-    B_q, B_s = fp8_blockwise_act_quant_rhs(B, dtype=torch.float8_e4m3fn)
+    A_t_q, A_t_s = triton_fp8_blockwise_act_quant_transposed_lhs(
+        A, dtype=torch.float8_e4m3fn
+    )
+    B_q, B_s = triton_fp8_blockwise_act_quant_rhs(B, dtype=torch.float8_e4m3fn)
 
     def warmup(func, *args, **kwargs):
         for _ in range(10):
@@ -92,23 +94,22 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Warm up then run triton bench
     warmup(
-        blockwise_fp8_gemm_1x128_128x1,
+        triton_fp8_gemm_1x128_128x1,
         A_t_q,
-        1.0 / A_t_s,
         B_q,
+        1.0 / A_t_s,
         1.0 / B_s,
+        out_dtype=config.out_dtype,
     )
 
     fp8_triton_us = benchmark_cuda_function_in_microseconds(
-        blockwise_fp8_gemm_1x128_128x1,
+        triton_fp8_gemm_1x128_128x1,
         A_t_q,
-        1.0 / A_t_s,
         B_q,
+        1.0 / A_t_s,
         1.0 / B_s,
+        out_dtype=config.out_dtype,
     )
-
-    # torch._scaled_mm requires A_s and B_t_s be in column-major format
-    A_t_s = A_t_s.t().contiguous().t()
 
     # Warm up then run torch bench
     warmup(

@@ -36,7 +36,7 @@ Here is the serialization and deserialization flow::
   print(f"original model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB")
 
   example_inputs = m.example_inputs(dtype=dtype, device="cuda")
-  quantize_(m, Int4WeightOnlyConfig())
+  quantize_(m, Int4WeightOnlyConfig(version=1))
   print(f"quantized model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB")
 
   ref = m(*example_inputs)

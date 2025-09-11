@@ -26,8 +26,7 @@ from torchao.utils import torch_version_at_least
 
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
-    packing_format="marlin_sparse",
-    version=2,
+    int4_packing_format="marlin_sparse",
 )
 
 

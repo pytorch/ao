@@ -116,7 +116,7 @@ inner_k_tiles = 8
 _layout = TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)
 
 int4_weight_only_patch_fct = int4_weight_only(
-    group_size=group_size, inner_k_tiles=inner_k_tiles
+    group_size=group_size, inner_k_tiles=inner_k_tiles, version=1
 )
 linear_layer_default = torch.nn.Linear(
     in_features, out_features, bias=False, device=device
