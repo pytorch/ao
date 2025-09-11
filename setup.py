@@ -674,16 +674,11 @@ def get_extensions():
                     sources=mxfp8_sources,
                     include_dirs=[
                         mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
-                        "/usr/local/cuda-12.8/include",  # CUDA 12.8 headers
-                    ],
-                    library_dirs=[
-                        "/usr/local/cuda-12.8/lib64",  # CUDA 12.8 libraries
                     ],
                     extra_compile_args={
                         "cxx": ["-std=c++17", "-O3"],
                         "nvcc": nvcc_args,
                     },
-                    extra_link_args=["-lcuda", "-lcudart"],
                 ),
             )
 

@@ -43,6 +43,8 @@ class HostEvent:
 def device_timer(device):
     if "cuda" in device:
         return torch.cuda.Event(enable_timing=True)
+    elif "xpu" in device:
+        return torch.xpu.Event(enable_timing=True)
     elif ("cpu" in device) or ("mps" in device):
         return HostEvent()
     else:
@@ -425,7 +427,10 @@ def main(
             ], (
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
-            quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+            quantize_(
+                model,
+                int4_weight_only(group_size=group_size, use_hqq=use_hqq, version=1),
+            )
         elif "fbgemm" in quantization and "int4" in quantization:
             from torchao.quantization import FbgemmConfig
 
@@ -487,7 +492,7 @@ def main(
 
                 quantize_(
                     model,
-                    int4_weight_only(layout=MarlinSparseLayout()),
+                    int4_weight_only(layout=MarlinSparseLayout(), version=1),
                     filter_fn=ffn_or_attn_only,
                 )
         if "fp6" in quantization:
@@ -561,7 +566,6 @@ def main(
                 "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
             )
 
-            from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
             from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
@@ -581,8 +585,7 @@ def main(
                     weight_mapping_type=MappingType.ASYMMETRIC
                     if is_asymmetric
                     else MappingType.SYMMETRIC,
-                    weight_scale_dtype=torch.bfloat16,
-                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                    intx_packing_format="opaque_torchao_auto",
                 ),
             )
         elif "float8wo" in quantization:

@@ -135,17 +135,23 @@ def _int4wo_api(mod, use_hqq=False):
         quantize_(
             mod,
             int4_weight_only(
-                layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
+                layout=Int4CPULayout(),
+                use_hqq=use_hqq,
+                set_inductor_config=False,
+                version=1,
             ),
         )
         unwrap_tensor_subclass(mod)
     elif check_xpu_version(next(mod.parameters()).device):
         quantize_(
-            mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
+            mod,
+            int4_weight_only(
+                layout=Int4XPULayout(), set_inductor_config=False, version=1
+            ),
         )
         unwrap_tensor_subclass(mod)
     else:
-        quantize_(mod, int4_weight_only(set_inductor_config=False))
+        quantize_(mod, int4_weight_only(set_inductor_config=False, version=1))
 
 
 def _int8da_int4w_api(mod):
@@ -547,6 +553,11 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
     def test_quantize_per_token_cuda(self):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl("cuda", dtype)
+
+    @unittest.skipIf(not torch.xpu.is_available(), "XPU not available")
+    def test_quantize_per_token_xpu(self):
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            self._test_quantize_per_token_impl("xpu", dtype)
 
     def _test_per_token_linear_impl(self, device, dtype):
         x = torch.randn(2, 16, 8, device=device, dtype=dtype)
@@ -1077,7 +1088,7 @@ class TestSubclass(unittest.TestCase):
         ):
             for groupsize in [64, 32]:
                 for layout in layout_list:
-                    kwargs = {"groupsize": groupsize, "layout": layout}
+                    kwargs = {"groupsize": groupsize, "layout": layout, "version": 1}
 
                     def api(mod):
                         kwargs_copy = kwargs.copy()

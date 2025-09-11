@@ -15,7 +15,6 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
@@ -23,6 +22,9 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quantize_.workflows import IntxPackingFormat
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
+)
 from torchao.quantization.utils import compute_error
 
 
@@ -33,11 +35,11 @@ def _get_accuracy_test_cases():
     ]
 
     PACKING_FORMATS = [
-        (IntxPackingFormat.UNPACKED_TO_INT8, None),
-        (IntxPackingFormat.OPAQUE, "aten"),
-        (IntxPackingFormat.OPAQUE, "torchao_auto"),
-        (IntxPackingFormat.OPAQUE, "torchao_lowbit"),
-        (IntxPackingFormat.OPAQUE, "torchao_kleidiai"),
+        IntxPackingFormat.UNPACKED_TO_INT8,
+        IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
+        IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+        IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
+        IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
     ]
 
     WEIGHT_DTYPES = [
@@ -62,13 +64,12 @@ def _get_accuracy_test_cases():
     def _is_valid_test_combination(
         model_dtype,
         packing_format,
-        compute_target,
         weight_dtype,
         weight_mapping_type,
         weight_granularity,
     ):
         # ATEN restrictions
-        if (packing_format == IntxPackingFormat.OPAQUE) and (compute_target == "aten"):
+        if packing_format == IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI:
             if weight_dtype != torch.int4:
                 return False
             if weight_mapping_type == MappingType.ASYMMETRIC:
@@ -77,9 +78,7 @@ def _get_accuracy_test_cases():
                 return False
 
         # TORCHAO_KLEIDIAI restrictions
-        if (packing_format == IntxPackingFormat.OPAQUE) and (
-            compute_target == "torchao_kleidiai"
-        ):
+        if packing_format == IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI:
             if weight_dtype != torch.int4:
                 return False
             if weight_mapping_type == MappingType.ASYMMETRIC:
@@ -98,31 +97,22 @@ def _get_accuracy_test_cases():
         param(
             model_dtype=mdt,
             packing_format=pf,
-            compute_target=ct,
             weight_dtype=dt,
             weight_mapping_type=mt,
             weight_granularity=gr,
         )
         for mdt in MODEL_DTYPES
-        for pf, ct in PACKING_FORMATS
+        for pf in PACKING_FORMATS
         for dt in WEIGHT_DTYPES
         for mt in MAPPING_TYPES
         for gr in GRANULARITIES
-        if _is_valid_test_combination(dt, pf, ct, dt, mt, gr)
+        if _is_valid_test_combination(dt, pf, dt, mt, gr)
     ]
 
     return test_cases
 
 
-_TORCHAO_OPS_LOADED = False
-try:
-    _check_torchao_ops_loaded()
-    _TORCHAO_OPS_LOADED = True
-except Exception:
-    pass
-
-
-@unittest.skipIf(not _TORCHAO_OPS_LOADED, "Need torchao ops")
+@unittest.skipIf(not _is_kernel_library_loaded(), "Kernel library not loaded")
 class TestIntxOpaqueTensor(TestCase):
     @parameterized.expand(
         _get_accuracy_test_cases(),
@@ -132,7 +122,6 @@ class TestIntxOpaqueTensor(TestCase):
         self,
         model_dtype,
         packing_format,
-        compute_target,
         weight_dtype,
         weight_mapping_type,
         weight_granularity,
@@ -155,8 +144,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=packing_format,
-                compute_target=compute_target,
+                intx_packing_format=packing_format,
                 version=2,
             ),
         )
@@ -168,8 +156,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
-                compute_target=None,
+                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
                 version=2,
             ),
         )
@@ -215,8 +202,7 @@ class TestIntxOpaqueTensor(TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                packing_format=IntxPackingFormat.OPAQUE,
-                compute_target="torchao_auto",
+                intx_packing_format=IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
                 version=2,
             ),
         )
@@ -247,15 +233,15 @@ class TestIntxOpaqueTensor(TestCase):
 
     @parameterized.expand(
         [
-            param(packing_format=pf, compute_target=ct)
-            for (pf, ct) in [
-                (IntxPackingFormat.OPAQUE, "torchao_auto"),
-                (IntxPackingFormat.OPAQUE, "aten"),
+            param(packing_format=pf)
+            for pf in [
+                IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+                IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
             ]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_serialization(self, packing_format, compute_target):
+    def test_serialization(self, packing_format):
         layers = [
             torch.nn.Linear(512, 256),
         ]
@@ -268,8 +254,7 @@ class TestIntxOpaqueTensor(TestCase):
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
-                packing_format=packing_format,
-                compute_target=compute_target,
+                intx_packing_format=packing_format,
                 version=2,
             ),
         )
@@ -311,8 +296,7 @@ class TestIntxOpaqueTensor(TestCase):
         out = model(x).clone()
 
         base_config = Int8DynamicActivationIntxWeightConfig(
-            packing_format=IntxPackingFormat.OPAQUE,
-            compute_target="torchao_auto",
+            intx_packing_format=IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
             version=2,
         )
         moe_config = MoEQuantConfig(

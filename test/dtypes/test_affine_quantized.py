@@ -66,11 +66,11 @@ def get_quantization_functions(
     if do_int4:
         if check_cpu_version(device):
             base_functions.append(
-                int4_weight_only(group_size=32, layout=Int4CPULayout())
+                int4_weight_only(group_size=32, layout=Int4CPULayout(), version=1)
             )
         elif check_xpu_version(device):
             base_functions.append(
-                int4_weight_only(group_size=32, layout=Int4XPULayout())
+                int4_weight_only(group_size=32, layout=Int4XPULayout(), version=1)
             )
             if int4_zp_int:
                 base_functions.append(
@@ -78,10 +78,11 @@ def get_quantization_functions(
                         group_size=32,
                         layout=Int4XPULayout(),
                         zero_point_domain=ZeroPointDomain.INT,
+                        version=1,
                     )
                 )
         else:
-            base_functions.append(int4_weight_only(group_size=32))
+            base_functions.append(int4_weight_only(group_size=32, version=1))
             if device == "cuda" and not is_ROCM():
                 base_functions.append(
                     int8_dynamic_activation_int4_weight(
@@ -118,7 +119,7 @@ class TestAffineQuantized(TestCase):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         t = linear.weight
         shape = t.shape
-        apply_int4_weight_only_quant = int4_weight_only(group_size=32)
+        apply_int4_weight_only_quant = int4_weight_only(group_size=32, version=1)
         quantize_(linear, apply_int4_weight_only_quant)
         ql = linear
         aqt = ql.weight
@@ -353,7 +354,7 @@ class TestAffineQuantizedBasic(TestCase):
         # out_feature not divisible by 8
         # to test slice + padding for int4 weight only quantization
         dummy = nn.Linear(256, 321, dtype=dtype, device=device)
-        quantize_(dummy, Int4WeightOnlyConfig())
+        quantize_(dummy, Int4WeightOnlyConfig(version=1))
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
@@ -467,7 +468,7 @@ class TestAffineQuantizedBasic(TestCase):
         l.weight = torch.nn.Parameter(
             torch.zeros(1024, 1024, dtype=torch.bfloat16, device="cuda")
         )
-        quantize_(l, Int4WeightOnlyConfig())
+        quantize_(l, Int4WeightOnlyConfig(version=1))
         param = l.weight
         param_data = param.data
         param_data = param_data.narrow(0, 0, 512)
@@ -483,7 +484,7 @@ class TestAffineQuantizedBasic(TestCase):
 
         # dummy_l has random input (shouldn't be 0)
         dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
-        quantize_(dummy_l, Int4WeightOnlyConfig())
+        quantize_(dummy_l, Int4WeightOnlyConfig(version=1))
         quantized = dummy_l.weight
         quantized = quantized.narrow(0, 0, 512)
 
@@ -502,7 +503,7 @@ class TestAffineQuantizedBasic(TestCase):
 
         l = torch.nn.Linear(512, 1024).to(device).to(dtype)
         l.weight = torch.nn.Parameter(weight)
-        quantize_(l, Int4WeightOnlyConfig())
+        quantize_(l, Int4WeightOnlyConfig(version=1))
         # weight shape: 1024 x 512
         weight = l.weight
 

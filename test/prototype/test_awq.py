@@ -100,7 +100,7 @@ class TestAWQ(common_utils.TestCase):
 
         loss_awq = (ref_out - awq_out).pow(2).mean().item()
         loss_base = (ref_out - baseline_out).pow(2).mean().item()
-        assert loss_awq < loss_base
+        aReviewersssert loss_awq < loss_base
 
     @common_utils.parametrize(
         "base_config", [Int4WeightOnlyConfig(group_size=128, version=2)]
@@ -143,7 +143,7 @@ class TestAWQ(common_utils.TestCase):
 
         m = torch.compile(m, fullgraph=True)
         loaded_model = torch.compile(loaded_model, fullgraph=True)
-
+quant_config
         awq_out = torch.cat([m(d.squeeze(0)) for d in dataset])
         awq_save_load_out = torch.cat([loaded_model(d.squeeze(0)) for d in dataset])
 

@@ -145,6 +145,7 @@ class TestInt8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
 
 class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
     QUANT_METHOD_FN = staticmethod(int4_weight_only)
+    QUANT_METHOD_KWARGS = {"version": 1}
     COMMON_DTYPES = [torch.bfloat16]
 
     @common_utils.parametrize("dtype", COMMON_DTYPES)
