@@ -15,7 +15,7 @@ from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import (
     _int8_sdpa_init,
     custom_pass,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 class SelfAttnLikeModule(torch.nn.Module):
@@ -128,6 +128,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                         for op_name in [
                             "qscaled_dot_product",
                             "cpp_fused_quantize_per_tensor",
+                            "cpp_fused__unsafe_view_quantize_per_tensor",
                         ]
                     )
                 )
@@ -149,7 +150,8 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
     @skipIfRocm
     @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
+        not torch_version_at_least("2.7.0"),
+        reason="int8 sdpa requires torch 2.7 or later",
     )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
@@ -157,8 +159,6 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
-        from torch.export import export_for_training
-
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -199,11 +199,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 quantizer.set_function_type_qconfig(
                     torch.matmul, quantizer.get_global_quantization_config()
                 )
-                export_model = export_for_training(
-                    mod,
-                    inputs,
-                    strict=True,
-                ).module()
+                export_model = torch.export.export(mod, inputs, strict=True).module()
                 prepare_model = prepare_pt2e(export_model, quantizer)
                 prepare_model(*inputs)
                 convert_model = convert_pt2e(prepare_model)

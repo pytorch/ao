@@ -46,8 +46,37 @@ class MXFP8Dim1CastKernelChoice(Enum):
 class MXLinearRecipeName(Enum):
     MXFP8_EMULATED = "mxfp8_emulated"
     MXFP8_CUBLAS = "mxfp8_cublas"
+    MXFP8_CUBLAS_RCEIL = "mxfp8_cublas_rceil"
     MXFP4_EMULATED = "mxfp4_emulated"
     MXFP4_CUTLASS = "mxfp4_cutlass"
+
+
+class ScaleCalculationMode(Enum):
+    """
+    Enum representing the different methods for calculating MX block scaling.
+    There are four methods available:
+
+    FLOOR: This method is recommended by the OCP MX Spec 1.0 and uses X = 2^floor(log2(max_abs(v))-max_exp).
+           It result in overflow issues for large values and bad for gradient quantization.
+
+    RCEIL: The method is to apply ceil to the ratio of max_abs(v) and max_pos.
+           This method's detail is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
+           Section "Computing scaling and conversion factors for FP8 with UE8M0 scales"
+
+    CEIL: This method avoids overflow issues, but small values may shift to 0 due to a large scaling factor.
+           It uses X = 2^ceil(log2(max_abs(v))-max_exp).
+
+    EVEN: This method is a trade-off between FLOOR and CEIL. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
+           It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+           Note: EVEN does not work with torch.compile yet:
+           https://gist.github.com/vkuzo/1a04845cd503b1c75291aa1ea3bf79c4
+
+    """
+
+    FLOOR = "floor"
+    RCEIL = "rceil"
+    CEIL = "ceil"
+    EVEN = "even"
 
 
 def _validate_elem_dtype(elem_dtype):
@@ -72,6 +101,22 @@ def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
         valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
         assert elem_dtype in valid_dtypes, (
             f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        )
+
+
+def _validate_mxfp8_cast_kernel_choice(
+    mxfp8_cast_kernel_choice, scale_calculation_mode
+):
+    if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        assert scale_calculation_mode == ScaleCalculationMode.FLOOR, (
+            f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim1 triton cast"
+        )
+    elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ), (
+            f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim1 cuda cast"
         )
 
 
@@ -101,8 +146,7 @@ class MXLinearConfig(AOBaseConfig):
         MXFP8Dim1CastKernelChoice.TORCH
     )
 
-    # If True, uses a custom triton kernel for fp4 dequantize
-    use_fp4_custom_triton_dequant_kernel: bool = False
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
 
     def __post_init__(self):
         _validate_elem_dtype(self.elem_dtype)
@@ -115,6 +159,9 @@ class MXLinearConfig(AOBaseConfig):
         if self.elem_dtype_grad_output_override is not None:
             _validate_elem_dtype(self.elem_dtype_grad_output_override)
             assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
+        _validate_mxfp8_cast_kernel_choice(
+            self.mxfp8_cast_kernel_choice, self.scale_calculation_mode
+        )
 
     @staticmethod
     def from_recipe_name(
@@ -134,7 +181,16 @@ class MXLinearConfig(AOBaseConfig):
         if recipe_name is MXLinearRecipeName.MXFP8_EMULATED:
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
-            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
+            return MXLinearConfig(
+                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+            )
+        elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
+            return MXLinearConfig(
+                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+                scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            )
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
             return MXLinearConfig(elem_dtype=torch.float4_e2m1fn_x2)
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:
@@ -158,6 +214,6 @@ class MXLinearConfig(AOBaseConfig):
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
         s += f", kernel={self.gemm_kernel_choice.value}"
         s += f", mxfp8_cast_kernel_choice={self.mxfp8_cast_kernel_choice.value}"
-        if self.use_fp4_custom_triton_dequant_kernel:
-            s += ", use_fp4_custom_triton_dequant_kernel=True"
+        if self.scale_calculation_mode != ScaleCalculationMode.FLOOR:
+            s += f", scale_calculation_mode={self.scale_calculation_mode}"
         return s

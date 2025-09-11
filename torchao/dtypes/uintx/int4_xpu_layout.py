@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -20,8 +21,8 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     fill_defaults,
+    torch_version_at_least,
 )
 
 aten = torch.ops.aten
@@ -207,6 +208,9 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         scale: torch.Tensor = None,
         zero: torch.Tensor = None,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
+        )
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False
@@ -248,7 +252,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(_layout, Int4XPULayout)
 
-        if TORCH_VERSION_AT_LEAST_2_8:
+        if torch_version_at_least("2.8.0"):
             assert int_data.dtype == torch.int32, (
                 "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             )

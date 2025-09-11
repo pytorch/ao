@@ -20,11 +20,7 @@ from torchao._models.utils import (
     write_json_result_ossci,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-    get_model_size_in_bytes,
-)
+from torchao.utils import get_model_size_in_bytes
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 torch.backends.cuda.enable_cudnn_sdp(True)
@@ -47,6 +43,8 @@ class HostEvent:
 def device_timer(device):
     if "cuda" in device:
         return torch.cuda.Event(enable_timing=True)
+    elif "xpu" in device:
+        return torch.xpu.Event(enable_timing=True)
     elif ("cpu" in device) or ("mps" in device):
         return HostEvent()
     else:
@@ -356,7 +354,6 @@ def main(
             uintx_weight_only,
         )
         from torchao.quantization.granularity import PerRow, PerTensor
-        from torchao.utils import unwrap_tensor_subclass
 
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
@@ -430,7 +427,10 @@ def main(
             ], (
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
-            quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+            quantize_(
+                model,
+                int4_weight_only(group_size=group_size, use_hqq=use_hqq, version=1),
+            )
         elif "fbgemm" in quantization and "int4" in quantization:
             from torchao.quantization import FbgemmConfig
 
@@ -492,7 +492,7 @@ def main(
 
                 quantize_(
                     model,
-                    int4_weight_only(layout=MarlinSparseLayout()),
+                    int4_weight_only(layout=MarlinSparseLayout(), version=1),
                     filter_fn=ffn_or_attn_only,
                 )
         if "fp6" in quantization:
@@ -505,11 +505,6 @@ def main(
             )
         elif quantization.startswith("awq"):
             from torchao._models._eval import TransformerEvalWrapper
-            from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
-
-            if not TORCH_VERSION_AT_LEAST_2_3:
-                print("Awq requires torch2.3+")
-                exit()
             from torchao.prototype.awq import (
                 AWQObservedLinear,
                 awq_uintx,
@@ -567,14 +562,10 @@ def main(
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         elif "int8_dynamic_activation_intx_weight" in quantization:
-            assert TORCH_VERSION_AT_LEAST_2_6, (
-                "int8_dynamic_activation_intx_weight requires torch2.6+"
-            )
             assert precision == torch.float32, (
                 "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
             )
 
-            from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
             from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
@@ -594,8 +585,7 @@ def main(
                     weight_mapping_type=MappingType.ASYMMETRIC
                     if is_asymmetric
                     else MappingType.SYMMETRIC,
-                    weight_scale_dtype=torch.bfloat16,
-                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                    intx_packing_format="opaque_torchao_auto",
                 ),
             )
         elif "float8wo" in quantization:
@@ -828,10 +818,6 @@ def main(
             quantize_(
                 model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64)
             )
-
-        else:
-            if not TORCH_VERSION_AT_LEAST_2_5:
-                unwrap_tensor_subclass(model)
 
     # standalone sparsity
     elif sparsity:

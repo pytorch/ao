@@ -8,6 +8,7 @@ import re
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 # TODO: Refactor torchao and tests to use these models
@@ -19,6 +20,27 @@ class ToyLinearModel(torch.nn.Module):
     def forward(self, x):
         x = self.linear1(x)
         return x
+
+
+class ConvWithSharedWeightInExportedModel(nn.Module):
+    def __init__(
+        self, n_chunks, in_channels, out_channels, kernel_size=3, stride=1, padding=1
+    ) -> None:
+        super().__init__()
+        self.n_chunks = n_chunks
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x) -> torch.Tensor:
+        chunks = torch.chunk(x, self.n_chunks, dim=1)
+        outputs = []
+        for chunk in chunks:
+            out = self.conv(chunk)
+            out = self.bn(out)
+            out = self.relu(out)
+            outputs.append(out)
+        return torch.cat(outputs, dim=1)
 
 
 class LNLinearActivationModel(nn.Module):
@@ -177,3 +199,64 @@ def create_model_and_input_data(
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     return model, input_data
+
+
+# from https://github.com/meta-llama/llama-models/blob/a9c89c471f793423afd4cc3ca8671d6e56fe64cb/models/llama4/moe.py#L22
+class LlamaModelsLlama4Experts(nn.Module):
+    def __init__(
+        self,
+        num_local_experts: int,
+        dim: int,
+        hidden_dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        super().__init__()
+
+        self.num_local_experts = num_local_experts
+        self.dim = dim
+
+        self.w1: nn.Parameter = nn.Parameter(
+            torch.randn(
+                num_local_experts,
+                dim,
+                hidden_dim,
+                dtype=dtype,
+                device=device,
+            )
+        )
+
+        self.w2: nn.Parameter = nn.Parameter(
+            torch.randn(
+                num_local_experts,
+                hidden_dim,
+                dim,
+                dtype=dtype,
+                device=device,
+            )
+        )
+
+        self.w3: nn.Parameter = nn.Parameter(
+            torch.randn(
+                num_local_experts,
+                dim,
+                hidden_dim,
+                dtype=dtype,
+                device=device,
+            )
+        )
+
+    def forward(
+        self,
+        routed_in_egD: torch.Tensor,  # noqa: N803
+    ) -> torch.Tensor:
+        e = self.num_local_experts
+        D = self.dim
+
+        x_egD = routed_in_egD.view(e, -1, D)
+
+        middle_out_egF = F.silu(torch.bmm(x_egD, self.w1)) * torch.bmm(x_egD, self.w3)
+        out_egD = torch.bmm(middle_out_egF, self.w2)
+        out_egD = out_egD.view(-1, D)
+
+        return out_egD

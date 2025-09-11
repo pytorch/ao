@@ -21,7 +21,6 @@ class TestBenchmarkInference(unittest.TestCase):
             sparsity="semi-sparse",
             params={
                 "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },
@@ -46,7 +45,9 @@ class TestBenchmarkInference(unittest.TestCase):
 
         result = run(self.config)
         self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
+        self.assertTrue(
+            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
+        )
 
     @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
     def test_run_inference_with_semi_sparse_marlin(self, mock_string_to_config):
@@ -57,14 +58,14 @@ class TestBenchmarkInference(unittest.TestCase):
 
         # Test with semi-sparse config
         mock_string_to_config.return_value = Int4WeightOnlyConfig(
-            layout=MarlinSparseLayout()
+            layout=MarlinSparseLayout(),
+            version=1,
         )
         config = BenchmarkConfig(
             quantization="marlin",
             sparsity="semi-sparse",
             params={
                 "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },
@@ -75,7 +76,9 @@ class TestBenchmarkInference(unittest.TestCase):
         )
         result = run(config)
         self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
+        self.assertTrue(
+            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
+        )
 
     @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
     def test_run_inference_with_block_sparsity(self, mock_string_to_config):
@@ -92,7 +95,6 @@ class TestBenchmarkInference(unittest.TestCase):
             sparsity="block",
             params={
                 "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },
@@ -103,7 +105,9 @@ class TestBenchmarkInference(unittest.TestCase):
         )
         result = run(config)
         self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
+        self.assertTrue(
+            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
+        )
 
 
 if __name__ == "__main__":

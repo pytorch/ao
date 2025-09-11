@@ -16,6 +16,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.prototype.moe_training import _scaled_grouped_mm
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ _ops_to_preserve_subclass = {
     torch.ops.aten._pin_memory.default,
     torch.ops.aten.split.Tensor,
     torch.ops.aten.clone.default,
+    torch.ops.aten.transpose.int,
 }
 
 
@@ -40,6 +42,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     differentiable _scaled_grouped_mm autograd function.
     """
 
+    scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE
     grouped_mm_func_name = "_grouped_mm"
     offs_arg_name = "offs"
 
@@ -47,8 +50,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __new__(
         cls,
         tensor: torch.Tensor,
+        scaling_type: MoEScalingType,
     ):
-        return torch.Tensor._make_wrapper_subclass(
+        self = torch.Tensor._make_wrapper_subclass(
             cls,
             tensor.size(),
             strides=tensor.stride(),
@@ -60,12 +64,16 @@ class ScaledGroupedMMTensor(torch.Tensor):
             pin_memory=tensor.is_pinned(),
             requires_grad=tensor.requires_grad,
         )
+        self.scaling_type = scaling_type
+        return self
 
     def __init__(
         self,
         tensor: torch.Tensor,
+        scaling_type: MoEScalingType,
     ):
         self._data = tensor
+        self.scaling_type = scaling_type
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
@@ -79,12 +87,23 @@ class ScaledGroupedMMTensor(torch.Tensor):
             # used for shared experts. This is basically the grouped_mm
             # kernel handling a bmm.
             A, B = args[0], args[1]
+            assert not isinstance(A, ScaledGroupedMMTensor), (
+                "A should not be a ScaledGroupedMMTensor"
+            )
+            assert isinstance(B, ScaledGroupedMMTensor), (
+                "B should be a ScaledGroupedMMTensor"
+            )
+            scaling_type = B.scaling_type
             A_is_2d = A.dim() == 2
             B_is_3d = B.dim() == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
+            other_args = args[2:]
             if A_is_2d and B_is_3d and has_offs:
                 return _scaled_grouped_mm(
-                    *args,
+                    A,
+                    B,
+                    *other_args,
+                    scaling_type=scaling_type,
                     **kwargs,
                 )
 
@@ -95,15 +114,25 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
-        # detach is special case
-        if func == torch.ops.aten.detach.default:
-            return ScaledGroupedMMTensor(args[0]._data)
+        # unwrap args/kwargs and extract scaling_type
+        scaling_type = None
 
-        # unwrap args/kwargs
-        unwrap = lambda x: x._data if isinstance(x, ScaledGroupedMMTensor) else x
+        def unwrap(t):
+            nonlocal scaling_type
+            if scaling_type is None:
+                scaling_type = t.scaling_type
+            else:
+                assert t.scaling_type == scaling_type
+            return t._data
+
         args, kwargs = pytree.tree_map_only(
             ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
+        assert scaling_type is not None
+
+        # detach is special case
+        if func == torch.ops.aten.detach.default:
+            return ScaledGroupedMMTensor(args[0], scaling_type)
 
         # perform op
         out = func(*args, **kwargs)
@@ -115,20 +144,22 @@ class ScaledGroupedMMTensor(torch.Tensor):
         # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x),
+            lambda x: ScaledGroupedMMTensor(x, scaling_type),
             out,
         )
 
     def __repr__(self):
-        return f"ScaledGroupedMMTensor(data={self._data})"
+        return f"ScaledGroupedMMTensor(data={self._data}, scaling_type={self.scaling_type})"
 
     def __tensor_flatten__(self):
-        return ["_data"]
+        metadata = {"scaling_type": self.scaling_type}
+        return ["_data"], metadata
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
         return ScaledGroupedMMTensor(
             inner_tensors["_data"],
+            flatten_spec["scaling_type"],
         )
 
     # fsdp hooks based on https://github.com/pytorch/pytorch/blob/20e40492b046b9287726d3ec656117e4dc38f0e2/test/distributed/_composable/fsdp/test_fully_shard_extensions.py#L81
@@ -155,14 +186,16 @@ class ScaledGroupedMMTensor(torch.Tensor):
     ):
         (data,) = all_gather_outputs
 
-        # For training step 1+, out=unshared param.
+        # For training step 1+, out=unsharded param.
         if out is not None:
             if isinstance(out, ScaledGroupedMMTensor):
                 out_data = out._data
+                out.scaling_type = self.scaling_type
             elif isinstance(out, DTensor) and isinstance(
                 out._local_tensor, ScaledGroupedMMTensor
             ):
                 out_data = out._local_tensor._data
+                out._local_tensor.scaling_type = self.scaling_type
             else:
                 raise RuntimeError(
                     f"expect out to be ScaledGroupedMMTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
@@ -185,6 +218,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
             return
 
         # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
-        output = ScaledGroupedMMTensor(data)
+        output = ScaledGroupedMMTensor(data, self.scaling_type)
         inner_tensors = (data,)
         return output, inner_tensors

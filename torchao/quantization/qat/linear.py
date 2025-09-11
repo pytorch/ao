@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.granularity import PerGroup
+from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.linear_quant_modules import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
@@ -25,12 +25,14 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
-from .api import FakeQuantizeConfig
+from .fake_quantize_config import (
+    FakeQuantizeConfigBase,
+    Float8FakeQuantizeConfig,
+    IntxFakeQuantizeConfig,
+)
 from .fake_quantizer import (
-    FakeQuantizer,
-    _Float8RowwiseActivationFakeQuantizer,
+    FakeQuantizerBase,
 )
 from .utils import (
     _get_qmin_qmax,
@@ -46,12 +48,12 @@ class FakeQuantizedLinear(torch.nn.Linear):
 
     Example usage::
 
-        activation_config = FakeQuantizeConfig(
+        activation_config = IntxFakeQuantizeConfig(
             dtype=torch.int8,
             granularity="per_token",
             is_symmetric=False,
         )
-        weight_config = FakeQuantizeConfig(
+        weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
             group_size=8,
             is_symmetric=True,
@@ -67,8 +69,8 @@ class FakeQuantizedLinear(torch.nn.Linear):
         in_features: int,
         out_features: int,
         bias: bool = False,
-        activation_config: Optional[FakeQuantizeConfig] = None,
-        weight_config: Optional[FakeQuantizeConfig] = None,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
+        weight_config: Optional[FakeQuantizeConfigBase] = None,
         *args,
         **kwargs,
     ) -> None:
@@ -79,22 +81,27 @@ class FakeQuantizedLinear(torch.nn.Linear):
             *args,
             **kwargs,
         )
+        torch._C._log_api_usage_once("torchao.quantization.qat.FakeQuantizedLinear")
         # initialize activation fake quantizer
         if activation_config is not None:
-            self.activation_fake_quantizer = FakeQuantizer(activation_config)
+            self.activation_fake_quantizer = FakeQuantizerBase.from_config(
+                activation_config
+            )
         else:
             self.activation_fake_quantizer = None
 
         # initialize weight fake quantizer
         if weight_config is not None:
-            if isinstance(weight_config.granularity, PerGroup):
+            if isinstance(weight_config, IntxFakeQuantizeConfig) and isinstance(
+                weight_config.granularity, PerGroup
+            ):
                 group_size = weight_config.group_size
                 if group_size is not None and in_features % group_size != 0:
                     raise ValueError(
                         "in_features (%s) %% group_size (%s) must be == 0"
                         % (in_features, group_size)
                     )
-            self.weight_fake_quantizer = FakeQuantizer(weight_config)
+            self.weight_fake_quantizer = FakeQuantizerBase.from_config(weight_config)
         else:
             self.weight_fake_quantizer = None
 
@@ -127,8 +134,8 @@ class FakeQuantizedLinear(torch.nn.Linear):
     def from_linear(
         cls,
         mod: torch.nn.Linear,
-        activation_config: Optional[FakeQuantizeConfig] = None,
-        weight_config: Optional[FakeQuantizeConfig] = None,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
+        weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
         new_linear = FakeQuantizedLinear(
             mod.in_features,
@@ -179,10 +186,10 @@ class _LegacyQATQuantizer(TwoStepQuantizer):
     Base class for sharing common methods across legacy QAT quantizers.
     """
 
-    def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         return None
 
-    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         return None
 
 
@@ -206,6 +213,9 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer"
+        )
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
@@ -281,10 +291,10 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
             else:
                 self._convert_qat_linear_8da4w(child)
 
-    def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         return _get_8da4w_activation_config(self.activation_scales_precision)
 
-    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         return _get_8da4w_weight_config(self.groupsize, self.scales_precision)
 
 
@@ -354,13 +364,15 @@ def disable_8da4w_fake_quant(mod: torch.nn.Module):
         mod.disable_fake_quant()
 
 
-def _get_8da4w_activation_config(qparams_precision: torch.dtype) -> FakeQuantizeConfig:
+def _get_8da4w_activation_config(
+    qparams_precision: torch.dtype,
+) -> IntxFakeQuantizeConfig:
     """
-    Return the activation `FakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.
+    Return the activation `IntxFakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.
     """
     # TODO: generalize this
     assert qparams_precision == torch.float32
-    return FakeQuantizeConfig(
+    return IntxFakeQuantizeConfig(
         dtype=torch.int8,
         granularity="per_token",
         is_symmetric=False,
@@ -374,11 +386,11 @@ def _get_8da4w_activation_config(qparams_precision: torch.dtype) -> FakeQuantize
 def _get_8da4w_weight_config(
     group_size: int,
     qparams_precision: torch.dtype,
-) -> FakeQuantizeConfig:
+) -> IntxFakeQuantizeConfig:
     """
-    Return the weight `FakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.
+    Return the weight `IntxFakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.
     """
-    return FakeQuantizeConfig(
+    return IntxFakeQuantizeConfig(
         dtype=TorchAODType.INT4,
         group_size=group_size,
         is_symmetric=True,
@@ -407,6 +419,9 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
         scales_precision: torch.dtype = torch.bfloat16,
     ) -> None:
         super().__init__()
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Int4WeightOnlyQATQuantizer"
+        )
         assert inner_k_tiles in [2, 4, 8]
         assert groupsize in [32, 64, 128, 256]
         self.inner_k_tiles = inner_k_tiles
@@ -464,10 +479,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     n_bit,
                     config.group_size,
                 )
-                if (
-                    is_device(q_weight.device.type, "cpu")
-                    and TORCH_VERSION_AT_LEAST_2_6
-                ):
+                if is_device(q_weight.device.type, "cpu"):
                     q_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                         q_weight.to(child.weight.device),
                         child.inner_k_tiles,
@@ -482,7 +494,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
             else:
                 self._convert_qat_linear_4w(child)
 
-    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         return _get_4w_weight_config(self.groupsize, self.scales_precision)
 
 
@@ -553,11 +565,11 @@ def disable_4w_fake_quant(mod: torch.nn.Module):
 def _get_4w_weight_config(
     group_size: int,
     qparams_precision: torch.dtype,
-) -> FakeQuantizeConfig:
+) -> IntxFakeQuantizeConfig:
     """
-    Return the weight `FakeQuantizeConfig` for `Int4WeightOnlyQATQuantizer`.
+    Return the weight `IntxFakeQuantizeConfig` for `Int4WeightOnlyQATQuantizer`.
     """
-    return FakeQuantizeConfig(
+    return IntxFakeQuantizeConfig(
         dtype=torch.uint4,
         group_size=group_size,
         is_symmetric=False,
@@ -591,11 +603,18 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         group_size: Optional[int] = 64,
         scale_precision: torch.dtype = torch.bfloat16,
     ):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.qat.Float8ActInt4WeightQATQuantizer"
+        )
         if group_size is not None:
             weight_granularity = "per_group"
         else:
             weight_granularity = "per_channel"
-        self._weight_config = FakeQuantizeConfig(
+        self._activation_config = Float8FakeQuantizeConfig(
+            dtype=torch.float8_e4m3fn,
+            granularity=PerRow(),
+        )
+        self._weight_config = IntxFakeQuantizeConfig(
             dtype=torch.int4,
             granularity=weight_granularity,
             group_size=group_size,
@@ -613,13 +632,10 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         """
         for name, child in model.named_children():
             if isinstance(child, torch.nn.Linear):
-                # TODO: add a config for float8?
                 new_linear = FakeQuantizedLinear.from_linear(
                     child,
+                    activation_config=self._activation_config,
                     weight_config=self._weight_config,
-                )
-                new_linear.activation_fake_quantizer = (
-                    _Float8RowwiseActivationFakeQuantizer()
                 )
                 setattr(model, name, new_linear)
             else:
@@ -632,8 +648,8 @@ class Float8ActInt4WeightQATQuantizer(_LegacyQATQuantizer):
     ) -> torch.nn.Module:
         raise NotImplementedError
 
-    def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         raise NotImplementedError("Float8 FakeQuantizeConfig does not exist yet")
 
-    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
+    def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfigBase]:
         return self.weight_config

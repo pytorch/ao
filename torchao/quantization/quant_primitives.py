@@ -16,9 +16,6 @@ from torchao.prototype.custom_fp_utils import (
     _n_ones,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
     _register_custom_op,
     _register_meta_op,
 )
@@ -107,8 +104,7 @@ class TorchAODType(Enum):
     INT7 = auto()
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
+torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
 
 FP8_TYPES = {
     torch.float8_e4m3fn,
@@ -152,53 +148,49 @@ _SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = 
     TorchAODType.INT7: (-(2**6), 2**6 - 1),
 }
 
-# torch.uintX available only in PyTorch 2.3+
-if TORCH_VERSION_AT_LEAST_2_3:
-    _SUB_BYTE_UINT_BOUNDS = {
-        torch.uint1: (0, 2**1 - 1),
-        torch.uint2: (0, 2**2 - 1),
-        torch.uint3: (0, 2**3 - 1),
-        torch.uint4: (0, 2**4 - 1),
-        torch.uint5: (0, 2**5 - 1),
-        torch.uint6: (0, 2**6 - 1),
-        torch.uint7: (0, 2**7 - 1),
+_SUB_BYTE_UINT_BOUNDS = {
+    torch.uint1: (0, 2**1 - 1),
+    torch.uint2: (0, 2**2 - 1),
+    torch.uint3: (0, 2**3 - 1),
+    torch.uint4: (0, 2**4 - 1),
+    torch.uint5: (0, 2**5 - 1),
+    torch.uint6: (0, 2**6 - 1),
+    torch.uint7: (0, 2**7 - 1),
+}
+_DTYPE_TO_BIT_WIDTH.update(
+    {
+        torch.uint1: 1,
+        torch.uint2: 2,
+        torch.uint3: 3,
+        torch.uint4: 4,
+        torch.uint5: 5,
+        torch.uint6: 6,
+        torch.uint7: 7,
     }
-    _DTYPE_TO_BIT_WIDTH.update(
-        {
-            torch.uint1: 1,
-            torch.uint2: 2,
-            torch.uint3: 3,
-            torch.uint4: 4,
-            torch.uint5: 5,
-            torch.uint6: 6,
-            torch.uint7: 7,
-        }
-    )
+)
 
-# torch.intX available only in PyTorch 2.6+
-if TORCH_VERSION_AT_LEAST_2_6:
-    _SUB_BYTE_INT_BOUNDS.update(
-        {
-            torch.int1: (-(2**0), 2**0 - 1),
-            torch.int2: (-(2**1), 2**1 - 1),
-            torch.int3: (-(2**2), 2**2 - 1),
-            torch.int4: (-(2**3), 2**3 - 1),
-            torch.int5: (-(2**4), 2**4 - 1),
-            torch.int6: (-(2**5), 2**5 - 1),
-            torch.int7: (-(2**6), 2**6 - 1),
-        }
-    )
-    _DTYPE_TO_BIT_WIDTH.update(
-        {
-            torch.int1: 1,
-            torch.int2: 2,
-            torch.int3: 3,
-            torch.int4: 4,
-            torch.int5: 5,
-            torch.int6: 6,
-            torch.int7: 7,
-        }
-    )
+_SUB_BYTE_INT_BOUNDS.update(
+    {
+        torch.int1: (-(2**0), 2**0 - 1),
+        torch.int2: (-(2**1), 2**1 - 1),
+        torch.int3: (-(2**2), 2**2 - 1),
+        torch.int4: (-(2**3), 2**3 - 1),
+        torch.int5: (-(2**4), 2**4 - 1),
+        torch.int6: (-(2**5), 2**5 - 1),
+        torch.int7: (-(2**6), 2**6 - 1),
+    }
+)
+_DTYPE_TO_BIT_WIDTH.update(
+    {
+        torch.int1: 1,
+        torch.int2: 2,
+        torch.int3: 3,
+        torch.int4: 4,
+        torch.int5: 5,
+        torch.int6: 6,
+        torch.int7: 7,
+    }
+)
 
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
@@ -225,6 +217,20 @@ class _Round(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
         return gy
+
+
+class _RoundToFloat8(torch.autograd.Function):
+    """
+    Implementation of `tensor.to(float8_dtype)` with backward STE.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, float8_dtype: torch.dtype) -> torch.Tensor:
+        return x.to(float8_dtype)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        return gy, None
 
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
@@ -2189,7 +2195,7 @@ def _choose_scale_float8(
     hp_value_ub: Optional[float] = None,
 ) -> torch.Tensor:
     """
-    Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
+    Calculates float8 scaling factor for the given high precision tensor.
 
     Args:
         tensor (torch.Tensor): Input tensor to be quantized.
@@ -2200,8 +2206,8 @@ def _choose_scale_float8(
         hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
     """
     quant_max = torch.finfo(float8_dtype).max
-    # only tensorwise scaling is supported for now:
     if len(block_size) == 0:
+        # tensorwise
         max_abs = tensor.abs().max()
         if hp_value_lb is not None or hp_value_ub is not None:
             max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
@@ -2229,11 +2235,12 @@ def _choose_scale_float8(
     return scale.to(dtype=torch.float32)
 
 
-def _expand_scale_to_tensor_shape(
+def _maybe_expand_scale_to_tensor_shape(
     scale: torch.Tensor, target_shape: torch.Size
 ) -> torch.Tensor:
     """
     Expand a scale tensor to match the target tensor shape for block-wise quantization.
+    If this is rowwise quantization, however, just return the scale as is.
 
     Args:
         scale (torch.Tensor): Scale tensor with shape corresponding to block structure
@@ -2248,6 +2255,11 @@ def _expand_scale_to_tensor_shape(
 
     if scale.numel() == 1:
         # Scalar scale - can broadcast naturally
+        return scale
+
+    # If the scale can be broadcast as is, then we don't need to expand it
+    # E.g. for rowwise quantization, scale = [256, 1] and target_shape = [256, 512]
+    if all(a == b or a == 1 for a, b in zip(scale.shape, target_shape)):
         return scale
 
     # Calculate block sizes from shape difference
@@ -2279,7 +2291,6 @@ def _expand_scale_to_tensor_shape(
     return expanded_scale
 
 
-@_register_custom_op(quant_lib, False)
 def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2291,24 +2302,15 @@ def _quantize_affine_float8(
     tensor_fp32 = tensor.to(torch.float32)
 
     # Expand scale to match tensor dimensions for block-wise quantization
-    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+    scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
     tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
-    fp8_tensor = tensor_clamped.to(float8_dtype)
-    return fp8_tensor
+    return _RoundToFloat8.apply(tensor_clamped, float8_dtype)
 
 
-@_register_meta_op(quant_lib, "quantize_affine_float8")
-def _quantize_affine_float8_meta(
-    tensor: torch.Tensor,
-    scale: torch.Tensor,
-    float8_dtype: torch.dtype = torch.float8_e4m3fn,
-) -> torch.Tensor:
-    return torch.empty_like(tensor, dtype=float8_dtype)
-
-
+# TODO: don't register as custom op?
 @_register_custom_op(quant_lib, False)
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
@@ -2321,7 +2323,7 @@ def _dequantize_affine_float8(
     fp8_tensor = tensor.to(torch.float32)
 
     # Expand scale to match tensor dimensions for block-wise quantization
-    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+    scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
     hp_tensor = fp8_tensor * scale_expanded
     return hp_tensor.to(output_dtype)

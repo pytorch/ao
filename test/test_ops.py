@@ -28,9 +28,8 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_7,
     compute_max_diff,
+    torch_version_at_least,
 )
 
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
@@ -156,7 +155,8 @@ class TestOps(TestCase):
         return out.to(torch.uint8)
 
     @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
+        not torch_version_at_least("2.7.0"),
+        reason="int8 sdpa requires torch 2.7 or later",
     )
     @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
     @pytest.mark.skipif(
@@ -281,25 +281,21 @@ def make_test_id(param):
 
 
 @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
     assert K % (inner_k_tiles * kTileSizeK) == 0 and N % kTileSizeN == 0
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
-    if TORCH_VERSION_AT_LEAST_2_5:
-        t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
+    t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed_w, inner_k_tiles)
-    if TORCH_VERSION_AT_LEAST_2_5:
-        unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
+    unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
     assert torch.equal(t, unpacked)
 
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
@@ -308,13 +304,10 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
         "test_faketensor",
     ]
 
-    # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AT_LEAST_2_5:
-        test_utils.append("test_aot_dispatch_dynamic")
+    test_utils.append("test_aot_dispatch_dynamic")
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
-    if TORCH_VERSION_AT_LEAST_2_5:
-        t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
+    t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
 
     opcheck(
@@ -345,7 +338,6 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
 
 
 @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
 )
@@ -413,7 +405,6 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
 @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
 )
@@ -438,8 +429,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(
 
     # Unpack and dequantize
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed, inner_k_tiles)
-    if TORCH_VERSION_AT_LEAST_2_5:
-        unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
+    unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
 
     dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
         unpacked, scales, zeros, n_bit=4, groupsize=group_size
@@ -479,7 +469,6 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(
 
 
 @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
 )
@@ -488,8 +477,7 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     device = "cuda"
 
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
-    if TORCH_VERSION_AT_LEAST_2_5:
-        q = (q[::, ::2] << 4 | q[::, 1::2]).to(torch.uint8)
+    q = (q[::, ::2] << 4 | q[::, 1::2]).to(torch.uint8)
     packed_w = torch._convert_weight_to_int4pack(q, inner_k_tiles)
     q_groups = k // group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
@@ -501,9 +489,7 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
         "test_autograd_registration",
         "test_faketensor",
     ]
-    # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AT_LEAST_2_5:
-        test_utils.append("test_aot_dispatch_dynamic")
+    test_utils.append("test_aot_dispatch_dynamic")
     opcheck(
         torch.ops.torchao.dequantize_tensor_core_tiled_layout,
         (packed_w, scales_and_zeros, group_size, inner_k_tiles),
@@ -766,9 +752,7 @@ def test_swizzle_mm():
         "test_faketensor",
     ]
 
-    # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AT_LEAST_2_5:
-        test_utils.append("test_aot_dispatch_dynamic")
+    test_utils.append("test_aot_dispatch_dynamic")
 
     mat1 = torch.randint(0, 16, dtype=torch.float, size=(16, 32), device="cuda")
     mat2 = torch.randint(0, 16, dtype=torch.float, size=(32, 16), device="cuda")
@@ -778,6 +762,70 @@ def test_swizzle_mm():
         (mat1, mat2, False, False),
         test_utils=test_utils,
     )
+
+
+EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
+EMBEDINGBAG_BAG_SIZES = [1, 2, 128, 1024]
+EMBEDINGBAG_VECTOR_SIZES = [1, 128, 512]
+EMBEDINGBAG_INDEX_DTYPES = [torch.int64, torch.int32]
+
+EMBEDINGBAG_TEST_PARAMS = list(
+    itertools.product(
+        EMBEDINGBAG_MULTIHOT_SIZES,
+        EMBEDINGBAG_BAG_SIZES,
+        EMBEDINGBAG_VECTOR_SIZES,
+        EMBEDINGBAG_INDEX_DTYPES,
+    )
+)
+
+
+@pytest.mark.skipif(
+    "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+    reason="cpp kernels not built",
+)
+@pytest.mark.parametrize(
+    "multi_hot, batch_size, vector_size, index_type",
+    EMBEDINGBAG_TEST_PARAMS,
+    ids=str,
+)
+def test_scaled_embedding_bag_cpu(multi_hot, batch_size, vector_size, index_type):
+    qtype = torch.float8_e4m3fn
+    dtype = torch.float32
+    weight_scale = torch.tensor([2.0])
+    include_last_offset = True
+    mode = "sum"
+
+    if mode == "sum":
+        mode_enum = 0
+    elif mode == "mean":
+        mode_enum = 1
+    elif mode == "max":
+        mode_enum = 2
+    indices = torch.randint(1000, (batch_size * multi_hot,)).to(index_type)
+    offsets = torch.arange(0, (batch_size + 1) * multi_hot, multi_hot).to(index_type)
+
+    m = torch.nn.EmbeddingBag(
+        1000,
+        vector_size,
+        mode=mode,
+        dtype=dtype,
+        include_last_offset=include_last_offset,
+    )
+    fp8_weight = m.weight.data.to(qtype)
+    m.weight.data = fp8_weight.to(m.weight.dtype)
+
+    with torch.no_grad():
+        refe_out = m.forward(indices, offsets) * weight_scale
+        test_out = torch.ops.torchao._scaled_embedding_bag(
+            fp8_weight,
+            indices,
+            offsets,
+            weight_scale,
+            1.0,
+            mode_enum,
+            include_last_offset,
+        ).to(dtype)
+        torch.testing.assert_close(refe_out, test_out, atol=1e-5, rtol=1e-5)
 
 
 if __name__ == "__main__":

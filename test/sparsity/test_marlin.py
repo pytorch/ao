@@ -20,7 +20,6 @@ from torchao.quantization.quant_primitives import (
 from torchao.sparsity.marlin import inject_24, pack_to_marlin_24, unpack_from_marlin_24
 from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class SparseMarlin24(TestCase):
@@ -48,17 +47,16 @@ class SparseMarlin24(TestCase):
         model_copy = copy.deepcopy(self.model)
 
         # Quantized
-        quantize_(model_copy.bfloat16(), int4_weight_only())
+        quantize_(model_copy.bfloat16(), int4_weight_only(version=1))
         dense_result = model_copy(self.input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
+        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
         sparse_result = self.model(self.input)
         assert torch.allclose(dense_result, sparse_result, atol=3e-1), (
             "Results are not close"
         )
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_compile(self):
@@ -66,12 +64,12 @@ class SparseMarlin24(TestCase):
         model_copy = copy.deepcopy(self.model)
 
         # Quantized
-        quantize_(model_copy.bfloat16(), int4_weight_only())
+        quantize_(model_copy.bfloat16(), int4_weight_only(version=1))
         model_copy.foward = torch.compile(model_copy.forward, fullgraph=True)
         dense_result = model_copy(self.input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
+        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
         self.model.forward = torch.compile(self.model.forward, fullgraph=True)
         sparse_result = self.model(self.input)
 

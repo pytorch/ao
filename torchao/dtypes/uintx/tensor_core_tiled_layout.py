@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -24,7 +25,6 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_tinygemm,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     fill_defaults,
     find_multiple,
 )
@@ -238,6 +238,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         transposed: bool,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
+        )
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False
@@ -274,14 +277,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         )
 
         def quant_2d(int_data_2d):
-            if TORCH_VERSION_AT_LEAST_2_5:
-                int_data_2d = (int_data_2d[::, ::2] << 4 | int_data_2d[::, 1::2]).to(
-                    torch.uint8
-                )
-            else:
-                assert int_data_2d.dtype == torch.int32, (
-                    "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
-                )
+            int_data_2d = (int_data_2d[::, ::2] << 4 | int_data_2d[::, 1::2]).to(
+                torch.uint8
+            )
             return torch.ops.aten._convert_weight_to_int4pack(
                 int_data_2d.contiguous(), _layout.inner_k_tiles
             )

@@ -57,7 +57,7 @@ for efficient mixed dtype matrix multiplication:
 
   # torch 2.4+ only
   from torchao.quantization import Int4WeightOnlyConfig, quantize_
-  quantize_(model, Int4WeightOnlyConfig(group_size=32))
+  quantize_(model, Int4WeightOnlyConfig(group_size=32, version=1))
 
 The quantized model is now ready to use! Note that the quantization
 logic is inserted through tensor subclasses, so there is no change
@@ -95,15 +95,9 @@ it is also much faster!
 .. code:: py
 
   from torchao.utils import (
-      TORCH_VERSION_AT_LEAST_2_5,
       benchmark_model,
       unwrap_tensor_subclass,
   )
-
-  # Temporary workaround for tensor subclass + torch.compile
-  # Only needed for torch version < 2.5
-  if not TORCH_VERSION_AT_LEAST_2_5:
-      unwrap_tensor_subclass(model)
 
   num_runs = 100
   torch._dynamo.reset()
@@ -210,7 +204,7 @@ In this quick start guide, we learned how to quantize a simple model with
 torchao. To learn more about the different workflows supported in torchao,
 see our main `README <https://github.com/pytorch/ao/blob/main/README.md>`__.
 For a more detailed overview of quantization in torchao, visit
-`this page <quantization.html>`__.
+`this page <quantization_overview.html>`__.
 
 Finally, if you would like to contribute to torchao, don't forget to check
 out our `contributor guide <contributor_guide.html>`__ and our list of

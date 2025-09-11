@@ -24,7 +24,9 @@ from torchao.quantization import (
 )
 from torchao.quantization.observer import PerRow, PerTensor
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+
+if common_utils.SEED is None:
+    common_utils.SEED = 1234
 
 try:
     import gemlite  # noqa: F401
@@ -124,10 +126,6 @@ class TestAffineQuantizedTensorParallel(DTensorTestBase):
 
         dn_dist(up_dist(input_dtensor))
 
-        if not TORCH_VERSION_AT_LEAST_2_6:
-            # Need torch 2.6 to support compiled tensor parallelism
-            return
-
         up_compiled = torch.compile(up_dist)
         y_up = up_compiled(input_dtensor)
         dn_compiled = torch.compile(dn_dist)
@@ -147,6 +145,7 @@ class TestInt8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
 
 class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
     QUANT_METHOD_FN = staticmethod(int4_weight_only)
+    QUANT_METHOD_KWARGS = {"version": 1}
     COMMON_DTYPES = [torch.bfloat16]
 
     @common_utils.parametrize("dtype", COMMON_DTYPES)

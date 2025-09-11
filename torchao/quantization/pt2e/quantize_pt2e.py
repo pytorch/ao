@@ -6,9 +6,9 @@
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
-if TORCH_VERSION_AT_LEAST_2_7:
+if torch_version_at_least("2.7.0"):
     from .constant_fold import constant_fold
 
 from typing import Union
@@ -46,7 +46,7 @@ def prepare_pt2e(
     """Prepare a model for post training quantization
 
     Args:
-      * `model` (torch.fx.GraphModule): a model captured by `torch.export.export_for_training` API.
+      * `model` (torch.fx.GraphModule): a model captured by `torch.export.export` API.
       * `quantizer`: A backend specific quantizer that conveys how user want the
         model to be quantized. Tutorial for how to write a quantizer can be found here:
         https://pytorch.org/tutorials/prototype/pt2e_quantizer.html
@@ -84,7 +84,7 @@ def prepare_pt2e(
         # Step 1. program capture
         # NOTE: this API will be updated to torch.export API in the future, but the captured
         # result shoud mostly stay the same
-        m = torch.export.export_for_training(m, *example_inputs).module()
+        m = torch.export.export(m, *example_inputs).module()
         # we get a model with aten ops
 
         # Step 2. quantization
@@ -106,7 +106,7 @@ def prepare_pt2e(
 
         return torch_prepare_pt2e(model, quantizer)
 
-    torch._C._log_api_usage_once("quantization_api.quantize_pt2e.prepare_pt2e")
+    torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
     # TODO: check qconfig_mapping to make sure conv and bn are both configured
@@ -169,7 +169,7 @@ def prepare_qat_pt2e(
         # Step 1. program capture
         # NOTE: this API will be updated to torch.export API in the future, but the captured
         # result shoud mostly stay the same
-        m = torch.export.export_for_training(m, *example_inputs).module()
+        m = torch.export.export(m, *example_inputs).module()
         # we get a model with aten ops
 
         # Step 2. quantization
@@ -192,7 +192,7 @@ def prepare_qat_pt2e(
 
         return torch_prepare_qat_pt2e(model, quantizer)
 
-    torch._C._log_api_usage_once("quantization_api.quantize_pt2e.prepare_qat_pt2e")
+    torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_qat_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
     model = quantizer.transform_for_annotation(model)
@@ -217,13 +217,8 @@ _QUANT_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.quantize_per_channel.default,
+    torch.ops.torchao.quantize_affine,
 ]
-
-# ops are only registered after 2.5
-if TORCH_VERSION_AT_LEAST_2_5:
-    _QUANT_OPS += [
-        torch.ops.torchao.quantize_affine,
-    ]
 
 
 def _quant_node_constraint(n: Node) -> bool:
@@ -309,7 +304,7 @@ def convert_pt2e(
 
         return torch_convert_pt2e(model, use_reference_representation, fold_quantize)
 
-    torch._C._log_api_usage_once("quantization_api.quantize_pt2e.convert_pt2e")
+    torch._C._log_api_usage_once("torchao.quantization.pt2e.convert_pt2e")
     if not isinstance(use_reference_representation, bool):
         raise ValueError(
             "Unexpected argument type for `use_reference_representation`, "
@@ -325,7 +320,7 @@ def convert_pt2e(
     pm = PassManager([PortNodeMetaForQDQ()])
     model = pm(model).graph_module
 
-    if fold_quantize and TORCH_VERSION_AT_LEAST_2_7:
+    if fold_quantize and torch_version_at_least("2.7.0"):
         constant_fold(model, _quant_node_constraint)
 
     if use_reference_representation:

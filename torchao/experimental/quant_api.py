@@ -6,12 +6,16 @@
 
 import logging
 import sys
-from typing import Callable, List, Mapping, Optional, Tuple, Union
+from typing import Callable, List, Mapping, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
+)
+
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,53 +27,14 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-from dataclasses import dataclass
-
-from torchao.core.config import AOBaseConfig
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-)
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-    Target,
-)
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
-from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
+from torchao.quantization.granularity import Granularity, PerAxis, PerGroup
 from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
-)
-from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     MappingType,
     quantize_,
 )
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
-
-
-@dataclass
-class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
-    weight_dtype: torch.dtype = torch.int4
-    granularity: Union[PerRow, PerGroup] = PerRow()
-    has_weight_zeros: bool = False
-    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
-    act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    round_weight_scale_to_bf16: bool = True
-    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
-
-    def __post_init__(self):
-        raise NotImplementedError(
-            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
-            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
-            "* granularity -> weight_granularity\n"
-            "* has_weight_zeros=True -> weight_mapping_type=torchao.quantization.quant_api.MappingType.ASYMMETRIC\n"
-            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.MappingType.SYMMETRIC\n"
-            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
-            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
-        )
-
-
-# For BC
-int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 class QuantizedEmbedding(nn.Module):
@@ -94,9 +59,11 @@ class QuantizedEmbedding(nn.Module):
             ),
             lambda m, fqn: isinstance(m, torch.nn.Embedding),
         )
-        weight_qvals, weight_scales, weight_zeros = (
-            embedding.weight.tensor_impl.get_plain()
-        )
+
+        weight_qvals = embedding.weight.qdata
+        weight_scales = embedding.weight.scale
+        weight_zeros = embedding.weight.zero_point
+
         assert weight_zeros is not None
         weight_scales = weight_scales.reshape(num_embeddings, -1)
         weight_zeros = weight_zeros.reshape(num_embeddings, -1).to(torch.int8)
@@ -184,9 +151,6 @@ def _replace_embedding_with_quantized_embedding(
     bit_width = kwargs.get("bit_width", None)
     use_fallback = kwargs.get("use_fallback", None)
     mapping_type = kwargs.get("mapping_type", None)
-    embedding_fqn_to_quantized_unembedding = kwargs.get(
-        "embedding_fqn_to_quantized_unembedding", None
-    )
 
     assert not isinstance(module, nn.Embedding)
     for name, child in module.named_children():
@@ -207,38 +171,16 @@ def _replace_embedding_with_quantized_embedding(
                     mapping_type,
                 )
             else:
-                _check_torchao_ops_loaded()
-                if embedding_fqn_to_quantized_unembedding is None:
-                    qembedding = QuantizedEmbedding(bit_width)
-                    setattr(module, name, qembedding)
-                    getattr(module, name).quantize_and_pack_weights(
-                        child.weight,
-                        group_size,
-                        mapping_type,
-                    )
-                else:
-                    if child_fqn not in embedding_fqn_to_quantized_unembedding:
-                        continue
-                    weight_tensor = embedding_fqn_to_quantized_unembedding[child_fqn]
-                    n, k = weight_tensor.shape
-                    group_size = weight_tensor.tensor_impl.get_layout().group_size
-                    packed_weight = weight_tensor.tensor_impl.packed_weight
-                    bit_width = weight_tensor.tensor_impl.get_layout().bit_width
-
-                    assert n == child.num_embeddings, (
-                        "num_embeddings must match n in shared_unembedding"
-                    )
-                    assert k == child.embedding_dim, (
-                        "embedding_dim must match k in shared_unembedding"
-                    )
-                    qembedding = QuantizedSharedEmbedding(
-                        bit_width,
-                        packed_weight,
-                        group_size,
-                        n,
-                        k,
-                    )
-                    setattr(module, name, qembedding)
+                assert _is_kernel_library_loaded(), (
+                    "torchao kernel library is not loaded"
+                )
+                qembedding = QuantizedEmbedding(bit_width)
+                setattr(module, name, qembedding)
+                getattr(module, name).quantize_and_pack_weights(
+                    child.weight,
+                    group_size,
+                    mapping_type,
+                )
 
 
 class EmbeddingQuantizer:
@@ -334,34 +276,18 @@ class QuantizedLinear(nn.Module):
         return res
 
 
-def quantized_linear_from_aqt(
-    weight: Optional[torch.Tensor], bias: Optional[torch.Tensor]
-):
-    n, k = weight.shape
-    group_size = weight.tensor_impl.get_layout().group_size
-    bit_width = weight.tensor_impl.get_layout().bit_width
-    packed_weight = weight.tensor_impl.packed_weight
-    if weight.tensor_impl.get_layout().has_bias:
-        assert bias is None
-    return QuantizedLinear(packed_weight, n, k, group_size, bit_width, bias)
+def get_parent_by_fqn(root: nn.Module, fqn: str):
+    parts = fqn.split(".")
+    if len(parts) == 1:
+        # e.g. "fqn" → parent is root, child is "fqn"
+        return root, parts[0]
 
-
-def replace_linear_tensor_subclass_with_module(module: nn.Module):
-    assert not isinstance(module, nn.Linear)
-    for name, child in module.named_children():
-        if not isinstance(child, nn.Linear):
-            replace_linear_tensor_subclass_with_module(child)
-        else:
-            if not isinstance(child.weight, AffineQuantizedTensor):
-                continue
-            if not isinstance(
-                child.weight.tensor_impl.get_layout(),
-                PackedLinearInt8DynamicActivationIntxWeightLayout,
-            ):
-                continue
-            if child.weight.tensor_impl.get_layout().target == Target.ATEN:
-                continue
-            setattr(module, name, quantized_linear_from_aqt(child.weight, child.bias))
+    parent_fqn = ".".join(parts[:-1])
+    child_name = parts[-1]
+    parent = dict(root.named_modules()).get(parent_fqn, None)
+    if parent is None:
+        raise KeyError(f"Parent module {parent_fqn} not found in model")
+    return parent, child_name
 
 
 class SharedEmbeddingQuantizer:
@@ -436,14 +362,12 @@ class SharedEmbeddingQuantizer:
         # Quantize unembeddings
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig_NonExperimental(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=self.weight_dtype,
                 weight_granularity=self.granularity,
                 weight_mapping_type=self.mapping_type,
                 # Only universal layout is supported for shared embedding
-                layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
-                    target="universal"
-                ),
+                intx_packing_format="opaque_torchao_lowbit",
             ),
             filter_fn=lambda m, fqn: isinstance(m, nn.Linear)
             and fqn in list(embedding_to_unembedding.values()),
@@ -458,16 +382,44 @@ class SharedEmbeddingQuantizer:
                 embedding_fqn = unembedding_to_embedding[fqn[: -len(".weight")]]
                 embedding_fqn_to_quantized_unembedding[embedding_fqn] = t
 
-        _replace_embedding_with_quantized_embedding(
-            model,
-            kwargs={
-                "embedding_fqn_to_quantized_unembedding": embedding_fqn_to_quantized_unembedding,
-            },
-        )
+        for embedding_fqn, unembedding_fqn in embedding_to_unembedding.items():
+            weight = embedding_fqn_to_quantized_unembedding[embedding_fqn]
+            n, k = weight.shape
+            group_size = weight.block_size[1]
+            packed_weight = weight.packed_weights
+            bit_width = weight.bit_width
 
-        # Remove subclasses.  Otherwise there are two packed_weight objects in exported model,
-        # even though they have the same id in eager mode
-        replace_linear_tensor_subclass_with_module(model)
+            # Set embedding
+            parent, child_name = get_parent_by_fqn(model, embedding_fqn)
+            child = getattr(parent, child_name)
+            assert n == child.num_embeddings, (
+                "num_embeddings must match n in shared_unembedding"
+            )
+            assert k == child.embedding_dim, (
+                "embedding_dim must match k in shared_unembedding"
+            )
+            setattr(
+                parent,
+                child_name,
+                QuantizedSharedEmbedding(
+                    bit_width,
+                    packed_weight,
+                    group_size,
+                    n,
+                    k,
+                ),
+            )
+
+            # Set unembedding
+            parent, child_name = get_parent_by_fqn(model, unembedding_fqn)
+            child = getattr(parent, child_name)
+            if weight.packed_weights_has_bias:
+                assert child.bias is None
+            setattr(
+                parent,
+                child_name,
+                QuantizedLinear(packed_weight, n, k, group_size, bit_width, child.bias),
+            )
 
 
 def _quantize(

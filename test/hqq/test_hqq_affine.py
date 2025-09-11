@@ -15,9 +15,6 @@ from torchao.quantization import (
     uintx_weight_only,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-)
 
 cuda_available = torch.cuda.is_available()
 
@@ -58,7 +55,7 @@ def _eval_hqq(dtype):
     )
     dummy_linear.weight.data = W
     if dtype == torch.uint4:
-        config = int4_weight_only(group_size=max(block_size), use_hqq=True)
+        config = int4_weight_only(group_size=max(block_size), use_hqq=True, version=1)
     else:
         config = uintx_weight_only(dtype, group_size=max(block_size), use_hqq=True)
     quantize_(dummy_linear, config)
@@ -78,7 +75,6 @@ def _eval_hqq(dtype):
 
 
 @unittest.skipIf(not cuda_available, "Need CUDA available")
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "Need torch 2.3+")
 class TestHQQ(unittest.TestCase):
     def _test_hqq(
         self, dtype=None, ref_dequantize_error=None, ref_dot_product_error=None

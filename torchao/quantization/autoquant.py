@@ -31,11 +31,10 @@ from torchao.quantization.utils import (
     compute_error,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 from .granularity import (
@@ -329,6 +328,8 @@ def do_autoquant_bench(op, *args, **kwargs):
     """
     runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
     """
+    from torch._inductor.runtime.benchmarking import benchmarker
+
     rep = kwargs.pop("rep", 100)
     warmup = kwargs.pop("warmup", 25)
     with torch.no_grad():
@@ -343,22 +344,15 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._inductor.runtime.benchmarking import benchmarker
+        if torch_version_at_least("2.9.0.dev"):
+            from statistics import median
 
             res = benchmarker.benchmark_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="all"
             )
-        elif TORCH_VERSION_AT_LEAST_2_3:
-            from torch._inductor.runtime.runtime_utils import do_bench_gpu
-
-            res = do_bench_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
+            res = median(res)
         else:
-            from torch._inductor.utils import do_bench
-
-            res = do_bench(
+            res = benchmarker.benchmark_gpu(
                 lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
             )
     return res
@@ -1269,6 +1263,8 @@ def autoquant(
         model(*example_input2)
         model.finalize_autoquant()
     """
+    torch._C._log_api_usage_once("torchao.quantization.autoquant")
+
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1346,12 +1342,11 @@ def autoquant(
     return model
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals(ALL_AUTOQUANT_CLASS_LIST)
-    torch.serialization.add_safe_globals(
-        [
-            _to_float16,
-            _to_bfloat16,
-            _identity,
-        ]
-    )
+torch.serialization.add_safe_globals(ALL_AUTOQUANT_CLASS_LIST)
+torch.serialization.add_safe_globals(
+    [
+        _to_float16,
+        _to_bfloat16,
+        _identity,
+    ]
+)

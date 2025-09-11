@@ -28,7 +28,6 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
 
 torch._dynamo.config.cache_size_limit = 50000
 
@@ -364,10 +363,6 @@ def run(
 
     if compress == "int8_dynamic_quant":
         quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            predictor.model.image_encoder = unwrap_tensor_subclass(
-                predictor.model.image_encoder
-            )
     elif compress == "sparse_mlp_only":
 
         def mlp_only(mod, name):
@@ -395,10 +390,6 @@ def run(
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            predictor.model.image_encoder = unwrap_tensor_subclass(
-                predictor.model.image_encoder
-            )
     elif compress == "int4_weight_only_sparse":
         # apply sparsify first to set qparams
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
@@ -411,14 +402,10 @@ def run(
         )
         quantize_(
             predictor.model.image_encoder,
-            int4_weight_only(layout=MarlinSparseLayout()),
+            int4_weight_only(layout=MarlinSparseLayout(), version=1),
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            predictor.model.image_encoder = unwrap_tensor_subclass(
-                predictor.model.image_encoder
-            )
 
     elif compress is not None and "autoquant_v2" in compress:
         example_input = torch.randn(

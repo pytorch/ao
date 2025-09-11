@@ -14,8 +14,7 @@ from torchao.prototype.quantization.codebook_coreml import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_no_cuda
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, is_package_at_least
+from torchao.utils import is_package_at_least
 
 
 @unittest.skipIf(
@@ -36,7 +35,7 @@ class TestCodebookQuantization(unittest.TestCase):
             self.block_size,
         )
         group_size = self.block_size[-1]
-        self.assertEqual(codebook.shape, (256 // group_size, 2**self.nbits, 1))
+        self.assertEqual(codebook.shape, (1, 256 // group_size, 2**self.nbits, 1))
         self.assertEqual(wq.shape, (100, 256))
 
         self.assertFalse(torch.isnan(codebook).any())
@@ -76,8 +75,41 @@ class TestCodebookQuantization(unittest.TestCase):
         )
         assert type(m[0].weight) == CodebookQuantizedTensor
 
-    @skip_if_no_cuda()
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "requires 2.6+.")
+    def test_choose_qparams_codebook_row_grouping(self):
+        # Test with a block_size that forces row-wise grouping: [10, 256]
+        # Input tensor is (100, 256)
+        row_grouped_block_size = [10, -1]
+        num_row_groups = (
+            self.input.shape[0] // row_grouped_block_size[0]
+        )  # 100 // 10 = 10
+
+        codebook, wq = choose_qparams_and_quantize_codebook_coreml(
+            self.input,
+            self.code_dtype,
+            row_grouped_block_size,
+        )
+
+        # Expected shape for row-wise grouping is (num_row_groups, 1, 2**nbits, 1)
+        self.assertEqual(codebook.shape, (num_row_groups, 1, 2**self.nbits, 1))
+        self.assertEqual(wq.shape, (100, 256))
+
+        self.assertFalse(torch.isnan(codebook).any())
+        self.assertFalse(torch.isnan(wq).any())
+
+    def test_codebook_quantized_tensor_from_float_row_grouping(self):
+        # Test end-to-end quantization/dequantization with row grouping
+        row_grouped_block_size = [20, -1]  # 100 is divisible by 20
+        cqt = CodebookQuantizedTensor.from_float(
+            self.input,
+            self.code_dtype,
+            row_grouped_block_size,
+        )
+
+        dequant = cqt.dequantize()
+        # The SQNR will be different from column grouping, but should still be high
+        sqnr = compute_error(dequant, self.input)
+        self.assertGreater(sqnr, 30)
+
     def test_export(self):
         m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(torch.float32)
         quantize_(m, CodebookWeightOnlyConfig(self.code_dtype, self.block_size))

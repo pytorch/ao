@@ -8,13 +8,13 @@ import dataclasses
 import enum
 import importlib
 import json
-from typing import Any, ClassVar, Dict
+import warnings
+from typing import Any, Dict
 
 import torch
 
 __all__ = [
     "AOBaseConfig",
-    "VersionMismatchError",
     "config_from_dict",
     "config_to_dict",
     "ALLOWED_AO_MODULES",
@@ -50,29 +50,21 @@ class AOBaseConfig(abc.ABC):
     """
 
     """
-    Note: this is not the version of AOBaseConfig, but the default version for all child configs
-    inheriting from AOBaseConfig, and it should be `_DEFAULT_VERSION` and never change
-    this is making sure all configs has a version defined, when they need to bump the version
-    they have to define a class variable VERSION for the child config to overwrite the default VERSION
-    that's defined here. Different child configs will maintain their own VERSION.
+    Note: this is not the version of AOBaseConfig, but the default version for instances of
+    all child configs inheriting from AOBaseConfig, and it should be `_DEFAULT_VERSION` and never change
+    this is making sure all config instances has a version defined, when they need to bump the default
+    version they have to define a instance variable version for the child config to overwrite the default version
+    that's defined here. Different child config instances will maintain their own version.
+
+    Why version is instance variable instead of class variable? instance level version is needed becuase
+    when we have multiple versions co-exist, we need to be able to load objects with earlier versions,
+    class level version is global and can't achieve this goal so we have to use instance variable.
+
+    to overwrite this in subclasses, we need to define `version: int` (with type annotations)
 
     default Version of a config, should never change
     """
-    VERSION: ClassVar[int] = _DEFAULT_VERSION
-
-
-class VersionMismatchError(Exception):
-    """Raised when trying to deserialize a config with a different version"""
-
-    def __init__(self, type_path, stored_version, current_version):
-        self.type_path = type_path
-        self.stored_version = stored_version
-        self.current_version = current_version
-        message = (
-            f"Version mismatch for {type_path}: "
-            f"stored version {stored_version} != current version {current_version}"
-        )
-        super().__init__(message)
+    version: int = _DEFAULT_VERSION
 
 
 class ConfigJSONEncoder(json.JSONEncoder):
@@ -84,14 +76,14 @@ class ConfigJSONEncoder(json.JSONEncoder):
             data_dict = {}
             # Process each attribute to handle nested objects
             for k, v in o.__dict__.items():
-                if not k.startswith("_") and k != "VERSION":
+                if not k.startswith("_") and k != "version":
                     # Recursively encode each value (important for nested objects)
                     data_dict[k] = self.encode_value(v)
 
             return {
                 # Only store the class name, not the full module path
                 "_type": o.__class__.__name__,
-                "_version": getattr(o.__class__, "VERSION", 1),
+                "_version": getattr(o, "version", _DEFAULT_VERSION),
                 "_data": data_dict,
             }
 
@@ -105,7 +97,7 @@ class ConfigJSONEncoder(json.JSONEncoder):
 
             return {
                 "_type": o.__class__.__name__,
-                "_version": getattr(o.__class__, "VERSION", 1),
+                "_version": getattr(o, "version", _DEFAULT_VERSION),
                 "_data": processed_data,
             }
 
@@ -114,13 +106,13 @@ class ConfigJSONEncoder(json.JSONEncoder):
             data_dict = {}
             # Process each field to handle nested objects
             for f in dataclasses.fields(o):
-                if f.name != "VERSION":
+                if f.name != "version":
                     data_dict[f.name] = self.encode_value(getattr(o, f.name))
 
             return {
                 # Only store the class name for dataclasses too
                 "_type": o.__class__.__name__,
-                "_version": getattr(o.__class__, "VERSION", 1),
+                "_version": getattr(o, "version", _DEFAULT_VERSION),
                 "_data": data_dict,
             }
 
@@ -202,6 +194,9 @@ ALLOWED_AO_MODULES = {
     "torchao.prototype.quantization",
     "torchao.prototype.mx_formats",
     "torchao.dtypes",
+    "torchao.prototype.awq",
+    "torchao.quantization.quantize_.common",
+    "torchao.quantization.quantize_.workflows",
 }
 
 
@@ -216,7 +211,6 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         An instance of the appropriate AOBaseConfig subclass
 
     Raises:
-        VersionMismatchError: If the stored version doesn't match the class version
         ValueError: If deserialization fails for other reasons
     """
     if not isinstance(data, dict):
@@ -226,7 +220,7 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         raise ValueError("Input dictionary missing required '_type' or '_data' fields")
 
     type_path = data["_type"]
-    stored_version = data.get("_version", 1)
+    stored_version = data.get("_version", _DEFAULT_VERSION)
     obj_data = data["_data"]
 
     # Handle torch.dtype
@@ -251,10 +245,11 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
             f"Failed to find class {type_path} in any of the allowed modules: {allowed_modules_str}"
         )
 
-    # Check version - require exact match
-    current_version = getattr(cls, "VERSION", 1)
-    if stored_version != current_version:
-        raise VersionMismatchError(type_path, stored_version, current_version)
+    current_default_version = getattr(cls, "version", _DEFAULT_VERSION)
+    if stored_version != current_default_version:
+        warnings.warn(
+            f"Stored version is not the same as current default version of the config: {stored_version=}, {current_default_version=}, please check the deprecation warning"
+        )
 
     # Handle the case where obj_data is not a dictionary
     if not isinstance(obj_data, dict):
@@ -269,7 +264,11 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
                 return obj_data
 
     # Process nested structures for dictionary obj_data
-    processed_data = {}
+    if stored_version != current_default_version:
+        processed_data = {"version": stored_version}
+    else:
+        processed_data = {}
+
     for key, value in obj_data.items():
         if isinstance(value, dict) and "_type" in value and "_data" in value:
             # Recursively handle nested configs
