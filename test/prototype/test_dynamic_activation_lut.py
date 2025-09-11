@@ -12,7 +12,7 @@ import pytest
 import torch
 
 from torchao.prototype.parq.quant import (
-    Int8DynamicActivationStretchedIntxWeightConfig,
+    StretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
 )
 from torchao.prototype.quantization.dynamic_activation_lut import (
@@ -63,12 +63,13 @@ def run_before_and_after_tests():
 def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
     torch.manual_seed(0)
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
-    config = Int8DynamicActivationStretchedIntxWeightConfig(
+    config = StretchedIntxWeightConfig(
         b=bit_width,
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
         granularity=granularity,
         activation_quantization=None,
+        version=1,
     )
 
     parq_model = ToyLinearModel(128, 256, 128, 1).to(dtype)
@@ -114,12 +115,13 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 @pytest.mark.skipif(not is_arm64_mac, reason="requires arm64 mac")
 def test_export(dtype, granularity, bit_width, lead_dim):
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
-    config = Int8DynamicActivationStretchedIntxWeightConfig(
+    config = StretchedIntxWeightConfig(
         b=bit_width,
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
         granularity=granularity,
         activation_quantization=None,
+        version=1,
     )
 
     parq_model = ToyLinearModel(128, 256, 128, 8).to(dtype)

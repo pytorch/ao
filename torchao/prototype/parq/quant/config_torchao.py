@@ -42,7 +42,7 @@ except ImportError:
 
 
 @dataclass
-class Int8DynamicActivationStretchedIntxWeightConfig(AOBaseConfig):
+class StretchedIntxWeightConfig(AOBaseConfig):
     granularity: Granularity = PerAxis(0)
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
@@ -53,16 +53,16 @@ class Int8DynamicActivationStretchedIntxWeightConfig(AOBaseConfig):
     activation_quantization: Optional[str] = "int8_asym_per_token"
 
 
-@register_quantize_module_handler(Int8DynamicActivationStretchedIntxWeightConfig)
+@register_quantize_module_handler(StretchedIntxWeightConfig)
 def _int8_dynamic_activation_stretched_intx_transform(
-    module: nn.Module, config: Int8DynamicActivationStretchedIntxWeightConfig
+    module: nn.Module, config: StretchedIntxWeightConfig
 ) -> nn.Module:
     weight = module.weight
     granularity = config.granularity
     mapping_type = MappingType.ASYMMETRIC
 
     assert weight.dim() == 2, (
-        f"Int8DynamicActivationStretchedIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
+        f"StretchedIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
     )
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
@@ -140,7 +140,7 @@ def _get_config_from_quantizer(
             config.layout = Int4CPULayout()
             config.version = 1
     elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
-        config = Int8DynamicActivationStretchedIntxWeightConfig(
+        config = StretchedIntxWeightConfig(
             b=b,
             quant_min=quantizer.quant_min,
             quant_max=quantizer.quant_max,

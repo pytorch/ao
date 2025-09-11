@@ -19,9 +19,9 @@ from torchao.prototype.parq.optim import (
 )
 from torchao.prototype.parq.quant import (
     Int4UnifTorchaoQuantizer,
-    Int8DynamicActivationStretchedIntxWeightConfig,
     LSBQuantizer,
     Quantizer,
+    StretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
     TernaryUnifQuantizer,
     UnifQuantizer,
@@ -237,11 +237,14 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
-    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(
-        torch.cuda.is_available()
-        and (not is_sm_at_least_90() or not _is_fbgemm_genai_gpu_available()),
-        "Requires sm90+ and fbgemm-gpu-genai >= 1.2.0 if GPU available",
+        _DEVICE == "cuda"
+        and (
+            not torch_version_at_least("2.8.0")
+            or not is_sm_at_least_90()
+            or not _is_fbgemm_genai_gpu_available()
+        ),
+        "Requires pytorch >= 2.8.0, sm90+ and fbgemm-gpu-genai >= 1.2.0 on GPU",
     )
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
@@ -361,7 +364,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         quantize_(
             m_ref,
-            Int8DynamicActivationStretchedIntxWeightConfig(
+            StretchedIntxWeightConfig(
                 b=b,
                 quant_min=quantizer.quant_min,
                 quant_max=quantizer.quant_max,
@@ -381,7 +384,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer = StretchedUnifTorchaoQuantizer(b)
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = Int8DynamicActivationStretchedIntxWeightConfig(
+        config = StretchedIntxWeightConfig(
             b=b,
             quant_min=quantizer.quant_min,
             quant_max=quantizer.quant_max,
