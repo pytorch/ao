@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import tempfile
 import unittest
 
@@ -17,6 +18,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.quantization import (
     Float8DynamicActivationInt4WeightConfig,
+    Int4PreshuffledTensor,
     Int4WeightOnlyConfig,
     quantize_,
 )
@@ -81,6 +83,34 @@ class TestInt4PreshuffledTensor(TestCase):
         quantize_(m, bmm_config, filter_fn=lambda x, fqn: True)
         quantized = m(input)
         self.assertTrue(compute_error(original, quantized) > 18)
+
+    def test_from_int4_tensor(self):
+        """Test that constructing Int4PreshuffledTensor from Int4Tensor
+        is the same as quantizing the original weight to Int4PreshuffledTensor
+        """
+        int4_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="plain",
+        )
+        int4_preshuffled_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="preshuffled",
+        )
+        linear1 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        linear2 = copy.deepcopy(linear1)
+
+        quantize_(linear1, int4_config)
+        quantize_(linear2, int4_preshuffled_config)
+
+        # now convert the linear1.weight to Int4PreshuffledTensor
+        w1_preshuffled = Int4PreshuffledTensor.from_int4_tensor(linear1.weight)
+        linear1.weight = torch.nn.Parameter(w1_preshuffled, requires_grad=False)
+
+        example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device="cuda"),)
+
+        output1 = linear1(*example_inputs)
+        output2 = linear2(*example_inputs)
+        self.assertEqual(output1, output2)
 
     @parametrize("config", [BF16_ACT_CONFIG, FP8_ACT_CONFIG])
     def test_to_device(self, config):
