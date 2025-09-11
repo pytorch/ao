@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 
-from torchao.prototype.quantization.dynamic_activation_lut.int8_dynamic_activation_lut_tensor import (
+from torchao.prototype.quantization.int8_lut_tensor.int8_lut_tensor import (
     Int8LutTensor,
 )
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor

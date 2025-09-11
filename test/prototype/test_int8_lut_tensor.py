@@ -15,12 +15,9 @@ from torchao.prototype.parq.quant import (
     StretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
 )
-from torchao.prototype.quantization.dynamic_activation_lut import (
-    StretchedAffineQuantizedTensor_to_Int8DynamicActivationLutTensorConfig,
-)
+from torchao.prototype.quantization.int8_lut_tensor import convert_model
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerAxis, PerGroup
-from torchao.quantization.quant_api import _is_linear
 from torchao.quantization.utils import compute_error
 
 is_arm64_mac = sys.platform == "darwin" and platform.machine() == "arm64"
@@ -68,38 +65,22 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
         granularity=granularity,
-        activation_quantization=None,
-        version=1,
+        activation_quantization="int8_asym_per_token",
     )
 
     parq_model = ToyLinearModel(128, 256, 128, 1).to(dtype)
     activations = parq_model.example_inputs(lead_dim=lead_dim, dtype=dtype)
-    parq_model_with_dyn_quant = deepcopy(parq_model)
     quantize_(parq_model, config)
-
-    # Apply dynamic activation to parq model.  This will serve as the LUT reference
-    dyn_act_config = deepcopy(config)
-    dyn_act_config.activation_quantization = "int8_asym_per_token"
-    quantize_(parq_model_with_dyn_quant, dyn_act_config, filter_fn=_is_linear)
 
     # Convert PARQ model to lowbit LUT model
     lut_model = deepcopy(parq_model)
-    conversion_config = (
-        StretchedAffineQuantizedTensor_to_Int8DynamicActivationLutTensorConfig(
-            config.b, config.granularity
-        )
-    )
-    quantize_(lut_model, conversion_config, filter_fn=conversion_config.get_filter_fn())
+    convert_model(lut_model)
 
     # Run both models and compare
     parq_out = parq_model(activations)
-    parq_with_dyn_quant_out = parq_model_with_dyn_quant(activations)
     lut_out = lut_model(activations)
 
-    sqnr = compute_error(parq_out, parq_with_dyn_quant_out).item()
-    assert sqnr > 20.0, f"sqnr {sqnr} is too low"
-
-    sqnr = compute_error(lut_out, parq_with_dyn_quant_out).item()
+    sqnr = compute_error(parq_out, lut_out).item()
     if dtype == torch.float32:
         assert sqnr > 40.0, f"sqnr {sqnr} is too low"
     elif dtype == torch.bfloat16:
@@ -120,24 +101,17 @@ def test_export(dtype, granularity, bit_width, lead_dim):
         quant_min=quantizer.quant_min,
         quant_max=quantizer.quant_max,
         granularity=granularity,
-        activation_quantization=None,
-        version=1,
+        activation_quantization="int8_asym_per_token",
     )
 
     parq_model = ToyLinearModel(128, 256, 128, 8).to(dtype)
     activations = parq_model.example_inputs(lead_dim=lead_dim)
     quantize_(parq_model, config)
 
-    conversion_config = (
-        StretchedAffineQuantizedTensor_to_Int8DynamicActivationLutTensorConfig(
-            config.b, config.granularity
-        )
-    )
-    quantize_(
-        parq_model, conversion_config, filter_fn=conversion_config.get_filter_fn()
-    )
+    convert_model(parq_model)
 
     ep = torch.export.export(parq_model, (activations,))
+
     assert (
         f"torch.ops.torchao._linear_8bit_act_{bit_width}bit_weight.default"
         in ep.graph_module.code

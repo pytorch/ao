@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 
@@ -37,11 +37,6 @@ class Int8LutTensor(TorchAOBaseTensor):
         "packed_weights_has_bias",
     ]
 
-    packed_weights: torch.Tensor
-    original_shape: Tuple[int, int]
-    weight_scale_group_size: int
-    bit_width: int
-
     def __new__(
         cls,
         packed_weights,
@@ -71,8 +66,6 @@ class Int8LutTensor(TorchAOBaseTensor):
         self.packed_weights = packed_weights
         self.bit_width = bit_width
         self.block_size = block_size
-        self.shape = shape
-        self.dtype = dtype
         self.packed_weights_has_bias = packed_weights_has_bias
 
     def _quantization_type(self):
@@ -107,7 +100,10 @@ class Int8LutTensor(TorchAOBaseTensor):
             lut = 2 * lut + 1
             scale = 0.5 * scale
 
-        # Scale must be float32 + 1D
+        # LUT must be 2D and int8
+        lut = lut.reshape(1, -1).to(torch.int8)
+
+        # Scale must be 1D and float32
         scale = scale.reshape(-1).to(torch.float32)
 
         return lut, lut_indices, scale
@@ -128,6 +124,8 @@ class Int8LutTensor(TorchAOBaseTensor):
         assert (
             tensor.activation_quantization
             == IntxUnpackedToInt8TensorActivationQuantization.INT8_ASYM_PER_TOKEN
+        ), (
+            "IntxUnpackedToInt8Tensor must have INT8_ASYM_PER_TOKEN activation quantization"
         )
 
         assert len(tensor.block_size) == 2
@@ -141,8 +139,9 @@ class Int8LutTensor(TorchAOBaseTensor):
             bias = bias.to(torch.float32)
 
         lut, lut_indices, scale = cls._get_lut_params(tensor)
+        bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
         packed_weights = getattr(
-            torch.ops.torchao, f"_pack_8bit_act_{tensor.bit_width}bit_weight_with_lut"
+            torch.ops.torchao, f"_pack_8bit_act_{bit_width}bit_weight_with_lut"
         )(
             lut_indices,
             lut,
@@ -152,12 +151,14 @@ class Int8LutTensor(TorchAOBaseTensor):
             None,
         )
 
+        block_size = [b for b in tensor.block_size]
+        shape = tensor.shape
         bit_width = _DTYPE_TO_BIT_WIDTH[tensor.target_dtype]
         return cls(
             packed_weights,
             bit_width,
-            tensor.block_size,
-            tensor.shape,
+            block_size,
+            shape,
             tensor.dtype,
             packed_weights_has_bias,
         )
@@ -216,17 +217,17 @@ def _(func, types, args, kwargs):
     if input_tensor.dim() == 1:
         k = input_tensor.shape[0]
         input_tensor = input_tensor.reshape(1, k)
-        res = _linear_impl_2d(input_tensor, weight_tensor)
+        res = _linear_impl_2d(input_tensor, weight_tensor, bias)
         res = res.reshape(-1)
     elif input_tensor.dim() == 2:
-        res = _linear_impl_2d(input_tensor, weight_tensor)
+        res = _linear_impl_2d(input_tensor, weight_tensor, bias)
     else:
         assert input_tensor.dim() >= 3
         lead_shape = input_tensor.shape[0:-2]
         m, k = input_tensor.shape[-2], input_tensor.shape[-1]
         n, k_ = weight_tensor.shape
         assert k_ == k
-        res = _linear_impl_2d(input_tensor.reshape(-1, k), weight_tensor)
+        res = _linear_impl_2d(input_tensor.reshape(-1, k), weight_tensor, bias)
         res = res.reshape(*lead_shape, m, n)
 
     if bias is not None:
