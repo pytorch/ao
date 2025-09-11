@@ -237,14 +237,10 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(
-        _DEVICE == "cuda"
-        and (
-            not torch_version_at_least("2.8.0")
-            or not is_sm_at_least_90()
-            or not _is_fbgemm_genai_gpu_available()
-        ),
-        "Requires pytorch >= 2.8.0, sm90+ and fbgemm-gpu-genai >= 1.2.0 on GPU",
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
@@ -472,7 +468,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
             )
             self.assertEqual(set(module_fqn_to_config.keys()), reg_param_names)
             for torchao_config in module_fqn_to_config.values():
-                assert isinstance(torchao_config, config.__class__)
+                self.assertTrue(isinstance(torchao_config, config.__class__))
 
 
 common_utils.instantiate_parametrized_tests(TestPARQuantization)
