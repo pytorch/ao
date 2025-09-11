@@ -149,7 +149,7 @@ def compute_blocked_scale_offsets_for_M_groups(offsets: torch.Tensor):
     """
     # Calculate group sizes
     zero = torch.tensor([0], dtype=offsets.dtype, device=offsets.device)
-    group_sizes = torch.diff(offsets, prepend=zero).to(torch.int64)
+    group_sizes = torch.diff(offsets, prepend=zero)
 
     # Round each group size up to the nearest multiple of 128
     rounded_group_sizes = ceil_div(group_sizes, 128) * 128
@@ -162,7 +162,9 @@ def compute_blocked_scale_offsets_for_M_groups(offsets: torch.Tensor):
     return group_sizes, starting_row_after_padding
 
 
-def compute_blocked_scale_offsets_for_K_groups(offsets: torch.Tensor):
+def compute_blocked_scale_offsets_for_K_groups(
+    scale_group_offsets: torch.Tensor, block_size: int = 32
+):
     """
     Performs round_up(x, 4) on each element in a 1D offsets tensor,
     to compute the starting offsets of each group after scaling along the contraction dimension.
@@ -171,13 +173,15 @@ def compute_blocked_scale_offsets_for_K_groups(offsets: torch.Tensor):
         offsets: A 1D PyTorch tensor of integers in ascending sorted order, representing the end index of each group along the total_M dimension.
 
     Returns:
-        - starting_row_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
+        - starting_col_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
     """
     # Calculate group sizes
-    zero = torch.tensor([0], dtype=offsets.dtype, device=offsets.device)
-    group_sizes = torch.diff(offsets, prepend=zero).to(torch.int64)
+    zero = torch.tensor(
+        [0], dtype=scale_group_offsets.dtype, device=scale_group_offsets.device
+    )
+    group_sizes = torch.diff(scale_group_offsets, prepend=zero)
 
-    # After scaling with block_size 32, each group size up to the nearest multiple of 4
+    # After scaling with block_size 32, each group size is rounded up to the nearest multiple of 4
     rounded_group_sizes = ceil_div(group_sizes, 4) * 4
 
     # Calculate the starting row after padding for each group
