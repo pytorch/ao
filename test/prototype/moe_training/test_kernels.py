@@ -22,10 +22,13 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
-    compute_per_group_blocked_scale_offsets,
-    torch_to_blocked_per_group_2d,
+    compute_blocked_scale_offsets_for_K_groups,
+    compute_blocked_scale_offsets_for_M_groups,
+    torch_to_blocked_2d_K_groups,
+    torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
-    triton_mx_block_rearrange_per_group_2d,
+    triton_mx_block_rearrange_2d_K_groups,
+    triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
@@ -226,15 +229,15 @@ def test_mxfp8_per_group_blocked_scales_2d(
     )
 
     # torch reference
-    ref_out_scales, _ = torch_to_blocked_per_group_2d(
-        e8m0_scales, input_group_offsets, m, k, block_size=block_size
+    ref_out_scales, _ = torch_to_blocked_2d_M_groups(
+        e8m0_scales, input_group_offsets, k, block_size=block_size
     )
 
     # triton kernel
-    _, output_group_offsets = compute_per_group_blocked_scale_offsets(
+    _, output_group_offsets = compute_blocked_scale_offsets_for_M_groups(
         input_group_offsets
     )
-    triton_out_scales = triton_mx_block_rearrange_per_group_2d(
+    triton_out_scales = triton_mx_block_rearrange_2d_M_groups(
         e8m0_scales,
         input_group_offsets,
         output_group_offsets,
@@ -266,3 +269,47 @@ def test_mxfp8_per_group_blocked_scales_3d(
     assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
         "blocked scales not equal"
     )
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("m", [256, 512, 1024, 5120])
+@pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
+@pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
+def test_mxfp8_per_group_blocked_scales_2d2d(
+    m: int,
+    total_k: int,
+    n_groups: int,
+):
+    device = "cuda"
+    block_size = 32
+    input_data = torch.randn(m, total_k, device=device)
+
+    e8m0_scales, _ = to_mx(
+        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+
+    # Generate group end offsets along total_K, then divide by block_size to get scale group end offsets
+    input_group_offsets = generate_jagged_offs(
+        n_groups, total_k, multiple_of=block_size, device=device
+    )
+    input_group_offsets //= block_size
+
+    # torch reference
+    ref_out_scales, ref_start_cols_after_padding = torch_to_blocked_2d_K_groups(
+        e8m0_scales,
+        input_group_offsets,
+    )
+
+    # triton kernel
+    _, output_group_offsets = compute_blocked_scale_offsets_for_K_groups(
+        input_group_offsets
+    )
+    assert torch.equal(output_group_offsets, ref_start_cols_after_padding), (
+        "output scale group start offsets not equal"
+    )
+    triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
+        e8m0_scales,
+        input_group_offsets,
+        output_group_offsets,
+    )
+    assert torch.equal(ref_out_scales, triton_out_scales), "blocked scales not equal"
