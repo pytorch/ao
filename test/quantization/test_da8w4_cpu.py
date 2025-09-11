@@ -164,9 +164,13 @@ class TestDa8w4Cpu(TestCase):
             # The trailing "(" is to avoid matching the op in the comment
             assert code[0].count("torch.ops.torchao.da8w4_linear_cpu.default(") == 1
 
-            # ensure the custom DA8W4ConcatLinearCPUPass is not bypassed when saving as fxgraph
-            enable_fxgraph_cache_bypass = counters["inductor"]["fxgraph_cache_bypass"]
-            assert enable_fxgraph_cache_bypass == 0
+            # Ensure that when concat linear is enabled, fxgraph cache works
+            # without being bypassed (fxgraph_cache_bypass = 0), indicating that
+            # DA8W4ConcatLinearCPUPass properly implements the CustomGraphPass
+            # interface and uuid() function, allowing fxgraph to be saved and hit
+            # on subsequent runs (fxgraph_cache_hit > 0).
+            fx_cache_bypass_count = counters["inductor"]["fxgraph_cache_bypass"]
+            assert fx_cache_bypass_count == 0
 
             with torch._inductor.config.patch(
                 {"freezing": True, "cpp.enable_concat_linear": False}
@@ -177,8 +181,9 @@ class TestDa8w4Cpu(TestCase):
                 )
             assert torch.allclose(y, y_ref)
 
-            disable_fxgraph_cache_bypass = counters["inductor"]["fxgraph_cache_bypass"]
-            assert disable_fxgraph_cache_bypass == 0
+            # Ensure that the fxgraph cache is also not bypassed when concat linear is disabled
+            fx_cache_bypass_count = counters["inductor"]["fxgraph_cache_bypass"]
+            assert fx_cache_bypass_count == 0
 
 
 common_utils.instantiate_parametrized_tests(TestDa8w4Cpu)
