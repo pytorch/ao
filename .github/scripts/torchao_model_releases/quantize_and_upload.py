@@ -589,7 +589,7 @@ The following script does this for you.
 
 [TODO: fix command below where necessary]
 ```Shell
-python -m executorch.examples.models.qwen3.convert_weights $(hf download pytorch/Qwen3-4B-INT8-INT4) pytorch_model_converted.bin
+python -m executorch.examples.models.qwen3.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
 ```
 
 Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows. 
