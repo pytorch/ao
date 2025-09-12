@@ -108,14 +108,14 @@ print("-------------------------------------------------------------------")
 print("Quant API example")
 print("-------------------------------------------------------------------")
 
-from torchao.quantization.quant_api import int4_weight_only
+from torchao.quantization.quant_api import Int4WeightOnlyConfig
 
 nbits = 4
 target_dtype = torch.int32
 inner_k_tiles = 8
 _layout = TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)
 
-int4_weight_only_patch_fct = int4_weight_only(
+int4_weight_only_patch_fct = Int4WeightOnlyConfig(
     group_size=group_size, inner_k_tiles=inner_k_tiles, version=1
 )
 linear_layer_default = torch.nn.Linear(
