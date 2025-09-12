@@ -750,22 +750,23 @@ class TestQuantFlow(TestCase):
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
 
+
     def test_config_deprecation(self):
         """
-        Test that old config functions like `Int4WeightOnlyConfig` trigger deprecation warnings.
+        Test that old config functions like `int4_weight_only` trigger deprecation warnings.
         """
         from torchao.quantization import (
-            Float8DynamicActivationFloat8WeightConfig,
-            Float8StaticActivationFloat8WeightConfig,
-            Float8WeightOnlyConfig,
-            FPXWeightOnlyConfig,
-            GemliteUIntXWeightOnlyConfig,
-            Int4DynamicActivationInt4WeightConfig,
-            Int4WeightOnlyConfig,
-            Int8DynamicActivationInt4WeightConfig,
-            Int8DynamicActivationInt8WeightConfig,
-            Int8WeightOnlyConfig,
-            UIntXWeightOnlyConfig,
+            float8_dynamic_activation_float8_weight,
+            float8_static_activation_float8_weight,
+            float8_weight_only,
+            fpx_weight_only,
+            gemlite_uintx_weight_only,
+            int4_dynamic_activation_int4_weight,
+            int4_weight_only,
+            int8_dynamic_activation_int4_weight,
+            int8_dynamic_activation_int8_weight,
+            int8_weight_only,
+            uintx_weight_only,
         )
 
         # Reset deprecation warning state, otherwise we won't log warnings here
@@ -773,17 +774,17 @@ class TestQuantFlow(TestCase):
 
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
-            Float8DynamicActivationFloat8WeightConfig: (),
-            Float8StaticActivationFloat8WeightConfig: (torch.randn(3)),
-            Float8WeightOnlyConfig: (),
-            FPXWeightOnlyConfig: (3, 2),
-            GemliteUIntXWeightOnlyConfig: (),
-            Int4DynamicActivationInt4WeightConfig: (),
-            Int4WeightOnlyConfig: (),
-            Int8DynamicActivationInt4WeightConfig: (),
-            Int8DynamicActivationInt8WeightConfig: (),
-            Int8WeightOnlyConfig: (),
-            UIntXWeightOnlyConfig: (torch.uint4,),
+            float8_dynamic_activation_float8_weight: (),
+            float8_static_activation_float8_weight: (torch.randn(3)),
+            float8_weight_only: (),
+            fpx_weight_only: (3, 2),
+            gemlite_uintx_weight_only: (),
+            int4_dynamic_activation_int4_weight: (),
+            int4_weight_only: (),
+            int8_dynamic_activation_int4_weight: (),
+            int8_dynamic_activation_int8_weight: (),
+            int8_weight_only: (),
+            uintx_weight_only: (torch.uint4,),
         }
 
         with warnings.catch_warnings(record=True) as _warnings:
