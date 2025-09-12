@@ -66,7 +66,7 @@ def _scaled_grouped_mm(
             out_dtype,
         )
     elif scaling_type == MoEScalingType.MXFP8:
-        logger.info("Using mxfp8 for _scaled_grouped_mm")
+        # logger.info("Using mxfp8 for _scaled_grouped_mm")
         block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
         return _MXFP8GroupedMM.apply(
             A,
