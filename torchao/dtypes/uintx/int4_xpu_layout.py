@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -207,6 +208,9 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         scale: torch.Tensor = None,
         zero: torch.Tensor = None,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
+        )
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False

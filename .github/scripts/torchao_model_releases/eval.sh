@@ -110,5 +110,5 @@ done
 
 # Run summarize_results.sh with MODEL_IDS if eval_type is "all"
 if [[ "$EVAL_TYPE" == "all" ]]; then
-  sh summarize_results.sh --model_id "${MODEL_ID_ARRAY[@]}"
+  sh summarize_results.sh --model_ids "${MODEL_ID_ARRAY[@]}"
 fi

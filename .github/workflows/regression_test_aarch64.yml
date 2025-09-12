@@ -1,4 +1,4 @@
-name: Run TorchAO Experimental Tests
+name: Run Regression Tests (aarch64)
 
 on:
   push:
@@ -44,6 +44,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           conda activate venv
+          pip install coremltools
           pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
           BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install .
@@ -51,10 +52,11 @@ jobs:
         run: |
           conda activate venv
           pytest -s test/quantization/test_int8_dynamic_activation_intx_weight_config_v1.py
-          pytest -s torchao/experimental/tests/test_embedding_xbit_quantizer.py
-          pytest -s torchao/experimental/tests/test_quant_passes.py
-          pytest -s test/prototype/test_dynamic_activation_lut.py
           pytest -s test/quantization/quantize_/workflows/intx/test_intx_opaque_tensor.py
+          pytest -s test/prototype/test_embedding.py
+          pytest -s test/prototype/test_dynamic_activation_lut.py
+          pytest -s test/prototype/test_groupwise_lowbit_weight_lut_quantizer.py
+          pytest -s test/prototype/test_parq.py
       - name: torchao/csrc/cpu - build and run C++ tests
         if: runner.os == 'macOS'
         run: |
