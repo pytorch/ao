@@ -32,10 +32,10 @@ from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quant_api import (
+    Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     _is_linear,
-    int4_weight_only,
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -211,7 +211,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size, version=1)
+        config = Int4WeightOnlyConfig(group_size=group_size, version=1)
         if check_cpu_version(_DEVICE):
             config.layout = Int4CPULayout()
         quantize_(m_ref, config)
@@ -244,7 +244,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size, version=1)
+        config = Int4WeightOnlyConfig(group_size=group_size, version=1)
         if check_cpu_version(_DEVICE):
             config.layout = Int4CPULayout()
         quantize_(m_ref, config)

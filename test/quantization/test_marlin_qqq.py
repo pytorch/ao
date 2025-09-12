@@ -16,7 +16,7 @@ from torchao.quantization.marlin_qqq import (
     unpack_from_marlin_qqq,
 )
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int4_weight,
+    Int8DynamicActivationInt4WeightConfig,
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
@@ -53,7 +53,7 @@ class TestMarlinQQQ(TestCase):
             modelq = copy.deepcopy(self.model)
             quantize_(
                 modelq,
-                int8_dynamic_activation_int4_weight(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=group_size,
                     mapping_type=MappingType.SYMMETRIC,
                     act_mapping_type=MappingType.SYMMETRIC,
@@ -77,7 +77,7 @@ class TestMarlinQQQ(TestCase):
             modelq = copy.deepcopy(self.model)
             quantize_(
                 modelq,
-                int8_dynamic_activation_int4_weight(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=group_size,
                     mapping_type=MappingType.SYMMETRIC,
                     act_mapping_type=MappingType.SYMMETRIC,
