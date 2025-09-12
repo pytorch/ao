@@ -4,23 +4,22 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import platform
-import sys
 from copy import deepcopy
 
 import pytest
 import torch
 
+from torchao.prototype.conversion.api import _convert_to_optimized_model_for_aarch64
 from torchao.prototype.parq.quant import (
     StretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
 )
-from torchao.prototype.quantization.int8_lut_tensor import convert_model
+from torchao.prototype.quantization.int8_lut_tensor.int8_lut_tensor import (
+    _is_kernel_library_loaded,
+)
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.utils import compute_error
-
-is_arm64_mac = sys.platform == "darwin" and platform.machine() == "arm64"
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -56,7 +55,9 @@ def run_before_and_after_tests():
 @pytest.mark.parametrize("granularity", [PerGroup(32), PerAxis(0)])
 @pytest.mark.parametrize("bit_width", [1, 2, 3, 4])
 @pytest.mark.parametrize("lead_dim", [(5,), (2, 3)])
-@pytest.mark.skipif(not is_arm64_mac, reason="requires arm64 mac")
+@pytest.mark.skipif(
+    not _is_kernel_library_loaded(), reason="Kernel library is not loaded"
+)
 def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
     torch.manual_seed(0)
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
@@ -74,7 +75,7 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 
     # Convert PARQ model to lowbit LUT model
     lut_model = deepcopy(parq_model)
-    convert_model(lut_model)
+    _convert_to_optimized_model_for_aarch64(lut_model, tensor_type="int8_lut_tensor")
 
     # Run both models and compare
     parq_out = parq_model(activations)
@@ -93,7 +94,9 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 @pytest.mark.parametrize("granularity", [PerGroup(32), PerAxis(0)])
 @pytest.mark.parametrize("bit_width", [1, 2, 3, 4])
 @pytest.mark.parametrize("lead_dim", [(5,), (2, 3)])
-@pytest.mark.skipif(not is_arm64_mac, reason="requires arm64 mac")
+@pytest.mark.skipif(
+    not _is_kernel_library_loaded(), reason="Kernel library is not loaded"
+)
 def test_export(dtype, granularity, bit_width, lead_dim):
     quantizer = StretchedUnifTorchaoQuantizer(bit_width)
     config = StretchedIntxWeightConfig(
@@ -108,7 +111,7 @@ def test_export(dtype, granularity, bit_width, lead_dim):
     activations = parq_model.example_inputs(lead_dim=lead_dim)
     quantize_(parq_model, config)
 
-    convert_model(parq_model)
+    _convert_to_optimized_model_for_aarch64(parq_model)
 
     ep = torch.export.export(parq_model, (activations,))
 

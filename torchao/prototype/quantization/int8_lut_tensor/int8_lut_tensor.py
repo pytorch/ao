@@ -83,7 +83,7 @@ class Int8LutTensor(TorchAOBaseTensor):
         scale = tensor.scale
         zero_point = tensor.zero_point
 
-        if tensor._has_float_zero_point:
+        if tensor._has_float_zero_point():
             # Stretched tensors from PARQ should have -0.5 has zero_point
             assert torch.all(zero_point == -0.5)
             is_stretched_tensor = True
