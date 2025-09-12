@@ -27,15 +27,13 @@ from torchao.dtypes import (
 from torchao.float8.config import e4m3_dtype
 from torchao.quantization import (
     FbgemmConfig,
+    Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
+    Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
+    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
-    float8_weight_only,
-    int4_dynamic_activation_int4_weight,
-    int4_weight_only,
-    int8_dynamic_activation_int4_weight,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
+    Int8WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
@@ -58,23 +56,23 @@ def get_quantization_functions(
     do_sparse: bool, do_int4: bool, device: str = "cuda", int4_zp_int: bool = False
 ):
     base_functions = [
-        int8_weight_only(),
-        int8_dynamic_activation_int4_weight(),
-        int8_dynamic_activation_int8_weight(),
-        int8_dynamic_activation_int8_weight(act_mapping_type=MappingType.ASYMMETRIC),
+        Int8WeightOnlyConfig(),
+        Int8DynamicActivationInt4WeightConfig(),
+        Int8DynamicActivationInt8WeightConfig(),
+        Int8DynamicActivationInt8WeightConfig(act_mapping_type=MappingType.ASYMMETRIC),
     ]
     if do_int4:
         if check_cpu_version(device):
             base_functions.append(
-                int4_weight_only(group_size=32, layout=Int4CPULayout(), version=1)
+                Int4WeightOnlyConfig(group_size=32, layout=Int4CPULayout(), version=1)
             )
         elif check_xpu_version(device):
             base_functions.append(
-                int4_weight_only(group_size=32, layout=Int4XPULayout(), version=1)
+                Int4WeightOnlyConfig(group_size=32, layout=Int4XPULayout(), version=1)
             )
             if int4_zp_int:
                 base_functions.append(
-                    int4_weight_only(
+                    Int4WeightOnlyConfig(
                         group_size=32,
                         layout=Int4XPULayout(),
                         zero_point_domain=ZeroPointDomain.INT,
@@ -82,25 +80,25 @@ def get_quantization_functions(
                     )
                 )
         else:
-            base_functions.append(int4_weight_only(group_size=32, version=1))
+            base_functions.append(Int4WeightOnlyConfig(group_size=32, version=1))
             if device == "cuda" and not is_ROCM():
                 base_functions.append(
-                    int8_dynamic_activation_int4_weight(
+                    Int8DynamicActivationInt4WeightConfig(
                         group_size=None,
                         mapping_type=MappingType.SYMMETRIC,
                         act_mapping_type=MappingType.SYMMETRIC,
                         layout=CutlassInt4PackedLayout(),
                     )
                 )
-                base_functions.append(int4_dynamic_activation_int4_weight())
+                base_functions.append(Int4DynamicActivationInt4WeightConfig())
 
     if do_sparse and device != "xpu":
         base_functions.append(
-            int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
+            Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
         )
 
     if is_sm_at_least_89():
-        base_functions.append(float8_weight_only())
+        base_functions.append(Float8WeightOnlyConfig())
 
     if is_sm_at_least_90():
         base_functions.append(FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16))
@@ -119,7 +117,7 @@ class TestAffineQuantized(TestCase):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         t = linear.weight
         shape = t.shape
-        apply_int4_weight_only_quant = int4_weight_only(group_size=32, version=1)
+        apply_int4_weight_only_quant = Int4WeightOnlyConfig(group_size=32, version=1)
         quantize_(linear, apply_int4_weight_only_quant)
         ql = linear
         aqt = ql.weight

@@ -10,7 +10,7 @@ import unittest
 import torch
 import torch.nn as nn
 
-from torchao.quantization import int8_dynamic_activation_int4_weight, quantize_
+from torchao.quantization import Int8DynamicActivationInt4WeightConfig, quantize_
 from torchao.quantization.pt2e.reference_representation_rewrite import (
     _qdq_dynamic_quantized_linear_4bit_groupwise,
     _reference_dynamic_quantized_linear_4bit_groupwise,
@@ -313,7 +313,7 @@ class TestModelRewrite(unittest.TestCase):
         example_input = torch.randn(1, 64)
 
         # Apply 8da4w quantization
-        quantize_(model, int8_dynamic_activation_int4_weight(group_size=32))
+        quantize_(model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 
         # Unwrap tensor subclasses for export compatibility
         model = unwrap_tensor_subclass(model)
@@ -360,7 +360,7 @@ class TestModelRewrite(unittest.TestCase):
 
                 # Apply quantization with specific group size
                 quantize_(
-                    model, int8_dynamic_activation_int4_weight(group_size=group_size)
+                    model, Int8DynamicActivationInt4WeightConfig(group_size=group_size)
                 )
 
                 # Unwrap tensor subclasses for export compatibility
@@ -402,7 +402,7 @@ class TestModelRewrite(unittest.TestCase):
         example_input = torch.randn(1, 32)
 
         # Apply quantization
-        quantize_(model, int8_dynamic_activation_int4_weight(group_size=16))
+        quantize_(model, Int8DynamicActivationInt4WeightConfig(group_size=16))
 
         # Unwrap tensor subclasses for export compatibility
         model = unwrap_tensor_subclass(model)
