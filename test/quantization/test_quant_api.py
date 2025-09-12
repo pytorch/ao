@@ -758,9 +758,12 @@ class TestQuantFlow(TestCase):
         Test that old config functions like `int4_weight_only` trigger deprecation warnings.
         """
         from torchao.quantization import (
+            float8_dynamic_activation_float8_weight,
+            float8_static_activation_float8_weight,
             float8_weight_only,
             fpx_weight_only,
             gemlite_uintx_weight_only,
+            int4_dynamic_activation_int4_weight,
             int4_weight_only,
             int8_dynamic_activation_int4_weight,
             int8_dynamic_activation_int8_weight,
