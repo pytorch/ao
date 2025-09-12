@@ -17,7 +17,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 
 import torchao
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
-from torchao.quantization import int8_weight_only, quantize_
+from torchao.quantization import Int8WeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -331,7 +331,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
-    QUANT_METHOD_FN = staticmethod(int8_weight_only)
+    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
     QUANT_METHOD_KWARGS = {}
 
     @staticmethod

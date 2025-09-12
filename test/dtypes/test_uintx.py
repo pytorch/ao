@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from torchao.dtypes.uintx.uintx_layout import to_uintx
-from torchao.quantization.quant_api import quantize_, uintx_weight_only
+from torchao.quantization.quant_api import UIntXWeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -60,7 +60,7 @@ class Linear16(torch.nn.Module):
 def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     scale = 512
     fp16_mod_on_cpu = Linear16(scale, "cpu")
-    quantize_(fp16_mod_on_cpu, uintx_weight_only(dtype, group_size=group_size))
+    quantize_(fp16_mod_on_cpu, UIntXWeightOnlyConfig(dtype, group_size=group_size))
     test_input_on_cpu = torch.randn(scale * 2, dtype=torch.float16, device="cpu")
     output_on_cpu = fp16_mod_on_cpu(test_input_on_cpu)
     fp16_mod_on_cuda = fp16_mod_on_cpu.to("cuda")
@@ -78,7 +78,7 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
 def test_uintx_weight_only_model_quant(dtype, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
-    quantize_(fp16, uintx_weight_only(dtype, group_size=group_size))
+    quantize_(fp16, UIntXWeightOnlyConfig(dtype, group_size=group_size))
     uintx = torch.compile(fp16, fullgraph=True)
     test_input = torch.randn(scale * 2, dtype=torch.float16, device=device)
     output = uintx.forward(test_input)
@@ -124,22 +124,18 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
 def test_uintx_target_dtype(dtype):
-    from torchao.quantization.quant_api import uintx_weight_only
-
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
     # make sure it runs
-    quantize_(linear, uintx_weight_only(dtype))
+    quantize_(linear, UIntXWeightOnlyConfig(dtype))
     linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
 
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
 def test_uintx_target_dtype_compile(dtype):
-    from torchao.quantization.quant_api import uintx_weight_only
-
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
     # make sure it runs
-    quantize_(linear, uintx_weight_only(dtype))
+    quantize_(linear, UIntXWeightOnlyConfig(dtype))
     linear = torch.compile(linear)
     linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
 
@@ -147,7 +143,6 @@ def test_uintx_target_dtype_compile(dtype):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
 def test_uintx_model_size(dtype):
-    from torchao.quantization.quant_api import uintx_weight_only
     from torchao.utils import get_model_size_in_bytes
 
     # scale size = 1/64 * 2 bytes = 1/32 bytes
@@ -167,6 +162,6 @@ def test_uintx_model_size(dtype):
     )
     bf16_size = get_model_size_in_bytes(linear)
     # make sure it runs
-    quantize_(linear[0], uintx_weight_only(dtype))
+    quantize_(linear[0], UIntXWeightOnlyConfig(dtype))
     quantized_size = get_model_size_in_bytes(linear)
     assert bf16_size * _dtype_to_ratio[dtype] == quantized_size

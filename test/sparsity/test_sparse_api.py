@@ -13,8 +13,8 @@ from torch.testing._internal import common_utils
 
 from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
 from torchao.quantization.quant_api import (
-    int4_weight_only,
-    int8_dynamic_activation_int8_weight,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
@@ -76,12 +76,12 @@ class TestQuantSemiSparse(common_utils.TestCase):
         )
         apply_fake_sparsity(model)
         model_copy = copy.deepcopy(model)
-        quantize_(model_copy, int8_dynamic_activation_int8_weight())
+        quantize_(model_copy, Int8DynamicActivationInt8WeightConfig())
         dense_result = model_copy(input)
 
         quantize_(
             model,
-            int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()),
+            Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
         )
         if compile:
             model = torch.compile(model)
@@ -110,11 +110,11 @@ class TestQuantSemiSparse(common_utils.TestCase):
         model_copy = copy.deepcopy(model)
 
         # Quantized
-        quantize_(model_copy.bfloat16(), int4_weight_only(version=1))
+        quantize_(model_copy.bfloat16(), Int4WeightOnlyConfig(version=1))
         dense_result = model_copy(input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(model, int4_weight_only(layout=MarlinSparseLayout(), version=1))
+        quantize_(model, Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1))
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)
@@ -182,14 +182,16 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
 
         model_copy = copy.deepcopy(model)
 
-        quantize_(model_copy, int8_dynamic_activation_int8_weight())
+        quantize_(model_copy, Int8DynamicActivationInt8WeightConfig())
         reference = model_copy(input)
 
         from torchao.dtypes import BlockSparseLayout
 
         quantize_(
             model,
-            int8_dynamic_activation_int8_weight(layout=BlockSparseLayout(blocksize=64)),
+            Int8DynamicActivationInt8WeightConfig(
+                layout=BlockSparseLayout(blocksize=64)
+            ),
         )
         if compile:
             model = torch.compile(model)
