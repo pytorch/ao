@@ -58,7 +58,10 @@ def convert_fn(module):
 
 
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+
+dtype = torch.bfloat16
+torch.set_default_dtype(dtype)
+model = Llama4ForCausalLM.from_pretrained(model_id, torch_dtype=dtype)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 _replace_with_custom_fn_if_matches_filter(
