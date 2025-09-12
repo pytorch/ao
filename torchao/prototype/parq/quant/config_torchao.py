@@ -1,3 +1,4 @@
+import types
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -17,6 +18,7 @@ from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
     _int8_asymm_per_token_quant,
+    _linear_extra_repr,
 )
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.quantization.transform_module import register_quantize_module_handler
@@ -117,7 +119,12 @@ def _int8_dynamic_activation_stretched_intx_transform(
             weight = to_linear_activation_quantized(weight, _int8_asymm_per_token_quant)
         elif config.activation_quantization is not None:
             raise ValueError(f"Unsupported {config.activation_quantization=}")
+
     module.weight = nn.Parameter(weight, requires_grad=False)
+
+    if isinstance(module, nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+
     return module
 
 
