@@ -58,7 +58,7 @@ def _scaled_grouped_mm(
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
     if scaling_type == MoEScalingType.FP8_ROWWISE:
-        logger.info("Using fp8 rowwise for _scaled_grouped_mm")
+        logger.debug("Using fp8 rowwise for _scaled_grouped_mm")
         return _Float8GroupedMM.apply(
             A,
             B_t,
@@ -66,7 +66,7 @@ def _scaled_grouped_mm(
             out_dtype,
         )
     elif scaling_type == MoEScalingType.MXFP8:
-        logger.info("Using mxfp8 for _scaled_grouped_mm")
+        logger.debug("Using mxfp8 for _scaled_grouped_mm")
         block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
         return _MXFP8GroupedMM.apply(
             A,

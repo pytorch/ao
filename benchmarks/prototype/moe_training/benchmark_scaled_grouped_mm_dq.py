@@ -28,6 +28,9 @@ device = torch.device("cuda")
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
 
+# Workaround for https://github.com/pytorch/ao/pull/2990#issuecomment-3285762681
+torch._dynamo.config.automatic_dynamic_shapes = False
+
 
 @dataclass(frozen=True)
 class ExperimentConfig:
