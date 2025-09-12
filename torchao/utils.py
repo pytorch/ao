@@ -12,7 +12,7 @@ import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Type
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -430,6 +430,25 @@ TORCH_VERSION_AFTER_2_5 = _deprecated_torch_version_after("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = _deprecated_torch_version_after("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = _deprecated_torch_version_after("2.3.0.dev")
 TORCH_VERSION_AFTER_2_2 = _deprecated_torch_version_after("2.2.0.dev")
+
+
+class _ConfigDeprecationWrapper:
+    """
+    A deprecation wrapper that directs users from a deprecated "config function"
+    (e.g. `int4_weight_only`) to the replacement config class.
+    """
+
+    def __init__(self, deprecated_name: str, config_cls: Type):
+        self.deprecated_name = deprecated_name
+        self.config_cls = config_cls
+
+    def __call__(self, *args, **kwargs):
+        warnings.warn(
+            f"`{self.deprecated_name}` is deprecated and will be removed in a future release. "
+            f"Please use `{self.config_cls.__name__}` instead. Example usage:\n"
+            f"    quantize_(model, {self.config_cls.__name__}(...))"
+        )
+        return self.config_cls(*args, **kwargs)
 
 
 """
