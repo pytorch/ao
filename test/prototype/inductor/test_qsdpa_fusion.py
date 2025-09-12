@@ -11,8 +11,8 @@ from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
 
 import torchao
-from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import (
-    _int8_sdpa_init,
+from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
+    _qsdpa_init,
     custom_pass,
 )
 from torchao.utils import torch_version_at_least
@@ -120,7 +120,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             )
             source_code = "\n".join(source_code)
             if has_fuse_pattern:
-                self.assertGreaterEqual(counters["inductor"]["int8_fuse_attention"], 1)
+                self.assertGreaterEqual(counters["inductor"]["qsdpa_fuse_attention"], 1)
             if contains:
                 self.assertTrue(
                     any(
@@ -151,14 +151,14 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @skipIfRocm
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"),
-        reason="int8 sdpa requires torch 2.7 or later",
+        reason="qsdpa requires torch 2.7 or later",
     )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
     @config.patch({"freezing": True})
-    def _test_sdpa_int8_rewriter(self):
+    def _test_qsdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -193,7 +193,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 ),
                 config.patch(post_grad_custom_pre_pass=custom_pass),
             ):
-                _int8_sdpa_init()
+                _qsdpa_init()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
                 quantizer.set_function_type_qconfig(
@@ -213,9 +213,7 @@ if HAS_CPU:
 
     class SDPAPatternRewriterCpuTests(TestSDPAPatternRewriterTemplate):
         device = "cpu"
-        test_sdpa_int8_rewriter_cpu = (
-            TestSDPAPatternRewriterTemplate._test_sdpa_int8_rewriter
-        )
+        test_qsdpa_rewriter_cpu = TestSDPAPatternRewriterTemplate._test_qsdpa_rewriter
 
 
 if __name__ == "__main__":

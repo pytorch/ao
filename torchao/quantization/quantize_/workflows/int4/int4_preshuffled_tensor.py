@@ -10,6 +10,7 @@ from typing import List, Optional
 
 import torch
 
+from torchao.quantization.quantize_.workflows.int4.int4_tensor import Int4Tensor
 from torchao.utils import (
     TorchAOBaseTensor,
 )
@@ -27,6 +28,7 @@ if (
 ):
     quantize_int4_preshuffle = None
     quantize_fp8_row = None
+    pack_int4 = None
 else:
     from fbgemm_gpu.experimental.gen_ai.quantize import (
         quantize_fp8_row,
@@ -178,6 +180,38 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
 
         return Int4PreshuffledTensor(
             qdata=wq,
+            group_scale=group_scale,
+            block_size=block_size,
+            shape=original_shape,
+            group_zero=group_zero,
+            row_scale=row_scale,
+        )
+
+    @classmethod
+    def from_int4_tensor(
+        cls,
+        tensor: Int4Tensor,
+    ):
+        assert isinstance(tensor, Int4Tensor), (
+            f"Only conversion from Int4Tensor is supportd, got: {tensor}"
+        )
+        # currently Int4Tensor only supports weight only, we can extend it to fp8-int4 a bit later
+        qdata = tensor.qdata
+        group_scale = tensor.scale
+        group_zero = tensor.zero_point
+        block_size = tensor.block_size
+        original_shape = tensor.shape
+        row_scale = None
+
+        # Set scales to activation type.
+        group_scale = group_scale.to(torch.bfloat16)
+        group_zero = group_zero.to(torch.bfloat16)
+        # pack weights and scales into efficient preshuffled format
+        preshuffled_qdata, group_scale = torch.ops.fbgemm.preshuffle_i4(
+            qdata, group_scale
+        )
+        return Int4PreshuffledTensor(
+            qdata=preshuffled_qdata,
             group_scale=group_scale,
             block_size=block_size,
             shape=original_shape,

@@ -11,7 +11,7 @@ In TorchAO, you can replace the following customized graph passes of Inductor:
 
 ## Directory Structure
 
-- `int8_sdpa_fusion`: Pattern match for int8 sdpa fusion.
+- `qsdpa_fusion`: Pattern match for qsdpa fusion.
 
 ## Getting Started
 
