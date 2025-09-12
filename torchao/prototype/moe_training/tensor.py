@@ -32,6 +32,9 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.split.Tensor,
     torch.ops.aten.clone.default,
     torch.ops.aten.transpose.int,
+    # new
+    torch.ops.aten._unsafe_view.default,
+    torch.ops.aten.t.default,
 }
 
 
@@ -94,11 +97,11 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 "B should be a ScaledGroupedMMTensor"
             )
             scaling_type = B.scaling_type
-            A_is_2d = A.dim() == 2
-            B_is_3d = B.dim() == 3
+            A_is_2d = A.ndim == 2
+            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             other_args = args[2:]
-            if A_is_2d and B_is_3d and has_offs:
+            if A_is_2d and B_is_2d_or_3d and has_offs:
                 return _scaled_grouped_mm(
                     A,
                     B,
