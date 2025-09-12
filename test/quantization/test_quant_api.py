@@ -750,7 +750,6 @@ class TestQuantFlow(TestCase):
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
 
-
     def test_config_deprecation(self):
         """
         Test that old config functions like `int4_weight_only` trigger deprecation warnings.
