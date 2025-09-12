@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Welcome to the torchao Documentation &mdash; torchao main documentation</title>
+  <title>Hugging Face Integration &mdash; torchao main documentation</title>
   
 
   
@@ -40,7 +40,8 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Quick Start Guide" href="quick_start.html" />
+    <link rel="next" title="Serialization" href="serialization.html" />
+    <link rel="prev" title="Integration with VLLM: Architecture and Usage Guide" href="torchao_vllm_integration.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -336,12 +337,12 @@
 <li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
-<ul>
+<ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Hugging Face Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
@@ -387,7 +388,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="#">
+        <a href="index.html">
           
             Docs
           
@@ -395,13 +396,13 @@
       </li>
 
         
-      <li>Welcome to the torchao Documentation</li>
+      <li>Hugging Face Integration</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="_sources/index.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+            <a href="_sources/torchao_hf_integration.md.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -431,65 +432,127 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="welcome-to-the-torchao-documentation">
-<h1>Welcome to the torchao Documentation<a class="headerlink" href="#welcome-to-the-torchao-documentation" title="Permalink to this heading">¶</a></h1>
-<p><a class="reference external" href="https://github.com/pytorch/ao">torchao</a> is a library for custom data types and optimizations.
-Quantize and sparsify weights, gradients, optimizers, and activations for inference and training
-using native PyTorch. Please checkout torchao <a class="reference external" href="https://github.com/pytorch/ao#torchao-pytorch-architecture-optimization">README</a>
-for an overall introduction to the library and recent highlight and updates.</p>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+  <section id="hugging-face-integration">
+<span id="torchao-hf-integration"></span><h1>Hugging Face Integration<a class="headerlink" href="#hugging-face-integration" title="Permalink to this heading">¶</a></h1>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#quick-start-usage-example" id="id2">Quick Start: Usage Example</a></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
+<li><p><a class="reference internal" href="#quantizing-models-with-transformers" id="id3">1. Quantizing Models with Transformers</a></p></li>
+<li><p><a class="reference internal" href="#quantizing-models-with-diffusers" id="id4">2. Quantizing Models with Diffusers</a></p></li>
 </ul>
-</div>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="quantization_overview.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
+</li>
+<li><p><a class="reference internal" href="#saving-the-model" id="id5">Saving the Model</a></p></li>
+<li><p><a class="reference internal" href="#supported-quantization-types" id="id6">Supported Quantization Types</a></p></li>
 </ul>
+</nav>
+<section id="quick-start-usage-example">
+<span id="usage-examples"></span><h2><a class="toc-backref" href="#id2" role="doc-backlink">Quick Start: Usage Example</a><a class="headerlink" href="#quick-start-usage-example" title="Permalink to this heading">¶</a></h2>
+<p>First, install the required packages.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/huggingface/transformers@main
+pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/huggingface/diffusers@main
+pip<span class="w"> </span>install<span class="w"> </span>torchao
+pip<span class="w"> </span>install<span class="w"> </span>torch
+pip<span class="w"> </span>install<span class="w"> </span>accelerate
+</pre></div>
 </div>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html">torchao.utils</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
-</ul>
+<section id="quantizing-models-with-transformers">
+<span id="quantizing-models-transformers"></span><h3><a class="toc-backref" href="#id3" role="doc-backlink">1. Quantizing Models with Transformers</a><a class="headerlink" href="#quantizing-models-with-transformers" title="Permalink to this heading">¶</a></h3>
+<p>Below is an example of using <code class="docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code> on the Llama-3.2-1B model.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchAoConfig</span><span class="p">,</span> <span class="n">AutoModelForCausalLM</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8DynamicActivationInt4WeightConfig</span>
+
+<span class="c1"># Create quantization configuration</span>
+<span class="n">quantization_config</span> <span class="o">=</span> <span class="n">TorchAoConfig</span><span class="p">(</span>
+    <span class="n">quant_type</span><span class="o">=</span><span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># Load and automatically quantize the model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+    <span class="n">quantization_config</span><span class="o">=</span><span class="n">quantization_config</span>
+<span class="p">)</span>
+</pre></div>
 </div>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
-</ul>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For inference examples and recommended quantization methods based on different hardwares (i.e. A100 GPU, H100 GPU, CPU), see <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao#quantization-examples">HF-Torchao Docs (Quantization Examples)</a>.</p>
+<p>For inference using vLLM, please see <a class="reference external" href="https://docs.pytorch.org/ao/main/serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a> for a full end-to-end tutorial.</p>
 </div>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
-</ul>
+</section>
+<section id="quantizing-models-with-diffusers">
+<span id="quantizing-models-diffusers"></span><h3><a class="toc-backref" href="#id4" role="doc-backlink">2. Quantizing Models with Diffusers</a><a class="headerlink" href="#quantizing-models-with-diffusers" title="Permalink to this heading">¶</a></h3>
+<p>Below is an example of how we can integrate with Diffusers.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">diffusers</span><span class="w"> </span><span class="kn">import</span> <span class="n">FluxPipeline</span><span class="p">,</span> <span class="n">FluxTransformer2DModel</span><span class="p">,</span> <span class="n">TorchAoConfig</span>
+
+<span class="n">model_id</span> <span class="o">=</span> <span class="s2">&quot;black-forest-labs/Flux.1-Dev&quot;</span>
+<span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+
+<span class="n">quantization_config</span> <span class="o">=</span> <span class="n">TorchAoConfig</span><span class="p">(</span><span class="s2">&quot;int8wo&quot;</span><span class="p">)</span>
+<span class="n">transformer</span> <span class="o">=</span> <span class="n">FluxTransformer2DModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_id</span><span class="p">,</span>
+    <span class="n">subfolder</span><span class="o">=</span><span class="s2">&quot;transformer&quot;</span><span class="p">,</span>
+    <span class="n">quantization_config</span><span class="o">=</span><span class="n">quantization_config</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">FluxPipeline</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_id</span><span class="p">,</span>
+    <span class="n">transformer</span><span class="o">=</span><span class="n">transformer</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">pipe</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+
+<span class="n">prompt</span> <span class="o">=</span> <span class="s2">&quot;A cat holding a sign that says hello world&quot;</span>
+<span class="n">image</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">guidance_scale</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">image</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;output.png&quot;</span><span class="p">)</span>
+</pre></div>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Example Output:
+<img alt="alt text" src="_images/output.png" /></p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Please refer to <a class="reference external" href="https://huggingface.co/docs/diffusers/en/quantization/torchao">HF-TorchAO-Diffuser Docs</a> for more examples and benchmarking results.</p>
+</div>
+</section>
+</section>
+<section id="saving-the-model">
+<span id="saving-models"></span><h2><a class="toc-backref" href="#id5" role="doc-backlink">Saving the Model</a><a class="headerlink" href="#saving-the-model" title="Permalink to this heading">¶</a></h2>
+<p>After we quantize the model, we can save it.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Save quantized model (see below for safe_serialization enablement progress)</span>
+<span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">()</span> <span class="k">as</span> <span class="n">tmp_dir</span><span class="p">:</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">safe_serialization</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># optional: push to hub (uncomment the following lines)</span>
+<span class="c1"># save_to = &quot;your-username/Llama-3.2-1B-int4&quot;</span>
+<span class="c1"># model.push_to_hub(save_to, safe_serialization=False)</span>
+
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">)</span>
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">push_to_hub</span><span class="p">(</span><span class="n">save_to</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Current Status of Safetensors support</strong>: TorchAO quantized models cannot yet be serialized with safetensors due to tensor subclass limitations. When saving quantized models, you must use <code class="docutils literal notranslate"><span class="pre">safe_serialization=False</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># don&#39;t serialize model with Safetensors</span>
+<span class="n">output_dir</span> <span class="o">=</span> <span class="s2">&quot;llama3-8b-int4wo-128&quot;</span>
+<span class="n">quantized_model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="s2">&quot;llama3-8b-int4wo-128&quot;</span><span class="p">,</span> <span class="n">safe_serialization</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Workaround</strong>: For production use, save models with <code class="docutils literal notranslate"><span class="pre">safe_serialization=False</span></code> when pushing to Hugging Face Hub.</p>
+<p><strong>Future Work</strong>: The TorchAO team is actively working on safetensors support for tensor subclasses. Track progress <a class="reference external" href="https://github.com/pytorch/ao/issues/2338">here</a> and <a class="reference external" href="https://github.com/pytorch/ao/pull/2881">here</a>.</p>
+</section>
+<section id="supported-quantization-types">
+<span id="id1"></span><h2><a class="toc-backref" href="#id6" role="doc-backlink">Supported Quantization Types</a><a class="headerlink" href="#supported-quantization-types" title="Permalink to this heading">¶</a></h2>
+<p>Weight-only quantization stores the model weights in a specific low-bit data type but performs computation with a higher-precision data type, like <code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>. This lowers the memory requirements from model weights but retains the memory peaks for activation computation.</p>
+<p>Dynamic activation quantization stores the model weights in a low-bit dtype, while also quantizing the activations on-the-fly to save additional memory. This lowers the memory requirements from model weights, while also lowering the memory overhead from activation computations. However, this may come at a quality tradeoff at times, so it is recommended to test different models thoroughly.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Please refer to the <a class="reference external" href="https://docs.pytorch.org/ao/main/api_ref_quantization.html">torchao docs</a> for supported quantization types.</p>
+</div>
+</section>
 </section>
 
 
@@ -500,8 +563,10 @@ for an overall introduction to the library and recent highlight and updates.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="quick_start.html" class="btn btn-neutral float-right" title="Quick Start Guide" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="serialization.html" class="btn btn-neutral float-right" title="Serialization" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
+      
+        <a href="torchao_vllm_integration.html" class="btn btn-neutral" title="Integration with VLLM: Architecture and Usage Guide" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -533,7 +598,14 @@ for an overall introduction to the library and recent highlight and updates.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Welcome to the torchao Documentation</a><ul>
+<li><a class="reference internal" href="#">Hugging Face Integration</a><ul>
+<li><a class="reference internal" href="#quick-start-usage-example">Quick Start: Usage Example</a><ul>
+<li><a class="reference internal" href="#quantizing-models-with-transformers">1. Quantizing Models with Transformers</a></li>
+<li><a class="reference internal" href="#quantizing-models-with-diffusers">2. Quantizing Models with Diffusers</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#saving-the-model">Saving the Model</a></li>
+<li><a class="reference internal" href="#supported-quantization-types">Supported Quantization Types</a></li>
 </ul>
 </li>
 </ul>

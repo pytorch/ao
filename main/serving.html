@@ -342,6 +342,7 @@
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
@@ -466,37 +467,8 @@
 </nav>
 <section id="post-training-quantization-with-huggingface">
 <h2><a class="toc-backref" href="#id1" role="doc-backlink">Post-training Quantization with HuggingFace</a><a class="headerlink" href="#post-training-quantization-with-huggingface" title="Permalink to this heading">¶</a></h2>
-<p>HuggingFace Transformers provides seamless integration with torchao quantization. The <code class="docutils literal notranslate"><span class="pre">TorchAoConfig</span></code> automatically applies torchao’s optimized quantization algorithms during model loading.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/huggingface/transformers@main
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torchao<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu126
-pip<span class="w"> </span>install<span class="w"> </span>torch
-pip<span class="w"> </span>install<span class="w"> </span>accelerate
-</pre></div>
-</div>
-<p>For this example, we’ll use <code class="docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code> on the Phi-4 mini-instruct model.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span><span class="p">,</span> <span class="n">TorchAoConfig</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span> <span class="n">PerRow</span>
-
-<span class="n">model_id</span> <span class="o">=</span> <span class="s2">&quot;microsoft/Phi-4-mini-instruct&quot;</span>
-
-<span class="n">quant_config</span> <span class="o">=</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">())</span>
-<span class="n">quantization_config</span> <span class="o">=</span> <span class="n">TorchAoConfig</span><span class="p">(</span><span class="n">quant_type</span><span class="o">=</span><span class="n">quant_config</span><span class="p">)</span>
-<span class="n">quantized_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_id</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">quantization_config</span><span class="o">=</span><span class="n">quantization_config</span><span class="p">)</span>
-<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_id</span><span class="p">)</span>
-
-<span class="c1"># Push the model to hub</span>
-<span class="n">USER_ID</span> <span class="o">=</span> <span class="s2">&quot;YOUR_USER_ID&quot;</span>
-<span class="n">MODEL_NAME</span> <span class="o">=</span> <span class="n">model_id</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-<span class="n">save_to</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">USER_ID</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">-float8dq&quot;</span>
-<span class="n">quantized_model</span><span class="o">.</span><span class="n">push_to_hub</span><span class="p">(</span><span class="n">save_to</span><span class="p">,</span> <span class="n">safe_serialization</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<span class="n">tokenizer</span><span class="o">.</span><span class="n">push_to_hub</span><span class="p">(</span><span class="n">save_to</span><span class="p">)</span>
-</pre></div>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>For more information on supported quantization and sparsity configurations, see <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao">HF-Torchao Docs</a>.</p>
-</div>
+<p>HuggingFace Transformers provides seamless integration with torchao quantization. The <code class="docutils literal notranslate"><span class="pre">TorchAoConfig</span></code> automatically applies torchao’s optimized quantization algorithms during model loading.
+Please check out our <a class="reference external" href="torchao_hf_integration.html">HF Integration Docs</a> for examples on how to use quantization and sparsity in Transformers and Diffusers.</p>
 </section>
 <section id="serving-and-inference">
 <h2><a class="toc-backref" href="#id2" role="doc-backlink">Serving and Inference</a><a class="headerlink" href="#serving-and-inference" title="Permalink to this heading">¶</a></h2>
