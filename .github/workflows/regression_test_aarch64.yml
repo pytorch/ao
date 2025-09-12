@@ -55,6 +55,7 @@ jobs:
           pytest -s test/quantization/quantize_/workflows/intx/test_intx_opaque_tensor.py
           pytest -s test/prototype/test_embedding.py
           pytest -s test/prototype/test_int8_lut_tensor.py
+          pytest -s test/prototype/test_conversion.py
           pytest -s test/prototype/test_groupwise_lowbit_weight_lut_quantizer.py
           pytest -s test/prototype/test_parq.py
       - name: torchao/csrc/cpu - build and run C++ tests
