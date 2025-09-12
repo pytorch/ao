@@ -773,9 +773,12 @@ class TestQuantFlow(TestCase):
 
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
+            float8_dynamic_activation_float8_weight: (),
+            float8_static_activation_float8_weight: (torch.randn(3)),
             float8_weight_only: (),
             fpx_weight_only: (3, 2),
             gemlite_uintx_weight_only: (),
+            int4_dynamic_activation_int4_weight: (),
             int4_weight_only: (),
             int8_dynamic_activation_int4_weight: (),
             int8_dynamic_activation_int8_weight: (),

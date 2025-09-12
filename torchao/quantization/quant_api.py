@@ -960,7 +960,9 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
 
 
 # for bc
-int4_dynamic_activation_int4_weight = Int4DynamicActivationInt4WeightConfig
+int4_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
+    "int4_dynamic_activation_int4_weight", Int4DynamicActivationInt4WeightConfig
+)
 
 
 @register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
@@ -1747,7 +1749,9 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
 
 # for bc
-float8_dynamic_activation_float8_weight = Float8DynamicActivationFloat8WeightConfig
+float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
+    "float8_dynamic_activation_float8_weight", Float8DynamicActivationFloat8WeightConfig
+)
 
 
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
@@ -1920,7 +1924,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
 
 
 # for bc
-float8_static_activation_float8_weight = Float8StaticActivationFloat8WeightConfig
+float8_static_activation_float8_weight = _ConfigDeprecationWrapper(
+    "float8_static_activation_float8_weight", Float8StaticActivationFloat8WeightConfig
+)
 
 
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
