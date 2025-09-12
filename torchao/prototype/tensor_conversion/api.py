@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 
-def _convert_module_to_int8_lut_tensor(module):
+def _convert_linear_weight_to_int8_lut_tensor(module):
     from torchao.prototype.quantization.int8_lut_tensor import Int8LutTensor
 
     assert isinstance(module, nn.Linear)
@@ -20,7 +20,7 @@ def _convert_module_to_int8_lut_tensor(module):
     module.bias = None
 
 
-def _convert_to_optimized_model_for_aarch64(
+def _convert_model_for_aarch64(
     model,
     *,
     tensor_type="int8_lut_tensor",
@@ -41,7 +41,7 @@ def _convert_to_optimized_model_for_aarch64(
             continue
 
         if tensor_type == "int8_lut_tensor":
-            _convert_module_to_int8_lut_tensor(module)
+            _convert_linear_weight_to_int8_lut_tensor(module)
         else:
             raise ValueError(f"Unexpected tensor_type={tensor_type}")
 

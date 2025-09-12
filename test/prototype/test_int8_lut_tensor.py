@@ -9,7 +9,6 @@ from copy import deepcopy
 import pytest
 import torch
 
-from torchao.prototype.conversion.api import _convert_to_optimized_model_for_aarch64
 from torchao.prototype.parq.quant import (
     StretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
@@ -17,6 +16,7 @@ from torchao.prototype.parq.quant import (
 from torchao.prototype.quantization.int8_lut_tensor.int8_lut_tensor import (
     _is_kernel_library_loaded,
 )
+from torchao.prototype.tensor_conversion.api import _convert_model_for_aarch64
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.utils import compute_error
@@ -75,7 +75,7 @@ def test_parq_conversion(dtype, granularity, bit_width, lead_dim):
 
     # Convert PARQ model to lowbit LUT model
     lut_model = deepcopy(parq_model)
-    _convert_to_optimized_model_for_aarch64(lut_model, tensor_type="int8_lut_tensor")
+    _convert_model_for_aarch64(lut_model, tensor_type="int8_lut_tensor")
 
     # Run both models and compare
     parq_out = parq_model(activations)
@@ -111,7 +111,7 @@ def test_export(dtype, granularity, bit_width, lead_dim):
     activations = parq_model.example_inputs(lead_dim=lead_dim)
     quantize_(parq_model, config)
 
-    _convert_to_optimized_model_for_aarch64(parq_model)
+    _convert_model_for_aarch64(parq_model)
 
     ep = torch.export.export(parq_model, (activations,))
 
