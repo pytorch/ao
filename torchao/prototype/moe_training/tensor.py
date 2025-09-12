@@ -27,7 +27,7 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.copy_.default,
     torch.ops.aten.view.default,
     torch.ops.aten.as_strided.default,
-    torch.ops.aten._to_copy.default,
+    torch.ops.aten._to_copy.default,  # for *.to(dtype)
     torch.ops.aten._pin_memory.default,
     torch.ops.aten.split.Tensor,
     torch.ops.aten.clone.default,
@@ -94,11 +94,11 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 "B should be a ScaledGroupedMMTensor"
             )
             scaling_type = B.scaling_type
-            A_is_2d = A.dim() == 2
-            B_is_3d = B.dim() == 3
+            A_is_2d = A.ndim == 2
+            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             other_args = args[2:]
-            if A_is_2d and B_is_3d and has_offs:
+            if A_is_2d and B_is_2d_or_3d and has_offs:
                 return _scaled_grouped_mm(
                     A,
                     B,
@@ -125,17 +125,19 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 assert t.scaling_type == scaling_type
             return t._data
 
-        args, kwargs = pytree.tree_map_only(
+        args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
             ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
-        assert scaling_type is not None
+        assert scaling_type is not None, (
+            f"__torch_dispatch__ called on {func.__name__} without any ScaledGroupedMMTensor arguments"
+        )
 
         # detach is special case
         if func == torch.ops.aten.detach.default:
-            return ScaledGroupedMMTensor(args[0], scaling_type)
+            return ScaledGroupedMMTensor(args_unwrapped[0], scaling_type)
 
         # perform op
-        out = func(*args, **kwargs)
+        out = func(*args_unwrapped, **kwargs_unwrapped)
 
         # return regular tensors for ops that don't preserve subclass
         if func not in _ops_to_preserve_subclass:
