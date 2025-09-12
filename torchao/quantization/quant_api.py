@@ -92,6 +92,7 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
+    _ConfigDeprecationWrapper,
     _is_fbgemm_genai_gpu_available,
     is_MI300,
     is_sm_at_least_89,
@@ -639,7 +640,9 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
 
 
 # for BC
-int8_dynamic_activation_int4_weight = Int8DynamicActivationInt4WeightConfig
+int8_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
+    "int8_dynamic_activation_int4_weight", Int8DynamicActivationInt4WeightConfig
+)
 
 
 @register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
@@ -1018,7 +1021,9 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-gemlite_uintx_weight_only = GemliteUIntXWeightOnlyConfig
+gemlite_uintx_weight_only = _ConfigDeprecationWrapper(
+    "gemlite_uintx_weight_only", GemliteUIntXWeightOnlyConfig
+)
 
 
 @register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
@@ -1100,7 +1105,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
 # for BC
 # TODO maybe change other callsites
-int4_weight_only = Int4WeightOnlyConfig
+int4_weight_only = _ConfigDeprecationWrapper("int4_weight_only", Int4WeightOnlyConfig)
 
 
 def _int4_weight_only_quantize_tensor(weight, config):
@@ -1310,7 +1315,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-int8_weight_only = Int8WeightOnlyConfig
+int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyConfig)
 
 
 def _int8_weight_only_quantize_tensor(weight, config):
@@ -1471,7 +1476,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
 
 
 # for BC
-int8_dynamic_activation_int8_weight = Int8DynamicActivationInt8WeightConfig
+int8_dynamic_activation_int8_weight = _ConfigDeprecationWrapper(
+    "int8_dynamic_activation_int8_weight", Int8DynamicActivationInt8WeightConfig
+)
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -1580,7 +1587,9 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-float8_weight_only = Float8WeightOnlyConfig
+float8_weight_only = _ConfigDeprecationWrapper(
+    "float8_weight_only", Float8WeightOnlyConfig
+)
 
 
 def _float8_weight_only_quant_tensor(weight, config):
@@ -1994,7 +2003,9 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-uintx_weight_only = UIntXWeightOnlyConfig
+uintx_weight_only = _ConfigDeprecationWrapper(
+    "uintx_weight_only", UIntXWeightOnlyConfig
+)
 
 
 @register_quantize_module_handler(UIntXWeightOnlyConfig)
@@ -2234,7 +2245,7 @@ class FPXWeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-fpx_weight_only = FPXWeightOnlyConfig
+fpx_weight_only = _ConfigDeprecationWrapper("fpx_weight_only", FPXWeightOnlyConfig)
 
 
 @register_quantize_module_handler(FPXWeightOnlyConfig)

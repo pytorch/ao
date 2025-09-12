@@ -10,6 +10,7 @@ import copy
 import gc
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 import torch
@@ -751,6 +752,50 @@ class TestQuantFlow(TestCase):
                 sd[k] = v.to("cuda")
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
+
+    def test_config_deprecation(self):
+        """
+        Test that old config functions like `int4_weight_only` trigger deprecation warnings.
+        """
+        from torchao.quantization import (
+            float8_weight_only,
+            fpx_weight_only,
+            gemlite_uintx_weight_only,
+            int4_weight_only,
+            int8_dynamic_activation_int4_weight,
+            int8_dynamic_activation_int8_weight,
+            int8_weight_only,
+            uintx_weight_only,
+        )
+
+        # Reset deprecation warning state, otherwise we won't log warnings here
+        warnings.resetwarnings()
+
+        # Map from deprecated API to the args needed to instantiate it
+        deprecated_apis_to_args = {
+            float8_weight_only: (),
+            fpx_weight_only: (3, 2),
+            gemlite_uintx_weight_only: (),
+            int4_weight_only: (),
+            int8_dynamic_activation_int4_weight: (),
+            int8_dynamic_activation_int8_weight: (),
+            int8_weight_only: (),
+            uintx_weight_only: (torch.uint4,),
+        }
+
+        with warnings.catch_warnings(record=True) as _warnings:
+            # Call each deprecated API twice
+            for cls, args in deprecated_apis_to_args.items():
+                cls(*args)
+                cls(*args)
+
+            # Each call should trigger the warning only once
+            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
+            for w in _warnings:
+                self.assertIn(
+                    "is deprecated and will be removed in a future release",
+                    str(w.message),
+                )
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
