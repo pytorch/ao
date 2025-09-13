@@ -408,6 +408,11 @@ def _infer_fake_quantize_configs(
         (act_granularity, weight_granularity) = _normalize_granularity(
             base_config.granularity
         )
+        assert act_granularity == weight_granularity and isinstance(
+            act_granularity, (PerTensor, PerRow)
+        ), (
+            "Currently only support same granularity for both activations and weights, and only PerTensor or PerRow"
+        )
         act_config = Float8FakeQuantizeConfig(
             dtype=base_config.activation_dtype,
             granularity=act_granularity,
