@@ -58,7 +58,6 @@ def _scaled_grouped_mm(
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
     if scaling_type == MoEScalingType.FP8_ROWWISE:
-        logger.debug("Using fp8 rowwise for _scaled_grouped_mm")
         return _Float8GroupedMM.apply(
             A,
             B_t,
@@ -66,7 +65,6 @@ def _scaled_grouped_mm(
             out_dtype,
         )
     elif scaling_type == MoEScalingType.MXFP8:
-        logger.debug("Using mxfp8 for _scaled_grouped_mm")
         block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
         return _MXFP8GroupedMM.apply(
             A,
@@ -358,12 +356,16 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # B_data shape: (E, K, N)
         # B_scale shape: (E, K, N//block_size)
-        B_scales, B_data = to_mx(
+        B_scales_ref, B_data_ref = to_mx(
             # TODO: can we support non-contiguous input tensor in to_mx to eliminate this inefficiency?
             B_t.contiguous(),
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
         )
+
+        # Experiment with cuda kernel
+        B = B_t.transpose(-2, -1)
+        B_scales, B_data = _to_mxfp8_dim1_3d(B, block_size=block_size)
 
         # Convert scales to blocked format for 2d-3d grouped mm
         grad_out_scales_blocked = triton_mx_block_rearrange_2d_M_groups(
@@ -376,21 +378,26 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
         grad_A = torch._scaled_grouped_mm(
             grad_out_data,
-            B_data.transpose(-2, -1),
+            B_data,
             grad_out_scales_blocked,
             B_scales_blocked,
             offs=offs,
             out_dtype=out_dtype,
         )
 
-        # grad_out_t_data shape: (N, M)
+        # grad_out_t_data shape: (M, N)
         # grad_out_t_scales shape: (N, M//block_size)
-        grad_out_t_scales, grad_out_t_data = to_mx(
-            # TODO: can we support non-contiguous input tensor in to_mx to eliminate this inefficiency?
-            grad_out.transpose(-2, -1).contiguous(),
+        grad_out_t_mx = _to_mxfp8_dim1_kernel_wrapper(
+            grad_out,
+            block_size,
             elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
+            hp_dtype=grad_out.dtype,
+            gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,  # Not used
+            cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+            scale_calculation_mode=ScaleCalculationMode.FLOOR,
         )
+        grad_out_t_data = grad_out_t_mx.qdata
+        grad_out_t_scales = grad_out_t_mx._scale_e8m0
 
         # Transpose A so we can scale along the M dimension, then un-transpose.
         # A_t_data shape: (K, M)
@@ -412,7 +419,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         _, blocked_scale_group_offsets = compute_blocked_scale_offsets_for_K_groups(
             scale_group_offsets
         )
-
         grad_out_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
             grad_out_t_scales,
             scale_group_offsets,
@@ -436,6 +442,40 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # grad_B_t shape =  (E,K,N)
         grad_B_t = grad_B.transpose(-2, -1)
         return grad_A, grad_B_t, None, None, None
+
+
+def _to_mxfp8_dim1_3d(
+    B: torch.Tensor,
+    block_size: int = 32,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Convert a 3D tensor to MXFP8 format with (block_size, 1) scaling granularity.
+    """
+    E, N, K = B.shape
+    B_reshaped = B.reshape(E * N, K)
+    B_t_mx = _to_mxfp8_dim1_kernel_wrapper(
+        B_reshaped,
+        block_size,
+        elem_dtype=torch.float8_e4m3fn,
+        hp_dtype=B_reshaped.dtype,
+        gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,  # Not used
+        cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+        scale_calculation_mode=ScaleCalculationMode.FLOOR,
+    )
+    B_data = B_t_mx.qdata.t()  # (K, E*N) -> (E*N, K)
+    B_data = B_data.reshape(E, N, K)  # (E*N, K) -> (E, N, K)
+    B_scales = B_t_mx._scale_e8m0.view(torch.uint8)  # (K, E*N//block_size)
+    B_scales = B_scales.reshape(
+        K, E, N // block_size
+    )  # (K, E*N//block_size) -> (K, E, N//block_size)
+    B_scales = B_scales.permute(
+        1, 0, 2
+    )  # (K, E, N//block_size) -> (E, K, N//block_size)
+    B_scales = B_scales.view(torch.float8_e8m0fnu)
+
+    # TODO: Update cutlass grouped gemm to accept NT/TN/NN/TT layouts so we can avoid this conversion to column major
+    B_data = B_data.transpose(-2, -1).contiguous().transpose(-2, -1)
+    return B_scales, B_data
 
 
 def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
@@ -606,3 +646,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     # Perform bf16 grouped GEMM using dequantized A and B.
     out = torch._grouped_mm(A, B, offs=offs, out_dtype=out_dtype)
     return out
+
+
+def round_up(x, y):
+    return ((x + y - 1) // y) * y
