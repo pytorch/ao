@@ -153,7 +153,7 @@ class TestVLLMIntegration:
         # Load and quantize model
         quantized_model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype="bfloat16",
+            dtype="bfloat16",
             device_map="cuda",
             quantization_config=quantization_config,
         )

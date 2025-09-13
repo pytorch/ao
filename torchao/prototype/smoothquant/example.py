@@ -88,7 +88,7 @@ def quantize_and_eval(
     t0 = time.time()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
@@ -155,7 +155,7 @@ def compare_models(
     torch.manual_seed(34)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
@@ -167,7 +167,7 @@ def compare_models(
     print("Benchmarking W8A8-dynamic without SmoothQuant...")
     torch.manual_seed(34)
     w8a8_model = (
-        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
         .eval()
         .to(device)
     )

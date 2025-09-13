@@ -159,7 +159,7 @@ quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=1
 # Load and automatically quantize
 quantized_model = AutoModelForCausalLM.from_pretrained(
     "microsoft/Phi-4-mini-instruct",
-    torch_dtype="auto",
+    dtype="auto",
     device_map="auto",
     quantization_config=quantization_config
 )
