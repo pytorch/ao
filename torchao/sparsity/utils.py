@@ -80,7 +80,7 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
         new_axis_list[0], new_axis_list[-1] = new_axis_list[-1], new_axis_list[0]
         y = x.permute(new_axis_list)
         y = torch.flatten(y, start_dim=1)
-        norm = torch.norm(y, dim=1) ** 2
+        norm = torch.linalg.vector_norm(y, dim=1) ** 2
 
         if self.norm.numel() == 0:
             self.norm.resize_(norm.shape)
