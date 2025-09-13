@@ -8,10 +8,7 @@ import tempfile
 import unittest
 
 import torch
-from torch.testing._internal.common_utils import (
-    TestCase,
-    run_tests,
-)
+from torch.testing._internal import common_utils
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
@@ -61,19 +58,20 @@ class TestAWQ(TestCase):
         with self.assertRaisesRegex(ValueError, "is not one of"):
             AWQConfig(base_config, step="not_supported")
 
-    def test_awq_functionality(self):
+    @common_utils.parametrize(
+        "base_config", [Int4WeightOnlyConfig(group_size=128)]
+    )
+    def test_awq_functionality(self, base_config):
         device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
-        group_size = 128
         n_calibration_examples = 10
         sequence_length = 5
 
         m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
 
         # baseline quantization
-        base_config = Int4WeightOnlyConfig(group_size=group_size)
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config)
 
@@ -104,12 +102,14 @@ class TestAWQ(TestCase):
         loss_base = (ref_out - baseline_out).pow(2).mean().item()
         assert loss_awq < loss_base
 
-    def test_awq_loading(self):
+    @common_utils.parametrize(
+        "base_config", [Int4WeightOnlyConfig(group_size=128)]
+    )
+    def test_awq_loading(self, base_config):
         device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
-        group_size = 128
         n_calibration_examples = 10
         sequence_length = 5
 
@@ -123,7 +123,6 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
@@ -152,7 +151,10 @@ class TestAWQ(TestCase):
         assert awq_save_load_out is not None
         assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
 
-    def test_awq_loading_vllm(self):
+    @common_utils.parametrize(
+        "base_config", [Int4WeightOnlyConfig(group_size=128)]
+    )
+    def test_awq_loading_vllm(self, base_config):
         """Simulate weight loading in vllm:
         * prepare model weight to the same format (awq weight)
         * use weight.copy_(state_dict["weight"]) to copy over the quantized weights from checkpoint
@@ -163,7 +165,6 @@ class TestAWQ(TestCase):
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
-        group_size = 128
         n_calibration_examples = 10
         sequence_length = 5
 
@@ -177,7 +178,6 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
@@ -212,5 +212,7 @@ class TestAWQ(TestCase):
         assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
 
 
+common_utils.instantiate_parametrized_tests(TestAWQ)
+
 if __name__ == "__main__":
-    run_tests()
+    unittest.main()
