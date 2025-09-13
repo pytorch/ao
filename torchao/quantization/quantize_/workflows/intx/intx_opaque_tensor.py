@@ -335,6 +335,35 @@ def _(func, types, args, kwargs):
     return res
 
 
+@implements([torch.nn.functional.embedding, aten.embedding.default])
+def _(func, types, args, kwargs):
+    assert len(args) == 2
+    indices, weight_tensor = (
+        args[0],
+        args[1],
+    )
+    assert isinstance(weight_tensor, IntxOpaqueTensor)
+    assert weight_tensor.intx_packing_format == IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT
+    packed_weights = weight_tensor.packed_weights
+
+    assert len(weight_tensor.block_size) == 2
+    assert weight_tensor.block_size[0] == 1
+    group_size = weight_tensor.block_size[1]
+
+    n, k = weight_tensor.shape
+    bit_width = weight_tensor.bit_width
+
+    shape = indices.shape
+    out = getattr(torch.ops.torchao, f"_shared_embedding_{bit_width}bit")(
+        packed_weights,
+        group_size,
+        n,
+        k,
+        indices.reshape(-1),
+    ).reshape(*shape, -1)
+    return out
+
+
 IntxOpaqueTensor.__module__ = "torchao.quantization"
 
 torch.serialization.add_safe_globals([IntxOpaqueTensor])
