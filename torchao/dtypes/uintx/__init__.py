@@ -1,6 +1,9 @@
 from .block_sparse_layout import (
     BlockSparseLayout,
 )
+from .csr_layout import (
+    CSRLayout,
+)
 from .cutlass_int4_packed_layout import (
     CutlassInt4PackedLayout,
 )
@@ -42,6 +45,7 @@ __all__ = [
     "BlockSparseLayout",
     "MarlinSparseLayout",
     "SemiSparseLayout",
+    "CSRLayout",
     "TensorCoreTiledLayout",
     "Int4CPULayout",
     "MarlinQQQLayout",
