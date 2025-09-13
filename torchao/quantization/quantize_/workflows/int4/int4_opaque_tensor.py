@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List
+from typing import List, Optional
 
 import torch
 
@@ -17,6 +17,7 @@ from torchao.quantization.quant_primitives import (
 from torchao.utils import (
     TorchAOBaseTensor,
 )
+
 
 __all__ = [
     "Int4OpaqueTensor",
@@ -40,6 +41,11 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
                     we only support group_size = 32/64/128.
         shape: shape of the original Tensor
 
+    Optional Tensor Data Attributes:
+        act_pre_scale (Optional[Tensor]): Optional scale for activation Tensor, if present,
+               we'll multiply activation Tensor with act_pre_scale before applying dynamic
+               quantization to activation or running quantized mm op
+
     Note on Details for data layout for CPU tinygemm kernel:
 
       We use AVX512 to compute TINYGEMM on CPU. We can also leverage AVX512_VNNI and AMX instructions with torch.compile and max-autotune.
@@ -49,6 +55,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
 
     tensor_data_names = ["qdata", "scale_and_zero"]
     tensor_attribute_names = ["block_size", "shape"]
+    optional_tensor_data_names = ["act_pre_scale"]
 
     def __new__(
         cls,
@@ -56,6 +63,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         scale_and_zero,
         block_size,
         shape,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -69,14 +77,20 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         scale_and_zero: torch.Tensor,
         block_size: List[int],
         shape: torch.Size,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size
+        self.act_pre_scale = act_pre_scale
 
     def _quantization_type(self):
-        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        if self.act_pre_scale is not None:
+            s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
+        return s
+        #return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
 
     @classmethod
     def from_hp(
@@ -137,6 +151,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
             scale_and_zero=scale_and_zero,
             block_size=block_size,
             shape=original_shape,
+            act_pre_scale=None,
         )
 
 
@@ -162,6 +177,9 @@ def _(func, types, args, kwargs):
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"Shapes of input and weight do not match, input:{input_tensor.shape}, weight: {weight_tensor.shape}"
     )
+
+    if weight_tensor.act_pre_scale is not None:
+        input_tensor = input_tensor * weight_tensor.act_pre_scale
 
     act_mat = input_tensor
     packed_weight = weight_tensor.qdata
