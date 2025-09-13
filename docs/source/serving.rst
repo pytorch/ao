@@ -15,38 +15,7 @@ Post-training Quantization with HuggingFace
 -------------------------------------------
 
 HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading.
-
-.. code-block:: bash
-
-    pip install git+https://github.com/huggingface/transformers@main
-    pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
-    pip install torch
-    pip install accelerate
-
-For this example, we'll use ``Float8DynamicActivationFloat8WeightConfig`` on the Phi-4 mini-instruct model.
-
-.. code-block:: python
-
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-    from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
-
-    model_id = "microsoft/Phi-4-mini-instruct"
-
-    quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
-    quantization_config = TorchAoConfig(quant_type=quant_config)
-    quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", dtype=torch.bfloat16, quantization_config=quantization_config)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-    # Push the model to hub
-    USER_ID = "YOUR_USER_ID"
-    MODEL_NAME = model_id.split("/")[-1]
-    save_to = f"{USER_ID}/{MODEL_NAME}-float8dq"
-    quantized_model.push_to_hub(save_to, safe_serialization=False)
-    tokenizer.push_to_hub(save_to)
-
-.. note::
-    For more information on supported quantization and sparsity configurations, see `HF-Torchao Docs <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`_.
+Please check out our `HF Integration Docs <torchao_hf_integration.html>`_ for examples on how to use quantization and sparsity in Transformers and Diffusers.
 
 Serving and Inference
 --------------------

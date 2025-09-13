@@ -677,7 +677,11 @@ def get_extensions():
                     ],
                     extra_compile_args={
                         "cxx": ["-std=c++17", "-O3"],
-                        "nvcc": nvcc_args,
+                        "nvcc": nvcc_args
+                        + [
+                            "-gencode=arch=compute_100,code=sm_100",
+                            "-gencode=arch=compute_120,code=compute_120",
+                        ],
                     },
                 ),
             )
