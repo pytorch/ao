@@ -447,6 +447,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 def _to_mxfp8_dim1_3d(
     B: torch.Tensor,
     block_size: int = 32,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Convert a 3D tensor to MXFP8 format with (block_size, 1) scaling granularity.
@@ -460,7 +461,7 @@ def _to_mxfp8_dim1_3d(
         hp_dtype=B_reshaped.dtype,
         gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,  # Not used
         cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
-        scale_calculation_mode=ScaleCalculationMode.FLOOR,
+        scale_calculation_mode=scaling_mode,
     )
     B_data = B_t_mx.qdata.t()  # (K, E*N) -> (E*N, K)
     B_data = B_data.reshape(E, N, K)  # (E*N, K) -> (E, N, K)
