@@ -73,6 +73,8 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
+    Int8DynamicActivationIntxWeightConfig,
+    IntxWeightOnlyConfig,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -1872,6 +1874,8 @@ class TestQAT(TestCase):
         base_config: AOBaseConfig,
         target_prepare_sqnr: float,
         target_convert_sqnr: float,
+        dtype: torch.dtype = torch.bfloat16,
+        module_type: str = "linear",
     ):
         """
         Test the following:
@@ -1884,23 +1888,38 @@ class TestQAT(TestCase):
             quantize_(model, base_config)
         """
         torch.manual_seed(self.SEED)
-        m = M().to(torch.bfloat16).cuda()
-        example_inputs = (m.example_inputs()[0].to(torch.bfloat16).cuda(),)
+
+        if module_type == "linear":
+            m = M().to(dtype).cuda()
+            example_inputs = (m.example_inputs()[0].to(dtype).cuda(),)
+            filter_fn = lambda m, fqn: isinstance(m, torch.nn.Linear)
+        elif module_type == "embedding":
+            m = M3().to(dtype).cuda()
+            example_inputs = (m.example_inputs()[0].cuda(),)
+            filter_fn = lambda m, fqn: isinstance(m, torch.nn.Embedding)
+        else:
+            raise ValueError(f"Unknown module type {module_type}")
 
         # baseline
         m_baseline = copy.deepcopy(m)
-        quantize_(m_baseline, base_config)
+        quantize_(m_baseline, base_config, filter_fn)
         out_baseline = m_baseline(*example_inputs)
+        # print("OUT BASELINE", out_baseline)
 
         # compare prepare
-        quantize_(m, QATConfig(base_config, step="prepare"))
+        quantize_(m, QATConfig(base_config, step="prepare"), filter_fn)
+        print("PREPARED MODEL", m)
         out_prepared = m(*example_inputs)
         prepare_sqnr = compute_error(out_prepared, out_baseline)
+        # print("OUT PREPARED", out_prepared)
+
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
-        quantize_(m, QATConfig(base_config, step="convert"))
+        quantize_(m, QATConfig(base_config, step="convert"), filter_fn)
+        print("CONVERTED MODEL", m)
         out_converted = m(*example_inputs)
+        # print("OUT CONVERTED", out_converted)
         convert_sqnr = compute_error(out_converted, out_baseline)
         self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
 
@@ -1965,6 +1984,56 @@ class TestQAT(TestCase):
             Int8DynamicActivationInt4WeightConfig(group_size=32),
             target_prepare_sqnr=30,
             target_convert_sqnr=float("inf"),
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize(
+        "weight_dtype, weight_granularity, dtype",
+        [
+            (weight_dtype, weight_granularity, dtype)
+            for weight_dtype in [getattr(torch, f"int{i}") for i in range(2, 9)]
+            for weight_granularity in [PerGroup(32), PerAxis(0)]
+            for dtype in [torch.bfloat16, torch.float32]
+        ],
+    )
+    def test_quantize_api_int8_intx(self, weight_dtype, weight_granularity, dtype):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int8DynamicActivationIntxWeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationIntxWeightConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype, weight_granularity=weight_granularity
+            ),
+            target_prepare_sqnr=float("inf"),
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize(
+        "weight_dtype, granularity, dtype, module_type",
+        [
+            (weight_dtype, granularity, dtype, module_type)
+            for weight_dtype in [getattr(torch, f"int{i}") for i in range(2, 9)]
+            for granularity in [PerGroup(32), PerAxis(0)]
+            for dtype in [torch.bfloat16, torch.float32]
+            for module_type in ["linear", "embedding"]
+        ],
+    )
+    def test_quantize_api_intx(self, weight_dtype, granularity, dtype, module_type):
+        """
+        Test the following:
+            quantize_(model, QATConfig(IntxWeightOnlyConfig(), step="prepare"))
+            quantize_(model, QATConfig(IntxWeightOnlyConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            IntxWeightOnlyConfig(weight_dtype=weight_dtype, granularity=granularity),
+            target_prepare_sqnr=float("inf"),
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+            module_type=module_type,
         )
 
     def test_infer_fp8_int4_config(self):
