@@ -223,7 +223,6 @@ def quantize_and_eval(
     if quant.startswith("awq-int4wo"):
         group_size = int(quant.split("-")[2])
         print(f"running {quant} quantization with group size {group_size}")
-        # TODO: this is temporary, we'll be using Int4WeightOnlyConfig soon
         from torchao.quantization import Int4WeightOnlyConfig
 
         base_config = Int4WeightOnlyConfig(group_size=group_size)
@@ -261,7 +260,7 @@ def quantize_and_eval(
         print(f"running {quant} quantization with group size {group_size}")
         # TODO: enable after migration: https://github.com/pytorch/ao/issues/2752
         # use_hqq = "hqq" in quant
-        base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+        base_config = Int4WeightOnlyConfig(group_size=group_size)
         quantize_(model, base_config)
 
     if model_save_path is not None:
@@ -285,7 +284,7 @@ if __name__ == "__main__":
     )
 
     # Optional arguments with default values
-    parser.add_argument("--repo", type=str, help="Repository ID of the model.")
+    parser.add_argument("--model", type=str, help="Repository ID of the model.")
     parser.add_argument(
         "--quant",
         type=str,
@@ -348,7 +347,7 @@ if __name__ == "__main__":
     # Convert precision argument to torch dtype
     precision_dtype = getattr(torch, args.precision, torch.bfloat16)
     result = quantize_and_eval(
-        args.repo,
+        args.model,
         args.quant,
         args.tasks,
         args.max_seq_length,

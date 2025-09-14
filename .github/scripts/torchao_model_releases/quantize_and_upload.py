@@ -661,7 +661,6 @@ def quantize_and_upload(
         model_to_quantize = _untie_weights_and_save_locally(model_to_quantize)
 
     # quantization
-
     if "AWQ" in quant:
         # awq will use torchao API directly
         assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"

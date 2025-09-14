@@ -32,7 +32,7 @@ class TransformerEvalWrapper(eval_wrapper):
     """
 
     def __init__(
-        self, model, tokenizer, max_seq_length, input_prep_func=None, device="cuda"
+        self, model, tokenizer, max_seq_length=512, input_prep_func=None, device="cuda"
     ):
         try:
             super().__init__(device=device)
