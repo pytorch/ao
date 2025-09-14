@@ -1904,22 +1904,17 @@ class TestQAT(TestCase):
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config, filter_fn)
         out_baseline = m_baseline(*example_inputs)
-        # print("OUT BASELINE", out_baseline)
 
         # compare prepare
         quantize_(m, QATConfig(base_config, step="prepare"), filter_fn)
-        print("PREPARED MODEL", m)
         out_prepared = m(*example_inputs)
         prepare_sqnr = compute_error(out_prepared, out_baseline)
-        # print("OUT PREPARED", out_prepared)
 
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
         quantize_(m, QATConfig(base_config, step="convert"), filter_fn)
-        print("CONVERTED MODEL", m)
         out_converted = m(*example_inputs)
-        # print("OUT CONVERTED", out_converted)
         convert_sqnr = compute_error(out_converted, out_baseline)
         self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
 
