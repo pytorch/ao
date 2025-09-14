@@ -476,6 +476,7 @@ def _infer_fake_quantize_configs(
         assert base_config.mapping_type == MappingType.SYMMETRIC, (
             "Only symmetric mapping is supported"
         )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
         assert base_config.scale_dtype is None, (
             "Specifying scale_dtype is not supported"
         )
