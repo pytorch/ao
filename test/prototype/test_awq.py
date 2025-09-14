@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 import copy
 import tempfile
-import unittest
 
 import torch
 from parameterized import parameterized
@@ -16,7 +15,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.utils import _is_fbgemm_genai_gpu_available
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, _is_fbgemm_genai_gpu_available
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -42,6 +41,7 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear3(x)
         return x
 
+
 devices = ["cpu"]
 if (
     torch.cuda.is_available()
@@ -49,6 +49,7 @@ if (
     and TORCH_VERSION_AT_LEAST_2_6
 ):
     devices.append("cuda")
+
 
 class TestAWQ(TestCase):
     def test_awq_config(self):
@@ -77,7 +78,7 @@ class TestAWQ(TestCase):
 
         # baseline quantization
         if device == "cuda":
-            base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, packing_format="opaque", version=2
@@ -113,7 +114,6 @@ class TestAWQ(TestCase):
 
         loss_awq = (ref_out - awq_out).pow(2).mean().item()
         loss_base = (ref_out - baseline_out).pow(2).mean().item()
-
         assert loss_awq < loss_base
 
     @parameterized.expand([(device,) for device in devices])
@@ -136,7 +136,7 @@ class TestAWQ(TestCase):
 
         # calibrate
         if device == "cuda":
-            base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, packing_format="opaque", version=2
@@ -197,7 +197,7 @@ class TestAWQ(TestCase):
 
         # calibrate
         if device == "cuda":
-            base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, packing_format="opaque", version=2

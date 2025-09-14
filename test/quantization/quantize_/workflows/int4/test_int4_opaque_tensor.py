@@ -19,8 +19,8 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
 )
-from torchao.quantization.utils import compute_error
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
+from torchao.quantization.utils import compute_error
 from torchao.utils import (
     torch_version_at_least,
 )
@@ -77,6 +77,7 @@ class TestInt4OpaqueTensor(TestCase):
                 str(type(state_dict["weight"])),
                 "<class 'torchao.quantization.Int4OpaqueTensor'>",
             )
+
     def test_activation_prescaling(self):
         dtype = torch.bfloat16
         input = torch.randn(1, 128, dtype=dtype)
@@ -94,6 +95,7 @@ class TestInt4OpaqueTensor(TestCase):
 
         # making sure activation pre scaling is successfully applied to the activation
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
+
 
 instantiate_parametrized_tests(TestInt4OpaqueTensor)
 

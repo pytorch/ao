@@ -18,7 +18,6 @@ from torchao.utils import (
     TorchAOBaseTensor,
 )
 
-
 __all__ = [
     "Int4OpaqueTensor",
 ]
@@ -90,7 +89,6 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         if self.act_pre_scale is not None:
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
-        #return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
 
     @classmethod
     def from_hp(

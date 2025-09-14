@@ -6,24 +6,24 @@
 import argparse
 import time
 
+import lm_eval
 import torch
 from datasets import load_dataset
+from lm_eval import evaluator
+from lm_eval.models.huggingface import HFLM
+from torch._inductor import config as inductor_config
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 from torchao.prototype.awq import (
     AWQConfig,
 )
-from torchao.quantization import (
-    quantize_,
-    Int4WeightOnlyConfig
-)
-from torch._inductor import config as inductor_config
-import lm_eval
-from lm_eval.models.huggingface import HFLM
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
+
 inductor_config.cpp_wrapper = True
 inductor_config.max_autotune = True
 inductor_config.max_autotune_gemm_backends = "CPP,ATEN"
+
 
 # adapted from: https://github.com/mit-han-lab/llm-awq/blob/main/awq/entry.py#L255
 def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
@@ -102,7 +102,6 @@ def wiki2_eval(
 def benchmark(
     model, tokenizer, max_length, tasks=None, evaluation_limit=None, device="cuda"
 ):
-    import lm_eval
     import numpy as np
 
     model.eval()
@@ -133,7 +132,7 @@ def benchmark(
     if "truthfulqa_mc2" in tasks:
         for task in [("truthfulqa_mc2", 0)]:
             tag, fewshot = task
-            results[tag] = lm_eval.evaluator.simple_evaluate(
+            results[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -144,7 +143,7 @@ def benchmark(
     if "winogrande" in tasks:
         for task in [("winogrande", 5)]:
             tag, fewshot = task
-            results[tag] = lm_eval.evaluator.simple_evaluate(
+            results[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -155,7 +154,7 @@ def benchmark(
     if "arc_challenge" in tasks:
         for task in [("arc_challenge", 25)]:
             tag, fewshot = task
-            results[tag] = lm_eval.evaluator.simple_evaluate(
+            results[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -168,7 +167,7 @@ def benchmark(
     if "hellaswag" in tasks:
         for task in [("hellaswag", 10)]:
             tag, fewshot = task
-            results[tag] = lm_eval.evaluator.simple_evaluate(
+            results[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -179,7 +178,7 @@ def benchmark(
     if "gsm8k" in tasks:
         for task in [("gsm8k", 5)]:
             tag, fewshot = task
-            results[tag] = lm_eval.evaluator.simple_evaluate(
+            results[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -194,7 +193,7 @@ def benchmark(
         results_mmlu = {}
         for task in [("mmlu", 5)]:
             tag, fewshot = task
-            results_mmlu[tag] = lm_eval.evaluator.simple_evaluate(
+            results_mmlu[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -219,7 +218,7 @@ def benchmark(
     if "bbh" in tasks:
         for task in [("leaderboard_bbh", 3)]:
             tag, fewshot = task
-            results[tag] = lm_eval.evaluator.simple_evaluate(
+            results[tag] = evaluator.simple_evaluate(
                 model_eval,
                 tasks=[tag],
                 num_fewshot=fewshot,
@@ -251,9 +250,7 @@ def quantize_and_eval(
     # load any model with torch.nn.linear layers
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision)
-        .eval()
-        .to(device)
+        AutoModelForCausalLM.from_pretrained(repo_id, dtype=precision).eval().to(device)
     )
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     if quant.startswith("awq-int4wo"):
@@ -261,7 +258,7 @@ def quantize_and_eval(
         print(f"running {quant} quantization with group size {group_size}")
 
         if device == "cuda":
-            base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, packing_format="opaque", version=2
@@ -295,7 +292,7 @@ def quantize_and_eval(
         quantize_(model, quant_config)
         print(f"time for convert: {time.time() - t0:.02f} seconds")
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
-        #model.config.quantization_config = TorchAoConfig(quant_config)
+        model.config.quantization_config = TorchAoConfig(quant_config)
 
     elif quant.startswith("int4wo"):
         group_size = int(quant.split("-")[1])
@@ -303,7 +300,7 @@ def quantize_and_eval(
         # TODO: enable after migration: https://github.com/pytorch/ao/issues/2752
         # use_hqq = "hqq" in quant
         if device == "cuda":
-            base_config = Int4WeightOnlyConfig(group_size=group_size, version=2)
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, packing_format="opaque", version=2
@@ -332,6 +329,7 @@ def quantize_and_eval(
         evaluation_limit=evaluation_limit,
         device=device,
     )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
