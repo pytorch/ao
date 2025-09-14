@@ -452,8 +452,8 @@ def _infer_fake_quantize_configs(
         assert base_config.weight_mapping_type == MappingType.SYMMETRIC, (
             "Only symmetric weight mapping is supported"
         )
-        assert base_config.scale_dtype is None, (
-            "Specifying scale_dtype is not supported"
+        assert base_config.weight_scale_dtype is None, (
+            "Specifying weight_scale_dtype is not supported"
         )
 
         act_config = IntxFakeQuantizeConfig(
