@@ -18,6 +18,13 @@ void mxfp8_quantize_cuda(const torch::Tensor &input,
                          const std::string &fp8_format,
                          const std::string &scaling_mode);
 
+void mxfp8_quantize_3d_cuda(const torch::Tensor &input,
+                             torch::Tensor &output_colwise,
+                             torch::Tensor &scales_colwise,
+                             int64_t scale_dim_n,
+                             const std::string &fp8_format,
+                             const std::string &scaling_mode);
+
 // Helper for tensor validation
 void check_cuda_tensor(const torch::Tensor &t, const char *name) {
   TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
@@ -115,6 +122,60 @@ mxfp8_quantize(torch::Tensor input, bool rowwise, bool colwise,
                          scales_colwise);
 }
 
+// 3D tensor quantization function
+std::tuple<torch::Tensor, torch::Tensor>
+mxfp8_quantize_3d(torch::Tensor input, int64_t scale_dim_n,
+                  const std::string &fp8_format,
+                  const std::string &scaling_mode) {
+
+  // Validate inputs
+  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  // Note: We don't check contiguous for 3D as it may have column major strides
+  TORCH_CHECK(input.dim() == 3, "input must be 3D");
+  TORCH_CHECK(input.scalar_type() == torch::kFloat32 ||
+                  input.scalar_type() == torch::kFloat16 ||
+                  input.scalar_type() == torch::kBFloat16,
+              "Input must be float32, float16, or bfloat16");
+  TORCH_CHECK(scale_dim_n == 32, "scale_dim_n must be 32 for now");
+
+  validate_fp8_format(fp8_format);
+
+  const int64_t E = input.size(0);
+  const int64_t N = input.size(1);
+  const int64_t K = input.size(2);
+
+  // Check dimensions are valid for 3D kernel
+  TORCH_CHECK((N >= 32) && (N % 32 == 0), "N must be a multiple of 32");
+  TORCH_CHECK((K >= 32) && (K % 32 == 0), "K must be a multiple of 32");
+
+  // The kernel should work with any stride pattern - no layout requirements
+
+  c10::cuda::CUDAGuard device_guard(input.device());
+
+  // Create tensor options
+  const auto options_fp8 = torch::TensorOptions()
+                               .dtype(torch::kFloat8_e4m3fn)
+                               .device(input.device());
+
+  const auto options_scale = torch::TensorOptions()
+                                 .dtype(torch::kFloat8_e8m0fnu)
+                                 .device(input.device());
+
+  // Create output tensor with column major layout (required for downstream ops)
+  torch::Tensor output_colwise = torch::empty_strided(
+      {E, N, K}, {N * K, 1, N}, options_fp8);
+
+  // Create scales tensor with shape (E, num_n_blocks, K)
+  const int64_t num_n_blocks = (N + scale_dim_n - 1) / scale_dim_n;
+  torch::Tensor scales_colwise = torch::empty({E, num_n_blocks, K}, options_scale);
+
+  // Call CUDA kernel
+  mxfp8_quantize_3d_cuda(input, output_colwise, scales_colwise,
+                         scale_dim_n, fp8_format, scaling_mode);
+
+  return std::make_tuple(output_colwise, scales_colwise);
+}
+
 } // namespace mxfp8
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
@@ -123,6 +184,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("quantize", &mxfp8::mxfp8_quantize, "MXFP8 quantization",
         py::arg("input"), py::arg("rowwise") = true, py::arg("colwise") = false,
         py::arg("scale_dim_x") = 32, py::arg("scale_dim_y") = 32,
+        py::arg("fp8_format") = "e4m3",
+        py::arg("scaling_mode") = "floor");
+
+  m.def("quantize_3d", &mxfp8::mxfp8_quantize_3d, "MXFP8 3D quantization",
+        py::arg("input"), py::arg("scale_dim_n") = 32,
         py::arg("fp8_format") = "e4m3",
         py::arg("scaling_mode") = "floor");
 }
