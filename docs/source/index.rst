@@ -45,6 +45,7 @@ for an overall introduction to the library and recent highlight and updates.
    finetuning
    serving
    torchao_vllm_integration
+   torchao_hf_integration
    serialization
    static_quantization
    subclass_basic

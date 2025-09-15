@@ -10,7 +10,6 @@ from typing import Optional
 
 import torch
 
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 from torchao.quantization.quantize_.workflows.intx.intx_packing_format import (
     IntxPackingFormat,
@@ -34,9 +33,9 @@ aten = torch.ops.aten
 def _is_kernel_library_loaded():
     loaded = False
     try:
-        _check_torchao_ops_loaded()
+        torch.ops.torchao._pack_8bit_act_4bit_weight
         loaded = True
-    except Exception:
+    except AttributeError:
         pass
     return loaded
 
