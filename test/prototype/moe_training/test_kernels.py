@@ -20,7 +20,7 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
 )
-from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+from torchao.prototype.moe_training.kernels.mxfp8 import (
     compute_blocked_scale_offsets_for_K_groups,
     compute_blocked_scale_offsets_for_M_groups,
     torch_to_blocked_2d_K_groups,
