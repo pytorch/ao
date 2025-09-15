@@ -48,17 +48,14 @@ optimizer = QuantOptimizer(
 <td valign="top">
 
 ```python
-from torchao.quantization import quantize_
-from torchao.quantization.qat import (
-    FakeQuantizeConfig,
-    intx_quantization_aware_training,
+from torchao.quantization import (
+    quantize_,
+    Int8DynamicActivationInt4WeightConfig,
 )
+from torchao.quantization.qat import QATConfig
 
-weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
-quantize_(
-    model,
-    intx_quantization_aware_training(weight_config=weight_config),
-)
+base_config = Int4WeightOnlyConfig(group_size=32)
+quantize_(model, QATConfig(base_config, step="prepare"))
 ```
 
 </td>
@@ -68,13 +65,7 @@ quantize_(
 <td valign="top">
 
 ```python
-from torchao.quantization import IntxWeightOnlyConfig, quantize_
-
-config = IntxWeightOnlyConfig(
-    weight_dtype=torch.int4, granularity=PerGroup(32)
-)
-optimizer.restore_latent_params()
-quantize_(model, config, filter_fn=optimizer.get_filter_fn(model))
+optimizer.torchao_convert(model, weight_only=True)
 ```
 
 </td>
@@ -82,9 +73,9 @@ quantize_(model, config, filter_fn=optimizer.get_filter_fn(model))
 
 ```python
 from torchao.quantization import quantize_
-from torchao.quantization.qat import from_intx_quantization_aware_training
+from torchao.quantization.qat import QATConfig
 
-quantize_(model, from_intx_quantization_aware_training())
+quantize_(model, QATConfig(base_config, step="convert"))
 ```
 
 </td>
@@ -92,6 +83,15 @@ quantize_(model, from_intx_quantization_aware_training())
 </table>
 
 Note that `UnifTorchaoQuantizer` calls the same quantization primitives as torchao to match the numerics (see [Affine Quantization Details](../../quantization#affine-quantization-details)).
+
+To apply 8-bit dynamic activation quantization with PARQ, add the below to the prepare stage.
+```python
+from torchao.quantization.qat import QATConfig, IntxFakeQuantizeConfig
+
+activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+quantize_(self.model, QATConfig(activation_config, step="prepare"))
+```
+For the convert stage, call `optimizer.torchao_convert(model)`. The resulting quantized model corresponds to `Int8DynamicActivationInt4WeightConfig` in torchao.
 
 ## QAT arguments
 

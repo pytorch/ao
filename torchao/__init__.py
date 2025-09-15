@@ -51,12 +51,8 @@ if not skip_loading_so_files:
                 torch.ops.load_library(str(file))
             from . import ops
 
-        # The following library contains CPU kernels from torchao/experimental
-        # They are built automatically by ao/setup.py if on an ARM machine.
-        # They can also be built outside of the torchao install process by
-        # running the script `torchao/experimental/build_torchao_ops.sh <aten|executorch>`
-        # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
-        from torchao.experimental.op_lib import *  # noqa: F403
+        # The following registers meta kernels for some CPU kernels
+        from torchao.csrc_meta_ops import *  # noqa: F403
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 

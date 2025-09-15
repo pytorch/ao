@@ -12,12 +12,9 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.dtypes import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-)
-from torchao.experimental.quant_api import (
+from torchao.prototype.quantization.embedding.api import (
     EmbeddingQuantizer,
-    SharedEmbeddingQuantizer,
+    TiedEmbeddingQuantizer,
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
@@ -32,9 +29,13 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
+)
 from torchao.quantization.utils import compute_error
 
 
+@unittest.skipIf(not _is_kernel_library_loaded(), "Need torchao lowbit kernels")
 class TestEmbeddingQuantizer(unittest.TestCase):
     def test_accuracy(self):
         granularity = PerGroup(128)
@@ -152,16 +153,14 @@ class TestEmbeddingQuantizer(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=PerAxis(0),
                 weight_mapping_type=weight_mapping_type,
-                layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
-                    target="universal"
-                ),
+                intx_packing_format="opaque_torchao_lowbit",
             ),
             filter_fn=lambda m, fqn: fqn == "2",
         )
 
         # Do shared embedding quantization
         quantized_model = copy.deepcopy(model)
-        SharedEmbeddingQuantizer(
+        TiedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
             granularity=PerAxis(0),
             mapping_type=weight_mapping_type,

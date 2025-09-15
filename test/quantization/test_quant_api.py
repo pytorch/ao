@@ -31,7 +31,6 @@ from torchao.dtypes import (
     Int4CPULayout,
     Int4XPULayout,
     PlainLayout,
-    QDQLayout,
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
@@ -48,6 +47,7 @@ from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
+    Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
@@ -57,6 +57,9 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
+    IntxUnpackedToInt8Tensor,
+)
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -696,10 +699,12 @@ class TestQuantFlow(TestCase):
             weight_dtype=weight_dtype,
             granularity=granularity,
             mapping_type=mapping_type,
-            scale_dtype=None,
         )
         # example model linear is Linear(16, 8)
-        linear_config = Int8DynamicActivationInt4WeightConfig(group_size=16)
+        linear_config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=torch.int4,
+            weight_granularity=PerGroup(16),
+        )
 
         config = ModuleFqnToConfig({"emb": embedding_config, "linear": linear_config})
         indices = torch.randint(0, 10, (32,))
@@ -715,9 +720,8 @@ class TestQuantFlow(TestCase):
         )
         model(*example_inputs)
 
-        assert isinstance(model.emb.weight, AffineQuantizedTensor)
-        assert isinstance(model.emb.weight._layout, QDQLayout)
-        assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
+        assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
+        assert isinstance(model.linear.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_skip(self):

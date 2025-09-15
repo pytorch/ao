@@ -728,17 +728,28 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     are the same.  However, this layout is more general and supports other weight dtypes.
 
     args:
-        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-        weight_granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
-        weight_mapping_type: The type of mapping to use for the weight quantization.
+        `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+       ` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
+        `weight_mapping_type`: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE
-        weight_scale_dtype: The dtype to use for the weight scale.
-        act_mapping_type: The type of mapping to use for the activation quantization.
+        `weight_scale_dtype`: The dtype to use for the weight scale.
+        `act_mapping_type`: The type of mapping to use for the activation quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        layout: The layout to use for the packed weight tensor:
+        `layout`: The layout to use for the packed weight tensor:
             - PackedLinearInt8DynamicActivationIntxWeightLayout: this layout is optimized for CPU performance.
             - QDQLayout: this layout represents the quantization with Q/DQ quant primitives, and is intended for
                 export applications like ExecuTorch.
+        `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+            - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
+            - opaque_torchao_auto: this format is optimized for CPU performance.
+        `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
+
+        Note:
+
+        Current state for Int8DynamicActivationIntxWeightConfig is that it supports both v1 (legacy) and v2.
+
+        * `intx_packing_format` is used for version 2.
+        * `layout` is only used for version 1.
     """
 
     weight_dtype: torch.dtype = torch.int8
@@ -750,7 +761,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
 
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -860,6 +871,10 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
         return new_weight, new_bias
 
     # Version 1
+    assert config.version == 1
+    warnings.warn(
+        "Config Deprecation: version 1 of Int8DynamicActivationIntxWeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
+    )
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
 
     # We quantize with QDQLayout, and then construct the packed weight tensor later
@@ -2115,14 +2130,23 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     Weights are quantized with scales/zeros in a groupwise or channelwise
     manner using the number of bits specified by weight_dtype.
     args:
-        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
-        mapping_type: The type of mapping to use for the weight quantization.
+        `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+        `granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
+        `mapping_type`: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        scale_dtype: The dtype to use for the weight scale.
-        layout: The layout to use for the packed weight tensor:
+        `scale_dtype`: The dtype to use for the weight scale.
+        `layout`: The layout to use for the packed weight tensor:
             - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,
                 and is intended for export applications like ExecuTorch.
+        `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+        `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
+
+        Note:
+
+        Current state for IntxWeightOnlyConfig is that it supports both v1 (legacy) and v2.
+
+        * `intx_packing_format` is used for version 2.
+        * `layout` is only used for version 1.
     """
 
     weight_dtype: torch.dtype = torch.int8
@@ -2131,7 +2155,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.IntxWeightOnlyConfig")
@@ -2194,6 +2218,10 @@ def _intx_weight_only_quantize_tensor(weight, config):
             raise ValueError(f"Unsupported packing format: {intx_packing_format}")
 
     # Version 1
+    assert config.version == 1
+    warnings.warn(
+        "Config Deprecation: version 1 of IntxWeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
+    )
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
     weight = to_affine_quantized_intx(
         input_float=weight,
