@@ -799,6 +799,8 @@
         <span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
         <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span>
         <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
+        <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">,</span>
+        <span class="n">IntxWeightOnlyConfig</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">):</span>
@@ -881,6 +883,54 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">weight_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only version 2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">intx_packing_format</span> <span class="o">==</span> <span class="s2">&quot;unpacked_to_int8&quot;</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only unpacked_to_int8 is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">,</span> <span class="s2">&quot;Only int2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only asymmetric activation mapping is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only symmetric weight mapping is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Specifying weight_scale_dtype is not supported&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+            <span class="s2">&quot;per_token&quot;</span><span class="p">,</span>
+            <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">scale_precision</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="p">,</span>
+            <span class="n">scale_precision</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">IntxWeightOnlyConfig</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only version 2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">intx_packing_format</span> <span class="o">==</span> <span class="s2">&quot;unpacked_to_int8&quot;</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only unpacked_to_int8 is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only symmetric mapping is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">,</span> <span class="s2">&quot;Only int2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Specifying scale_dtype is not supported&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">scale_precision</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">scale_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Unexpected base config: </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">base_config</span><span class="p">)</span>
     <span class="k">return</span> <span class="p">(</span><span class="n">act_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
