@@ -133,7 +133,6 @@ implements = LinearActivationQuantizedTensor.implements
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
-
     input_tensor = kwargs.get("input", args[0] if len(args) > 0 else None)
     weight_tensor = kwargs.get("weight", args[1] if len(args) > 1 else None)
     bias = kwargs.get("bias", args[2] if len(args) > 2 else None)
