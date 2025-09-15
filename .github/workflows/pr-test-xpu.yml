@@ -8,9 +8,6 @@ on:
   push:
     tags:
       - ciflow/xpu/*
-  pull_request:
-    branches:
-      - main
 
 permissions:
   id-token: write
