@@ -18,6 +18,8 @@ Examples:
 ./release.sh --model_id Qwen/Qwen3-8B --quants INT4 FP8
 ```
 
+Note: for initial release, please include `--populate_model_card_template` to populate model card template.
+
 ### AWQ-INT4
 [AWQ](https://arxiv.org/abs/2306.00978) is a technique to improve accuracy for weight only quantization. It improves accuracy by preserving "salient" weight channels that has high impact on the accuracy of output, through multiplying the weight channel by a scale, and do the reverse for the correspnoding activation, since activation is not quantized, there is no additional loss from activation, while the quantization loss from weight can be reduced.
 
@@ -29,6 +31,15 @@ Examples:
 # with some calibration_limit (number of samples)
 python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant AWQ-INT4 --push_to_hub --task bbh --calibration_limit 2
 ```
+
+### Update checkpoints for a different user_id (e.g. pytorch)
+Sometimes we may want to update the checkpoints for a different user id, without changing model card. For this we can use `--push_to_user_id`, e.g.
+
+```
+sh release.sh --model_id microsoft/Phi-4-mini-instruct --quants FP8 --push_to_hub --push_to_user_id pytorch
+```
+
+This will update `pytorch/Phi-4-mini-instruct-FP8` without changing the model card.
 
 ## Eval
 After we run the release script for a model, we can find new models in the huggingface hub page for the user, e.g. https://huggingface.co/torchao-testing, the models will have a model card that's filled in with template content, such as information about the model and eval instructions, there are a few things we need to fill in, including 1. peak memory usage, 2. latency when running model with vllm and 3. quality measurement using lm-eval.
@@ -78,7 +89,7 @@ After environment is setup, we can run eval:
 sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag,mmlu
 ```
 
-# ### Summarize results
+#### Summarize results
 After we have finished all evals for each model, we can summarize the results with:
 ```
 sh summarize_results.sh --model_ids Qwen/Qwen3-8B pytorch/Qwen3-8B-INT4

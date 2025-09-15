@@ -248,7 +248,6 @@ def main(
         Int8DynamicActivationInt8WeightConfig,
         Int8DynamicActivationIntxWeightConfig,
         Int8WeightOnlyConfig,
-        PackedLinearInt8DynamicActivationIntxWeightLayout,
         PerRow,
         quantize_,
     )
@@ -306,7 +305,7 @@ def main(
         elif "intxdq" in moe_quant:
             config = MoEQuantConfig(
                 Int8DynamicActivationIntxWeightConfig(
-                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                    intx_packing_format="opaque_torchao_auto",
                 ),
                 use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
             )
