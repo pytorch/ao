@@ -215,9 +215,7 @@ def quantize_and_eval(
     # load any model with torch.nn.linear layers
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(repo_id, dtype=precision)
-        .eval()
-        .to(device)
+        AutoModelForCausalLM.from_pretrained(repo_id, dtype=precision).eval().to(device)
     )
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     if quant.startswith("awq-int4wo"):

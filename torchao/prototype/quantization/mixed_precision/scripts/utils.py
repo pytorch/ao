@@ -105,9 +105,9 @@ def cal_model_size(model, fqn_to_config):
 
 def load_model(repo_id, device):
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
-    model = AutoModelForCausalLM.from_pretrained(
-        repo_id, dtype=torch.bfloat16
-    ).to(device=device)
+    model = AutoModelForCausalLM.from_pretrained(repo_id, dtype=torch.bfloat16).to(
+        device=device
+    )
     return model, tokenizer
 
 
