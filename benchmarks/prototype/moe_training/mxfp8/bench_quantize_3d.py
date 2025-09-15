@@ -13,7 +13,7 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype import mxfp8_cuda
+from torchao.prototype.moe_training.kernels.mxfp8 import mxfp8_quantize_cuda_3d
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _to_mxfp8_dim1_3d,
 )
@@ -110,9 +110,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # bench 3d cuda kernel
-    data_cuda_3d, scales_cuda_3d = mxfp8_cuda.quantize_3d(input_tensor)
+    data_cuda_3d, scales_cuda_3d = mxfp8_quantize_cuda_3d(input_tensor)
     time_cuda_3d_us = benchmark_cuda_function_in_microseconds(
-        mxfp8_cuda.quantize_3d,
+        mxfp8_quantize_cuda_3d,
         input_tensor,
     )
 
