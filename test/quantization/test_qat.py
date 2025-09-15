@@ -50,7 +50,7 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.fake_quantize_config import (
     Float8FakeQuantizeConfig,
-    Int4WeightPreshuffledFakeQuantizeConfig,
+    Int4WeightFakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
@@ -1985,7 +1985,7 @@ class TestQAT(TestCase):
         self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
         self.assertEqual(act_config.dtype, e4m3_dtype)
         self.assertIsInstance(act_config.granularity, PerRow)
-        self.assertIsInstance(weight_config, Int4WeightPreshuffledFakeQuantizeConfig)
+        self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, 128)
         self.assertEqual(weight_config.activation_dtype, e4m3_dtype)
 
@@ -2008,7 +2008,7 @@ class TestQAT(TestCase):
         base_config = Int4WeightOnlyConfig(version=2)
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsNone(act_config)
-        self.assertIsInstance(weight_config, Int4WeightPreshuffledFakeQuantizeConfig)
+        self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, 128)
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
 
@@ -2102,7 +2102,7 @@ class TestQAT(TestCase):
         """
         Compare numerics between:
             (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_int4_preshuffle
-            (2) Our reference QAT version in `Int4WeightPreshuffledFakeQuantizer`
+            (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
         from fbgemm_gpu.experimental.gen_ai.quantize import (
             int4_row_quantize,
@@ -2184,7 +2184,7 @@ class TestQAT(TestCase):
         """
         Compare numerics between:
             (1) fbgemm_gpu.experimental.gen_ai.quantize.int4_row_quantize_zp
-            (2) Our reference QAT version in `Int4WeightPreshuffledFakeQuantizer`
+            (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
         from fbgemm_gpu.experimental.gen_ai.quantize import (
             int4_row_quantize_zp,
