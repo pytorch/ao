@@ -533,11 +533,14 @@
         <span class="k">return</span> <span class="n">dq</span></div></div>
 
 
+<span class="c1"># TODO: rename this, it also works for plain Int4Tensor</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightPreshuffledFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Generic module for applying int4 fake quantization to a weight tensor,</span>
-<span class="sd">    targeting the following FBGEMM kernel:</span>
+<span class="sd">    targeting the following FBGEMM kernels:</span>
 <span class="sd">        torch.ops.fbgemm.f8i4bf16_shuffled</span>
+<span class="sd">        torch.ops.fbgemm.bf16i4bf16_shuffled</span>
+<span class="sd">        torch.ops.fbgemm.bf16i4bf16_rowwise</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">):</span>
@@ -548,11 +551,18 @@
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Apply int4 fake quantization to the weight tensor, using the following as a reference:</span>
-<span class="sd">        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L112</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fp8_activations_forward</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bf16_activations_forward</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown activation dtype </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-<span class="sd">        Currently, we expect the activations to always be rowwise float8.</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_fp8_activations_forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Apply int4 fake quantization to the weight tensor where the input activations</span>
+<span class="sd">        are expected to be rowwise fp8, using the following as a reference:</span>
+<span class="sd">        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L136</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="n">w</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
@@ -588,6 +598,28 @@
             <span class="n">quant_max</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">fq</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_bf16_activations_forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Apply int4 fake quantization to the weight tensor where the input activations</span>
+<span class="sd">        are expected to be bf16, using the following as a reference:</span>
+<span class="sd">        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L152</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">w</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+
+        <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
+        <span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">15</span>
+        <span class="n">fbgemm_symmetric_qmax</span> <span class="o">=</span> <span class="mi">8</span>
+        <span class="n">w_grouped</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">group_size</span><span class="p">)</span>
+        <span class="n">max_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">w_grouped</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">min_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amin</span><span class="p">(</span><span class="n">w_grouped</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">max_val</span> <span class="o">-</span> <span class="n">min_val</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">qmax</span>
+        <span class="n">zero_point</span> <span class="o">=</span> <span class="n">min_val</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">fbgemm_symmetric_qmax</span>
+        <span class="n">fq</span> <span class="o">=</span> <span class="n">_Round</span><span class="o">.</span><span class="n">apply</span><span class="p">((</span><span class="n">w_grouped</span> <span class="o">-</span> <span class="n">min_val</span><span class="p">)</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span><span class="p">)</span>
+        <span class="n">fq</span> <span class="o">=</span> <span class="n">fq</span> <span class="o">-</span> <span class="n">fbgemm_symmetric_qmax</span>
+        <span class="n">fq</span> <span class="o">=</span> <span class="n">fq</span> <span class="o">*</span> <span class="n">scale</span> <span class="o">+</span> <span class="n">zero_point</span>
+        <span class="k">return</span> <span class="n">fq</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="IntxFakeQuantizer"><a class="viewcode-back" href="../../../../generated/torchao.quantization.qat.IntxFakeQuantizer.html#torchao.quantization.qat.IntxFakeQuantizer">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">IntxFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
