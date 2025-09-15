@@ -369,6 +369,8 @@ def _infer_fake_quantize_configs(
         Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
+        Int8DynamicActivationIntxWeightConfig,
+        IntxWeightOnlyConfig,
     )
 
     if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
@@ -451,6 +453,54 @@ def _infer_fake_quantize_configs(
         else:
             act_config = None
         weight_config = NVFP4FakeQuantizeConfig(False)
+    elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert base_config.intx_packing_format == "unpacked_to_int8", (
+            "Only unpacked_to_int8 is supported"
+        )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
+        assert base_config.act_mapping_type == MappingType.ASYMMETRIC, (
+            "Only asymmetric activation mapping is supported"
+        )
+        assert base_config.weight_mapping_type == MappingType.SYMMETRIC, (
+            "Only symmetric weight mapping is supported"
+        )
+        assert base_config.weight_scale_dtype is None, (
+            "Specifying weight_scale_dtype is not supported"
+        )
+
+        act_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+            scale_precision=base_config.weight_scale_dtype,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=base_config.weight_granularity,
+            mapping_type=base_config.weight_mapping_type,
+            scale_precision=base_config.weight_scale_dtype,
+        )
+    elif isinstance(base_config, IntxWeightOnlyConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert base_config.intx_packing_format == "unpacked_to_int8", (
+            "Only unpacked_to_int8 is supported"
+        )
+        assert base_config.mapping_type == MappingType.SYMMETRIC, (
+            "Only symmetric mapping is supported"
+        )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
+        assert base_config.scale_dtype is None, (
+            "Specifying scale_dtype is not supported"
+        )
+
+        act_config = None
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=base_config.granularity,
+            mapping_type=base_config.mapping_type,
+            scale_precision=base_config.scale_dtype,
+        )
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
     return (act_config, weight_config)
