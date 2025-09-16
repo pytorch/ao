@@ -35,7 +35,7 @@ from torchao.quantization.utils import (
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     Float8FakeQuantizeConfig,
-    Int4WeightPreshuffledFakeQuantizeConfig,
+    Int4WeightFakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from .utils import (
@@ -68,8 +68,8 @@ class FakeQuantizerBase(torch.nn.Module):
 
         if isinstance(config, IntxFakeQuantizeConfig):
             return IntxFakeQuantizer(config)
-        elif isinstance(config, Int4WeightPreshuffledFakeQuantizeConfig):
-            return Int4WeightPreshuffledFakeQuantizer(config)
+        elif isinstance(config, Int4WeightFakeQuantizeConfig):
+            return Int4WeightFakeQuantizer(config)
         elif isinstance(config, Float8FakeQuantizeConfig):
             return Float8FakeQuantizer(config)
         elif isinstance(config, NVFP4FakeQuantizeConfig):
@@ -103,8 +103,7 @@ class Float8FakeQuantizer(FakeQuantizerBase):
         return dq
 
 
-# TODO: rename this, it also works for plain Int4Tensor
-class Int4WeightPreshuffledFakeQuantizer(FakeQuantizerBase):
+class Int4WeightFakeQuantizer(FakeQuantizerBase):
     """
     Generic module for applying int4 fake quantization to a weight tensor,
     targeting the following FBGEMM kernels:
@@ -113,12 +112,10 @@ class Int4WeightPreshuffledFakeQuantizer(FakeQuantizerBase):
         torch.ops.fbgemm.bf16i4bf16_rowwise
     """
 
-    def __init__(self, config: Int4WeightPreshuffledFakeQuantizeConfig):
+    def __init__(self, config: Int4WeightFakeQuantizeConfig):
         super().__init__()
         self.config = config
-        torch._C._log_api_usage_once(
-            "torchao.quantization.qat.Int4WeightPreshuffledFakeQuantizer"
-        )
+        torch._C._log_api_usage_once("torchao.quantization.qat.Int4WeightFakeQuantizer")
 
     def forward(self, w: torch.Tensor) -> torch.Tensor:
         if self.config.activation_dtype == torch.float8_e4m3fn:
