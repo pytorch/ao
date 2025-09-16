@@ -44,7 +44,7 @@ class ToyLinearModel(torch.nn.Module):
     not _is_fbgemm_genai_gpu_available(),
     reason="need to install fbgemm_gpu_genai package",
 )
-class TestAWQ(TestCase):
+class TestAWQ(common_utils.TestCase):
     def test_awq_config(self):
         base_config = Int4WeightOnlyConfig()
         AWQConfig(base_config, step=AWQStep.PREPARE)
@@ -58,9 +58,7 @@ class TestAWQ(TestCase):
         with self.assertRaisesRegex(ValueError, "is not one of"):
             AWQConfig(base_config, step="not_supported")
 
-    @common_utils.parametrize(
-        "base_config", [Int4WeightOnlyConfig(group_size=128)]
-    )
+    @common_utils.parametrize("base_config", [Int4WeightOnlyConfig(group_size=128)])
     def test_awq_functionality(self, base_config):
         device = "cuda"
         dataset_size = 100
@@ -102,9 +100,7 @@ class TestAWQ(TestCase):
         loss_base = (ref_out - baseline_out).pow(2).mean().item()
         assert loss_awq < loss_base
 
-    @common_utils.parametrize(
-        "base_config", [Int4WeightOnlyConfig(group_size=128)]
-    )
+    @common_utils.parametrize("base_config", [Int4WeightOnlyConfig(group_size=128)])
     def test_awq_loading(self, base_config):
         device = "cuda"
         dataset_size = 100
@@ -151,9 +147,7 @@ class TestAWQ(TestCase):
         assert awq_save_load_out is not None
         assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
 
-    @common_utils.parametrize(
-        "base_config", [Int4WeightOnlyConfig(group_size=128)]
-    )
+    @common_utils.parametrize("base_config", [Int4WeightOnlyConfig(group_size=128)])
     def test_awq_loading_vllm(self, base_config):
         """Simulate weight loading in vllm:
         * prepare model weight to the same format (awq weight)
