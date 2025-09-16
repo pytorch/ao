@@ -465,7 +465,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">.fake_quantize_config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FakeQuantizeConfigBase</span><span class="p">,</span>
     <span class="n">Float8FakeQuantizeConfig</span><span class="p">,</span>
-    <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">,</span>
+    <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">,</span>
     <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -498,8 +498,8 @@
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">IntxFakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">):</span>
-            <span class="k">return</span> <span class="n">Int4WeightPreshuffledFakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">Int4WeightFakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">Float8FakeQuantizer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">):</span>
@@ -533,8 +533,7 @@
         <span class="k">return</span> <span class="n">dq</span></div></div>
 
 
-<span class="c1"># TODO: rename this, it also works for plain Int4Tensor</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightPreshuffledFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightFakeQuantizer</span><span class="p">(</span><span class="n">FakeQuantizerBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Generic module for applying int4 fake quantization to a weight tensor,</span>
 <span class="sd">    targeting the following FBGEMM kernels:</span>
@@ -543,12 +542,10 @@
 <span class="sd">        torch.ops.fbgemm.bf16i4bf16_rowwise</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.qat.Int4WeightPreshuffledFakeQuantizer&quot;</span>
-        <span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.Int4WeightFakeQuantizer&quot;</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">:</span>

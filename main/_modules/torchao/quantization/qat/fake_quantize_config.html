@@ -508,9 +508,8 @@
             <span class="p">)</span></div>
 
 
-<span class="c1"># TODO: rename this config, it actually works for both plain and preshuffled</span>
 <span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">(</span><span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightFakeQuantizeConfig</span><span class="p">(</span><span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:</span>
 <span class="sd">        torch.ops.fbgemm.f8i4bf16_shuffled</span>
@@ -825,7 +824,7 @@
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;Packing format must be one of </span><span class="si">{</span><span class="n">supported_packing_formats</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
-            <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">(</span>
                 <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
                 <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
             <span class="p">)</span>
@@ -868,7 +867,7 @@
             <span class="n">dtype</span><span class="o">=</span><span class="n">e4m3_dtype</span><span class="p">,</span>
             <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">(),</span>
         <span class="p">)</span>
-        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightPreshuffledFakeQuantizeConfig</span><span class="p">(</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">(</span>
             <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">activation_dtype</span><span class="o">=</span><span class="n">e4m3_dtype</span><span class="p">,</span>
         <span class="p">)</span>
