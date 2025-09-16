@@ -26,7 +26,6 @@ logging.basicConfig(
 from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
-    quantize_,
 )
 
 
