@@ -50,7 +50,7 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.fake_quantize_config import (
     Float8FakeQuantizeConfig,
-    Int4WeightPreshuffledFakeQuantizeConfig,
+    Int4WeightFakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.fake_quantizer import (
@@ -73,6 +73,8 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
+    Int8DynamicActivationIntxWeightConfig,
+    IntxWeightOnlyConfig,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -1873,6 +1875,8 @@ class TestQAT(TestCase):
         base_config: AOBaseConfig,
         target_prepare_sqnr: float,
         target_convert_sqnr: float,
+        dtype: torch.dtype = torch.bfloat16,
+        module_type: str = "linear",
     ):
         """
         Test the following:
@@ -1885,22 +1889,32 @@ class TestQAT(TestCase):
             quantize_(model, base_config)
         """
         torch.manual_seed(self.SEED)
-        m = M().to(torch.bfloat16).cuda()
-        example_inputs = (m.example_inputs()[0].to(torch.bfloat16).cuda(),)
+
+        if module_type == "linear":
+            m = M().to(dtype).cuda()
+            example_inputs = (m.example_inputs()[0].to(dtype).cuda(),)
+            filter_fn = lambda m, fqn: isinstance(m, torch.nn.Linear)
+        elif module_type == "embedding":
+            m = M3().to(dtype).cuda()
+            example_inputs = (m.example_inputs()[0].cuda(),)
+            filter_fn = lambda m, fqn: isinstance(m, torch.nn.Embedding)
+        else:
+            raise ValueError(f"Unknown module type {module_type}")
 
         # baseline
         m_baseline = copy.deepcopy(m)
-        quantize_(m_baseline, base_config)
+        quantize_(m_baseline, base_config, filter_fn)
         out_baseline = m_baseline(*example_inputs)
 
         # compare prepare
-        quantize_(m, QATConfig(base_config, step="prepare"))
+        quantize_(m, QATConfig(base_config, step="prepare"), filter_fn)
         out_prepared = m(*example_inputs)
         prepare_sqnr = compute_error(out_prepared, out_baseline)
+
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
-        quantize_(m, QATConfig(base_config, step="convert"))
+        quantize_(m, QATConfig(base_config, step="convert"), filter_fn)
         out_converted = m(*example_inputs)
         convert_sqnr = compute_error(out_converted, out_baseline)
         self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
@@ -1971,6 +1985,56 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize(
+        "weight_dtype, weight_granularity, dtype",
+        [
+            (weight_dtype, weight_granularity, dtype)
+            for weight_dtype in [getattr(torch, f"int{i}") for i in range(2, 9)]
+            for weight_granularity in [PerGroup(32), PerAxis(0)]
+            for dtype in [torch.bfloat16, torch.float32]
+        ],
+    )
+    def test_quantize_api_int8_intx(self, weight_dtype, weight_granularity, dtype):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int8DynamicActivationIntxWeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationIntxWeightConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype, weight_granularity=weight_granularity
+            ),
+            target_prepare_sqnr=float("inf"),
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+        )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize(
+        "weight_dtype, granularity, dtype, module_type",
+        [
+            (weight_dtype, granularity, dtype, module_type)
+            for weight_dtype in [getattr(torch, f"int{i}") for i in range(2, 9)]
+            for granularity in [PerGroup(32), PerAxis(0)]
+            for dtype in [torch.bfloat16, torch.float32]
+            for module_type in ["linear", "embedding"]
+        ],
+    )
+    def test_quantize_api_intx(self, weight_dtype, granularity, dtype, module_type):
+        """
+        Test the following:
+            quantize_(model, QATConfig(IntxWeightOnlyConfig(), step="prepare"))
+            quantize_(model, QATConfig(IntxWeightOnlyConfig(), step="convert"))
+        """
+        self._test_quantize_api_against_ptq(
+            IntxWeightOnlyConfig(weight_dtype=weight_dtype, granularity=granularity),
+            target_prepare_sqnr=float("inf"),
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+            module_type=module_type,
+        )
+
     def test_infer_fp8_int4_config(self):
         """
         Test that fake quantize configs are correctly inferred from
@@ -1985,7 +2049,7 @@ class TestQAT(TestCase):
         self.assertIsInstance(act_config, Float8FakeQuantizeConfig)
         self.assertEqual(act_config.dtype, e4m3_dtype)
         self.assertIsInstance(act_config.granularity, PerRow)
-        self.assertIsInstance(weight_config, Int4WeightPreshuffledFakeQuantizeConfig)
+        self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, 128)
         self.assertEqual(weight_config.activation_dtype, e4m3_dtype)
 
@@ -2008,7 +2072,7 @@ class TestQAT(TestCase):
         base_config = Int4WeightOnlyConfig(version=2)
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsNone(act_config)
-        self.assertIsInstance(weight_config, Int4WeightPreshuffledFakeQuantizeConfig)
+        self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, 128)
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
 
@@ -2102,7 +2166,7 @@ class TestQAT(TestCase):
         """
         Compare numerics between:
             (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_int4_preshuffle
-            (2) Our reference QAT version in `Int4WeightPreshuffledFakeQuantizer`
+            (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
         from fbgemm_gpu.experimental.gen_ai.quantize import (
             int4_row_quantize,
@@ -2184,7 +2248,7 @@ class TestQAT(TestCase):
         """
         Compare numerics between:
             (1) fbgemm_gpu.experimental.gen_ai.quantize.int4_row_quantize_zp
-            (2) Our reference QAT version in `Int4WeightPreshuffledFakeQuantizer`
+            (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
         from fbgemm_gpu.experimental.gen_ai.quantize import (
             int4_row_quantize_zp,
