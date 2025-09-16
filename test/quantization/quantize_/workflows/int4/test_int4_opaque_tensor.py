@@ -79,22 +79,42 @@ class TestInt4OpaqueTensor(TestCase):
             )
 
     def test_activation_prescaling(self):
+        print("start test_activation_prescaling")
         dtype = torch.bfloat16
         input = torch.randn(1, 128, dtype=dtype)
-        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
-        original = linear(input)
-        quantize_(linear, get_config(group_size=128))
-        qw = linear.weight
-        assert isinstance(qw, SupportsActivationPreScaling), (
+        linear1 = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
+        linear2 = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
+        with torch.no_grad():
+            linear2.weight.copy_(linear1.weight)
+        original = linear2(input)
+        quantize_(linear1, get_config(group_size=128))
+        quantize_(linear2, get_config(group_size=128))
+        qw1 = linear1.weight
+        assert isinstance(qw1, SupportsActivationPreScaling), (
             "Expected int4 tensor supports activation prescaling"
         )
-        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
-        _ACT_PRE_SCALE = 2
-        qw.act_pre_scale = _ACT_PRE_SCALE
-        quantized = linear(input)
+        assert qw1.act_pre_scale is None, "Default `act_pre_scale` is None"
 
-        # making sure activation pre scaling is successfully applied to the activation
-        self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
+        _ACT_PRE_SCALE = 2
+        manual_scaled_quantized = linear1(input * _ACT_PRE_SCALE)
+        qw2 = linear2.weight
+        qw2.act_pre_scale = _ACT_PRE_SCALE
+        auto_scaled_quantized = linear2(input)
+
+        # Making sure activation pre scaling is successfully applied to the activation.
+        # manual_scaled_quantized (input * 2 → quantize with act_pre_scale=None) should equal
+        # auto_scaled_quantized (original input → quantize with act_pre_scale=2),
+        # Proving that the act_pre_scale factor correctly applies input scaling
+        self.assertEqual(manual_scaled_quantized, auto_scaled_quantized)
+
+        # Making sure quantization with pre-scaling is successfully applied to the activation.
+        # The error > 20 indicats that quantized computation with activation pre-scaling
+        # produces significantly different results from simply scaling the original
+        # floating-point output, confirming that pre-scaling is applied during
+        # quantization rather than post-processing.
+        self.assertTrue(
+            compute_error(original * _ACT_PRE_SCALE, auto_scaled_quantized) > 20
+        )
 
 
 instantiate_parametrized_tests(TestInt4OpaqueTensor)
