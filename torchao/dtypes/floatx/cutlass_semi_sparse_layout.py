@@ -101,11 +101,13 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
         elif func is aten.clone.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
         elif func is aten.to.dtype_layout:
             dense, scale, _ = args[0].get_plain()
             dense = dense.to(*args[1:], **kwargs)
-            return (scale * dense)
+            return scale * dense
 
         raise NotImplementedError(
             f"CutlassSemiSparseTensorImpl dispatch: attempting to run {func}, this is not supported"
