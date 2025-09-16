@@ -79,7 +79,6 @@ class TestInt4OpaqueTensor(TestCase):
             )
 
     def test_activation_prescaling(self):
-        print("start test_activation_prescaling")
         dtype = torch.bfloat16
         input = torch.randn(1, 128, dtype=dtype)
         linear1 = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
