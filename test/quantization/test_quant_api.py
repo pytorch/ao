@@ -38,6 +38,8 @@ from torchao.quantization import (
     PerGroup,
 )
 from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
+    Float8StaticActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
@@ -624,8 +626,8 @@ class TestQuantFlow(TestCase):
             isinstance(
                 config,
                 (
-                    float8_dynamic_activation_float8_weight,
-                    float8_static_activation_float8_weight,
+                    Float8DynamicActivationFloat8WeightConfig,
+                    Float8StaticActivationFloat8WeightConfig,
                 ),
             )
             and not is_sm_at_least_89()
