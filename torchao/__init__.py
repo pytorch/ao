@@ -60,6 +60,8 @@ if not skip_loading_so_files:
         # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
         # Avoid eagerly importing experimental op_lib as it is heavy and not always needed.
         # Users can trigger it by importing `torchao.experimental` or setting up kernels explicitly.
+        # The following registers meta kernels for some CPU kernels
+        from torchao.csrc_meta_ops import *  # noqa: F403
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 

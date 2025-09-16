@@ -18,7 +18,7 @@ from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
-    torch_to_blocked_per_group_2d,
+    torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
@@ -230,8 +230,8 @@ def bench_mxfp8_grouped_mm(A, B_t, offs, block_size=32) -> float:
 
     # Convert scales for each group to blocked format.
     Mg, K = A_fp8.shape
-    A_scales_blocked, starting_row_after_padding = torch_to_blocked_per_group_2d(
-        A_scales, offs, Mg, K
+    A_scales_blocked, starting_row_after_padding = torch_to_blocked_2d_M_groups(
+        A_scales, offs, K
     )
     B_scales_blocked = torch_to_blocked_per_group_3d(B_scales)
 

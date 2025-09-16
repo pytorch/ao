@@ -3,7 +3,7 @@ import logging
 import torch
 
 from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
-    torch_to_blocked_per_group_2d,
+    torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
 )
 
@@ -40,8 +40,8 @@ def fbgemm_mxfp8_grouped_mm_2d_3d(
 
     # Convert scales for each group to blocked format.
     Mg, K = A_fp8.shape
-    A_scales_blocked, starting_row_after_padding = torch_to_blocked_per_group_2d(
-        A_scales, offs, Mg, K
+    A_scales_blocked, starting_row_after_padding = torch_to_blocked_2d_M_groups(
+        A_scales, offs, K
     )
     B_scales_blocked = torch_to_blocked_per_group_3d(B_scales)
 

@@ -31,6 +31,7 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
+from torchao.quantization.quantize_.workflows import Int4PackingFormat
 from torchao.utils import _is_float8_type
 
 from .utils import _log_deprecation_warning
@@ -74,6 +75,30 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
         if type(self.granularity) not in [PerRow, PerTensor]:
             raise ValueError(
                 f"Expected PerRow or PerTensor granularity, got {self.granularity}"
+            )
+
+
+# TODO: rename this config, it actually works for both plain and preshuffled
+@dataclass
+class Int4WeightPreshuffledFakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
+        torch.ops.fbgemm.f8i4bf16_shuffled
+        torch.ops.fbgemm.bf16i4bf16_shuffled
+        torch.ops.fbgemm.bf16i4bf16_rowwise
+
+    Currently this only supports float8 input activations. It is expected to be used in conjunction with
+    :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend
+    this to support bfloat16 as well.
+    """
+
+    group_size: int = 128
+    activation_dtype: torch.dtype = e4m3_dtype
+
+    def __post_init__(self):
+        if self.activation_dtype not in [e4m3_dtype, torch.bfloat16]:
+            raise ValueError(
+                f"Only {e4m3_dtype} or torch.bfloat16 activation are supported"
             )
 
 
@@ -344,6 +369,8 @@ def _infer_fake_quantize_configs(
         Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
+        Int8DynamicActivationIntxWeightConfig,
+        IntxWeightOnlyConfig,
     )
 
     if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
@@ -360,10 +387,17 @@ def _infer_fake_quantize_configs(
     elif isinstance(base_config, Int4WeightOnlyConfig):
         act_config = None
         if base_config.version == 2:
-            weight_config = IntxFakeQuantizeConfig(
-                dtype=torch.int4,
-                group_size=base_config.group_size,
-                is_symmetric=True,
+            supported_packing_formats = [
+                Int4PackingFormat.PLAIN,
+                Int4PackingFormat.PRESHUFFLED,
+            ]
+            if base_config.int4_packing_format not in supported_packing_formats:
+                raise ValueError(
+                    f"Packing format must be one of {supported_packing_formats}"
+                )
+            weight_config = Int4WeightPreshuffledFakeQuantizeConfig(
+                group_size=128,
+                activation_dtype=torch.bfloat16,
             )
         elif base_config.version == 1:
             # For BC
@@ -401,13 +435,12 @@ def _infer_fake_quantize_configs(
         )
     elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig):
         act_config = Float8FakeQuantizeConfig(
-            dtype=torch.float8_e4m3fn,
+            dtype=e4m3_dtype,
             granularity=PerRow(),
         )
-        weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
+        weight_config = Int4WeightPreshuffledFakeQuantizeConfig(
             group_size=128,
-            is_symmetric=True,
+            activation_dtype=e4m3_dtype,
         )
     elif isinstance(base_config, NVFP4InferenceConfig):
         # Note: today the PTQ config does not allow the user to specify
@@ -420,6 +453,54 @@ def _infer_fake_quantize_configs(
         else:
             act_config = None
         weight_config = NVFP4FakeQuantizeConfig(False)
+    elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert base_config.intx_packing_format == "unpacked_to_int8", (
+            "Only unpacked_to_int8 is supported"
+        )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
+        assert base_config.act_mapping_type == MappingType.ASYMMETRIC, (
+            "Only asymmetric activation mapping is supported"
+        )
+        assert base_config.weight_mapping_type == MappingType.SYMMETRIC, (
+            "Only symmetric weight mapping is supported"
+        )
+        assert base_config.weight_scale_dtype is None, (
+            "Specifying weight_scale_dtype is not supported"
+        )
+
+        act_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+            scale_precision=base_config.weight_scale_dtype,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=base_config.weight_granularity,
+            mapping_type=base_config.weight_mapping_type,
+            scale_precision=base_config.weight_scale_dtype,
+        )
+    elif isinstance(base_config, IntxWeightOnlyConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert base_config.intx_packing_format == "unpacked_to_int8", (
+            "Only unpacked_to_int8 is supported"
+        )
+        assert base_config.mapping_type == MappingType.SYMMETRIC, (
+            "Only symmetric mapping is supported"
+        )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
+        assert base_config.scale_dtype is None, (
+            "Specifying scale_dtype is not supported"
+        )
+
+        act_config = None
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=base_config.granularity,
+            mapping_type=base_config.mapping_type,
+            scale_precision=base_config.scale_dtype,
+        )
     else:
         raise ValueError("Unexpected base config: %s" % base_config)
     return (act_config, weight_config)

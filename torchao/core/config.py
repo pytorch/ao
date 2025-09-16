@@ -193,9 +193,11 @@ ALLOWED_AO_MODULES = {
     "torchao.sparsity.sparse_api",
     "torchao.prototype.quantization",
     "torchao.prototype.mx_formats",
+    "torchao.prototype.parq",
     "torchao.dtypes",
     "torchao.prototype.awq",
     "torchao.quantization.quantize_.common",
+    "torchao.quantization.quantize_.workflows",
 }
 
 

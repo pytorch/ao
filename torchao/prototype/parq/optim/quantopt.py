@@ -7,13 +7,20 @@
 from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 from torch.optim import Optimizer
 
-from ..quant import Quantizer
+from torchao.quantization import quantize_
+
+from ..quant import Quantizer, UnifTorchaoQuantizer
+from ..quant.config_torchao import (
+    _attach_hf_quantization_config,
+    _get_config_from_quantizer,
+    _is_hf_model,
+)
 from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
@@ -91,6 +98,23 @@ class QuantOptimizer(Optimizer):
     def state(self) -> defaultdict[Tensor, Any]:  # pyre-ignore[3]
         return self._state if hasattr(self, "_state") else self.base_optimizer.state
 
+    @property
+    def num_steps(self) -> int:
+        for group in self.regularized_param_groups():
+            return group.setdefault("num_steps", 0)
+
+    @num_steps.setter
+    def num_steps(self, value: int) -> None:
+        for group in self.regularized_param_groups():
+            group["num_steps"] = value
+            return
+
+    @num_steps.deleter
+    def num_steps(self) -> None:
+        for group in self.regularized_param_groups():
+            group.pop("num_steps", None)
+            return
+
     @staticmethod
     def quantize_(
         p: Tensor,
@@ -106,32 +130,68 @@ class QuantOptimizer(Optimizer):
         quants.copy_(Q)
         return q
 
-    def regularized_param_groups(self):  # pyre-ignore[3]
+    def regularized_param_groups(self) -> Generator[dict[str, Any], None, None]:
         """Yield parameter groups that need to be quantized."""
         for group in self.param_groups:
             if group.get("quant_bits", 16) < 16:
                 yield group
 
-    @property
-    def _param_set(self) -> set[int]:
-        return {
-            p.data_ptr()
-            for group in self.regularized_param_groups()
-            for p in group["params"]
-        }
+    def _param_sets(self) -> Generator[set[int], None, None]:
+        for group in self.regularized_param_groups():
+            yield {p.data_ptr() for p in group["params"]}
 
-    def get_filter_fn(
-        self, module: torch.nn.Module
-    ) -> Callable[[torch.nn.Module], bool]:
-        param_set = self._param_set
-
-        def _filter_fn(module: torch.nn.Module, *args) -> bool:
+    def get_filter_fns(
+        self, module: nn.Module
+    ) -> Generator[Callable[[nn.Module], bool], None, None]:
+        def _filter_fn(module: nn.Module, *args, param_set) -> bool:
             for p in module.parameters(recurse=False):
                 if p.data_ptr() in param_set:
                     return True
             return False
 
-        return _filter_fn
+        for param_set in self._param_sets():
+            yield partial(_filter_fn, param_set=param_set)
+
+    def torchao_convert(self, model: nn.Module, weight_only: bool = False) -> None:
+        """Converts model parameters to torchao quantized tensor subclasses."""
+        model.eval()
+        self.restore_latent_params()
+
+        # TODO(lvj): find more robust way to identify embedding layers
+        embed_data_ptrs = {
+            module.weight.data_ptr()
+            for module in model.modules()
+            if isinstance(module, nn.Embedding)
+        }
+
+        filter_fns = []
+        configs = []
+        attach_hf_config = _is_hf_model(model)
+        for group, filter_fn in zip(
+            self.regularized_param_groups(), self.get_filter_fns(model)
+        ):
+            filter_fns.append(filter_fn)
+            quantizer = group.get("quantizer", self.quantizer)
+            if not isinstance(quantizer, UnifTorchaoQuantizer) or not group["params"]:
+                configs.append(None)
+                continue
+
+            device = group["params"][0].device
+            any_embed = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
+            config = _get_config_from_quantizer(
+                quantizer,
+                weight_only or any_embed,
+                device,
+                group["quant_bits"],
+                group.get("quant_block_size"),
+            )
+            configs.append(config)
+
+        if attach_hf_config:
+            _attach_hf_quantization_config(model, filter_fns, configs)
+
+        for config, filter_fn in zip(configs, filter_fns):
+            quantize_(model, config, filter_fn=filter_fn)
 
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:
