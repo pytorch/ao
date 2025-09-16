@@ -34,33 +34,40 @@ print(round(end-start,3))
 
 
 def run_trial(code: str) -> float:
-	proc = subprocess.run([PY, "-c", code], capture_output=True, text=True, cwd=REPO_ROOT)
-	if proc.returncode != 0:
-		raise RuntimeError(proc.stderr)
-	return float(proc.stdout.strip().splitlines()[-1])
+    proc = subprocess.run(
+        [PY, "-c", code], capture_output=True, text=True, cwd=REPO_ROOT
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr)
+    return float(proc.stdout.strip().splitlines()[-1])
 
 
 def run_many(code: str, n: int = 7):
-	times = [run_trial(code) for _ in range(n)]
-	return {
-		"times": times,
-		"mean": round(mean(times), 4),
-		"stdev": round(stdev(times), 4) if len(times) > 1 else 0.0,
-	}
+    times = [run_trial(code) for _ in range(n)]
+    return {
+        "times": times,
+        "mean": round(mean(times), 4),
+        "stdev": round(stdev(times), 4) if len(times) > 1 else 0.0,
+    }
 
 
 def main():
-	res_lazy = run_many(LAZY_SNIPPET)
-	res_eager = run_many(EAGER_SNIPPET)
-	speedup = None
-	if res_eager["mean"] > 0:
-		speedup = round(res_eager["mean"] / res_lazy["mean"], 2)
-	print(json.dumps({
-		"lazy": res_lazy,
-		"eager_simulated": res_eager,
-		"speedup_x": speedup,
-	}, indent=2))
+    res_lazy = run_many(LAZY_SNIPPET)
+    res_eager = run_many(EAGER_SNIPPET)
+    speedup = None
+    if res_eager["mean"] > 0:
+        speedup = round(res_eager["mean"] / res_lazy["mean"], 2)
+    print(
+        json.dumps(
+            {
+                "lazy": res_lazy,
+                "eager_simulated": res_eager,
+                "speedup_x": speedup,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
-	main()
+    main()
