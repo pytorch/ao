@@ -107,7 +107,9 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     if kwargs is None:
         kwargs = {}
 
-    m = ToySingleLinearModel(K, N, dtype=torch.bfloat16, device="cuda", has_bias=True).eval()
+    m = ToySingleLinearModel(
+        K, N, dtype=torch.bfloat16, device="cuda", has_bias=True
+    ).eval()
     m_bf16 = copy.deepcopy(m)
     m_ref = copy.deepcopy(m)
     example_inputs = m.example_inputs(batch_size=M)
