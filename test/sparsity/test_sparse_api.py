@@ -180,7 +180,9 @@ class TestQuantSemiSparse(common_utils.TestCase):
             quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
 
             original = torch.ops.aten.to.dtype_layout(
-                model.weight.original_weight_tensor.tensor_impl, dtype=torch.float
+                model.weight.original_weight_tensor.tensor_impl,
+                dtype=torch.float,
+                layout=torch.strided,
             )
             torch.testing.assert_close(expected, original, atol=1e-1, rtol=1e-1)
 

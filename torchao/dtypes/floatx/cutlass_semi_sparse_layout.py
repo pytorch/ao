@@ -106,7 +106,11 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
             )
         elif func is aten.to.dtype_layout:
             dense, scale, _ = args[0].get_plain()
-            dense = dense.to(*args[1:], **kwargs)
+            dense = dense.to(
+                *args[1:],
+                dtype=kwargs.get("dtype", dense.dtype),
+                device=kwargs.get("device", dense.device),
+            )
             return scale * dense
 
         raise NotImplementedError(
