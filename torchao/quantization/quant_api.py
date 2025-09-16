@@ -73,6 +73,7 @@ from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
+    MarlinQQQTensor,
     Int4OpaqueTensor,
     Int4PackingFormat,
     Int4PlainInt32Tensor,
@@ -631,6 +632,8 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     mapping_type: MappingType = MappingType.SYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     set_inductor_config: bool = True
+    int8_dynamic_activation_int4_weight_packing_format: PackingFormat = PackingFormat.PLAIN
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -650,6 +653,8 @@ def _int8_dynamic_activation_int4_weight_transform(
     layout = config.layout
     mapping_type = config.mapping_type
     act_mapping_type = config.act_mapping_type
+    packing_format = config.int8_dynamic_activation_int4_weight_packing_format
+
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -665,6 +670,20 @@ def _int8_dynamic_activation_int4_weight_transform(
     target_dtype = torch.int8
     quant_min = -8
     quant_max = 7
+
+    if config.version == 2:
+        block_size = list(block_size)
+        if packing_format == Int4PackingFormat.MARLIN_QQQ:
+            new_weight = MarlinQQQTensor.from_hp(
+                weight,
+                block_size,
+            )
+            new_weight = to_linear_activation_quantized(new_weight, MarlinQQQTensor.from_hp)
+            module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+            module.extra_repr = types.MethodType(_linear_extra_repr, module)
+            return module
+
+    assert(config.version == 1)
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:

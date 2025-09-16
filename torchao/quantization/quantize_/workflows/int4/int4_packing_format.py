@@ -37,6 +37,11 @@ class Int4PackingFormat(str, Enum):
     MARLIN_SPARSE = "marlin_sparse"
 
     """
+    CHANGE THIS
+    """
+    MARLIN_QQQ = "marlin_qqq"
+
+    """
     plain_int32 is a format that 2 adjacent int4 values are packed in a byte and 4 such packed bytes are stored in a int32 value.
     """
     PLAIN_INT32 = "plain_int32"
