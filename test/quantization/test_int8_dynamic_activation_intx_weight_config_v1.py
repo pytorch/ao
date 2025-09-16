@@ -10,8 +10,12 @@ import tempfile
 import unittest
 
 import torch
-from parameterized import param, parameterized
 from torch.testing import FileCheck
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+)
 
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
@@ -34,42 +38,35 @@ from torchao.quantization.utils import compute_error
 
 
 @unittest.skipIf(not _is_kernel_library_loaded(), "Kernel library not loaded")
-class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
-    TEST_ACCURACY_CASES = [
-        param(
-            layout=layout,
-            weight_dtype=weight_dtype,
-            weight_mapping_type=weight_mapping_type,
-            weight_granularity=weight_granularity,
-        )
-        for layout in [
-            PackedLinearInt8DynamicActivationIntxWeightLayout(),
-            PackedLinearInt8DynamicActivationIntxWeightLayout(target="universal"),
-        ]
-        for weight_dtype in [
-            torch.int1,
-            torch.int2,
-            torch.int3,
-            torch.int4,
-            torch.int5,
-            torch.int6,
-            torch.int7,
-            torch.int8,
-        ]
-        for weight_mapping_type in [
-            MappingType.SYMMETRIC,
-            MappingType.ASYMMETRIC,
-            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-        ]
-        for weight_granularity in [
-            PerGroup(128),
-            PerAxis(0),
-        ]
-    ]
-
-    @parameterized.expand(
-        TEST_ACCURACY_CASES,
-        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+class TestInt8DynamicActivationIntxWeight(TestCase):
+    @parametrize(
+        "layout, weight_dtype, weight_mapping_type, weight_granularity",
+        [
+            (layout, weight_dtype, weight_mapping_type, weight_granularity)
+            for layout in [
+                PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                PackedLinearInt8DynamicActivationIntxWeightLayout(target="universal"),
+            ]
+            for weight_dtype in [
+                torch.int1,
+                torch.int2,
+                torch.int3,
+                torch.int4,
+                torch.int5,
+                torch.int6,
+                torch.int7,
+                torch.int8,
+            ]
+            for weight_mapping_type in [
+                MappingType.SYMMETRIC,
+                MappingType.ASYMMETRIC,
+                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            ]
+            for weight_granularity in [
+                PerGroup(128),
+                PerAxis(0),
+            ]
+        ],
     )
     def test_accuracy(
         self, layout, weight_dtype, weight_mapping_type, weight_granularity
@@ -396,15 +393,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 exported.graph_module.code
             )
 
-    @parameterized.expand(
+    @parametrize(
+        "layout",
         [
-            param(layout=layout)
-            for layout in [
-                PackedLinearInt8DynamicActivationIntxWeightLayout(),
-                QDQLayout(),
-            ]
+            PackedLinearInt8DynamicActivationIntxWeightLayout(),
+            QDQLayout(),
         ],
-        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_serialization(self, layout):
         layers = [
@@ -436,20 +430,16 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             actual = model2(activations)
             self.assertTrue(torch.allclose(expected, actual))
 
-    @parameterized.expand(
+    @parametrize(
+        "group_size, mapping_type, act_mapping_type",
         [
-            param(
-                group_size=group_size,
-                mapping_type=mapping_type,
-                act_mapping_type=act_mapping_type,
-            )
+            (group_size, mapping_type, act_mapping_type)
             for group_size, mapping_type, act_mapping_type in zip(
                 [32, 64],
                 [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
                 [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
             )
         ],
-        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_identical_to_Int8DynamicActivationInt4WeightConfig(
         self, group_size, mapping_type, act_mapping_type
@@ -490,15 +480,16 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             sqnr = compute_error(model(activations), model_copy(activations)).item()
             self.assertTrue(sqnr == float("inf"))
 
-    @parameterized.expand(
+    @parametrize(
+        "weight_dtype, group_size, mapping_type, act_mapping_type, scale_dtype, model_dtype",
         [
-            param(
-                weight_dtype=weight_dtype,
-                group_size=group_size,
-                mapping_type=mapping_type,
-                act_mapping_type=act_mapping_type,
-                scale_dtype=scale_dtype,
-                model_dtype=model_dtype,
+            (
+                weight_dtype,
+                group_size,
+                mapping_type,
+                act_mapping_type,
+                scale_dtype,
+                model_dtype,
             )
             for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
             for group_size in [32, 64, 128]
@@ -507,7 +498,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
             for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
-        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_identical_to_IntXQuantizationAwareTrainingConfig(
         self,
@@ -582,18 +572,14 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         sqnr = compute_error(prepared_out, converted_out).item()
         self.assertTrue(sqnr == float("inf"))
 
-    @parameterized.expand(
+    @parametrize(
+        "group_size, scale_dtype, model_dtype",
         [
-            param(
-                group_size=group_size,
-                scale_dtype=scale_dtype,
-                model_dtype=model_dtype,
-            )
+            (group_size, scale_dtype, model_dtype)
             for group_size in [32, 64, 128]
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
             for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
-        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_identical_to_Int8DynActInt4WeightQATQuantizer(
         self, group_size, scale_dtype, model_dtype
@@ -689,6 +675,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertGreater(compute_error(out_q, out), 30)
         self.assertGreater(compute_error(out_qc, out), 30)
 
+
+instantiate_parametrized_tests(TestInt8DynamicActivationIntxWeight)
 
 if __name__ == "__main__":
     unittest.main()
