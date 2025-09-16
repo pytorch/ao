@@ -33,6 +33,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         a quantized tensor, this is used to quantize input
       `quant_kwargs` (Dict[str, Any]): Additional keyword arguments for the quantization function.
         Restriction: Must not contain tensor values.
+      `act_pre_scale` (Optional[torch.Tensor]): Pre-scaling factor for activation quantization
     """
 
     quant_kwargs: Dict[str, Any]
@@ -42,6 +43,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         original_weight_tensor: torch.Tensor,
         input_quant_func: Callable,
         quant_kwargs: Dict[str, Any],
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         kwargs = {}
         dtype = original_weight_tensor.dtype
@@ -56,24 +58,32 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         original_weight_tensor: torch.Tensor,
         input_quant_func: Callable[[torch.Tensor], torch.Tensor],
         quant_kwargs: Dict[str, Any],
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
         self.quant_kwargs = quant_kwargs
+        self.act_pre_scale = act_pre_scale
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
+        return f"{self.__class__.__name__}({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}, act_pre_scale={self.act_pre_scale})"
 
     def __tensor_flatten__(self):
-        return ["original_weight_tensor"], [self.input_quant_func, self.quant_kwargs]
+        return ["original_weight_tensor"], [
+            self.input_quant_func,
+            self.quant_kwargs,
+            self.act_pre_scale,
+        ]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         original_weight_tensor = tensor_data_dict["original_weight_tensor"]
-        input_quant_func, quant_kwargs = tensor_attributes
-        return cls(original_weight_tensor, input_quant_func, quant_kwargs)
+        input_quant_func, quant_kwargs, act_pre_scale = tensor_attributes
+        return cls(
+            original_weight_tensor, input_quant_func, quant_kwargs, act_pre_scale
+        )
 
     @staticmethod
     def _quantized_linear_op(
@@ -81,6 +91,14 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     ):
         if input_tensor.numel() == 0:
             return input_tensor
+
+        # Apply pre-scaling if present
+        if (
+            hasattr(weight_tensor, "act_pre_scale")
+            and weight_tensor.act_pre_scale is not None
+        ):
+            input_tensor = input_tensor * weight_tensor.act_pre_scale
+
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
         quant_kwargs = weight_tensor.quant_kwargs
@@ -95,16 +113,18 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         input_quant_func: Callable,
         quant_kwargs: Optional[Dict[str, Any]] = None,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         if quant_kwargs is None:
             quant_kwargs = {}
-        return cls(input_float, input_quant_func, quant_kwargs)
+        return cls(input_float, input_quant_func, quant_kwargs, act_pre_scale)
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.original_weight_tensor),
             self.input_quant_func,
             self.quant_kwargs,
+            self.act_pre_scale,
         )
 
     def to(self, *args, **kwargs):
@@ -113,6 +133,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
             self.original_weight_tensor.to(**kwargs),
             self.input_quant_func,
             self.quant_kwargs,
+            self.act_pre_scale.to(**kwargs) if self.act_pre_scale is not None else None,
         )
 
 
@@ -238,6 +259,7 @@ def _(func, types, args, kwargs):
             func(args[0].original_weight_tensor, *args[1:]),
             args[0].input_quant_func,
             args[0].quant_kwargs,
+            args[0].act_pre_scale,
         ),
     )
 
@@ -252,6 +274,7 @@ def _(func, types, args, kwargs):
             func(args[0].original_weight_tensor, *args[1:]),
             args[0].input_quant_func,
             args[0].quant_kwargs,
+            args[0].act_pre_scale,
         ),
     )
 
@@ -266,6 +289,7 @@ def _(func, types, args, kwargs):
             func(args[0].original_weight_tensor, *args[1:]),
             args[0].input_quant_func,
             args[0].quant_kwargs,
+            args[0].act_pre_scale,
         ),
     )
 
@@ -281,6 +305,7 @@ def _(func, types, args, kwargs):
             func(args[0].original_weight_tensor, *args[1:]),
             args[0].input_quant_func,
             args[0].quant_kwargs,
+            args[0].act_pre_scale,
         ),
     )
 
