@@ -134,11 +134,11 @@ class TestDynamicFloat8Linear(TestCase):
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
-    def test_dynamic_float8_linear_ref_cpu(self, dtype, x_dim, bias):
+    @common_utils.parametrize("bs", [4, 128])
+    def test_dynamic_float8_linear_ref_cpu(self, dtype, x_dim, bias, bs):
         device = "cpu"
         # the shape is not supported by cpp kernel, so the ref path will be used.
         m = ToyLinearModel(120, 120, bias=bias).eval().to(dtype).to(device)
-        bs = 4
         example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)

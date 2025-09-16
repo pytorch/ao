@@ -2,7 +2,12 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <c10/util/Unroll.h>
-#include "dispatcher.h"
+#include "utils.h"
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#else
+#include <ATen/ops/empty.h>
+#endif
 
 namespace torchao {
 
@@ -78,9 +83,9 @@ float8_linear_prepack_impl(
 #if defined(CPU_CAPABILITY_AVX512)
   if (cpublas_could_pack()) {
 #ifdef CPUBLAS_BRGEMM_F8F8F32
-    constexpr int vnni_size = 4; // for fp8
+    constexpr int vnni_size = get_vnni_size<at::Float8_e4m3fn>(); // for fp8
 #else
-    constexpr int vnni_size = 2; // for float16
+    constexpr int vnni_size = get_vnni_size<at::BFloat16>(); // for bfloat16
 #endif
     blocked_weight = at::empty({Nc, Kc, block_k, block_n}, weight.options());
     auto weight_ptr = reinterpret_cast<uint8_t*>(weight_reordered.data_ptr());
@@ -119,93 +124,58 @@ float8_linear_prepack_impl(
 }
 
 #if defined(CPU_CAPABILITY_AVX512)
-alignas(64) static uint16_t e4m3_to_16bit[256];
+// this doesn't handle NaN.
+inline __m512bh cvt_e4m3_bf16_intrinsic_no_nan(__m256i fp8_vec) {
+  const __m512i x = _mm512_cvtepu8_epi16(fp8_vec);
 
-template <typename T>
-static void initialize_e4m3_to_16bit_tables() {
-  // run only once
-  static bool initialized_16bit = false;
-  if (!initialized_16bit) {
-    for (uint8_t u8 = 0; u8 < 256; ++u8) {
-      auto value = static_cast<T>(c10::bit_cast<at::Float8_e4m3fn>(u8));
-      uint16_t value_bits = c10::bit_cast<uint16_t>(value);
-      e4m3_to_16bit[u8] = value_bits;
-      if (u8 == 255) {
-        break;
+  const __m512i mant = _mm512_slli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(0x07)), 4);
+  const __m512i raw_exp = _mm512_srli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(0x78)), 3);
+  const __m512i exp = _mm512_slli_epi16(_mm512_add_epi16(raw_exp, _mm512_set1_epi16(120)), 7);
+  const __m512i nonsign = _mm512_or_si512(exp, mant);
+
+  const __m512i sign = _mm512_slli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(0x80)), 8);
+  const __m512i combined = _mm512_or_si512(nonsign, sign);
+
+  const __mmask32 is_nonzero = _mm512_cmpneq_epi16_mask(x, _mm512_setzero_si512());
+  return (__m512bh)_mm512_maskz_mov_epi16(is_nonzero, combined);
+}
+
+static void cvt_f8e4m3_to_bf16(
+    const at::Float8_e4m3fn* __restrict__ in,
+    at::BFloat16* out,
+    int64_t rows,
+    int64_t cols,
+    int64_t stride) {
+  if (stride == cols) {
+    // A contiguous buffer
+    size_t len = rows * cols;
+    size_t i = 0;
+    for (; i < len; i += 32) {
+      __m256i fp8_vec = _mm256_loadu_si256((__m256i*)&in[i]);
+      __m512bh bf16_vec = cvt_e4m3_bf16_intrinsic_no_nan(fp8_vec);
+      _mm512_storeu_si512((__m512i*)(out + i), (__m512i)bf16_vec);
+    }
+    for (; i < len; ++i) {
+      out[i] = (at::BFloat16)in[i];
+    }
+  } else {
+    // Non-contiguous. Access each row with stride
+    TORCH_CHECK(stride > cols);
+    for (int r = 0; r < rows; ++r) {
+      size_t i = 0;
+      size_t vec_len = cols / 32 * 32;
+      for (; i < vec_len; i += 32) {
+        __m256i fp8_vec = _mm256_loadu_si256((__m256i*)&in[r * stride + i]);
+        __m512bh bf16_vec = cvt_e4m3_bf16_intrinsic_no_nan(fp8_vec);
+        _mm512_storeu_si512((__m512i*)(out + r * cols + i), (__m512i)bf16_vec);
+      }
+      for (; i < cols; ++i) {
+        out[r * cols + i] = (at::BFloat16)in[r * stride + i];
       }
     }
-    initialized_16bit = true;
   }
 }
 
-template <typename T>
-static void cvt_e4m3_16bit_intrinsic_lut(
-    const at::Float8_e4m3fn* __restrict__ in,
-    T* out,
-    int64_t len) {
-  for (size_t i = 0; i < len; i += 64) {
-    __m512i fp8_vec = _mm512_loadu_si512((__m512i*)&in[i]);
-    __m128i group0 = _mm512_castsi512_si128(fp8_vec);
-    __m128i group1 = _mm512_extracti32x4_epi32(fp8_vec, 1);
-    __m128i group2 = _mm512_extracti32x4_epi32(fp8_vec, 2);
-    __m128i group3 = _mm512_extracti32x4_epi32(fp8_vec, 3);
-
-    __m512i indices0 = _mm512_cvtepu8_epi32(group0);
-    __m512i indices1 = _mm512_cvtepu8_epi32(group1);
-    __m512i indices2 = _mm512_cvtepu8_epi32(group2);
-    __m512i indices3 = _mm512_cvtepu8_epi32(group3);
-
-    // Gather BF16 conversion results from the lookup table.
-    __m512i bf16_i32_vec0 = _mm512_i32gather_epi32(indices0, e4m3_to_16bit, 2);
-    __m512i bf16_i32_vec1 = _mm512_i32gather_epi32(indices1, e4m3_to_16bit, 2);
-    __m512i bf16_i32_vec2 = _mm512_i32gather_epi32(indices2, e4m3_to_16bit, 2);
-    __m512i bf16_i32_vec3 = _mm512_i32gather_epi32(indices3, e4m3_to_16bit, 2);
-
-    // Helper lambda: Convert 16 32-bit ints (in a __m512i) to 16 16-bit ints.
-    auto convert_32_to_16 = [](__m512i vec) -> __m256i {
-      return _mm512_cvtepi32_epi16(vec);
-    };
-
-    __m256i bf16_i16_vec0 = convert_32_to_16(bf16_i32_vec0);
-    __m256i bf16_i16_vec1 = convert_32_to_16(bf16_i32_vec1);
-    __m256i bf16_i16_vec2 = convert_32_to_16(bf16_i32_vec2);
-    __m256i bf16_i16_vec3 = convert_32_to_16(bf16_i32_vec3);
-
-    _mm256_storeu_si256((__m256i*)(out + i + 0), bf16_i16_vec0);
-    _mm256_storeu_si256((__m256i*)(out + i + 16), bf16_i16_vec1);
-    _mm256_storeu_si256((__m256i*)(out + i + 32), bf16_i16_vec2);
-    _mm256_storeu_si256((__m256i*)(out + i + 48), bf16_i16_vec3);
-  }
-}
-
-static void _convert_B_to_bf16(
-    const at::Float8_e4m3fn* __restrict__ B,
-    at::BFloat16* dqB,
-    int64_t len) {
-  initialize_e4m3_to_16bit_tables<at::BFloat16>();
-  int tail = len % 64;
-  cvt_e4m3_16bit_intrinsic_lut<at::BFloat16>(B, dqB, len - tail);
-  for (int i = len - tail; i < len; ++i) {
-    dqB[i] = (at::BFloat16)B[i];
-  }
-}
-
-static void _convert_A_to_bf16(
-    const at::Float8_e4m3fn* __restrict__ A,
-    at::BFloat16* dqA,
-    int64_t M,
-    int64_t K,
-    int64_t lda) {
-  initialize_e4m3_to_16bit_tables<at::BFloat16>();
-  for (int m = 0; m < M; ++m) {
-    int tail = K % 64;
-    int body = K - tail;
-    cvt_e4m3_16bit_intrinsic_lut<at::BFloat16>(A + m * lda, dqA + m * K, body);
-    for (int k = body; k < K; ++k) {
-      dqA[m * K + k] = (at::BFloat16)A[m * lda + k];
-    }
-  }
-}
 
 // accumulate and store result to buffer
 // if act/wei are per_group quantized, apply scales
@@ -227,9 +197,9 @@ static void _store_result(
       a_scale = *(scale_a + m * ldsa);
       va_scale = _mm512_set1_ps(a_scale);
     }
-    int n = 0;
-#pragma GCC unroll 2
-    for (; n < N; n += 16) {
+    constexpr int N_UNROLL = N / 16;
+    c10::ForcedUnroll<N_UNROLL>{}([&](auto i) {
+      constexpr int n = i * 16;
       __m512 vc_f = _mm512_loadu_ps(input + m * ldi + n);
       if constexpr (act_quant_mode == PER_GROUP) {
         vc_f = _mm512_mul_ps(vc_f, va_scale);
@@ -244,8 +214,9 @@ static void _store_result(
       } else {
         _mm512_storeu_ps(output + m * ldo + n, vc_f);
       }
-    }
-    for (; n < N; ++n) {
+    });
+    constexpr int tail_start = N / 16 * 16;
+    for (int n = tail_start; n < N; ++n) {
       float dq_val = input[m * ldi + n];
       if constexpr (act_quant_mode == PER_GROUP) {
         dq_val = dq_val * a_scale;
@@ -263,29 +234,119 @@ static void _store_result(
   }
 }
 
-#else
-static void _convert_B_to_bf16(
-    const at::Float8_e4m3fn* B,
-    at::BFloat16* dqB,
-    int64_t len) {
-  for (int i = 0; i < len; ++i) {
-    dqB[i] = (at::BFloat16)B[i];
+// Store result to output buffer with dtype conversion
+// If act/wei are per_row or per_tensor quantized, apply scales
+// If bias is not null, add bias
+template<typename out_dtype, int64_t N, int act_quant_mode, int wei_quant_mode>
+inline void store_out(
+    const float* y_buf,
+    out_dtype* c_ptr,
+    int64_t M,
+    int64_t lda,
+    const float* scales_a,
+    const float* scales_b,
+    const float* bias) {
+  float a_scale = 1.0, b_scale = 1.0;
+    __m512 va_scale, vb_scale;
+  if constexpr (act_quant_mode == PER_TENSOR) {
+    a_scale = *scales_a;
   }
+  if constexpr (wei_quant_mode == PER_TENSOR) {
+    b_scale = *scales_b;
+    vb_scale = _mm512_set1_ps(b_scale);
+  }
+  for (int i = 0; i < M; ++i) {
+    if constexpr (act_quant_mode == PER_ROW) {
+      a_scale = *(scales_a + i);
+    }
+    if constexpr (act_quant_mode != PER_GROUP) {
+      va_scale = _mm512_set1_ps(a_scale);
+    }
+    constexpr int N_UNROLL = N / 16;
+    c10::ForcedUnroll<N_UNROLL>{}([&](auto idx) {
+      constexpr int j = idx * 16;
+      __m512 y_vec = _mm512_loadu_ps(y_buf + i * N + j);
+      __m512 bias_vec = bias ? _mm512_loadu_ps(bias + j) : _mm512_setzero_ps();
+      if constexpr (act_quant_mode != PER_GROUP) {
+        y_vec = _mm512_mul_ps(y_vec, va_scale);
+      }
+      if constexpr (wei_quant_mode == PER_ROW) {
+        vb_scale = _mm512_loadu_ps(scales_b + j);
+      }
+      if constexpr (wei_quant_mode != PER_GROUP) {
+        y_vec = _mm512_mul_ps(y_vec, vb_scale);
+      }
+      y_vec = _mm512_add_ps(y_vec, bias_vec);
+      if constexpr (std::is_same<out_dtype, float>::value) {
+        _mm512_storeu_ps(c_ptr + i * lda + j, y_vec);
+      } else if constexpr (std::is_same<out_dtype, at::BFloat16>::value) {
+        __m256i y_bf16_vec = at::vec::cvtfp32_bf16(y_vec);
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(c_ptr + i * lda + j), y_bf16_vec);
+      } else if constexpr (std::is_same<out_dtype, at::Half>::value) {
+        __m256i y_fp16_vec = at::vec::cvtfp32_fp16(y_vec);
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(c_ptr + i * lda + j), y_fp16_vec);
+      } else {
+        TORCH_CHECK(false, "Unsupported output dtype");
+      }
+    });
+    constexpr int tail_start = N / 16 * 16;
+    for (int j = tail_start; j < N; ++j) {
+      if constexpr (wei_quant_mode == PER_ROW) {
+        b_scale = scales_b[j];
+      }
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+    }
+  } // for M
 }
 
-static void _convert_A_to_bf16(
-    const at::Float8_e4m3fn* __restrict__ A,
-    at::BFloat16* dqA,
-    int64_t M,
-    int64_t K,
-    int64_t lda) {
-  for (int m = 0; m < M; ++m) {
-    for (int k = 0; k < K; ++k) {
-      dqA[m * K + k] = (at::BFloat16)A[m * lda + k];
+#else // no AVX512
+
+static void cvt_f8e4m3_to_bf16(
+    const at::Float8_e4m3fn* __restrict__ in,
+    at::BFloat16* out,
+    int64_t rows,
+    int64_t cols,
+    int64_t stride) {
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      out[r * cols + c] = (at::BFloat16)in[r * stride + c];
     }
   }
 }
-#endif
+
+// Store result to output buffer with dtype conversion
+// If act/wei are per_row or per_tensor quantized, apply scales
+// If bias is not null, add bias
+template<typename out_dtype, int64_t N, int act_quant_mode, int wei_quant_mode>
+inline void store_out(
+    const float* y_buf,
+    out_dtype* c_ptr,
+    int64_t M,
+    int64_t lda,
+    const float* scales_a,
+    const float* scales_b,
+    const float* bias) {
+  float a_scale = 1.0, b_scale = 1.0;
+  if constexpr (act_quant_mode == PER_TENSOR) {
+    a_scale = *scales_a;
+  }
+  if constexpr (wei_quant_mode == PER_TENSOR) {
+    b_scale = *scales_b;
+  }
+  for (int i = 0; i < M; ++i) {
+    if constexpr (act_quant_mode == PER_ROW) {
+      a_scale = *(scales_a + i);
+    }
+    for (int j = 0; j < N; ++j) {
+      if constexpr (wei_quant_mode == PER_ROW) {
+        b_scale = scales_b[j];
+      }
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+    }
+  } // for M
+}
+
+#endif // CPU_CAPABILITY_AVX512
 
 template <bool cpublas_can_pack, int64_t N, int act_quant_mode, int wei_quant_mode>
 void _micro_gemm(
@@ -305,9 +366,9 @@ void _micro_gemm(
   // Finally accumulate and store results
 #ifndef CPUBLAS_BRGEMM_F8F8F32
   at::BFloat16 dqB[K * N];
-  _convert_B_to_bf16(B, dqB, K * N);
+  cvt_f8e4m3_to_bf16(B, dqB, K, N, N);
   at::BFloat16 dqA[M * K];
-  _convert_A_to_bf16(A, dqA, M, K, lda);
+  cvt_f8e4m3_to_bf16(A, dqA, M, K, lda);
 #endif
 #if defined(CPU_CAPABILITY_AVX512)
   if constexpr (cpublas_can_pack) {
@@ -339,8 +400,8 @@ void _micro_gemm(
         C_f32,
         true /* is_vnni */);
 #endif
-    _mm_prefetch(B + N * K, _MM_HINT_T0);
-    _mm_prefetch(A + K, _MM_HINT_T0);
+    _mm_prefetch(B + N * (K + 128), _MM_HINT_T0);
+    _mm_prefetch(A + K + 128, _MM_HINT_T0);
     _store_result<true, N, act_quant_mode, wei_quant_mode>(
         C,
         C_f32,
@@ -375,77 +436,6 @@ void _micro_gemm(
   }
 }
 
-// Store result to output buffer with dtype conversion
-// If act/wei are per_row or per_tensor quantized, apply scales
-// If bias is not null, add bias
-template<typename out_dtype, int64_t N, int act_quant_mode, int wei_quant_mode>
-inline void store_out(
-    const float* y_buf,
-    out_dtype* c_ptr,
-    int64_t M,
-    int64_t lda,
-    const float* scales_a,
-    const float* scales_b,
-    const float* bias) {
-  float a_scale = 1.0, b_scale = 1.0;
-#if defined(CPU_CAPABILITY_AVX512)
-    __m512 va_scale, vb_scale;
-#endif
-  if constexpr (act_quant_mode == PER_TENSOR) {
-    a_scale = *scales_a;
-  }
-  if constexpr (wei_quant_mode == PER_TENSOR) {
-    b_scale = *scales_b;
-#if defined(CPU_CAPABILITY_AVX512)
-    vb_scale = _mm512_set1_ps(b_scale);
-#endif
-  }
-  for (int i = 0; i < M; ++i) {
-    if constexpr (act_quant_mode == PER_ROW) {
-      a_scale = *(scales_a + i);
-    }
-    int j = 0;
-#if defined(CPU_CAPABILITY_AVX512)
-    if constexpr (act_quant_mode != PER_GROUP) {
-      va_scale = _mm512_set1_ps(a_scale);
-    }
-#pragma GCC unroll 2
-    for (; j < N; j += 16) {
-      __m512 y_vec = _mm512_loadu_ps(y_buf + i * N + j);
-      __m512 bias_vec = bias ? _mm512_loadu_ps(bias + j) : _mm512_setzero_ps();
-      if constexpr (act_quant_mode != PER_GROUP) {
-        y_vec = _mm512_mul_ps(y_vec, va_scale);
-      }
-      if constexpr (wei_quant_mode == PER_ROW) {
-        vb_scale = _mm512_loadu_ps(scales_b + j);
-      }
-      if constexpr (wei_quant_mode != PER_GROUP) {
-        y_vec = _mm512_mul_ps(y_vec, vb_scale);
-      }
-      y_vec = _mm512_add_ps(y_vec, bias_vec);
-      if constexpr (std::is_same<out_dtype, float>::value) {
-        _mm512_storeu_ps(c_ptr + i * lda + j, y_vec);
-      } else if constexpr (std::is_same<out_dtype, at::BFloat16>::value) {
-        __m256i y_bf16_vec = at::vec::cvtfp32_bf16(y_vec);
-        _mm256_storeu_si256(reinterpret_cast<__m256i*>(c_ptr + i * lda + j), y_bf16_vec);
-      } else if constexpr (std::is_same<out_dtype, at::Half>::value) {
-        __m256i y_fp16_vec = at::vec::cvtfp32_fp16(y_vec);
-        _mm256_storeu_si256(reinterpret_cast<__m256i*>(c_ptr + i * lda + j), y_fp16_vec);
-      } else {
-        TORCH_CHECK(false, "Unsupported output dtype");
-      }
-    }
-#else
-    for (; j < N; ++j) {
-      if constexpr (wei_quant_mode == PER_ROW) {
-        b_scale = scales_b[j];
-      }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
-    }
-#endif
-  } // for M
-}
-
 template<typename out_dtype, bool cpublas_can_pack, int act_quant_mode, int wei_quant_mode>
 void _float8_linear_impl(
     const at::Tensor& input,
@@ -469,20 +459,8 @@ void _float8_linear_impl(
   TORCH_CHECK(weight.size(3) == block_n, "Float8 linear: unexpected weight shape");
   int64_t N = Nc * block_n;
   TORCH_CHECK(K == Kc * block_k, "Float8 linear: weight and input shapes mismatch");
-  int64_t block_m = [&]() -> long {
-    if (M <= 48) {
-      return M;
-    } else if (M < 64) {
-      return 32;
-    } else if (M < 96) {
-      return 64;
-    } else {
-      return 128;
-    }
-  }();
-  int64_t Mc = (M + block_m - 1) / block_m;
-  bool parallel_on_M = M > 128;
-  int64_t num_blocks = parallel_on_M ? Mc * Nc : Nc;
+  auto [parallel_on_M, block_m, Mc, Mc_parallel] = get_m_blocking(M);
+  int64_t num_parallel_blocks = Mc_parallel * Nc;
 
   // scales shape = [Nc, G, block_n]
   int64_t num_groups = wei_quant_mode == PER_TENSOR ? 1 : weight_scales.size(1);
@@ -501,30 +479,35 @@ void _float8_linear_impl(
   out_dtype* c_ptr = output.data_ptr<out_dtype>();
   const float* bias_ptr = bias.has_value() ? bias.value().data_ptr<float>() : nullptr;
 
-  at::parallel_for(0, num_blocks, 1, [&](int64_t begin, int64_t end) {
-    auto y_buf = new (std::align_val_t(8)) float[block_m * block_n];
+  int64_t block_size = block_m * block_n;
+  int64_t num_thread = at::get_num_threads();
+  at::Tensor y_buffer = at::empty({num_thread, block_size}, output.options().dtype(at::kFloat));
+
+  at::parallel_for(0, num_parallel_blocks, 1, [&](int64_t begin, int64_t end) {
+    float* y_buf = y_buffer.data_ptr<float>() + at::get_thread_num() * block_size;
+    int64_t mc = 0, nc = 0;
+    at::native::data_index_init(begin, mc, Mc_parallel, nc, Nc);
     for (const auto i : c10::irange(begin, end)) {
-      int64_t mc = parallel_on_M ? i / Nc : 0;
-      int64_t nc = parallel_on_M ? i % Nc : i;
+      (void)i; // Suppress unused variable
       int64_t mc_end = parallel_on_M ? mc + 1 : Mc;
 
       for (int mci = mc; mci < mc_end; ++mci) {
         int64_t m_size = mci * block_m + block_m > M ? M - mci * block_m : block_m;
-        memset(y_buf, 0, sizeof(float) * m_size * block_n);
+        zero_buffer(y_buf, m_size * block_n);
         for (int kci = 0; kci < Kc; ++kci) {
           auto scales_a = a_scales_ptr + mci * block_m * num_groups + kci / block_per_group;
           auto scales_b = b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n;
           _micro_gemm<cpublas_can_pack, block_n, act_quant_mode, wei_quant_mode>(
-            y_buf /*C*/,
-            a_ptr + mci * block_m * K + kci * block_k /*A*/,
-            scales_a /*scales_a*/,
-            b_ptr + (nc * Kc + kci) * block_n * block_k /*B*/,
-            scales_b /*scales_b*/,
-            m_size /*M*/,
-            block_k /*K*/,
-            K /*lda*/,
-            block_n /*ldc*/,
-            ldsa /*ldsa*/);
+            /* C */        y_buf,
+            /* A */        a_ptr + mci * block_m * K + kci * block_k,
+            /* A scales */ scales_a,
+            /* B */        b_ptr + (nc * Kc + kci) * block_n * block_k,
+            /* B scales */ scales_b,
+            /* M */        m_size,
+            /* K */        block_k,
+            /* lda */      K,
+            /* ldc */      block_n,
+            /* ldsa */     ldsa);
         }
         // store y_buf to output with dtype conversion
         auto scales_a = act_quant_mode == PER_TENSOR ? a_scales_ptr :
@@ -541,8 +524,8 @@ void _float8_linear_impl(
           scales_b,
           bias_data);
       }
+      at::native::data_index_step(mc, Mc_parallel, nc, Nc);
     }
-    delete[] y_buf;
     if constexpr (cpublas_can_pack) {
       at::native::cpublas::brgemm_release();
     }
@@ -567,7 +550,10 @@ at::Tensor float8_linear_impl(
   if (weight.dim() == 2) {
     TORCH_CHECK(act_quant_mode != PER_GROUP && wei_quant_mode != PER_GROUP,
       "FP8 linear: Per-group quantization is not supported in the fallback path");
-    auto y_fp32 = at::linear(input.to(at::kFloat).mul(input_scales), weight.to(at::kFloat).mul(weight_scales), bias);
+    auto y_fp32 = at::linear(
+      input.to(at::kFloat).mul_(input_scales),
+      weight.to(at::kFloat).mul_(weight_scales),
+      bias);
     return y_fp32.to(output_dtype);
   }
 
@@ -576,35 +562,15 @@ at::Tensor float8_linear_impl(
   out_sizes.back() = N;
   auto output = at::empty(out_sizes, input.options().dtype(output_dtype));
 
-  product_dispatcher<
-      std::tuple<
-          /*output_dtype*/ at::ScalarType,
-          /*cpublas_can_pack*/ bool,
-          /*act_quant_mode*/ int,
-          /*wei_quant_mode*/ int>,
-      std::tuple<
-          enumerate_dispatcher<at::ScalarType, at::ScalarType::Float, at::ScalarType::BFloat16, at::ScalarType::Half>,
-          enumerate_dispatcher<bool, false, true>,
-          enumerate_dispatcher<int, PER_TENSOR, PER_ROW, PER_GROUP>,
-          enumerate_dispatcher<int, PER_TENSOR, PER_ROW, PER_GROUP>>>::
-      call(
-          std::make_tuple(output_dtype, cpublas_can_pack, act_quant_mode, wei_quant_mode),
-          [&](auto tuple) {
-            constexpr auto o_dtype = std::get<0>(tuple);
-            using out_dtype = typename c10::impl::ScalarTypeToCPPType<o_dtype>::type;
-            constexpr bool cpublas_can_pack_v = std::get<1>(tuple);
-            constexpr int act_quant_mode_v = std::get<2>(tuple);
-            constexpr int wei_quant_mode_v = std::get<3>(tuple);
-            _float8_linear_impl<out_dtype, cpublas_can_pack_v, act_quant_mode_v, wei_quant_mode_v>(
-                input,
-                input_scales,
-                weight,
-                weight_scales,
-                bias,
-                output);
-          },
-          [](auto tuple) { TORCH_CHECK(false, "Not implemented for this configuration"); });
-
+  AT_DISPATCH_LINEAR_KERNEL(output_dtype, cpublas_can_pack, act_quant_mode, wei_quant_mode, [&](){
+    _float8_linear_impl<out_t, can_pack, a_quant_mode, b_quant_mode>(
+      input,
+      input_scales,
+      weight,
+      weight_scales,
+      bias,
+      output);
+  });
   return output;
 }
 
