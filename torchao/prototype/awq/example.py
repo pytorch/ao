@@ -11,7 +11,6 @@ import torch
 from datasets import load_dataset
 from lm_eval import evaluator
 from lm_eval.models.huggingface import HFLM
-from torch._inductor import config as inductor_config
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
@@ -19,10 +18,6 @@ from torchao.prototype.awq import (
     AWQConfig,
 )
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-
-inductor_config.cpp_wrapper = True
-inductor_config.max_autotune = True
-inductor_config.max_autotune_gemm_backends = "CPP,ATEN"
 
 
 # adapted from: https://github.com/mit-han-lab/llm-awq/blob/main/awq/entry.py#L255
@@ -261,7 +256,7 @@ def quantize_and_eval(
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque", version=2
+                group_size=group_size, packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)
@@ -303,7 +298,7 @@ def quantize_and_eval(
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque", version=2
+                group_size=group_size, packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)

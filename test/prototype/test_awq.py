@@ -15,7 +15,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, _is_fbgemm_genai_gpu_available
+from torchao.utils import _is_fbgemm_genai_gpu_available, torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -46,7 +46,7 @@ devices = ["cpu"]
 if (
     torch.cuda.is_available()
     and _is_fbgemm_genai_gpu_available()
-    and TORCH_VERSION_AT_LEAST_2_6
+    and torch_version_at_least("2.6.0")
 ):
     devices.append("cuda")
 
@@ -81,7 +81,7 @@ class TestAWQ(TestCase):
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque", version=2
+                group_size=group_size, packing_format="opaque"
             )
             torch.manual_seed(1234)
         else:
@@ -139,7 +139,7 @@ class TestAWQ(TestCase):
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque", version=2
+                group_size=group_size, packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)
@@ -200,7 +200,7 @@ class TestAWQ(TestCase):
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque", version=2
+                group_size=group_size, packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)

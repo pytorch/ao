@@ -30,7 +30,6 @@ def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
         packing_format="opaque",
-        version=2,
     )
 
 
@@ -101,16 +100,10 @@ class TestInt4OpaqueTensor(TestCase):
         auto_scaled_quantized = linear2(input)
 
         # Making sure activation pre scaling is successfully applied to the activation.
-        # manual_scaled_quantized (input * 2 → quantize with act_pre_scale=None) should equal
-        # auto_scaled_quantized (original input → quantize with act_pre_scale=2),
-        # Proving that the act_pre_scale factor correctly applies input scaling
         self.assertEqual(manual_scaled_quantized, auto_scaled_quantized)
 
-        # Making sure quantization with pre-scaling is successfully applied to the activation.
-        # The error > 20 indicats that quantized computation with activation pre-scaling
-        # produces significantly different results from simply scaling the original
-        # floating-point output, confirming that pre-scaling is applied during
-        # quantization rather than post-processing.
+        # If pre-scaling is auto-applied, the quantization error should be low,
+        # i.e., compute_error (SQNR) is high
         self.assertTrue(
             compute_error(original * _ACT_PRE_SCALE, auto_scaled_quantized) > 20
         )
