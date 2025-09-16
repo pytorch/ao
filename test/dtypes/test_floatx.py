@@ -29,7 +29,7 @@ from torchao.prototype.custom_fp_utils import (
     _floatx_unpacked_to_f32,
 )
 from torchao.quantization import (
-    fpx_weight_only,
+    FPXWeightOnlyConfig,
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
@@ -118,7 +118,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=dtype)
         fpx_linear = copy.deepcopy(linear)
-        quantize_(fpx_linear, fpx_weight_only(ebits, mbits))
+        quantize_(fpx_linear, FPXWeightOnlyConfig(ebits, mbits))
 
         x = torch.randn(N, IC, device=device, dtype=dtype)
         expected = fpx_linear(x)
