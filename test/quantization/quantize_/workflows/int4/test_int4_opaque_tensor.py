@@ -80,24 +80,18 @@ class TestInt4OpaqueTensor(TestCase):
     def test_activation_prescaling(self):
         dtype = torch.bfloat16
         input = torch.randn(1, 128, dtype=dtype)
-        linear1 = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
-        linear2 = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
-        with torch.no_grad():
-            linear2.weight.copy_(linear1.weight)
-        original_output = linear2(input)
-        quantize_(linear1, get_config(group_size=128))
-        quantize_(linear2, get_config(group_size=128))
-        qw1 = linear1.weight
-        assert isinstance(qw1, SupportsActivationPreScaling), (
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
+        original_output = linear(input)
+        quantize_(linear, get_config(group_size=128))
+        qw = linear.weight
+        assert isinstance(qw, SupportsActivationPreScaling), (
             "Expected int4 tensor supports activation prescaling"
         )
-        assert qw1.act_pre_scale is None, "Default `act_pre_scale` is None"
-
+        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
         _ACT_PRE_SCALE = 2
-        manual_scaled_quantized = linear1(input * _ACT_PRE_SCALE)
-        qw2 = linear2.weight
-        qw2.act_pre_scale = _ACT_PRE_SCALE
-        auto_scaled_quantized = linear2(input)
+        manual_scaled_quantized = linear(input * _ACT_PRE_SCALE)
+        qw.act_pre_scale = _ACT_PRE_SCALE
+        auto_scaled_quantized = linear(input)
 
         # Making sure activation pre scaling is successfully applied to the activation.
         self.assertEqual(manual_scaled_quantized, auto_scaled_quantized)
