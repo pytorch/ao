@@ -559,7 +559,7 @@
 
 <span class="sd">            # for int8 dynamic quantization + 2:4 sparsity</span>
 <span class="sd">            from torchao.dtypes import SemiSparseLayout</span>
-<span class="sd">            m = quantize_(m, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout), filter_fn)</span>
+<span class="sd">            m = quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout), filter_fn)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.sparsity.sparsify_&quot;</span><span class="p">)</span>
     <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">config</span><span class="p">)]</span>

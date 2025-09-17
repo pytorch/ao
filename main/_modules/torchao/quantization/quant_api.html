@@ -943,14 +943,14 @@
 <span class="sd">        # optimized execution paths or kernels (e.g. int4 tinygemm kernel)</span>
 <span class="sd">        # also customizable with arguments</span>
 <span class="sd">        # currently options are</span>
-<span class="sd">        # int8_dynamic_activation_int4_weight (for executorch)</span>
-<span class="sd">        # int8_dynamic_activation_int8_weight (optimized with int8 mm op and torch.compile)</span>
-<span class="sd">        # int4_weight_only (optimized with int4 tinygemm kernel and torch.compile)</span>
-<span class="sd">        # int8_weight_only (optimized with int8 mm op and torch.compile</span>
+<span class="sd">        # Int8DynamicActivationInt4WeightConfig (for executorch)</span>
+<span class="sd">        # Int8DynamicActivationInt8WeightConfig (optimized with int8 mm op and torch.compile)</span>
+<span class="sd">        # Int4WeightOnlyConfig (optimized with int4 tinygemm kernel and torch.compile)</span>
+<span class="sd">        # Int8WeightOnlyConfig (optimized with int8 mm op and torch.compile</span>
 <span class="sd">        from torchao.quantization.quant_api import int4_weight_only</span>
 
 <span class="sd">        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))</span>
-<span class="sd">        quantize_(m, int4_weight_only(group_size=32, version=1))</span>
+<span class="sd">        quantize_(m, Int4WeightOnlyConfig(group_size=32, version=1))</span>
 
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.quantize_&quot;</span><span class="p">)</span>
@@ -1937,7 +1937,7 @@
     <span class="c1"># int8 dynamic quantization only has benefit when in_feature &gt; 16</span>
     <span class="k">if</span> <span class="n">in_features</span> <span class="o">&lt;=</span> <span class="mi">16</span><span class="p">:</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Skipping applying int8_dynamic_activation_int8_weight to weight of shape </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Skipping applying Int8DynamicActivationInt8WeightConfig to weight of shape </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot; because `in_feature` is &lt;= 16: </span><span class="si">{</span><span class="n">in_features</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
@@ -2002,13 +2002,13 @@
 <span class="sd">    quantization + 2:4 sparsity to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in Int8DynamicActivationInt8WeightConfig instead.</span>
 
 <span class="sd">    from torchao.dtypes import SemiSparseLayout</span>
-<span class="sd">    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()&quot;&quot;&quot;</span>
+<span class="sd">    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()&quot;&quot;&quot;</span>
     <span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">())</span>
 
 
 <div class="viewcode-block" id="Float8WeightOnlyConfig"><a class="viewcode-back" href="../../../generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig">[docs]</a><span class="nd">@dataclass</span>
@@ -2492,7 +2492,7 @@
     <span class="k">if</span> <span class="n">use_hqq</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-                <span class="s2">&quot;Recommended to use `int4_weight_only(group_size, use_hqq=True, version=1)` for the best performance&quot;</span>
+                <span class="s2">&quot;Recommended to use `Int4WeightOnlyConfig(group_size, use_hqq=True, version=1)` for the best performance&quot;</span>
             <span class="p">)</span>
         <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">dtype</span><span class="p">]</span>
         <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>

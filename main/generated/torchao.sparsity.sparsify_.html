@@ -474,7 +474,7 @@ This function is essentially the same as quantize, put for sparsity subclasses.<
 
 <span class="c1"># for int8 dynamic quantization + 2:4 sparsity</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">SemiSparseLayout</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">),</span> <span class="n">filter_fn</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">),</span> <span class="n">filter_fn</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
