@@ -12,20 +12,20 @@ from torch import nn
 from torch.testing._internal import common_utils
 
 from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
+from torchao.quantization import (
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
+    Float8DynamicActivationFloat8WeightConfig,
+)
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
+from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-
-from torchao.quantization import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
-    Float8DynamicActivationFloat8WeightConfig,
 )
 
 
@@ -126,6 +126,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
 
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_fp8_cutlass_sparse(self, compile):
@@ -155,6 +156,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
 
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_fp8_cutlass_sparse_lowering_op_clone(self):
         with torch.inference_mode():
@@ -168,6 +170,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
             for o, c in zip(original, cloned):
                 torch.testing.assert_close(o, c, atol=0.0, rtol=0.0)
 
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_fp8_cutlass_sparse_lowering_op_to(self):
         # Need to run with inference mode to avoid dispatching to `aten.to_copy`
