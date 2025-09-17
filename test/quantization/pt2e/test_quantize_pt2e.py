@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
+# Copyright 2025 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
@@ -1214,6 +1215,88 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         self.assertIsNot(observers[0], observers[1])
         self.assertIsNot(observers[0], observers[2])
         self.assertIsNot(observers[1], observers[2])
+
+    def test_allow_implicit_sharing_with_shared_input_edge(self):
+        """This tests implicit sharing when an input edge x is shared between
+        two ops in the following manner:
+
+        x -> minimum(x, y) -> a -\
+         \                        \
+          \----------------------> eq(a, x) -> b
+
+        Both ops are annotated such that one input uses a QuantizationSpec and
+        the other uses a SharedQuantizationSpec to the former.
+
+        Verify that inputs to minimum and its output share the same observer;
+        inputs to eq should also share that same observer due to implicit
+        sharing.
+        """
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.nodes:
+                    if node.target in [
+                        torch.ops.aten.minimum.default,
+                        torch.ops.aten.eq.Tensor,
+                    ]:
+                        input_qspec_map = {}
+                        qspec = QuantizationSpec(
+                            dtype=torch.uint8,
+                            quant_min=0,
+                            quant_max=255,
+                            qscheme=torch.per_tensor_affine,
+                            is_dynamic=False,
+                            observer_or_fake_quant_ctr=observer.default_observer,
+                        )
+                        shared_qspec = SharedQuantizationSpec((node.args[0], node))
+
+                        input_qspec_map[node.args[0]] = qspec
+                        input_qspec_map[node.args[1]] = shared_qspec
+                        if node.target is torch.ops.aten.minimum.default:
+                            output_qspec = shared_qspec
+                        elif node.target is torch.ops.aten.eq.Tensor:
+                            # Output is bool, quantization not applicable
+                            output_qspec = None
+                        else:
+                            assert False
+
+                        node.meta["quantization_annotation"] = QuantizationAnnotation(
+                            input_qspec_map=input_qspec_map,
+                            output_qspec=output_qspec,
+                            allow_implicit_sharing=True,
+                            _annotated=True,
+                        )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def forward(self, x, y):
+                a = torch.minimum(x, y)
+                b = a == x
+                return b
+
+        m = M().eval()
+        example_inputs = (torch.randn(1, 5), torch.randn(1, 5))
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        prepare_pt2e(m, BackendAQuantizer())
+        m(*example_inputs)
+        observers = []
+        for n in m.graph.nodes:
+            if n.target == torch.ops.aten.minimum.default:
+                input_obs1 = getattr(m, n.args[0].target)
+                input_obs2 = getattr(m, n.args[1].target)
+                output_obs = getattr(m, next(iter(n.users)).target)
+                self.assertIs(input_obs1, input_obs2)
+                self.assertIs(input_obs1, output_obs)
+                observers.append(input_obs1)
+            if n.target == torch.ops.aten.eq.Tensor:
+                input_obs1 = getattr(m, n.args[0].target)
+                input_obs2 = getattr(m, n.args[1].target)
+                self.assertIs(input_obs1, input_obs2)
+                observers.append(input_obs1)
+        assert len(observers) == 2
+        self.assertIs(observers[0], observers[1])
 
     @parametrize("dtype", (torch.float32, torch.bfloat16))
     @parametrize("quant_dtype", (torch.int16, torch.float8_e5m2, torch.float8_e4m3fn))

@@ -153,15 +153,18 @@ def _union_if_no_cycle(
     root_parent = _find_root_edge_or_node(parent, shared_with_map)
     root_child = _find_root_edge_or_node(child, shared_with_map)
 
-    # Union the two trees by pointing the root of child to root of parent
-    # unless the parent qspec points to the root of child; that would create an
-    # undesired cycle and the nodes are in practice already unioned.
     parent_qspec = edge_or_node_to_qspec[root_parent]
     if not (
         isinstance(parent_qspec, SharedQuantizationSpec)
         and parent_qspec.edge_or_node == root_child
     ):
+        # union the two trees by pointing the root of child to root of parent
         shared_with_map[root_child] = root_parent
+    else:
+        # Parent already references child with a shared qspec (would create a
+        # cycle). The sets are effectively already unified via the shared
+        # qspec, so we leave shared_with_map unchanged.
+        pass
 
 
 def _update_shared_with(
