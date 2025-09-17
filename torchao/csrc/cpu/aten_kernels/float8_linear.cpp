@@ -180,7 +180,7 @@ static void cvt_f8e4m3_to_bf16(
 // accumulate and store result to buffer
 // if act/wei are per_group quantized, apply scales
 template <bool accum, int64_t N, int act_quant_mode, int wei_quant_mode>
-static void _store_result(
+static void _accumulate_result(
     float* __restrict__ output,
     const float* __restrict__ input,
     const float* __restrict__ scale_a,
@@ -359,20 +359,16 @@ void _micro_gemm(
     int64_t K,
     int64_t lda,
     int64_t ldc,
-    int64_t ldsa) {
+    int64_t ldsa,
+    float* ukernel_buf,
+    at::BFloat16* dqA_buf,
+    at::BFloat16* dqB_buf) {
   // If FP8 brgemm is not available, convert A/B to bf16 for computation
   // Compute GEMM fp8 * fp8 -> fp32 (or bf16 * bf16 -> fp32)
   // If per_group quant, apply scales. Otherwise, don't apply scales here
   // Finally accumulate and store results
-#ifndef CPUBLAS_BRGEMM_F8F8F32
-  at::BFloat16 dqB[K * N];
-  cvt_f8e4m3_to_bf16(B, dqB, K, N, N);
-  at::BFloat16 dqA[M * K];
-  cvt_f8e4m3_to_bf16(A, dqA, M, K, lda);
-#endif
 #if defined(CPU_CAPABILITY_AVX512)
   if constexpr (cpublas_can_pack) {
-    float C_f32[M * N];
 #ifdef CPUBLAS_BRGEMM_F8F8F32
     at::native::cpublas::brgemm(
         M,
@@ -384,9 +380,11 @@ void _micro_gemm(
         false /* add_C */,
         A,
         B,
-        C_f32,
+        ukernel_buf,
         true /* is_vnni */);
 #else
+    cvt_f8e4m3_to_bf16(A, dqA_buf, M, K, lda);
+    cvt_f8e4m3_to_bf16(B, dqB_buf, K, N, N);
     at::native::cpublas::brgemm(
         M,
         N,
@@ -395,16 +393,16 @@ void _micro_gemm(
         N /*ldb*/,
         N /*ldc*/,
         false /* add_C */,
-        dqA,
-        dqB,
-        C_f32,
+        dqA_buf,
+        dqB_buf,
+        ukernel_buf,
         true /* is_vnni */);
 #endif
     _mm_prefetch(B + N * (K + 128), _MM_HINT_T0);
     _mm_prefetch(A + K + 128, _MM_HINT_T0);
-    _store_result<true, N, act_quant_mode, wei_quant_mode>(
+    _accumulate_result<true, N, act_quant_mode, wei_quant_mode>(
         C,
-        C_f32,
+        ukernel_buf,
         scales_a,
         scales_b,
         M,
@@ -418,11 +416,7 @@ void _micro_gemm(
       for (int64_t j = 0; j < N; ++j) {
         float sum = 0;
         for (int64_t k = 0; k < K; ++k) {
-#ifdef CPUBLAS_BRGEMM_F8F8F32
           sum += ((float)A[i * lda + k] * (float)B[k * N + j]);
-#else
-          sum += ((float)dqA[i * K + k] * dqB[k * N + j]);
-#endif
         }
         if constexpr (act_quant_mode == PER_GROUP) {
           sum *= scales_a[i * ldsa];
@@ -482,9 +476,31 @@ void _float8_linear_impl(
   int64_t block_size = block_m * block_n;
   int64_t num_thread = at::get_num_threads();
   at::Tensor y_buffer = at::empty({num_thread, block_size}, output.options().dtype(at::kFloat));
+  // Create buffer for brgemm output and dqA/dqB (optional)
+#if defined(CPU_CAPABILITY_AVX512)
+  // buffer for brgemm output in float32
+  int64_t buffer_size = block_size * 2; // float32 = bfloat16 * 2
+#ifndef CPUBLAS_BRGEMM_F8F8F32
+  // buffers for dqA & dqB in bf16
+  buffer_size += (block_k * block_n + block_m * block_k);
+#endif
+  at::Tensor micro_gemm_buffer = at::empty({num_thread, buffer_size}, output.options().dtype(at::kBFloat16));
+#endif
 
   at::parallel_for(0, num_parallel_blocks, 1, [&](int64_t begin, int64_t end) {
+    // Get the address of pre-allocated buffers
     float* y_buf = y_buffer.data_ptr<float>() + at::get_thread_num() * block_size;
+    at::BFloat16 *dqA_buffer = nullptr, *dqB_buffer = nullptr;
+    float* ukernel_buf = nullptr;
+#if defined(CPU_CAPABILITY_AVX512)
+    at::BFloat16* micro_gemm_buf = micro_gemm_buffer.data_ptr<at::BFloat16>() + at::get_thread_num() * buffer_size;
+    ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf);
+#ifndef CPUBLAS_BRGEMM_F8F8F32
+    dqA_buffer = micro_gemm_buf;
+    dqB_buffer = micro_gemm_buf + block_m * block_k;
+    ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf + block_m * block_k + block_k * block_n);
+#endif
+#endif
     int64_t mc = 0, nc = 0;
     at::native::data_index_init(begin, mc, Mc_parallel, nc, Nc);
     for (const auto i : c10::irange(begin, end)) {
@@ -498,16 +514,19 @@ void _float8_linear_impl(
           auto scales_a = a_scales_ptr + mci * block_m * num_groups + kci / block_per_group;
           auto scales_b = b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n;
           _micro_gemm<cpublas_can_pack, block_n, act_quant_mode, wei_quant_mode>(
-            /* C */        y_buf,
-            /* A */        a_ptr + mci * block_m * K + kci * block_k,
-            /* A scales */ scales_a,
-            /* B */        b_ptr + (nc * Kc + kci) * block_n * block_k,
-            /* B scales */ scales_b,
-            /* M */        m_size,
-            /* K */        block_k,
-            /* lda */      K,
-            /* ldc */      block_n,
-            /* ldsa */     ldsa);
+            /* C */           y_buf,
+            /* A */           a_ptr + mci * block_m * K + kci * block_k,
+            /* scales_a */    scales_a,
+            /* B */           b_ptr + (nc * Kc + kci) * block_n * block_k,
+            /* scales_b */    scales_b,
+            /* M */           m_size,
+            /* K */           block_k,
+            /* lda */         K,
+            /* ldc */         block_n,
+            /* ldsa */        ldsa,
+            /* ukernel_buf */ ukernel_buf,
+            /* dqA_buf */     dqA_buffer,
+            /* dqB_buf */     dqB_buffer);
         }
         // store y_buf to output with dtype conversion
         auto scales_a = act_quant_mode == PER_TENSOR ? a_scales_ptr :
