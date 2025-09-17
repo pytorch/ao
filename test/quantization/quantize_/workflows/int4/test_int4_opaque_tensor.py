@@ -84,7 +84,7 @@ class TestInt4OpaqueTensor(TestCase):
         linear2 = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
         with torch.no_grad():
             linear2.weight.copy_(linear1.weight)
-        original = linear2(input)
+        original_output = linear2(input)
         quantize_(linear1, get_config(group_size=128))
         quantize_(linear2, get_config(group_size=128))
         qw1 = linear1.weight
@@ -105,7 +105,7 @@ class TestInt4OpaqueTensor(TestCase):
         # If pre-scaling is auto-applied, the quantization error should be low,
         # i.e., compute_error (SQNR) is high
         self.assertTrue(
-            compute_error(original * _ACT_PRE_SCALE, auto_scaled_quantized) > 20
+            compute_error(original_output * _ACT_PRE_SCALE, auto_scaled_quantized) > 20
         )
 
 
