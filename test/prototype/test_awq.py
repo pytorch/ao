@@ -81,7 +81,7 @@ class TestAWQ(TestCase):
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque"
+                group_size=group_size, int4_packing_format="opaque"
             )
             torch.manual_seed(1234)
         else:
@@ -139,7 +139,7 @@ class TestAWQ(TestCase):
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque"
+                group_size=group_size, int4_packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)
@@ -200,7 +200,7 @@ class TestAWQ(TestCase):
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque"
+                group_size=group_size, int4_packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)

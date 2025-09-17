@@ -29,7 +29,7 @@ from torchao.utils import (
 def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
-        packing_format="opaque",
+        int4_packing_format="opaque",
     )
 
 

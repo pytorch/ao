@@ -256,7 +256,7 @@ def quantize_and_eval(
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque"
+                group_size=group_size, int4_packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)
@@ -298,7 +298,7 @@ def quantize_and_eval(
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
-                group_size=group_size, packing_format="opaque"
+                group_size=group_size, int4_packing_format="opaque"
             )
         else:
             assert False, "Unsupported device: {}".format(device)
