@@ -27,6 +27,7 @@ from torchao.quantization import (
     PerRow,
     quantize_,
 )
+from torchao.prototype.smoothquant import SmoothQuantConfig
 
 
 def _get_username():
@@ -736,6 +737,35 @@ def quantize_and_upload(
         quantized_model = model
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
         quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+    elif quant == "SMOOTHQUANT-W8A8":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_to_quantize,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        base_config = Int8DynamicActivationInt8WeightConfig()
+        quant_config = SmoothQuantConfig(base_config, step="prepare")
+        quantize_(
+            model,
+            quant_config,
+        )
+        TransformerEvalWrapper(
+            model=model,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+        quant_config = SmoothQuantConfig(base_config, step="convert")
+        quantize_(model, quant_config)
+
+        quantized_model = model
+
+        load_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+        quantized_model.config.quantization_config = TorchAoConfig(load_config)
     else:
         # other quantization are integrated with `from_pretrained` in huggingface transformers
         assert quant in quant_to_config, f"Unsupported quant option: {quant}"
