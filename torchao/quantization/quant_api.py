@@ -647,7 +647,11 @@ int8_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
 
 @register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
 def _int8_dynamic_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Int8DynamicActivationInt4WeightConfig
+    module: torch.nn.Module,
+    config: Int8DynamicActivationInt4WeightConfig,
+    *,
+    custom_scale: Optional[torch.Tensor] = None,
+    custom_zero_point: Optional[torch.Tensor] = None,
 ):
     group_size = config.group_size
     layout = config.layout
@@ -700,6 +704,8 @@ def _int8_dynamic_activation_int4_weight_transform(
             quant_min=0,
             quant_max=15,
             _layout=layout,
+            custom_scale=custom_scale,
+            custom_zero_point=custom_zero_point,
         )
     else:
         weight = to_affine_quantized_intx(
@@ -710,6 +716,8 @@ def _int8_dynamic_activation_int4_weight_transform(
             quant_min,
             quant_max,
             _layout=layout,
+            custom_scale=custom_scale,
+            custom_zero_point=custom_zero_point,
         )
     weight = to_linear_activation_quantized(weight, input_quant_func)
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
@@ -809,7 +817,14 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
                     )
 
 
-def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
+def _int8_dynamic_activation_intx_weight_quantize_tensor(
+    weight,
+    bias,
+    config,
+    *,
+    custom_scale: Optional[torch.Tensor] = None,
+    custom_zero_point: Optional[torch.Tensor] = None,
+):
     weight_dtype = config.weight_dtype
     weight_granularity = config.weight_granularity
     weight_mapping_type = config.weight_mapping_type
@@ -847,12 +862,16 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
             intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8
             or intx_packing_format in opaque_formats
         ), f"Unsupported packing format: {intx_packing_format}"
+        if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
+            custom_zero_point = custom_zero_point.to(torch.int8)
         new_weight = IntxUnpackedToInt8Tensor.from_hp(
             weight,
             block_size,
             weight_dtype,
             mapping_type=weight_mapping_type,
             activation_quantization="int8_asym_per_token",
+            custom_scale=custom_scale,
+            custom_zero_point=custom_zero_point,
         )
         if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
             _adjust_scale_dtype_in_intx_unpacked_tensor(
@@ -939,10 +958,18 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
 
 @register_quantize_module_handler(Int8DynamicActivationIntxWeightConfig)
 def _int8_dynamic_activation_intx_weight_transform(
-    module: torch.nn.Module, config: Int8DynamicActivationIntxWeightConfig
+    module: torch.nn.Module,
+    config: Int8DynamicActivationIntxWeightConfig,
+    *,
+    custom_scale: Optional[torch.Tensor] = None,
+    custom_zero_point: Optional[torch.Tensor] = None,
 ) -> torch.nn.Module:
     new_weight, new_bias = _int8_dynamic_activation_intx_weight_quantize_tensor(
-        module.weight, module.bias, config
+        module.weight,
+        module.bias,
+        config,
+        custom_scale=custom_scale,
+        custom_zero_point=custom_zero_point,
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     if new_bias is None:
@@ -2177,7 +2204,13 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         )
 
 
-def _intx_weight_only_quantize_tensor(weight, config):
+def _intx_weight_only_quantize_tensor(
+    weight,
+    config,
+    *,
+    custom_scale: Optional[torch.Tensor] = None,
+    custom_zero_point: Optional[torch.Tensor] = None,
+):
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mapping_type = config.mapping_type
@@ -2202,11 +2235,15 @@ def _intx_weight_only_quantize_tensor(weight, config):
 
     if config.version == 2:
         if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
+            if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
+                custom_zero_point = custom_zero_point.to(torch.int8)
             new_weight = IntxUnpackedToInt8Tensor.from_hp(
                 weight,
                 block_size,
                 weight_dtype,
                 mapping_type=mapping_type,
+                custom_scale=custom_scale,
+                custom_zero_point=custom_zero_point,
             )
             if scale_dtype is not None and scale_dtype != weight.dtype:
                 _adjust_scale_dtype_in_intx_unpacked_tensor(
@@ -2241,13 +2278,22 @@ def _intx_weight_only_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(IntxWeightOnlyConfig)
 def _intx_weight_only_transform(
-    module: torch.nn.Module, config: IntxWeightOnlyConfig
+    module: torch.nn.Module,
+    config: IntxWeightOnlyConfig,
+    *,
+    custom_scale: Optional[torch.Tensor] = None,
+    custom_zero_point: Optional[torch.Tensor] = None,
 ) -> torch.nn.Module:
     assert hasattr(module, "weight"), (
         "applying intx weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
-    new_weight = _intx_weight_only_quantize_tensor(module.weight, config)
+    new_weight = _intx_weight_only_quantize_tensor(
+        module.weight,
+        config,
+        custom_scale=custom_scale,
+        custom_zero_point=custom_zero_point,
+    )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
 
     if isinstance(module, nn.Linear):
