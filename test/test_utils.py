@@ -340,6 +340,9 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
+    def test__get_to_kwargs_with_layout(self):
+        MyClass = TorchAOBaseTensor()
+        MyClass._get_to_kwargs(torch.strided,device="cuda")
 
 if __name__ == "__main__":
     unittest.main()
