@@ -14,7 +14,9 @@ if [[ "$CU_VERSION" == cu* ]]; then
 
     pushd dist
     manylinux_plat=manylinux_2_28_x86_64
-    auditwheel repair --plat "$manylinux_plat" -w . \
+    # Only run auditwheel if the wheel contains at least one shared object (.so)
+    if unzip -l "$WHEEL_NAME" | awk '{print $4}' | grep -E '\\.so($|\.)' >/dev/null 2>&1; then
+        auditwheel repair --plat "$manylinux_plat" -w . \
     --exclude libtorch.so \
     --exclude libtorch_python.so \
     --exclude libtorch_cuda.so \
@@ -24,10 +26,13 @@ if [[ "$CU_VERSION" == cu* ]]; then
     --exclude libcuda.so.* \
     --exclude libcudart.so.* \
     "${WHEEL_NAME}"
+    else
+        echo "No shared libraries detected in wheel ${WHEEL_NAME}; skipping auditwheel."
+    fi
 
     ls -lah .
     # Clean up the linux_x86_64 wheel
-    rm "${WHEEL_NAME}"
+    rm -f "${WHEEL_NAME}"
     popd
 fi
 
