@@ -98,6 +98,7 @@ version = (
 def use_debug_mode():
     return os.getenv("DEBUG", "0") == "1"
 
+
 # Heavy imports (torch, torch.utils.cpp_extension) are deferred to build time
 
 
@@ -131,6 +132,7 @@ class BuildOptions:
         )
         if self.build_experimental_mps:
             import torch  # Lazy import
+
             assert is_macos, "TORCHAO_BUILD_EXPERIMENTAL_MPS requires macOS"
             assert is_arm64, "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
             assert torch.mps.is_available(), (
@@ -259,6 +261,7 @@ def get_cutlass_build_flags():
     # Lazy import torch and helper; only needed when building CUDA extensions
     import torch
     from torch.utils.cpp_extension import _get_cuda_arch_flags
+
     # Try nvcc then torch version
     cuda_version = get_cuda_version_from_nvcc() or torch.version.cuda
 
@@ -300,10 +303,14 @@ class LazyTorchAOBuildExt(_setuptools_build_ext):
 
             def build_extensions(self_inner):
                 cmake_extensions = [
-                    ext for ext in self_inner.extensions if isinstance(ext, CMakeExtension)
+                    ext
+                    for ext in self_inner.extensions
+                    if isinstance(ext, CMakeExtension)
                 ]
                 other_extensions = [
-                    ext for ext in self_inner.extensions if not isinstance(ext, CMakeExtension)
+                    ext
+                    for ext in self_inner.extensions
+                    if not isinstance(ext, CMakeExtension)
                 ]
                 for ext in cmake_extensions:
                     self_inner.build_cmake(ext)
@@ -313,7 +320,9 @@ class LazyTorchAOBuildExt(_setuptools_build_ext):
                 self_inner.extensions = other_extensions + cmake_extensions
 
             def build_cmake(self_inner, ext):
-                extdir = os.path.abspath(os.path.dirname(self_inner.get_ext_fullpath(ext.name)))
+                extdir = os.path.abspath(
+                    os.path.dirname(self_inner.get_ext_fullpath(ext.name))
+                )
                 if not os.path.exists(self_inner.build_temp):
                     os.makedirs(self_inner.build_temp)
                 ext_filename = os.path.basename(self_inner.get_ext_filename(ext.name))
@@ -343,7 +352,9 @@ class LazyTorchAOBuildExt(_setuptools_build_ext):
                     ],
                     cwd=self_inner.build_temp,
                 )
-                subprocess.check_call(["cmake", "--build", "."], cwd=self_inner.build_temp)
+                subprocess.check_call(
+                    ["cmake", "--build", "."], cwd=self_inner.build_temp
+                )
 
         # Morph this instance into the real BuildExtension subclass and run
         self.__class__ = _TorchAOBuildExt
