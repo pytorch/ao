@@ -193,8 +193,9 @@ def _attach_hf_quantization_config(
         if not hasattr(module, "weight"):
             continue
 
+        # Do not quantize pointers to tied weights or normalization layers
         data_ptr = module.weight.data_ptr()
-        if data_ptr in seen_data_ptrs:  # do not re-quantize tied weight
+        if data_ptr in seen_data_ptrs or name.endswith("norm"):
             modules_to_not_convert.append(name)
             continue
         seen_data_ptrs.add(data_ptr)
