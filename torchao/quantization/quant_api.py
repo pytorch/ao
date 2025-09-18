@@ -1085,7 +1085,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2
-        `packing_format`: the packing format for int4 tensor, used in version 2 only
+        `int4_packing_format`: the packing format for int4 tensor, used in version 2 only
          `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`, used in version 1 only
@@ -1093,7 +1093,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE], used in version 1 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
         `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT, used in version 1 only
-        `version`: version of the config to use, only subset of above args are valid for version 1, and subset of above args are valid for version 2, default is 1, see note for more details
+        `version`: version of the config to use, only subset of above args are valid for version 1, and subset of above args are valid for version 2, default is 2, see note for more details
 
     Note:
         Current state for Int4WeightOnlyConfig is that it supports both v1 (legacy) and v2
@@ -1150,8 +1150,9 @@ def _int4_weight_only_quantize_tensor(weight, config):
         block_size = list(block_size)
 
         if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
-            assert int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D, (
-                f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D curretnly"
+            assert int4_packing_format in [Int4PackingFormat.TILE_PACKED_TO_4D, Int4PackingFormat.OPAQUE], (
+                f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, "
+                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D and Int4PackingFormat.OPAQUE curretnly"
             )
 
         if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
@@ -1183,6 +1184,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             new_weight = Int4OpaqueTensor.from_hp(
                 weight,
                 block_size,
+                int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
             )
             return new_weight
         elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:

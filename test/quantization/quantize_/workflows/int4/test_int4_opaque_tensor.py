@@ -26,11 +26,18 @@ from torchao.utils import (
 )
 
 
-def get_config(group_size):
-    return Int4WeightOnlyConfig(
-        group_size=group_size,
-        int4_packing_format="opaque",
-    )
+def get_config(group_size, hqq):
+    if hqq:
+        return Int4WeightOnlyConfig(
+            group_size=group_size,
+            int4_packing_format="opaque",
+            int4_choose_qparams_algorithm="hqq",
+        )
+    else:
+        return Int4WeightOnlyConfig(
+            group_size=group_size,
+            int4_packing_format="opaque",
+        )
 
 
 @unittest.skipIf(not torch_version_at_least("2.6.0"), "Need pytorch 2.6+")
@@ -45,13 +52,14 @@ class TestInt4OpaqueTensor(TestCase):
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
     @parametrize("group_size", [32, 64, 128])
-    def test_linear(self, sizes, dtype, group_size):
+    @parametrize("hqq", [True, False])
+    def test_linear(self, sizes, dtype, group_size, hqq):
         device = "cpu"
         M, N, K = sizes
         input = torch.randn(*M, K, dtype=dtype, device=device)
         linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
         original = linear(input)
-        quantize_(linear, get_config(group_size))
+        quantize_(linear, get_config(group_size, hqq))
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > 20)
 
@@ -60,9 +68,10 @@ class TestInt4OpaqueTensor(TestCase):
         self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
 
     @parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
-    def test_module_path(self, dtype):
+    @parametrize("hqq", [True, False])
+    def test_module_path(self, dtype, hqq):
         linear = torch.nn.Linear(128, 256, dtype=dtype)
-        quantize_(linear, get_config(group_size=128))
+        quantize_(linear, get_config(group_size=128, hqq=hqq))
         self.assertEqual(
             str(type(linear.weight)),
             "<class 'torchao.quantization.Int4OpaqueTensor'>",
@@ -77,12 +86,13 @@ class TestInt4OpaqueTensor(TestCase):
                 "<class 'torchao.quantization.Int4OpaqueTensor'>",
             )
 
-    def test_activation_prescaling(self):
+    @parametrize("hqq", [True, False])
+    def test_activation_prescaling(self, hqq):
         dtype = torch.bfloat16
         input = torch.randn(1, 128, dtype=dtype)
         linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
         original_output = linear(input)
-        quantize_(linear, get_config(group_size=128))
+        quantize_(linear, get_config(group_size=128, hqq=hqq))
         qw = linear.weight
         assert isinstance(qw, SupportsActivationPreScaling), (
             "Expected int4 tensor supports activation prescaling"

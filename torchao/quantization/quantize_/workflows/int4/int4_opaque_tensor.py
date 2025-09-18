@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import math
 from typing import List, Optional
 
 import torch
@@ -12,11 +13,14 @@ import torch
 from torchao.quantization.quant_primitives import (
     MappingType,
     _choose_qparams_affine_tinygemm,
+    _choose_qparams_and_quantize_affine_hqq,
     _quantize_affine_tinygemm,
 )
+from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import (
     TorchAOBaseTensor,
 )
+from .int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 
 __all__ = [
     "Int4OpaqueTensor",
@@ -95,6 +99,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         cls,
         w: torch.Tensor,
         block_size: List[int],
+        int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
     ):
         assert w.ndim == 2 and w.device.type == "cpu", (
             f"Expecting 2D tensor on CPU, but got: {w.shape} on {w.device.type}"
@@ -111,26 +116,58 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         eps = 1e-6
         scale_dtype = None
         zero_point_dtype = w.dtype
-        scale, zero_point = _choose_qparams_affine_tinygemm(
-            w,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            scale_dtype,
-            zero_point_dtype,
-        )
-        int_data = _quantize_affine_tinygemm(
-            w,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min,
-            quant_max,
-        )
+
+        # we support two paths for constructing a Int4OpaqueTensor
+        # 1. use [hqq](https://mobiusml.github.io/hqq_blog/) algorithm to compute
+        # scale and zero_point, then convert to the format that's compatible with tinygemm kernels
+        # 2. don't use hqq, use default tinygemm algorithm to compute scale and zero_point
+        #
+        # both approach should have the same speed since both are using tinygemm kernel for gemm
+        # 1. typically will have higher accuracy compared to 2.
+        if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
+            nbits = int(math.log2(quant_max + 1))
+            axis = 1
+            group_size = block_size[-1]
+            int_data, scale, zero_point, _ = _choose_qparams_and_quantize_affine_hqq(
+                w,
+                nbits=nbits,
+                group_size=group_size,
+                axis=axis,
+                compute_dtype=zero_point_dtype,
+                device=w.device,
+                verbose=False,
+                raw_output=False,
+                # raw_output=False is basically the 'convert to tinygemm zero_point version' option (add scale*midpoint) that's used in TilePackedTo4d
+                # note _choose_qparams_affine_tinygemm does this same thing
+            )
+            int_data = int_data.to(target_dtype)
+        else:
+            assert (
+                int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.TINYGEMM
+            ), (
+                f"Unsupported Int4ChooseQParamsAlgorithm: {int4_choose_qparams_algorithm}"
+            )
+
+            scale, zero_point = _choose_qparams_affine_tinygemm(
+                w,
+                mapping_type,
+                block_size,
+                target_dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype,
+                zero_point_dtype,
+            )
+            int_data = _quantize_affine_tinygemm(
+                w,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+            )
         assert int_data.dtype == torch.int32, (
             "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
         )
@@ -141,7 +178,6 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
         return Int4OpaqueTensor(
