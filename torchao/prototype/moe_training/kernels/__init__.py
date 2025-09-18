@@ -7,6 +7,3 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales as triton_fp8_per_group_rowwise_scales,
 )
-from torchao.prototype.moe_training.kernels.mxfp8_gemms import (
-    fbgemm_mxfp8_grouped_mm_2d_3d as fbgemm_mxfp8_grouped_mm_2d_3d,
-)
