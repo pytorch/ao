@@ -2327,8 +2327,8 @@ def _dequantize_affine_float8(
     return hp_tensor.to(output_dtype)
 
 
-@_register_custom_op(quant_lib, False, "CPU")
-def _quantize_affine_float8_cpu(
+@_register_custom_op(quant_lib, False)
+def _quantize_affine_float8_non_decomposed(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -2343,8 +2343,8 @@ def _quantize_affine_float8_cpu(
     )
 
 
-@_register_meta_op(quant_lib, "quantize_affine_float8_cpu")
-def _quantize_affine_float8_cpu_meta(
+@_register_meta_op(quant_lib, "quantize_affine_float8_non_decomposed")
+def _quantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -2352,8 +2352,8 @@ def _quantize_affine_float8_cpu_meta(
     return torch.empty_like(tensor, dtype=float8_dtype)
 
 
-@_register_custom_op(quant_lib, False, "CPU")
-def _dequantize_affine_float8_cpu(
+@_register_custom_op(quant_lib, False)
+def _dequantize_affine_float8_non_decomposed(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     output_dtype: torch.dtype = torch.float32,
@@ -2368,8 +2368,8 @@ def _dequantize_affine_float8_cpu(
     )
 
 
-@_register_meta_op(quant_lib, "dequantize_affine_float8_cpu")
-def _dequantize_affine_float8_cpu_meta(
+@_register_meta_op(quant_lib, "dequantize_affine_float8_non_decomposed")
+def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     output_dtype: torch.dtype = torch.float32,
