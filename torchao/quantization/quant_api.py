@@ -78,6 +78,8 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    Int8CsrSparseTensor,
+    Int8PackingFormat,
     IntxOpaqueTensor,
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
@@ -1514,6 +1516,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     set_inductor_config: bool = True
+    version: int = 2
+    int8_packing_format: Int8PackingFormat = Int8PackingFormat.CSR_SPARSE
+    target_sparsity: float = 7.0
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1540,7 +1545,34 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             f" because `in_feature` is <= 16: {in_features}"
         )
         return weight
+    if config.version == 2:
+        block_size = [1, in_features]
+        if config.int8_packing_format == Int8PackingFormat.CSR_SPARSE:
+            if weight_only_decode:
+                act_mode = "noop"
+            else:
+                act_mode = (
+                    "int8_sym_per_token"
+                    if act_mapping_type == MappingType.SYMMETRIC
+                    else "int8_asym_per_token"
+                )
 
+            new_weight = Int8CsrSparseTensor.from_hp(
+                weight,
+                block_size=block_size,
+                act_mode=act_mode,
+                target_sparsity=config.target_sparsity,
+            )
+            return new_weight
+        else:
+            print(
+                "Unsupported packing format for version 2 of Int8DynamicActivationInt8WeightConfig, only Int8PackingFormat.CSR_SPARSE is supported"
+            )
+    # version 1
+    assert config.version == 1
+    warnings.warn(
+        "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details"
+    )
     # weight settings
     mapping_type = MappingType.SYMMETRIC
     weight_zero_point_domain = ZeroPointDomain.NONE
