@@ -538,14 +538,14 @@ class TestQuantFlow(TestCase):
 
         reset_memory()
 
-        m = ToyLinearModel(64, 32, 64)
+        m = ToyTwoLinearModel(64, 32, 64)
         quantize_(m.to(device="cuda"), Int8WeightOnlyConfig())
         memory_baseline = torch.cuda.max_memory_allocated()
 
         del m
         reset_memory()
 
-        m = ToyLinearModel(64, 32, 64)
+        m = ToyTwoLinearModel(64, 32, 64)
         quantize_(m, Int8WeightOnlyConfig(), device="cuda")
         memory_streaming = torch.cuda.max_memory_allocated()
 

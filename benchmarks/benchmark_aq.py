@@ -40,7 +40,7 @@ def _int4wo_api(mod, **kwargs):
     if "groupsize" in kwargs_copy:
         kwargs_copy["group_size"] = kwargs_copy["groupsize"]
         del kwargs_copy["groupsize"]
-    quantize_(mod, int4_weight_only(**kwargs_copy))
+    quantize_(mod, Int4WeightOnlyConfig(**kwargs_copy))
 
 
 def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
