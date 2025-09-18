@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 import copy
 import tempfile
-import unittest
 
 import torch
+from parameterized import parameterized
 from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
@@ -59,11 +59,15 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@unittest.skipIf(
-    not _is_fbgemm_genai_gpu_available(),
-    reason="need to install fbgemm_gpu_genai package",
-)
+devices = ["cpu"]
+if (
+    torch.cuda.is_available()
+    and _is_fbgemm_genai_gpu_available()
+    and torch_version_at_least("2.6.0")
+):
+    devices.append("cuda")
+
+
 class TestAWQ(TestCase):
     def test_awq_config(self):
         base_config = Int4WeightOnlyConfig()
@@ -78,10 +82,10 @@ class TestAWQ(TestCase):
         with self.assertRaisesRegex(ValueError, "is not one of"):
             AWQConfig(base_config, step="not_supported")
 
-    def test_awq_functionality(self):
+    @parameterized.expand([(device,) for device in devices])
+    def test_awq_functionality(self, device):
         from torchao._models._eval import TransformerEvalWrapper
 
-        device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -92,7 +96,15 @@ class TestAWQ(TestCase):
         m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
 
         # baseline quantization
-        base_config = Int4WeightOnlyConfig(group_size=group_size)
+        if device == "cuda":
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, int4_packing_format="opaque"
+            )
+            torch.manual_seed(1234)
+        else:
+            assert False, "Unsupported device: {}".format(device)
         m_baseline = copy.deepcopy(m)
         quantize_(m_baseline, base_config)
 
@@ -124,8 +136,8 @@ class TestAWQ(TestCase):
         loss_base = (ref_out - baseline_out).pow(2).mean().item()
         assert loss_awq < loss_base
 
-    def test_awq_loading(self):
-        device = "cuda"
+    @parameterized.expand([(device,) for device in devices])
+    def test_awq_loading(self, device):
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -143,7 +155,14 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = Int4WeightOnlyConfig(group_size=group_size)
+        if device == "cuda":
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, int4_packing_format="opaque"
+            )
+        else:
+            assert False, "Unsupported device: {}".format(device)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 
@@ -172,14 +191,14 @@ class TestAWQ(TestCase):
         assert awq_save_load_out is not None
         assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
 
-    def test_awq_loading_vllm(self):
+    @parameterized.expand([(device,) for device in devices])
+    def test_awq_loading_vllm(self, device):
         """Simulate weight loading in vllm:
         * prepare model weight to the same format (awq weight)
         * use weight.copy_(state_dict["weight"]) to copy over the quantized weights from checkpoint
 
         There is also a slicing op that is ommitted here, overall e2e is tested in tests in vllm repo
         """
-        device = "cuda"
         dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
@@ -197,7 +216,14 @@ class TestAWQ(TestCase):
         calibration_data = dataset[:n_calibration_examples]
 
         # calibrate
-        base_config = Int4WeightOnlyConfig(group_size=group_size)
+        if device == "cuda":
+            base_config = Int4WeightOnlyConfig(group_size=group_size)
+        elif device == "cpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, int4_packing_format="opaque"
+            )
+        else:
+            assert False, "Unsupported device: {}".format(device)
         quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
         quantize_(m, quant_config)
 

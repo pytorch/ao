@@ -1,70 +1,38 @@
-from collections.abc import Sequence
 from typing import Optional
 
 import sympy
 import torch
 from torch._inductor.ir import ChoiceCaller, FixedLayout, TensorBox, get_fill_order
+
+try:
+    # use the directory after refactor
+    from torch._inductor.kernel.flex.common import construct_strides, maybe_realize
+except ImportError:
+    # use the old path for compatibility
+    from torch._inductor.kernel.flex_attention import construct_strides, maybe_realize
 from torch._inductor.lowering import register_lowering
 from torch._inductor.select_algorithm import (
     ExternKernelChoice,
     autotune_select_algorithm,
-    realize_inputs,
 )
-from torch.utils._pytree import tree_map
 
 from .codegen.cpp_int8_sdpa_template import CppInt8SdpaTemplate
 
-
-# Copied directly from https://github.com/pytorch/pytorch/commit/e221a1c853b425b8d70b36d545ccb32ddc8176bd
-def maybe_realize(args):
-    """Accepts a list of optional IRNodes and returns a list of realized IRNodes"""
-    return tree_map(
-        lambda x: (
-            realize_inputs(x)
-            if x is not None and not isinstance(x, sympy.Symbol)
-            else x
-        ),
-        args,
-    )
-
-
-# Copied directly from https://github.com/pytorch/pytorch/commit/e221a1c853b425b8d70b36d545ccb32ddc8176bd
-def construct_strides(
-    sizes: Sequence[int],
-    fill_order: Sequence[int],
-) -> Sequence[int]:
-    """From a list of sizes and a fill order, construct the strides of the permuted tensor."""
-    # Initialize strides
-    assert len(sizes) == len(fill_order), (
-        "Length of sizes must match the length of the fill order"
-    )
-    strides = [0] * len(sizes)
-
-    # Start with stride 1 for the innermost dimension
-    current_stride = 1
-
-    # Iterate through the fill order populating strides
-    for dim in fill_order:
-        strides[dim] = current_stride
-        current_stride *= sizes[dim]
-
-    return strides
-
-
-op_int8_sdpa = ExternKernelChoice(
+op_qsdpa = ExternKernelChoice(
     torch.ops.torchao.qscaled_dot_product.default,
     "torchao::qscaled_dot_product",
     has_out_variant=False,
     use_fallback_kernel=True,
     op_overload=torch.ops.torchao.qscaled_dot_product.default,
 )
+quantize_dtypes = [torch.uint8, torch.float8_e4m3fn]
 
 
-def register_int8_sdpa():
+def register_qsdpa():
     @register_lowering(
         torch.ops.torchao.qscaled_dot_product.default, type_promotion_kind=None
     )
-    def int8_sdpa(
+    def qsdpa(
         query: TensorBox,
         key: TensorBox,
         value: TensorBox,
@@ -100,12 +68,12 @@ def register_int8_sdpa():
         )
 
         if (
-            query.get_dtype() is not torch.uint8
-            or key.get_dtype() is not torch.uint8
-            or value.get_dtype() is not torch.uint8
+            query.get_dtype() not in quantize_dtypes
+            or key.get_dtype() not in quantize_dtypes
+            or value.get_dtype() not in quantize_dtypes
         ):
             raise NotImplementedError(
-                "Only `torch.uint8` is supported in Int8 SDPA template for CPU device. "
+                "Only `torch.uint8` or `torch.float8_e4m3fn` is supported in Quantized SDPA template for CPU device. "
                 f"Found input tensors are `{query.get_dtype()}`,`{key.get_dtype()}`,`{value.get_dtype()}`."
             )
 
@@ -124,8 +92,8 @@ def register_int8_sdpa():
         if attn_mask is not None:
             input_nodes.append(attn_mask)
 
-        # use template if machine has amx
-        if torch._C._cpu._is_amx_tile_supported():
+        # use template if machine has amx, only support uint8 for now
+        if torch._C._cpu._is_amx_tile_supported() and query.get_dtype() is torch.uint8:
             CppInt8SdpaTemplate.add_choices(
                 choices=choices,
                 input_nodes=input_nodes,
@@ -145,7 +113,7 @@ def register_int8_sdpa():
 
         if len(choices) == 0:
             choices.append(
-                op_int8_sdpa.bind(
+                op_qsdpa.bind(
                     input_nodes=input_nodes,
                     layout=layout,
                     scale=scale,
@@ -169,11 +137,11 @@ def register_int8_sdpa():
         ]
 
         return autotune_select_algorithm(
-            "int8_sdpa",
+            "qsdpa",
             choices,
             inputs_for_autotuning,
             layout,
         )
 
 
-register_int8_sdpa()
+register_qsdpa()

@@ -32,10 +32,10 @@ from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quant_api import (
+    Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     _is_linear,
-    int4_weight_only,
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -54,9 +54,16 @@ def split_param_groups(model) -> tuple[list, list, list]:
     params_quant, params_embed, params_no_quant = [], [], []
 
     def get_param_groups(model):
+        seen_data_ptrs = set()  # avoid duplicates in case of tied weights
         for module in model.children():
             is_linear = _is_linear(module)
             for n, p in module.named_parameters():
+                if n == "weight":
+                    data_ptr = p.data_ptr()
+                    if data_ptr in seen_data_ptrs:
+                        continue
+                    seen_data_ptrs.add(data_ptr)
+
                 if is_linear and n == "weight":
                     params_quant.append(p)
                 elif isinstance(module, nn.Embedding) and n == "weight":
@@ -152,7 +159,12 @@ def compare_parq_convert(
 def check_torchao_tensor_subclass(
     test_case: common_utils.TestCase, model: nn.Module, weight_only: bool = False
 ):
-    for module in model.modules():
+    for name, module in model.named_modules():
+        if not hasattr(module, "weight") or f"{name}.weight" in getattr(
+            model, "_tied_weights_keys", []
+        ):
+            continue
+
         if not weight_only and _is_linear(module):
             test_case.assertTrue(isinstance(module.weight, IntxUnpackedToInt8Tensor))
             test_case.assertTrue(
@@ -163,14 +175,39 @@ def check_torchao_tensor_subclass(
             test_case.assertTrue(module.weight.activation_quantization is None)
 
 
+def apply_activation_quantization(
+    model: nn.Module, optimizer: torch.optim.Optimizer, model_dtype: torch.dtype
+):
+    # apply torchao quantized activations on top
+    activation_config = IntxFakeQuantizeConfig(
+        torch.int8, "per_token", is_symmetric=False, scale_precision=model_dtype
+    )
+    qat_config = QATConfig(activation_config=activation_config, step="prepare")
+    for filter_fn in optimizer.get_filter_fns(model):
+        try:
+            quantize_(model, qat_config, filter_fn=filter_fn)
+        except ValueError as e:
+            if str(e) == "Activation fake quantization is not supported for embedding":
+                pass
+
+
 class M(nn.Module):
-    def __init__(self, m=256, n=128, k=16, bias=False, embedding=True):
+    _tied_weights_keys: list[str] = []
+
+    def __init__(
+        self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
+    ):
         super().__init__()
-        self.embedding = nn.Embedding(10, m) if embedding else nn.Identity()
+        self.embedding = nn.Embedding(k, m) if embedding else nn.Identity()
         self.linear1 = nn.Linear(m, n, bias=bias)
         self.linear2 = nn.Linear(n, k, bias=bias)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
+
+        if embedding and tied_weights:
+            assert self.embedding.weight.shape == self.linear2.weight.shape
+            self.linear2.weight = self.embedding.weight
+            self._tied_weights_keys.append("linear2.weight")
 
     def reset_parameters(self):
         for module in (self.linear1, self.linear2):
@@ -179,18 +216,17 @@ class M(nn.Module):
                 nn.init.zeros_(module.bias)
 
     def example_inputs(self, device=None):
-        return (
-            torch.randint(1, 10, (1, self.linear1.in_features), device=device)
-            if isinstance(self.embedding, nn.Embedding)
-            else torch.randn(1, self.linear1.in_features, device=device)
-        )
+        if isinstance(self.embedding, nn.Identity):
+            inputs = torch.randn(1, self.linear1.in_features, device=device)
+        else:
+            k = self.embedding.num_embeddings
+            inputs = torch.randint(1, k, (1, self.linear1.in_features), device=device)
+        return inputs
 
     def forward(self, x):
         x = self.embedding(x)
-        x = self.linear1(x)
-        x = self.relu(x)
-        x = self.linear2(x)
-        x = self.sigmoid(x)
+        x = self.relu(self.linear1(x))
+        x = self.sigmoid(self.linear2(x))
         return x
 
 
@@ -248,7 +284,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size)
+        config = Int4WeightOnlyConfig(group_size=group_size)
         if check_cpu_version(_DEVICE):
             config.layout = Int4CPULayout()
             config.version = 1
@@ -286,7 +322,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
-        config = int4_weight_only(group_size=group_size)
+        config = Int4WeightOnlyConfig(group_size=group_size)
         quantize_(m_ref, config)
 
         b = 4
@@ -297,7 +333,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ProxHardQuant(),
             quant_per_channel=True,
         )
-        compare_parq_convert(model, m_ref, optimizer)
+        compare_parq_convert(model, m_ref, optimizer, weight_only=True)
 
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("b", [2, 3, 4, 8])
@@ -399,6 +435,30 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         compare_parq_convert(model, m_ref, optimizer, weight_only=True)
         check_torchao_tensor_subclass(self, model, weight_only=True)
 
+    @common_utils.parametrize("b", [2, 3])
+    @common_utils.parametrize(
+        "model_dtype", [torch.float16, torch.float32, torch.bfloat16]
+    )
+    def test_intx_weight_only_tied_embed_linear(
+        self, b: int = 2, model_dtype: torch.dtype = torch.float32
+    ):
+        model = M(m=256, n=256, tied_weights=True).to(_DEVICE)
+
+        quantizer = StretchedUnifTorchaoQuantizer(b)
+        base_optimizer = torch.optim.SGD(build_param_groups(model, b))
+        optimizer = QuantOptimizer(
+            base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
+        )
+        optimizer.zero_grad()
+        optimizer.step()
+
+        apply_activation_quantization(model, optimizer, model_dtype)
+        optimizer.torchao_convert(model)
+        check_torchao_tensor_subclass(self, model)
+        self.assertTrue(
+            torch.equal(model.embedding.weight.qdata, model.linear2.weight.qdata)
+        )
+
 
 class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
@@ -435,16 +495,12 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         optimizer = QuantOptimizer(
             base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
         )
+
         optimizer.zero_grad()
         optimizer.step()
 
-        # apply torchao quantized activations on top
-        activation_config = IntxFakeQuantizeConfig(
-            torch.int8, "per_token", is_symmetric=False, scale_precision=model_dtype
-        )
-        qat_config = QATConfig(activation_config=activation_config, step="prepare")
-        for filter_fn in optimizer.get_filter_fns(model):
-            quantize_(model, qat_config, filter_fn=filter_fn)
+        apply_activation_quantization(model, optimizer, model_dtype)
+
         out = model(x)
         torch.testing.assert_close(out, ref_out, atol=0, rtol=0)
 
@@ -462,7 +518,10 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         check_torchao_tensor_subclass(self, model)
 
         if attach_hf_config:
-            reg_param_names = {n for n, m in model.named_modules() if _is_linear(m)}
+            reg_param_names = {
+                n for n, m in model.named_modules() if isinstance(m, nn.Embedding)
+            }
+            reg_param_names.add("_default")
             module_fqn_to_config = (
                 model.config.quantization_config.quant_type.module_fqn_to_config
             )

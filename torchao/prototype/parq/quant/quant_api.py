@@ -8,11 +8,8 @@ from typing import Optional, Tuple, Union
 
 import torch
 
-from torchao.dtypes import AffineQuantizedTensor, Layout, QDQLayout
 from torchao.quantization import (
     MappingType,
-    ZeroPointDomain,
-    dequantize_affine,
 )
 from torchao.quantization.quant_primitives import (
     _SUB_BYTE_UINT_BOUNDS,
@@ -96,80 +93,3 @@ def quantize_stretched_affine(
         quant = torch.round(input_float / scale + zero_point)
     quant = quant.to(dtype=target_dtype).view(original_shape)
     return quant
-
-
-class StretchedAffineQuantizedTensor(AffineQuantizedTensor):
-    @classmethod
-    def from_hp_to_intx(
-        cls,
-        input_float: torch.Tensor,
-        mapping_type: MappingType,
-        block_size: Tuple[int, ...],
-        target_dtype: torch.dtype,
-        b: int,
-        quant_min: Optional[float] = None,
-        quant_max: Optional[float] = None,
-        scale_dtype: Optional[torch.dtype] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
-        _layout: Layout = QDQLayout(),  # noqa: B008
-    ):
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
-
-        scale, zero_point = choose_qparams_stretched_affine(
-            input_float,
-            mapping_type,
-            block_size,
-            target_dtype,
-            b,
-            quant_min=quant_min,
-            quant_max=quant_max,
-        )
-        data = quantize_stretched_affine(
-            input_float,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-        )
-        data, scale, zero_point = _layout.post_process(
-            data, scale, zero_point, block_size
-        )
-        tensor_impl_ctr = cls.get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
-        return cls(
-            tensor_impl,
-            block_size,
-            original_shape,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-            dtype=input_float.dtype,
-        )
-
-    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        if output_dtype is None:
-            output_dtype = self.dtype
-
-        if not isinstance(self._layout, QDQLayout):
-            raise NotImplementedError(
-                f"StretchedAffineQuantizedTensor only supports QDQLayout but got {self._layout}"
-            )
-
-        data, scale, zero_point = self.tensor_impl.get_plain()
-        dq = dequantize_affine(
-            data,
-            self.block_size,
-            scale,
-            zero_point,
-            data.dtype,
-            self.quant_min,
-            self.quant_max,
-            output_dtype=output_dtype,
-        )
-        return dq
-
-
-to_stretched_affine_quantized_intx = StretchedAffineQuantizedTensor.from_hp_to_intx
