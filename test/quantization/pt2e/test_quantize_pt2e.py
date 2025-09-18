@@ -1220,14 +1220,18 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         """This tests implicit sharing when an input edge x is shared between
         two ops in the following manner:
 
-        x -> minimum(x, y) -> a -\
-         \                        \
-          \----------------------> eq(a, x) -> b
+          /-----------------> eq(a, x) -> b
+         /                   /
+        x -> clone(x) -> a -/
 
-        Both ops are annotated such that one input uses a QuantizationSpec and
-        the other uses a SharedQuantizationSpec to the former.
+        Clone is annotated such that its input uses a QuantizationSpec and its
+        output a SharedQuantizationSpec pointing to the former.
 
-        Verify that inputs to minimum and its output share the same observer;
+        Eq is annotated such that its first input uses a QuantizationSpec and
+        its second input uses a SharedQuantizationSpec to the former.
+        The output is not quantized (bool output).
+
+        Verify that the input to clone and its output share the same observer;
         inputs to eq should also share that same observer due to implicit
         sharing.
         """
@@ -1236,7 +1240,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                 for node in model.graph.nodes:
                     if node.target in [
-                        torch.ops.aten.minimum.default,
+                        torch.ops.aten.clone.default,
                         torch.ops.aten.eq.Tensor,
                     ]:
                         input_qspec_map = {}
@@ -1250,11 +1254,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                         )
                         shared_qspec = SharedQuantizationSpec((node.args[0], node))
 
-                        input_qspec_map[node.args[0]] = qspec
-                        input_qspec_map[node.args[1]] = shared_qspec
-                        if node.target is torch.ops.aten.minimum.default:
+                        if node.target is torch.ops.aten.clone.default:
+                            input_qspec_map[node.args[0]] = qspec
                             output_qspec = shared_qspec
                         elif node.target is torch.ops.aten.eq.Tensor:
+                            input_qspec_map[node.args[0]] = qspec
+                            input_qspec_map[node.args[1]] = shared_qspec
                             # Output is bool, quantization not applicable
                             output_qspec = None
                         else:
@@ -1271,23 +1276,21 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 pass
 
         class M(torch.nn.Module):
-            def forward(self, x, y):
-                a = torch.minimum(x, y)
-                b = a == x
+            def forward(self, x):
+                a = x.clone()
+                b = torch.eq(a, x)
                 return b
 
         m = M().eval()
-        example_inputs = (torch.randn(1, 5), torch.randn(1, 5))
+        example_inputs = (torch.randn(1, 5),)
         m = torch.export.export(m, example_inputs, strict=True).module()
         prepare_pt2e(m, BackendAQuantizer())
         m(*example_inputs)
         observers = []
         for n in m.graph.nodes:
-            if n.target == torch.ops.aten.minimum.default:
+            if n.target == torch.ops.aten.clone.default:
                 input_obs1 = getattr(m, n.args[0].target)
-                input_obs2 = getattr(m, n.args[1].target)
                 output_obs = getattr(m, next(iter(n.users)).target)
-                self.assertIs(input_obs1, input_obs2)
                 self.assertIs(input_obs1, output_obs)
                 observers.append(input_obs1)
             if n.target == torch.ops.aten.eq.Tensor:
