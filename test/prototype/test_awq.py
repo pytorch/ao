@@ -51,6 +51,10 @@ if (
     devices.append("cuda")
 
 
+if torch.xpu.is_available():
+    devices.append("xpu")
+
+
 class TestAWQ(TestCase):
     def test_awq_config(self):
         base_config = Int4WeightOnlyConfig()
@@ -79,6 +83,10 @@ class TestAWQ(TestCase):
         # baseline quantization
         if device == "cuda":
             base_config = Int4WeightOnlyConfig(group_size=group_size)
+        elif device == "xpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, int4_packing_format="plain_int32"
+            )
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, int4_packing_format="opaque"
@@ -137,6 +145,10 @@ class TestAWQ(TestCase):
         # calibrate
         if device == "cuda":
             base_config = Int4WeightOnlyConfig(group_size=group_size)
+        elif device == "xpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, int4_packing_format="plain_int32"
+            )
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, int4_packing_format="opaque"
@@ -198,6 +210,10 @@ class TestAWQ(TestCase):
         # calibrate
         if device == "cuda":
             base_config = Int4WeightOnlyConfig(group_size=group_size)
+        elif device == "xpu":
+            base_config = Int4WeightOnlyConfig(
+                group_size=group_size, int4_packing_format="plain_int32"
+            )
         elif device == "cpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, int4_packing_format="opaque"
