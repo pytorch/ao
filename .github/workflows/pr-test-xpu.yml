@@ -108,6 +108,22 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
+      - name: Debug Check workspace structure
+        run: |
+          echo "🔍 Current workspace: $GITHUB_WORKSPACE"
+          echo "📁 Current directory: $(pwd)"
+          echo "📄 Listing parent directory:"
+          ls -la ..
+          echo "📄 Listing ../pytorch:"
+          ls -la ../pytorch || echo "❌ ../pytorch does not exist"
+          echo "📄 Checking for .ci/docker in PyTorch:"
+          if [ -d "../pytorch/.ci/docker" ]; then
+            echo "✅ Found ../pytorch/.ci/docker"
+            ls -la ../pytorch/.ci/docker
+          else
+            echo "❌ ../pytorch/.ci/docker does not exist"
+          fi
+
       - name: Calculate docker image
         id: calculate-docker-image
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
