@@ -342,7 +342,7 @@ class TestTorchAOBaseTensor(unittest.TestCase):
 
     def test__get_to_kwargs_with_layout(self):
         MyClass = TorchAOBaseTensor()
-        MyClass._get_to_kwargs(torch.strided,device="cuda")
+        MyClass._get_to_kwargs(torch.strided, device="cuda")
 
 if __name__ == "__main__":
     unittest.main()
