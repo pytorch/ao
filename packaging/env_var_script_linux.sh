@@ -17,3 +17,7 @@ TORCH_CUDA_ARCH_LIST="8.0;8.6"
 if [[ ${CU_VERSION:-} == "cu124" ]]; then
   TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST};9.0"
 fi
+
+# Ensure pip does not use PEP 517 build isolation so that pre-installed
+# tools from pre_build_script.sh (setuptools, wheel) are visible to the build.
+export PIP_NO_BUILD_ISOLATION=1
