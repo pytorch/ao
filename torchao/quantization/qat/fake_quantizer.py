@@ -35,7 +35,7 @@ from torchao.quantization.utils import (
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
     Float8FakeQuantizeConfig,
-    Int4WeightPreshuffledFakeQuantizeConfig,
+    Int4WeightFakeQuantizeConfig,
     IntxFakeQuantizeConfig,
 )
 from .utils import (
@@ -68,8 +68,8 @@ class FakeQuantizerBase(torch.nn.Module):
 
         if isinstance(config, IntxFakeQuantizeConfig):
             return IntxFakeQuantizer(config)
-        elif isinstance(config, Int4WeightPreshuffledFakeQuantizeConfig):
-            return Int4WeightPreshuffledFakeQuantizer(config)
+        elif isinstance(config, Int4WeightFakeQuantizeConfig):
+            return Int4WeightFakeQuantizer(config)
         elif isinstance(config, Float8FakeQuantizeConfig):
             return Float8FakeQuantizer(config)
         elif isinstance(config, NVFP4FakeQuantizeConfig):
@@ -103,26 +103,33 @@ class Float8FakeQuantizer(FakeQuantizerBase):
         return dq
 
 
-class Int4WeightPreshuffledFakeQuantizer(FakeQuantizerBase):
+class Int4WeightFakeQuantizer(FakeQuantizerBase):
     """
     Generic module for applying int4 fake quantization to a weight tensor,
-    targeting the following FBGEMM kernel:
+    targeting the following FBGEMM kernels:
         torch.ops.fbgemm.f8i4bf16_shuffled
+        torch.ops.fbgemm.bf16i4bf16_shuffled
+        torch.ops.fbgemm.bf16i4bf16_rowwise
     """
 
-    def __init__(self, config: Int4WeightPreshuffledFakeQuantizeConfig):
+    def __init__(self, config: Int4WeightFakeQuantizeConfig):
         super().__init__()
         self.config = config
-        torch._C._log_api_usage_once(
-            "torchao.quantization.qat.Int4WeightPreshuffledFakeQuantizer"
-        )
+        torch._C._log_api_usage_once("torchao.quantization.qat.Int4WeightFakeQuantizer")
 
     def forward(self, w: torch.Tensor) -> torch.Tensor:
-        """
-        Apply int4 fake quantization to the weight tensor, using the following as a reference:
-        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L112
+        if self.config.activation_dtype == torch.float8_e4m3fn:
+            return self._fp8_activations_forward(w)
+        elif self.config.activation_dtype == torch.bfloat16:
+            return self._bf16_activations_forward(w)
+        else:
+            raise ValueError(f"Unknown activation dtype {self.config.activation_dtype}")
 
-        Currently, we expect the activations to always be rowwise float8.
+    def _fp8_activations_forward(self, w: torch.Tensor) -> torch.Tensor:
+        """
+        Apply int4 fake quantization to the weight tensor where the input activations
+        are expected to be rowwise fp8, using the following as a reference:
+        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L136
         """
         assert w.dim() == 2
         assert self.config.activation_dtype == torch.float8_e4m3fn
@@ -158,6 +165,28 @@ class Int4WeightPreshuffledFakeQuantizer(FakeQuantizerBase):
             quant_max=7,
         )
         return fq.to(w.dtype)
+
+    def _bf16_activations_forward(self, w: torch.Tensor) -> torch.Tensor:
+        """
+        Apply int4 fake quantization to the weight tensor where the input activations
+        are expected to be bf16, using the following as a reference:
+        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L152
+        """
+        assert w.dim() == 2
+        assert self.config.activation_dtype == torch.bfloat16
+
+        eps = 1e-6
+        qmin, qmax = 0, 15
+        fbgemm_symmetric_qmax = 8
+        w_grouped = w.to(torch.float32).view(w.shape[0], -1, self.config.group_size)
+        max_val = torch.amax(w_grouped, dim=-1, keepdim=True)
+        min_val = torch.amin(w_grouped, dim=-1, keepdim=True)
+        scale = torch.clamp(max_val - min_val, min=eps) / qmax
+        zero_point = min_val + scale * fbgemm_symmetric_qmax
+        fq = _Round.apply((w_grouped - min_val) / scale).clamp(qmin, qmax)
+        fq = fq - fbgemm_symmetric_qmax
+        fq = fq * scale + zero_point
+        return fq.view(w.shape).to(w.dtype)
 
 
 class IntxFakeQuantizer(FakeQuantizerBase):

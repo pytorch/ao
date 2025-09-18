@@ -340,18 +340,18 @@ def main(
     if quantization:
         from torchao.quantization import (
             Float8DynamicActivationFloat8SemiSparseWeightConfig,
+            Float8DynamicActivationFloat8WeightConfig,
+            Float8WeightOnlyConfig,
+            FPXWeightOnlyConfig,
+            GemliteUIntXWeightOnlyConfig,
+            Int4DynamicActivationInt4WeightConfig,
+            Int4WeightOnlyConfig,
+            Int8DynamicActivationInt4WeightConfig,
+            Int8DynamicActivationInt8WeightConfig,
+            Int8WeightOnlyConfig,
+            UIntXWeightOnlyConfig,
             autoquant,
-            float8_dynamic_activation_float8_weight,
-            float8_weight_only,
-            fpx_weight_only,
-            gemlite_uintx_weight_only,
-            int4_dynamic_activation_int4_weight,
-            int4_weight_only,
-            int8_dynamic_activation_int4_weight,
-            int8_dynamic_activation_int8_weight,
-            int8_weight_only,
             quantize_,
-            uintx_weight_only,
         )
         from torchao.quantization.granularity import PerRow, PerTensor
 
@@ -375,7 +375,7 @@ def main(
 
             quantize_(
                 model,
-                gemlite_uintx_weight_only(
+                GemliteUIntXWeightOnlyConfig(
                     bit_width=bit_width, group_size=group_size, mode=mode
                 ),
             )
@@ -395,25 +395,28 @@ def main(
             gemlite.cache_config(config_file)
 
         if "int8wo" in quantization:
-            quantize_(model, int8_weight_only())
+            quantize_(model, Int8WeightOnlyConfig())
         if "int8dq" in quantization:
             if sparsity and "semi" in sparsity:
                 from torchao.dtypes import SemiSparseLayout
 
                 quantize_(
                     model,
-                    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()),
+                    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
                     filter_fn=ffn_only,
                 )
                 quantize_(
-                    model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only
+                    model,
+                    Int8DynamicActivationInt8WeightConfig(),
+                    filter_fn=not_ffn_only,
                 )
             elif "int8dq_prefill_wo_decode" in quantization:
                 quantize_(
-                    model, int8_dynamic_activation_int8_weight(weight_only_decode=True)
+                    model,
+                    Int8DynamicActivationInt8WeightConfig(weight_only_decode=True),
                 )
             else:
-                quantize_(model, int8_dynamic_activation_int8_weight())
+                quantize_(model, Int8DynamicActivationInt8WeightConfig())
         if "int4wo" in quantization:
             use_hqq = False
             if "hqq" in quantization:
@@ -429,7 +432,7 @@ def main(
             )
             quantize_(
                 model,
-                int4_weight_only(group_size=group_size, use_hqq=use_hqq, version=1),
+                Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1),
             )
         elif "fbgemm" in quantization and "int4" in quantization:
             from torchao.quantization import FbgemmConfig
@@ -458,7 +461,7 @@ def main(
             if nbits == 4:
                 quantize_(
                     model,
-                    int4_dynamic_activation_int4_weight(
+                    Int4DynamicActivationInt4WeightConfig(
                         mapping_type=MappingType.SYMMETRIC,
                         act_mapping_type=MappingType.SYMMETRIC,
                         layout=CutlassInt4PackedLayout(),
@@ -467,7 +470,7 @@ def main(
             elif nbits == 8:
                 quantize_(
                     model,
-                    int8_dynamic_activation_int4_weight(
+                    Int8DynamicActivationInt4WeightConfig(
                         group_size=None,
                         mapping_type=MappingType.SYMMETRIC,
                         act_mapping_type=MappingType.SYMMETRIC,
@@ -480,7 +483,7 @@ def main(
 
                 quantize_(
                     model,
-                    int8_dynamic_activation_int4_weight(
+                    Int8DynamicActivationInt4WeightConfig(
                         group_size=128,
                         mapping_type=MappingType.SYMMETRIC,
                         act_mapping_type=MappingType.SYMMETRIC,
@@ -492,15 +495,15 @@ def main(
 
                 quantize_(
                     model,
-                    int4_weight_only(layout=MarlinSparseLayout(), version=1),
+                    Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1),
                     filter_fn=ffn_or_attn_only,
                 )
         if "fp6" in quantization:
-            quantize_(model, fpx_weight_only(3, 2))
+            quantize_(model, FPXWeightOnlyConfig(3, 2))
         elif "embed-int8wo" in quantization:
             quantize_(
                 model,
-                int8_weight_only(group_size=64),
+                Int8WeightOnlyConfig(group_size=64),
                 filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding),
             )
         elif quantization.startswith("awq"):
@@ -560,13 +563,12 @@ def main(
             }
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
-            quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+            quantize_(model, UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq))
         elif "int8_dynamic_activation_intx_weight" in quantization:
             assert precision == torch.float32, (
                 "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
             )
 
-            from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
             from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
@@ -586,12 +588,11 @@ def main(
                     weight_mapping_type=MappingType.ASYMMETRIC
                     if is_asymmetric
                     else MappingType.SYMMETRIC,
-                    weight_scale_dtype=torch.bfloat16,
-                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                    intx_packing_format="opaque_torchao_auto",
                 ),
             )
         elif "float8wo" in quantization:
-            quantize_(model, float8_weight_only())
+            quantize_(model, Float8WeightOnlyConfig())
         elif "float8dq" in quantization:
             if sparsity and "semi" in sparsity:
                 quantize_(
@@ -609,7 +610,7 @@ def main(
                     granularity = PerTensor()
                 quantize_(
                     model,
-                    float8_dynamic_activation_float8_weight(granularity=granularity),
+                    Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
                 )
         elif "autoquant_v2" in quantization:
             from torchao._models._eval import LMEvalInputRecorder

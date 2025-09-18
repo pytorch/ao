@@ -16,11 +16,11 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 )
 
 from torchao.quantization import (
-    float8_dynamic_activation_float8_weight,
-    float8_weight_only,
-    int4_weight_only,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
+    Float8DynamicActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
 )
 from torchao.quantization.observer import PerRow, PerTensor
 from torchao.quantization.quant_api import quantize_
@@ -42,7 +42,7 @@ if torch.version.hip is not None:
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
     """Basic test case for tensor subclasses"""
 
-    QUANT_METHOD_FN = staticmethod(int8_weight_only)
+    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
     QUANT_METHOD_KWARGS = {}
 
     @staticmethod
@@ -133,7 +133,7 @@ class TestAffineQuantizedTensorParallel(DTensorTestBase):
 
 
 class TestInt8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
-    QUANT_METHOD_FN = staticmethod(int8_weight_only)
+    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
     COMMON_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
 
     @common_utils.parametrize("dtype", COMMON_DTYPES)
@@ -144,7 +144,8 @@ class TestInt8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
 
 
 class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
-    QUANT_METHOD_FN = staticmethod(int4_weight_only)
+    QUANT_METHOD_FN = staticmethod(Int4WeightOnlyConfig)
+    QUANT_METHOD_KWARGS = {"version": 1}
     COMMON_DTYPES = [torch.bfloat16]
 
     @common_utils.parametrize("dtype", COMMON_DTYPES)
@@ -166,12 +167,12 @@ class TestGemliteLayoutTensorParallel(TestAffineQuantizedTensorParallel):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not has_gemlite, "gemlite not available")
     def test_tp_gemlite(self, dtype):
-        from torchao.quantization import gemlite_uintx_weight_only
+        from torchao.quantization import GemliteUIntXWeightOnlyConfig
 
         for packing_bitwidth in [32, 8]:
             for bit_width in [4, 8]:
                 for group_size in [64, 32, None] if bit_width == 4 else [None]:
-                    api = lambda: gemlite_uintx_weight_only(
+                    api = lambda: GemliteUIntXWeightOnlyConfig(
                         group_size, bit_width, packing_bitwidth
                     )
                     self.QUANT_METHOD_FN = staticmethod(api)
@@ -179,7 +180,7 @@ class TestGemliteLayoutTensorParallel(TestAffineQuantizedTensorParallel):
 
 
 class TestInt8dqAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
-    QUANT_METHOD_FN = staticmethod(int8_dynamic_activation_int8_weight)
+    QUANT_METHOD_FN = staticmethod(Int8DynamicActivationInt8WeightConfig)
     COMMON_DTYPES = [torch.bfloat16]
 
     @common_utils.parametrize("dtype", COMMON_DTYPES)
@@ -198,7 +199,7 @@ common_utils.instantiate_parametrized_tests(TestInt8dqAffineQuantizedTensorParal
 if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
 
     class TestFloat8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
-        QUANT_METHOD_FN = staticmethod(float8_weight_only)
+        QUANT_METHOD_FN = staticmethod(Float8WeightOnlyConfig)
         COMMON_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
 
         @common_utils.parametrize("dtype", COMMON_DTYPES)
@@ -210,7 +211,7 @@ if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
     class TestFloat8dqTensorAffineQuantizedTensorParallel(
         TestAffineQuantizedTensorParallel
     ):
-        QUANT_METHOD_FN = staticmethod(float8_dynamic_activation_float8_weight)
+        QUANT_METHOD_FN = staticmethod(Float8DynamicActivationFloat8WeightConfig)
         QUANT_METHOD_KWARGS = {"granularity": PerTensor()}
         COMMON_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
 
@@ -223,7 +224,7 @@ if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
     class TestFloat8dqRowAffineQuantizedTensorParallel(
         TestAffineQuantizedTensorParallel
     ):
-        QUANT_METHOD_FN = staticmethod(float8_dynamic_activation_float8_weight)
+        QUANT_METHOD_FN = staticmethod(Float8DynamicActivationFloat8WeightConfig)
         QUANT_METHOD_KWARGS = {"granularity": PerRow()}
         COMMON_DTYPES = [torch.bfloat16]
 

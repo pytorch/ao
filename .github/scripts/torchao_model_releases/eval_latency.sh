@@ -75,7 +75,7 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
     for BATCH_SIZE in "${BATCH_SIZE_ARRAY[@]}"; do
         OUTPUT_FILE="$ORIG_DIR/${SAFE_MODEL_ID}_latency_batch${BATCH_SIZE}_in${INPUT_LEN}_out${OUTPUT_LEN}.log"
         echo "Running latency eval for model $MODEL_ID with batch size $BATCH_SIZE with input length: $INPUT_LEN and output length: $OUTPUT_LEN"
-        VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len $INPUT_LEN --output-len $OUTPUT_LEN --model $MODEL_ID --batch-size $BATCH_SIZE > "$OUTPUT_FILE" 2>&1
+        VLLM_DISABLE_COMPILE_CACHE=1 vllm bench latency --input-len $INPUT_LEN --output-len $OUTPUT_LEN --model $MODEL_ID --batch-size $BATCH_SIZE > "$OUTPUT_FILE" 2>&1
         echo "Latency eval result saved to $OUTPUT_FILE"
     done
     echo "======================== Eval Latency $MODEL_ID End ========================="

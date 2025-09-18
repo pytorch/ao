@@ -46,15 +46,11 @@ class TestSafeTensors(TestCase):
         ref_output = model(*example_inputs)
 
         with tempfile.NamedTemporaryFile() as f:
-            tensors_data_dict, metadata_dict = flatten_tensor_state_dict(
-                model.state_dict()
-            )
-            save_file(tensors_data_dict, f.name, metadata=metadata_dict)
-            tensors_data_dict, metadata_dict = load_data(
-                file_path=f.name, device="cuda"
-            )
+            tensors_data_dict, metadata = flatten_tensor_state_dict(model.state_dict())
+            save_file(tensors_data_dict, f.name, metadata=metadata)
+            tensors_data_dict, metadata = load_data(file_path=f.name, device="cuda")
             reconstructed_dict = unflatten_tensor_state_dict(
-                tensors_data_dict, metadata_dict
+                tensors_data_dict, metadata
             )
 
         model = torch.nn.Sequential(

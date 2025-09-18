@@ -19,6 +19,7 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
 )
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     torch_version_at_least,
@@ -29,7 +30,6 @@ def get_config(group_size):
     return Int4WeightOnlyConfig(
         group_size=group_size,
         int4_packing_format="opaque",
-        version=2,
     )
 
 
@@ -76,6 +76,31 @@ class TestInt4OpaqueTensor(TestCase):
                 str(type(state_dict["weight"])),
                 "<class 'torchao.quantization.Int4OpaqueTensor'>",
             )
+
+    def test_activation_prescaling(self):
+        dtype = torch.bfloat16
+        input = torch.randn(1, 128, dtype=dtype)
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype)
+        original_output = linear(input)
+        quantize_(linear, get_config(group_size=128))
+        qw = linear.weight
+        assert isinstance(qw, SupportsActivationPreScaling), (
+            "Expected int4 tensor supports activation prescaling"
+        )
+        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
+        _ACT_PRE_SCALE = 2
+        manual_scaled_quantized = linear(input * _ACT_PRE_SCALE)
+        qw.act_pre_scale = _ACT_PRE_SCALE
+        auto_scaled_quantized = linear(input)
+
+        # Making sure activation pre scaling is successfully applied to the activation.
+        self.assertEqual(manual_scaled_quantized, auto_scaled_quantized)
+
+        # If pre-scaling is auto-applied, the quantization error should be low,
+        # i.e., compute_error (SQNR) is high
+        self.assertTrue(
+            compute_error(original_output * _ACT_PRE_SCALE, auto_scaled_quantized) > 20
+        )
 
 
 instantiate_parametrized_tests(TestInt4OpaqueTensor)
