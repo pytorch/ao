@@ -39,6 +39,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      # Ensure pip does not use PEP 517 build isolation so that
+      # setuptools installed in pre_build_script.sh is visible to the build.
+      PIP_NO_BUILD_ISOLATION: "1"
     uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
     with:
       # Set the ref to an empty string instead of the default nightly because
