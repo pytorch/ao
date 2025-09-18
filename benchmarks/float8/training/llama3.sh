@@ -53,7 +53,7 @@ cd ${TORCHTITAN_ROOT}
 echo "float8 args: ${FLOAT8_ARGS}"
 
 # run the command with the specified arguments
-CONFIG_FILE="./torchtitan/models/llama3/train_configs/llama3_8b.toml" ${TORCHTITAN_ROOT}/run_train.sh --training.steps=${STEPS} --training.local-batch-size=${LOCAL_BATCH_SIZE} --training.compile ${FLOAT8_ARGS} ${EXTRA_ARGS} 2>&1 | tee ${LOG_FILE}
+CONFIG_FILE="./torchtitan/models/llama3/train_configs/llama3_8b.toml" ${TORCHTITAN_ROOT}/run_train.sh --training.steps=${STEPS} --training.local-batch-size=${LOCAL_BATCH_SIZE} --compile.enable ${FLOAT8_ARGS} ${EXTRA_ARGS} 2>&1 | tee ${LOG_FILE}
 
 # return to original working directory
 cd $original_dir

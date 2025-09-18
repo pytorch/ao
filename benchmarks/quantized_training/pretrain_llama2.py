@@ -166,8 +166,8 @@ if __name__ == "__main__":
         insert_rmsnorm(model.layers)
 
     # don't apply int8_mixed_precision to LM head, since it can cause convergence issue.
-    # TODO: might want to do the same for int8_weight_only to standardize.
-    if args.quantize == "int8_weight_only":
+    # TODO: might want to do the same for Int8WeightOnlyConfig to standardize.
+    if args.quantize == "Int8WeightOnlyConfig":
         quantize_(
             model, int8_weight_only_quantized_training(), set_inductor_config=False
         )

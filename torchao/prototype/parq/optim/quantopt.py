@@ -14,6 +14,7 @@ from torch import Tensor, nn
 from torch.optim import Optimizer
 
 from torchao.quantization import quantize_
+from torchao.quantization.quant_api import _is_linear
 
 from ..quant import Quantizer, UnifTorchaoQuantizer
 from ..quant.config_torchao import (
@@ -158,23 +159,29 @@ class QuantOptimizer(Optimizer):
         self.restore_latent_params()
 
         # TODO(lvj): find more robust way to identify embedding layers
-        embed_data_ptrs = {
-            module.weight.data_ptr()
-            for module in model.modules()
-            if isinstance(module, nn.Embedding)
-        }
+        embed_data_ptrs = set()
+        linear_data_ptrs = set()
+        for module in model.modules():
+            if isinstance(module, nn.Embedding):
+                embed_data_ptrs.add(module.weight.data_ptr())
+            elif _is_linear(module) and module.weight.data_ptr() not in embed_data_ptrs:
+                linear_data_ptrs.add(module.weight.data_ptr())
 
         filter_fns = []
         configs = []
         attach_hf_config = _is_hf_model(model)
-        for group, filter_fn in zip(
-            self.regularized_param_groups(), self.get_filter_fns(model)
+        all_linear_layers_idx = -1
+        for i, (group, filter_fn) in enumerate(
+            zip(self.regularized_param_groups(), self.get_filter_fns(model))
         ):
             filter_fns.append(filter_fn)
             quantizer = group.get("quantizer", self.quantizer)
             if not isinstance(quantizer, UnifTorchaoQuantizer) or not group["params"]:
                 configs.append(None)
                 continue
+
+            if set((p.data_ptr() for p in group["params"])) == linear_data_ptrs:
+                all_linear_layers_idx = i
 
             device = group["params"][0].device
             any_embed = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
@@ -187,10 +194,21 @@ class QuantOptimizer(Optimizer):
             )
             configs.append(config)
 
-        if attach_hf_config:
-            _attach_hf_quantization_config(model, filter_fns, configs)
+        filter_fns_orig = filter_fns[:]
+        configs_orig = configs[:]
 
-        for config, filter_fn in zip(configs, filter_fns):
+        # If one group has all the linear layers, then set its config as default
+        if all_linear_layers_idx > -1:
+            module_to_config = {"_default": configs[all_linear_layers_idx]}
+            del filter_fns[all_linear_layers_idx]
+            del configs[all_linear_layers_idx]
+        else:
+            module_to_config = None
+
+        if attach_hf_config:
+            _attach_hf_quantization_config(model, filter_fns, configs, module_to_config)
+
+        for config, filter_fn in zip(configs_orig, filter_fns_orig):
             quantize_(model, config, filter_fn=filter_fn)
 
     @torch._disable_dynamo

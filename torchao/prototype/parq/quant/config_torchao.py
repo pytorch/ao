@@ -1,3 +1,4 @@
+import types
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -7,26 +8,19 @@ from torch import nn
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import Int4CPULayout, Layout, QDQLayout
 from torchao.quantization import MappingType, PerAxis, PerGroup
-from torchao.quantization.linear_activation_quantized_tensor import (
-    to_linear_activation_quantized,
-)
 from torchao.quantization.quant_api import (
     Granularity,
     Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
-    _int8_asymm_per_token_quant,
+    _linear_extra_repr,
 )
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.utils import check_cpu_version
 
-from .quant_api import (
-    choose_qparams_stretched_affine,
-    quantize_stretched_affine,
-    to_stretched_affine_quantized_intx,
-)
+from .quant_api import choose_qparams_stretched_affine, quantize_stretched_affine
 from .uniform_torchao import (
     _BIT_WIDTH_TO_DTYPE,
     Int4UnifTorchaoQuantizer,
@@ -61,6 +55,9 @@ def _int8_dynamic_activation_stretched_intx_transform(
     granularity = config.granularity
     mapping_type = MappingType.ASYMMETRIC
 
+    if config.version != 2:
+        raise NotImplementedError(f"Unsupported {config.version=}")
+
     assert weight.dim() == 2, (
         f"StretchedIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
     )
@@ -77,47 +74,38 @@ def _int8_dynamic_activation_stretched_intx_transform(
     block_size = (1, group_size)
     target_dtype = torch.int8
     q_args = (weight, mapping_type, block_size, target_dtype, config.b)
-    if config.version == 2:
-        scale, zero_point = choose_qparams_stretched_affine(
-            *q_args,
-            quant_min=config.quant_min,
-            quant_max=config.quant_max,
-        )
-        qdata = quantize_stretched_affine(
-            weight,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min=config.quant_min,
-            quant_max=config.quant_max,
-        )
-        n_blocks = [qdata.shape[i] // block_size[i] for i in range(len(block_size))]
-        scale = scale.reshape(*n_blocks)
-        zero_point = zero_point.reshape(*n_blocks)
+    scale, zero_point = choose_qparams_stretched_affine(
+        *q_args,
+        quant_min=config.quant_min,
+        quant_max=config.quant_max,
+    )
+    qdata = quantize_stretched_affine(
+        weight,
+        block_size,
+        scale,
+        zero_point,
+        target_dtype,
+        quant_min=config.quant_min,
+        quant_max=config.quant_max,
+    )
+    n_blocks = [qdata.shape[i] // block_size[i] for i in range(len(block_size))]
+    scale = scale.reshape(*n_blocks)
+    zero_point = zero_point.reshape(*n_blocks)
 
-        weight = IntxUnpackedToInt8Tensor(
-            qdata=qdata,
-            scale=scale,
-            zero_point=zero_point,
-            target_dtype=getattr(torch, f"int{config.b}"),
-            block_size=block_size,
-            dtype=weight.dtype,
-            activation_quantization=config.activation_quantization,
-        )
-    else:
-        weight = to_stretched_affine_quantized_intx(
-            *q_args,
-            quant_min=config.quant_min,
-            quant_max=config.quant_max,
-            scale_dtype=config.scale_dtype,
-            _layout=config.layout,
-        )
-        if config.activation_quantization == "int8_asym_per_token":
-            weight = to_linear_activation_quantized(weight, _int8_asymm_per_token_quant)
-        elif config.activation_quantization is not None:
-            raise ValueError(f"Unsupported {config.activation_quantization=}")
+    weight = IntxUnpackedToInt8Tensor(
+        qdata=qdata,
+        scale=scale,
+        zero_point=zero_point,
+        target_dtype=getattr(torch, f"int{config.b}"),
+        block_size=block_size,
+        dtype=weight.dtype,
+        activation_quantization=config.activation_quantization,
+    )
     module.weight = nn.Parameter(weight, requires_grad=False)
+
+    if isinstance(module, nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+
     return module
 
 
@@ -177,6 +165,7 @@ def _attach_hf_quantization_config(
     model: nn.Module,
     filter_fns: list[Callable[nn.Module, bool]],
     configs: list[AOBaseConfig],
+    module_to_config: Optional[dict[str, AOBaseConfig]] = None,
 ) -> None:
     """Attaches torchao quantization config(s) to Hugging Face model.
 
@@ -195,10 +184,20 @@ def _attach_hf_quantization_config(
         "filter_fns and configs must have the same length"
     )
 
-    module_to_config = {}
+    if module_to_config is None:
+        module_to_config = {}
+
+    seen_data_ptrs = set()
+    modules_to_not_convert = []
     for name, module in model.named_modules():
         if not hasattr(module, "weight"):
             continue
+
+        data_ptr = module.weight.data_ptr()
+        if data_ptr in seen_data_ptrs:  # do not re-quantize tied weight
+            modules_to_not_convert.append(name)
+            continue
+        seen_data_ptrs.add(data_ptr)
 
         for i, filter_fn in enumerate(filter_fns):
             if filter_fn(module):
@@ -207,5 +206,5 @@ def _attach_hf_quantization_config(
     model.config.quantization_config = TorchAoConfig(
         quant_type=ModuleFqnToConfig(module_to_config),
         include_input_output_embeddings=True,
-        modules_to_not_convert=[],
+        modules_to_not_convert=modules_to_not_convert,
     )

@@ -213,7 +213,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
 @pytest.mark.parametrize(
     "m,k,n_groups", [(256, 256, 4), (16640, 5120, 16), (16640, 8192, 16)]
 )
-def test_mxfp8_per_group_blocked_scales_2d(
+def test_triton_mx_block_rearrange_2d_M_groups(
     m: int,
     k: int,
     n_groups: int,
@@ -271,11 +271,14 @@ def test_mxfp8_per_group_blocked_scales_3d(
     )
 
 
+@pytest.mark.skip(
+    "Temporarily disable and use e2e training numerical tests instead. See: https://github.com/pytorch/ao/pull/2990#discussion_r2354167396"
+)
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
 @pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
-def test_mxfp8_per_group_blocked_scales_2d2d(
+def test_triton_mx_block_rearrange_2d_K_groups(
     m: int,
     total_k: int,
     n_groups: int,

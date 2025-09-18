@@ -24,11 +24,11 @@ inputs = (torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device="cuda"),)
 
 # for torch 2.4+
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int8_weight,
+    Int8DynamicActivationInt8WeightConfig,
     quantize_,
 )
 
-quantize_(model, int8_dynamic_activation_int8_weight())
+quantize_(model, Int8DynamicActivationInt8WeightConfig())
 ## Quantization code - end
 
 ## compilation configs

@@ -28,20 +28,22 @@ device = torch.device("cuda")
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
 
+# Dynamic shapes hurt performance
+torch._dynamo.config.automatic_dynamic_shapes = False
+
 
 @dataclass(frozen=True)
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
-    A_shape: tuple[int]
-    B_shape: tuple[int]
+    MNKG: tuple[int]
     recipe: MoEScalingType
 
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    bf16_e2e_us: float
-    scaled_e2e_us: float
-    scaled_e2e_speedup: float
+    bf16_fwd_bwd_us: float
+    scaled_fwd_bwd_us: float
+    scaled_fwd_bwd_speedup: float
     bf16_fwd_us: float
     scaled_fwd_us: float
     scaled_fwd_speedup: float
@@ -54,22 +56,46 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    # Llama4 shapes
-    A_shapes = [(16640, 5120)]
-    B_shapes = [(1, 8192, 5120), (4, 8192, 5120), (16, 8192, 5120), (64, 8192, 5120)]
+    MNKG_list = [
+        # Llama4 16e with various experts per device (i.e., different EP degrees)
+        (16384, 8192, 5120, 1),
+        (16384, 8192, 5120, 2),
+        (16384, 8192, 5120, 4),
+        (16384, 8192, 5120, 8),
+        (128000, 8192, 5120, 1),
+        (128000, 8192, 5120, 2),
+        (128000, 8192, 5120, 4),
+        (128000, 8192, 5120, 8),
+        # DSV3 236B with various experts per device (i.e., different EP degrees)
+        (16384, 1536, 5120, 1),
+        (16384, 1536, 5120, 2),
+        (16384, 1536, 5120, 4),
+        (16384, 1536, 5120, 8),
+        (128000, 1536, 5120, 1),
+        (128000, 1536, 5120, 2),
+        (128000, 1536, 5120, 4),
+        (128000, 1536, 5120, 8),
+        # DSV3 671B with various experts per device (i.e., different EP degrees)
+        (16384, 2048, 7168, 1),
+        (16384, 2048, 7168, 2),
+        (16384, 2048, 7168, 4),
+        (16384, 2048, 7168, 8),
+        (128000, 2048, 7168, 1),
+        (128000, 2048, 7168, 2),
+        (128000, 2048, 7168, 4),
+        (128000, 2048, 7168, 8),
+    ]
     recipes = [MoEScalingType.FP8_ROWWISE, MoEScalingType.MXFP8]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
-    for A_shape, B_shape, recipe, high_precision_dtype in itertools.product(
-        A_shapes,
-        B_shapes,
+    for MNKG, recipe, high_precision_dtype in itertools.product(
+        MNKG_list,
         recipes,
         high_precision_dtypes,
     ):
         configs.append(
             ExperimentConfig(
-                A_shape=A_shape,
-                B_shape=B_shape,
+                MNKG=MNKG,
                 recipe=recipe,
                 high_precision_dtype=high_precision_dtype,
             )
@@ -80,15 +106,17 @@ def get_configs() -> List[ExperimentConfig]:
 def run_experiment(
     config: ExperimentConfig, args: argparse.Namespace
 ) -> ExperimentResult:
+    total_M, N, K, G = config.MNKG
+
     # define test inputs
     A = torch.randn(
-        *config.A_shape,
+        (total_M, K),
         dtype=config.high_precision_dtype,
         device=device,
         requires_grad=True,
     )
     B_t = torch.randn(
-        *config.B_shape,
+        (G, N, K),
         dtype=config.high_precision_dtype,
         device=device,
         requires_grad=True,
@@ -99,17 +127,15 @@ def run_experiment(
     #   that occurs in the backward pass of the differentiable scaled grouped mm.
     # - the transposed tensor in col-major format with groups along the row dimension,
     #    which represents the right operand.
-    n_groups = config.B_shape[0]
-    Mg = A.shape[0]
     token_group_alignment_size = 32 if config.recipe == MoEScalingType.MXFP8 else 16
-    offs = generate_jagged_offs(n_groups, Mg, multiple_of=token_group_alignment_size)
+    offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
 
     labels = torch.ones(
         (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
     )
 
-    # E2E bf16 benchmark + profiling
-    bf16_e2e_us = bench_fwd_bwd_microseconds(
+    # fwd_bwd bf16 benchmark + profiling
+    bf16_fwd_bwd_us = bench_fwd_bwd_microseconds(
         torch._grouped_mm,
         A,
         B_t,
@@ -130,8 +156,8 @@ def run_experiment(
             profile_name="bf16_profile",
         )
 
-    # E2E scaled benchmark + profiling
-    scaled_e2e_us = bench_fwd_bwd_microseconds(
+    # fwd_bwd scaled benchmark + profiling
+    scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
         _scaled_grouped_mm,
         A,
         B_t,
@@ -174,9 +200,9 @@ def run_experiment(
     )
 
     return ExperimentResult(
-        bf16_e2e_us=round(bf16_e2e_us, 3),
-        scaled_e2e_us=round(scaled_e2e_us, 3),
-        scaled_e2e_speedup=round(bf16_e2e_us / scaled_e2e_us, 3),
+        bf16_fwd_bwd_us=round(bf16_fwd_bwd_us, 3),
+        scaled_fwd_bwd_us=round(scaled_fwd_bwd_us, 3),
+        scaled_fwd_bwd_speedup=round(bf16_fwd_bwd_us / scaled_fwd_bwd_us, 3),
         bf16_fwd_us=round(bf16_fwd_us, 3),
         scaled_fwd_us=round(scaled_fwd_us, 3),
         scaled_fwd_speedup=round(bf16_fwd_us / scaled_fwd_us, 3),
@@ -185,28 +211,24 @@ def run_experiment(
 
 def print_results(experiments: List[Experiment]):
     headers = [
-        "A_shape",
-        "B_shape",
+        "M,N,K,G",
         "recipe",
-        "bf16_e2e_us",
-        "scaled_e2e_us",
-        "scaled_e2e_speedup",
+        "bf16_fwd_bwd_us",
+        "scaled_fwd_bwd_us",
+        "scaled_fwd_bwd_speedup",
         "bf16_fwd_us",
         "scaled_fwd_us",
         "scaled_fwd_speedup",
     ]
     rows = []
     for experiment in experiments:
-        A_shape = f"({experiment.config.A_shape[0]}, {experiment.config.A_shape[1]})"
-        B_shape = f"({experiment.config.B_shape[0]}, {experiment.config.B_shape[1]}, {experiment.config.B_shape[2]})"
         rows.append(
             [
-                A_shape,
-                B_shape,
+                str(experiment.config.MNKG),
                 experiment.config.recipe,
-                experiment.result.bf16_e2e_us,
-                experiment.result.scaled_e2e_us,
-                f"{experiment.result.scaled_e2e_speedup}x",
+                experiment.result.bf16_fwd_bwd_us,
+                experiment.result.scaled_fwd_bwd_us,
+                f"{experiment.result.scaled_fwd_bwd_speedup}x",
                 experiment.result.bf16_fwd_us,
                 experiment.result.scaled_fwd_us,
                 f"{experiment.result.scaled_fwd_speedup}x",

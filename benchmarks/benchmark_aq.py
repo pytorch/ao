@@ -10,10 +10,10 @@ import copy
 import torch
 
 from torchao.quantization.quant_api import (
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
     _replace_with_custom_fn_if_matches_filter,
-    int4_weight_only,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
     quantize_,
 )
 from torchao.quantization.subclass import (
@@ -24,13 +24,14 @@ from torchao.testing.model_architectures import ToySingleLinearModel
 
 
 def _int8wo_api(mod, **kwargs):
-    quantize_(mod, int8_weight_only(**kwargs))
+    quantize_(mod, Int8WeightOnlyConfig(**kwargs), set_inductor_config=False)
 
 
 def _int8da_int8w_api(mod, **kwargs):
     quantize_(
         mod,
-        int8_dynamic_activation_int8_weight(**kwargs),
+        Int8DynamicActivationInt8WeightConfig(**kwargs),
+        set_inductor_config=False,
     )
 
 
