@@ -254,7 +254,7 @@ def quantize_and_eval(
 
         if device == "cuda":
             base_config = Int4WeightOnlyConfig(group_size=group_size)
-        elif device == "xpu": 
+        elif device == "xpu":
             base_config = Int4WeightOnlyConfig(
                 group_size=group_size, int4_packing_format="plain_int32"
             )

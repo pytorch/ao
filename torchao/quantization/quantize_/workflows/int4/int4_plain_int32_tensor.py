@@ -64,7 +64,15 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, qdata, scale, zero_point, block_size, shape, act_pre_scale: Optional[torch.Tensor] = None,):
+    def __init__(
+        self,
+        qdata,
+        scale,
+        zero_point,
+        block_size,
+        shape,
+        act_pre_scale: Optional[torch.Tensor] = None,
+    ):
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
