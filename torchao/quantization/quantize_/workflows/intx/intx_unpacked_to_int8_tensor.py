@@ -177,20 +177,29 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         activation_quantization: Optional[
             IntxUnpackedToInt8TensorActivationQuantization
         ] = None,
+        custom_scale: Optional[torch.Tensor] = None,
+        custom_zero_point: Optional[torch.Tensor] = None,
     ):
         """
         Create an IntxUnpackedToInt8Tensor from a high-precision tensor
         """
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
-        scale, zero_point = choose_qparams_affine(
-            hp_tensor,
-            mapping_type,
-            block_size,
-            target_dtype=torch.int8,
-            quant_min=qmin,
-            quant_max=qmax,
-            zero_point_dtype=torch.int8,
-        )
+        if custom_scale is not None and custom_zero_point is not None:
+            scale, zero_point = custom_scale, custom_zero_point
+        elif custom_scale is None and custom_zero_point is None:
+            scale, zero_point = choose_qparams_affine(
+                hp_tensor,
+                mapping_type,
+                block_size,
+                target_dtype=torch.int8,
+                quant_min=qmin,
+                quant_max=qmax,
+                zero_point_dtype=torch.int8,
+            )
+        else:
+            raise ValueError(
+                "`custom_scale` and `custom_zero_point` must be both defined or both None"
+            )
         qdata = quantize_affine(
             hp_tensor,
             block_size,

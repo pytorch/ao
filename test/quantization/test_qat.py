@@ -10,7 +10,7 @@
 import copy
 import unittest
 import warnings
-from typing import List
+from typing import List, Type
 
 import torch
 import torch.nn.functional as F
@@ -2303,6 +2303,57 @@ class TestQAT(TestCase):
             atol=0,
             rtol=0,
         )
+
+    @parametrize(
+        "base_config_cls",
+        [
+            IntxWeightOnlyConfig,
+            Int8DynamicActivationInt4WeightConfig,
+            Int8DynamicActivationIntxWeightConfig,
+        ],
+    )
+    def test_range_learning_convert_pass_qparams(
+        self, base_config_cls: Type[AOBaseConfig]
+    ):
+        """
+        Verify that range learning QAT can pass qparams from the prepared
+        model to the convert model.
+        """
+        group_size = 32
+        config = IntxFakeQuantizeConfig(
+            torch.int4,
+            group_size=group_size,
+            is_symmetric=True,
+            is_dynamic=False,
+            range_learning=True,
+        )
+        m = M()
+        example_inputs = m.example_inputs()
+        quantize_(m, QATConfig(weight_config=config, step="prepare"))
+        initialize_fake_quantizers(m, example_inputs)
+
+        # convert and verify scales are what we expect
+        scale1 = m.linear1.weight_fake_quantizer.scale
+        scale2 = m.linear2.weight_fake_quantizer.scale
+        sub_scale = m.sub.linear.weight_fake_quantizer.scale
+        if base_config_cls == Int8DynamicActivationInt4WeightConfig:
+            base_config = base_config_cls()
+            quantize_(m, QATConfig(base_config, step="convert"))
+            torch.testing.assert_close(
+                m.linear1.weight.original_weight_tensor.tensor_impl.scale, scale1
+            )
+            torch.testing.assert_close(
+                m.linear2.weight.original_weight_tensor.tensor_impl.scale, scale2
+            )
+            torch.testing.assert_close(
+                m.sub.linear.weight.original_weight_tensor.tensor_impl.scale, sub_scale
+            )
+        else:
+            base_config = base_config_cls(torch.int4, PerGroup(group_size))
+            quantize_(m, QATConfig(base_config, step="convert"))
+            torch.testing.assert_close(m.linear1.weight.scale, scale1)
+            torch.testing.assert_close(m.linear2.weight.scale, scale2)
+            torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
 
 
 instantiate_parametrized_tests(TestQAT)
