@@ -41,18 +41,16 @@ def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
     fp16_time = benchmark_microseconds(ffn_ref, input_tensor)
 
     # Sparsify-only benchmarks
-    X_scale = torch.empty([num_tokens, 1], device="cuda", dtype=torch.float32)
-    ao_cusparse_time = benchmark_microseconds(
-        lambda: torch.ops.torchao.sparse24_sm90_sparsify(
+    ao_fast_sparsification_time = benchmark_microseconds(
+        torch.ops.torchao.sparse24_sm90_sparsify(
             input_tensor,
             "cutlass",
             "srelu",
             "largest",
             dtype=torch.float8_e4m3fn,
-            scale=X_scale,
         )
     )
-    cusparse_time = benchmark_microseconds(lambda: torch._cslt_compress(input_tensor))
+    cusparse_time = benchmark_microseconds(torch._cslt_compress, input_tensor)
 
     # bf16
     ffn_clone = (
@@ -131,10 +129,10 @@ def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
         "fp8_c_time (us)": fp8_c_time,
         "fp8_c_sparse_time (us)": fp8_c_sparse_time,
         "fp8_c_activation_sparse_time (us)": fp8_c_activation_sparse_time,
-        "ao_cusparse_time (us)": ao_cusparse_time,
-        "cusparse_compress_time (us)": cusparse_time,
+        "ao_fast_sparsification_time (us)": ao_fast_sparsification_time,
+        "cusparse*_compress_time (us)": cusparse_time,
         "speedup": fp8_c_time / fp8_c_activation_sparse_time,
-        "sparsify_speedup": cusparse_time / ao_cusparse_time,
+        "sparsify_speedup": cusparse_time / ao_fast_sparsification_time,
     }
 
 
