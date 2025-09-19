@@ -675,6 +675,9 @@
         <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">(),</span>
         <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">custom_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">custom_zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a high precision tensor to an integer affine quantized tensor.&quot;&quot;&quot;</span>
         <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
@@ -718,7 +721,13 @@
             <span class="p">)</span>
             <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">preserve_zero</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">custom_scale</span> <span class="ow">is</span> <span class="kc">None</span> <span class="o">!=</span> <span class="n">custom_zero_point</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">&quot;`custom_scale` and `custom_zero_point` must be both defined or both None&quot;</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">custom_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">custom_zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">custom_scale</span><span class="p">,</span> <span class="n">custom_zero_point</span>
+            <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">preserve_zero</span><span class="p">:</span>
                 <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_choose_qparams_affine_tinygemm</span><span class="p">(</span>
                     <span class="n">input_float</span><span class="p">,</span>
                     <span class="n">mapping_type</span><span class="p">,</span>
