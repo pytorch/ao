@@ -20,6 +20,7 @@ from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import (
     TorchAOBaseTensor,
 )
+
 from .int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 
 __all__ = [
@@ -122,7 +123,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         # scale and zero_point, then convert to the format that's compatible with tinygemm kernels
         # 2. don't use hqq, use default tinygemm algorithm to compute scale and zero_point
         #
-        # both approach should have the same speed since both are using tinygemm kernel for gemm
+        # both approach should have the same performance since both are using CPU tinygemm kernel for gemm
         # 1. typically will have higher accuracy compared to 2.
         if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
             nbits = int(math.log2(quant_max + 1))
@@ -135,10 +136,6 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
                 axis=axis,
                 compute_dtype=zero_point_dtype,
                 device=w.device,
-                verbose=False,
-                raw_output=False,
-                # raw_output=False is basically the 'convert to tinygemm zero_point version' option (add scale*midpoint) that's used in TilePackedTo4d
-                # note _choose_qparams_affine_tinygemm does this same thing
             )
             int_data = int_data.to(target_dtype)
         else:

@@ -1150,9 +1150,12 @@ def _int4_weight_only_quantize_tensor(weight, config):
         block_size = list(block_size)
 
         if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
-            assert int4_packing_format in [Int4PackingFormat.TILE_PACKED_TO_4D, Int4PackingFormat.OPAQUE], (
+            assert int4_packing_format in [
+                Int4PackingFormat.TILE_PACKED_TO_4D,
+                Int4PackingFormat.OPAQUE,
+            ], (
                 f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, "
-                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D and Int4PackingFormat.OPAQUE curretnly"
+                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D and Int4PackingFormat.OPAQUE currently"
             )
 
         if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
