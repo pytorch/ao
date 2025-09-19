@@ -1770,7 +1770,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
-    packing_format: Float8PackingFormat = Float8PackingFormat.PLAIN
+    float8_packing_format: Float8PackingFormat = Float8PackingFormat.PLAIN
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1781,7 +1781,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         activation_granularity, weight_granularity = _normalize_granularity(
             self.granularity
         )
-        if self.packing_format == Float8PackingFormat.PLAIN:
+        if self.float8_packing_format == Float8PackingFormat.PLAIN:
             assert isinstance(activation_granularity, (PerTensor, PerRow)), (
                 f"Unsupported granularity {activation_granularity}, only PerTensor or PerRow are supported."
             )
@@ -1809,7 +1809,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     kernel_preference = config.kernel_preference
-    packing_format = config.packing_format
+    float8_packing_format = config.float8_packing_format
 
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
@@ -1861,7 +1861,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             kernel_preference=kernel_preference,
         )
 
-        if packing_format == Float8PackingFormat.PLAIN:
+        if float8_packing_format == Float8PackingFormat.PLAIN:
             quantized_weight = Float8Tensor.from_hp(
                 weight,
                 float8_dtype=weight_dtype,
@@ -1870,7 +1870,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
                 kernel_preference=kernel_preference,
                 act_quant_kwargs=act_quant_kwargs,
             )
-        elif packing_format == Float8PackingFormat.OPAQUE:
+        elif float8_packing_format == Float8PackingFormat.OPAQUE:
             block_size = get_block_size(weight.shape, weight_granularity)
             quantized_weight = Float8OpaqueTensor.from_hp(
                 weight,
@@ -1878,7 +1878,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
                 act_quant_kwargs=act_quant_kwargs,
             )
         else:
-            raise ValueError(f"Unsupported float8 packing format: {packing_format}")
+            raise ValueError(
+                f"Unsupported float8 packing format: {float8_packing_format}"
+            )
 
     return quantized_weight
 

@@ -29,7 +29,7 @@ def get_config(granularity):
     return Float8DynamicActivationFloat8WeightConfig(
         activation_dtype=torch.float8_e4m3fn,
         granularity=granularity,
-        packing_format="opaque",
+        float8_packing_format="opaque",
     )
 
 
