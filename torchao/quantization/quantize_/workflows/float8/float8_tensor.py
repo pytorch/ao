@@ -617,6 +617,29 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    self, dim, index = args
+    qdata = self.qdata.select(dim, index)
+    # TODO we need to handle this case differently based on the scaling config
+
+    scale = self.scale.select(dim, index).t()
+    """
+    Without the transpose here, I run into the following runtime error:
+    E       RuntimeError: Invalid scaling configuration. For TensorWise scaling, both scales should be scalar. For RowWise scaling, scale_a should be (512, 1) and scale_b should be (1, 1024). Got scale_a.size()=(512, 1) and scale_b.size()=(1024, 1)
+    """
+
+    new = self.__class__(
+        qdata,
+        scale,
+        self.block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
 Float8Tensor.__module__ = "torchao.quantization"
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
