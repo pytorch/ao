@@ -628,7 +628,7 @@ vllm<span class="w"> </span>serve<span class="w"> </span>your-username/Llama-3.2
     <span class="n">VERSION</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyQuantizedTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Example based on FbgemmFp8Tensor - stores quantized data + scale&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Example based on Float8Tensor - stores quantized data + scale&quot;&quot;&quot;</span>
 
     <span class="n">tensor_data_attrs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;quantized_data&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">]</span>
     <span class="n">tensor_attributes</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">]</span>
