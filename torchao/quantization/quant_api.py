@@ -46,7 +46,6 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-    to_fbgemm_fp8,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -93,7 +92,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
 )
 from torchao.utils import (
     _ConfigDeprecationWrapper,
-    _is_fbgemm_genai_gpu_available,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -160,7 +158,6 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
-    "FbgemmConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -2310,86 +2307,6 @@ def _fpx_weight_only_transform(
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
-
-
-@dataclass
-class FbgemmConfig(AOBaseConfig):
-    """Quantization Config for fbgemm-genai kernels
-    Args:
-       input_dtype (torch.dtype): input dtype of the kernel
-       weight_dtype (torch.dtype): weight dtype of the kernel
-       output_dtype (torch.dtype): output dtype of the kernel
-       group_size (int): The group size for weight
-       preshuffle (bool): whether preshuffle the weights or not
-    """
-
-    input_dtype: torch.dtype
-    weight_dtype: torch.dtype
-    output_dtype: torch.dtype
-    block_size: Optional[List[int]] = None
-    activation_scale_ub: float = 1200.0
-    preshuffle: bool = False
-
-
-@register_quantize_module_handler(FbgemmConfig)
-def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
-    if not _is_fbgemm_genai_gpu_available():
-        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
-
-    _SUPPORTED_DTYPES = {
-        (torch.bfloat16, torch.int4, torch.bfloat16),
-        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16),
-    }
-
-    if (
-        (config.input_dtype == torch.bfloat16)
-        and (config.weight_dtype == torch.int4)
-        and (config.output_dtype == torch.bfloat16)
-    ):
-        if config.preshuffle:
-            weight = Int4PreshuffledTensor.from_hp(
-                module.weight,
-                config.block_size,
-                activation_dtype=torch.bfloat16,
-            )
-        else:
-            weight = Int4Tensor.from_hp(
-                module.weight,
-                config.block_size,
-            )
-        module.weight = torch.nn.Parameter(weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
-    if (
-        (config.input_dtype == e4m3_dtype)
-        and (config.weight_dtype == torch.int4)
-        and (config.output_dtype == torch.bfloat16)
-    ):
-        if config.preshuffle:
-            weight = Int4PreshuffledTensor.from_hp(
-                module.weight,
-                config.block_size,
-                activation_dtype=torch.float8_e4m3fn,
-            )
-            module.weight = torch.nn.Parameter(weight, requires_grad=False)
-            module.extra_repr = types.MethodType(_linear_extra_repr, module)
-            return module
-    elif (
-        (config.input_dtype == e4m3_dtype)
-        and (config.weight_dtype == e4m3_dtype)
-        and (config.output_dtype == torch.bfloat16)
-    ):
-        weight = to_fbgemm_fp8(
-            module.weight,
-            config.activation_scale_ub,
-        )
-        module.weight = torch.nn.Parameter(weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
-    else:
-        raise NotImplementedError(
-            f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"
-        )
 
 
 @dataclass
