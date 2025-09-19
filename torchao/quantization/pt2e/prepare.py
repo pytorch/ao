@@ -143,7 +143,7 @@ def _find_root_edge_or_node(
     return root
 
 
-def _union_if_no_cycle(
+def _union(
     parent: EdgeOrNode,
     child: EdgeOrNode,
     shared_with_map: dict[EdgeOrNode, EdgeOrNode],
@@ -161,10 +161,10 @@ def _union_if_no_cycle(
         # union the two trees by pointing the root of child to root of parent
         shared_with_map[root_child] = root_parent
     else:
-        # Parent already references child with a shared qspec (would create a
-        # cycle). The sets are effectively already unified via the shared
-        # qspec, so we leave shared_with_map unchanged.
-        pass
+        # Parent already references child with a shared qspec. We would create
+        # a cycle if we formed an edge from the child to the parent. Therefore,
+        # we reverse the edge in this particular case.
+        shared_with_map[root_parent] = root_child
 
 
 def _update_shared_with(
@@ -181,7 +181,7 @@ def _update_shared_with(
         parent = qspec.edge_or_node
         # we point from edge_or_node to the node that it is sharing_with, e.g.
         # qspec for a = SharedQuantizationSpec(b) means `a` points to `b`
-        _union_if_no_cycle(parent, child, shared_with_map, edge_or_node_to_qspec)
+        _union(parent, child, shared_with_map, edge_or_node_to_qspec)
 
 
 def _unwrap_shared_qspec(
@@ -263,9 +263,7 @@ def _union_input_edge_with(
         # since dtype is the same (we may want to extend this to be a more strict check
         # in the future)
         # so we point from `input_edge` to `arg` (output of the argument)
-        _union_if_no_cycle(
-            edge_or_node, input_edge, shared_with_map, edge_or_node_to_qspec
-        )
+        _union(edge_or_node, input_edge, shared_with_map, edge_or_node_to_qspec)
 
 
 def _get_edge_or_node_to_group_id(
