@@ -4,6 +4,7 @@ import logging
 import warnings
 
 import torch
+from torchao.utils import torch_version_at_least
 
 warnings.filterwarnings(
     "ignore", message="Failed to initialize NumPy: No module named 'numpy'"
@@ -35,7 +36,7 @@ if (not "+git" in __version__) and not ("unknown" in __version__):
     # dumped)".
     # TODO(#2901, and before next torchao release): make this generic for
     # future torchao and torch versions
-    if __version__.startswith("0.13.0") and str(torch.__version__) >= "2.9":
+    if torch_version_at_least("2.9.0"):
         logger.warning(
             f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__}"
         )
