@@ -74,6 +74,7 @@ from torchao.quantization.utils import (
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     benchmark_model,
@@ -2028,12 +2029,10 @@ class TestUtils(unittest.TestCase):
 
 
 class TestBenchmarkModel(unittest.TestCase):
-    from torchao.testing.model_architectures import ToyTwoLinearModel
-
     def run_benchmark_model(self, device):
         # params
         dtype = torch.bfloat16
-        m = self.ToyTwoLinearModel(1024, 1024, 1024).eval().to(dtype).to(device)
+        m = ToyTwoLinearModel(1024, 1024, 1024).eval().to(dtype).to(device)
         m_bf16 = copy.deepcopy(m)
         example_inputs = m.example_inputs()
         m_bf16 = torch.compile(m_bf16, mode="max-autotune")
