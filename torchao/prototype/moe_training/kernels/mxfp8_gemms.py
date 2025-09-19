@@ -2,7 +2,7 @@ import logging
 
 import torch
 
-from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+from torchao.prototype.moe_training.kernels.mxfp8 import (
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
 )
