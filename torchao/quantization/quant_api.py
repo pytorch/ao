@@ -46,7 +46,6 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-    to_fbgemm_fp8,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -94,7 +93,7 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    _is_fbgemm_genai_gpu_available,
+    _ConfigDeprecationWrapper,
     check_cpu_version,
     is_MI300,
     is_sm_at_least_89,
@@ -162,7 +161,6 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
-    "FbgemmConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -515,14 +513,14 @@ def quantize_(
         # optimized execution paths or kernels (e.g. int4 tinygemm kernel)
         # also customizable with arguments
         # currently options are
-        # int8_dynamic_activation_int4_weight (for executorch)
-        # int8_dynamic_activation_int8_weight (optimized with int8 mm op and torch.compile)
-        # int4_weight_only (optimized with int4 tinygemm kernel and torch.compile)
-        # int8_weight_only (optimized with int8 mm op and torch.compile
+        # Int8DynamicActivationInt4WeightConfig (for executorch)
+        # Int8DynamicActivationInt8WeightConfig (optimized with int8 mm op and torch.compile)
+        # Int4WeightOnlyConfig (optimized with int4 tinygemm kernel and torch.compile)
+        # Int8WeightOnlyConfig (optimized with int8 mm op and torch.compile
         from torchao.quantization.quant_api import int4_weight_only
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        quantize_(m, int4_weight_only(group_size=32, version=1))
+        quantize_(m, Int4WeightOnlyConfig(group_size=32, version=1))
 
     """
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
@@ -642,7 +640,9 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
 
 
 # for BC
-int8_dynamic_activation_int4_weight = Int8DynamicActivationInt4WeightConfig
+int8_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
+    "int8_dynamic_activation_int4_weight", Int8DynamicActivationInt4WeightConfig
+)
 
 
 @register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
@@ -975,7 +975,9 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
 
 
 # for bc
-int4_dynamic_activation_int4_weight = Int4DynamicActivationInt4WeightConfig
+int4_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
+    "int4_dynamic_activation_int4_weight", Int4DynamicActivationInt4WeightConfig
+)
 
 
 @register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
@@ -1036,7 +1038,9 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-gemlite_uintx_weight_only = GemliteUIntXWeightOnlyConfig
+gemlite_uintx_weight_only = _ConfigDeprecationWrapper(
+    "gemlite_uintx_weight_only", GemliteUIntXWeightOnlyConfig
+)
 
 
 @register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
@@ -1118,7 +1122,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
 # for BC
 # TODO maybe change other callsites
-int4_weight_only = Int4WeightOnlyConfig
+int4_weight_only = _ConfigDeprecationWrapper("int4_weight_only", Int4WeightOnlyConfig)
 
 
 def _int4_weight_only_quantize_tensor(weight, config):
@@ -1328,7 +1332,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-int8_weight_only = Int8WeightOnlyConfig
+int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyConfig)
 
 
 def _int8_weight_only_quantize_tensor(weight, config):
@@ -1489,7 +1493,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
 
 
 # for BC
-int8_dynamic_activation_int8_weight = Int8DynamicActivationInt8WeightConfig
+int8_dynamic_activation_int8_weight = _ConfigDeprecationWrapper(
+    "int8_dynamic_activation_int8_weight", Int8DynamicActivationInt8WeightConfig
+)
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -1501,7 +1507,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     # int8 dynamic quantization only has benefit when in_feature > 16
     if in_features <= 16:
         logger.info(
-            f"Skipping applying int8_dynamic_activation_int8_weight to weight of shape {weight.shape}"
+            f"Skipping applying Int8DynamicActivationInt8WeightConfig to weight of shape {weight.shape}"
             f" because `in_feature` is <= 16: {in_features}"
         )
         return weight
@@ -1566,13 +1572,13 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     quantization + 2:4 sparsity to linear layers.
     """
     warnings.warn(
-        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
+        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in Int8DynamicActivationInt8WeightConfig instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()"""
+    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()"""
     )
 
-    return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
+    return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
 
 
 @dataclass
@@ -1598,7 +1604,9 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-float8_weight_only = Float8WeightOnlyConfig
+float8_weight_only = _ConfigDeprecationWrapper(
+    "float8_weight_only", Float8WeightOnlyConfig
+)
 
 
 def _float8_weight_only_quant_tensor(weight, config):
@@ -1788,7 +1796,9 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
 
 # for bc
-float8_dynamic_activation_float8_weight = Float8DynamicActivationFloat8WeightConfig
+float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
+    "float8_dynamic_activation_float8_weight", Float8DynamicActivationFloat8WeightConfig
+)
 
 
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
@@ -1978,7 +1988,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
 
 
 # for bc
-float8_static_activation_float8_weight = Float8StaticActivationFloat8WeightConfig
+float8_static_activation_float8_weight = _ConfigDeprecationWrapper(
+    "float8_static_activation_float8_weight", Float8StaticActivationFloat8WeightConfig
+)
 
 
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
@@ -2064,7 +2076,9 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-uintx_weight_only = UIntXWeightOnlyConfig
+uintx_weight_only = _ConfigDeprecationWrapper(
+    "uintx_weight_only", UIntXWeightOnlyConfig
+)
 
 
 @register_quantize_module_handler(UIntXWeightOnlyConfig)
@@ -2100,7 +2114,7 @@ def _uintx_weight_only_transform(
     if use_hqq:
         if dtype == torch.uint4:
             logger.warning(
-                "Recommended to use `int4_weight_only(group_size, use_hqq=True, version=1)` for the best performance"
+                "Recommended to use `Int4WeightOnlyConfig(group_size, use_hqq=True, version=1)` for the best performance"
             )
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
         dtype = torch.uint8
@@ -2317,7 +2331,7 @@ class FPXWeightOnlyConfig(AOBaseConfig):
 
 
 # for BC
-fpx_weight_only = FPXWeightOnlyConfig
+fpx_weight_only = _ConfigDeprecationWrapper("fpx_weight_only", FPXWeightOnlyConfig)
 
 
 @register_quantize_module_handler(FPXWeightOnlyConfig)
@@ -2348,86 +2362,6 @@ def _fpx_weight_only_transform(
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
-
-
-@dataclass
-class FbgemmConfig(AOBaseConfig):
-    """Quantization Config for fbgemm-genai kernels
-    Args:
-       input_dtype (torch.dtype): input dtype of the kernel
-       weight_dtype (torch.dtype): weight dtype of the kernel
-       output_dtype (torch.dtype): output dtype of the kernel
-       group_size (int): The group size for weight
-       preshuffle (bool): whether preshuffle the weights or not
-    """
-
-    input_dtype: torch.dtype
-    weight_dtype: torch.dtype
-    output_dtype: torch.dtype
-    block_size: Optional[List[int]] = None
-    activation_scale_ub: float = 1200.0
-    preshuffle: bool = False
-
-
-@register_quantize_module_handler(FbgemmConfig)
-def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
-    if not _is_fbgemm_genai_gpu_available():
-        raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
-
-    _SUPPORTED_DTYPES = {
-        (torch.bfloat16, torch.int4, torch.bfloat16),
-        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16),
-    }
-
-    if (
-        (config.input_dtype == torch.bfloat16)
-        and (config.weight_dtype == torch.int4)
-        and (config.output_dtype == torch.bfloat16)
-    ):
-        if config.preshuffle:
-            weight = Int4PreshuffledTensor.from_hp(
-                module.weight,
-                config.block_size,
-                activation_dtype=torch.bfloat16,
-            )
-        else:
-            weight = Int4Tensor.from_hp(
-                module.weight,
-                config.block_size,
-            )
-        module.weight = torch.nn.Parameter(weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
-    if (
-        (config.input_dtype == e4m3_dtype)
-        and (config.weight_dtype == torch.int4)
-        and (config.output_dtype == torch.bfloat16)
-    ):
-        if config.preshuffle:
-            weight = Int4PreshuffledTensor.from_hp(
-                module.weight,
-                config.block_size,
-                activation_dtype=torch.float8_e4m3fn,
-            )
-            module.weight = torch.nn.Parameter(weight, requires_grad=False)
-            module.extra_repr = types.MethodType(_linear_extra_repr, module)
-            return module
-    elif (
-        (config.input_dtype == e4m3_dtype)
-        and (config.weight_dtype == e4m3_dtype)
-        and (config.output_dtype == torch.bfloat16)
-    ):
-        weight = to_fbgemm_fp8(
-            module.weight,
-            config.activation_scale_ub,
-        )
-        module.weight = torch.nn.Parameter(weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
-    else:
-        raise NotImplementedError(
-            f"{config} is not supported. supported input, weight, output kernel dtypes are: {_SUPPORTED_DTYPES}"
-        )
 
 
 @dataclass

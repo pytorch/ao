@@ -25,8 +25,13 @@ def bench_fwd_bwd_microseconds(
 
 def bench_fwd_microseconds(fn, *args, use_compile=False, fullgraph=True, **kwargs):
     fn_compiled = torch.compile(fn, fullgraph=fullgraph) if use_compile else fn
+
+    def inference_fn(*args, **kwargs):
+        with torch.no_grad():
+            return fn_compiled(*args, **kwargs)
+
     return benchmark_cuda_function_in_microseconds(
-        fn_compiled,
+        inference_fn,
         *args,
         **kwargs,
     )

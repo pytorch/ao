@@ -78,9 +78,8 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
             )
 
 
-# TODO: rename this config, it actually works for both plain and preshuffled
 @dataclass
-class Int4WeightPreshuffledFakeQuantizeConfig(FakeQuantizeConfigBase):
+class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
         torch.ops.fbgemm.f8i4bf16_shuffled
@@ -395,7 +394,7 @@ def _infer_fake_quantize_configs(
                 raise ValueError(
                     f"Packing format must be one of {supported_packing_formats}"
                 )
-            weight_config = Int4WeightPreshuffledFakeQuantizeConfig(
+            weight_config = Int4WeightFakeQuantizeConfig(
                 group_size=128,
                 activation_dtype=torch.bfloat16,
             )
@@ -443,7 +442,7 @@ def _infer_fake_quantize_configs(
             dtype=e4m3_dtype,
             granularity=PerRow(),
         )
-        weight_config = Int4WeightPreshuffledFakeQuantizeConfig(
+        weight_config = Int4WeightFakeQuantizeConfig(
             group_size=128,
             activation_dtype=e4m3_dtype,
         )

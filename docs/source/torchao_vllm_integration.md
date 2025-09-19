@@ -171,7 +171,7 @@ class MyNewQuantConfig(AOBaseConfig):
     VERSION: ClassVar[int] = 1
 
 class MyQuantizedTensor(TorchAOBaseTensor):
-    """Example based on FbgemmFp8Tensor - stores quantized data + scale"""
+    """Example based on Float8Tensor - stores quantized data + scale"""
 
     tensor_data_attrs = ["quantized_data", "scale"]
     tensor_attributes = ["dtype"]
