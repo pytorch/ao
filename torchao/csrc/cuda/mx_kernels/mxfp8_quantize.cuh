@@ -22,7 +22,6 @@
 #include <cuda/barrier>
 #include <cuda/ptx>
 
-
 #define MIN_CUDA_SM 1000 // SM90 = 900, SM100 = 1000
 
 // Check if we're compiling for supported architecture
@@ -37,6 +36,17 @@
 #else
 #define HAS_NATIVE_FP8_CONVERSION 0
 #endif
+
+// Macro to check CUDA error.
+#define CUDA_CHECK(call)                                                      \
+do {                                                                          \
+    cudaError_t err = call;                                                   \
+    if (err != cudaSuccess) {                                                 \
+        fprintf(stderr, "CUDA Error in %s at line %d: %s\n",                  \
+                __FILE__, __LINE__, cudaGetErrorString(err));                 \
+        throw std::runtime_error(cudaGetErrorString(err));                    \
+    }                                                                         \
+} while (0)
 
 enum class DType {
   kByte,
@@ -345,6 +355,61 @@ inline CUtensorMapDataType get_dtype_for_tma(DType dtype) {
   }
 }
 
+void* get_driver_ptr() {
+  // Only initialize driver_ptr once during the lifetime of the program.
+  static void *driver_ptr = nullptr;
+  if (!driver_ptr) {
+    cudaDriverEntryPointQueryResult result;
+    CUDA_CHECK(cudaGetDriverEntryPoint("cuTensorMapEncodeTiled", &driver_ptr,
+                            cudaEnableDefault, &result));
+  }
+  return driver_ptr;
+}
+
+inline void create_3D_tensor_map_output(CUtensorMap &tensorMap,
+                                         void *data_ptr,
+                                         DType dtype,
+                                         const size_t E,
+                                         const size_t N,
+                                         const size_t K,
+                                         uint32_t shmem_e,
+                                         uint32_t shmem_n,
+                                         uint32_t shmem_k,
+                                         const size_t type_num_bits) {
+  // Get function pointer to cuTensorMapEncodeTiled
+  void *driver_ptr = get_driver_ptr();
+  auto cuTensorMapEncodeTiled =
+      reinterpret_cast<PFN_cuTensorMapEncodeTiled_v12000>(driver_ptr);
+
+
+  // Rank of the tensor is 3
+  constexpr uint32_t rank = 3;
+
+  // Dimensions must be ordered from fastest to slowest moving dimension.
+  // Given shape (E, N, K) and strides (N * K, 1, N), the order is N, K, E.
+  uint64_t size[rank] = {N, K, E};
+
+  // The stride array has rank-1 elements.
+  // stride[0] = byte stride for the second-fastest dimension (K).
+  // stride[1] = byte stride for the third-fastest dimension (E).
+  const size_t bytes_per_elem = type_num_bits / 8;
+  uint64_t stride[rank - 1] = {
+      N * bytes_per_elem,           // Stride for K dim: N elements * bytes/element
+      N * K * bytes_per_elem};      // Stride for E dim: N*K elements * bytes/element
+
+  // Box dimensions (tile size) must follow the same fastest-to-slowest order.
+  uint32_t boxSize[rank] = {shmem_n, shmem_k, shmem_e};
+
+  // Element strides within the tile (box). For a contiguous copy, this is always 1.
+  uint32_t elemStride[rank] = {1, 1, 1};
+
+  cuTensorMapEncodeTiled(
+      &tensorMap, get_dtype_for_tma(dtype), rank, data_ptr, size, stride,
+      boxSize, elemStride, CU_TENSOR_MAP_INTERLEAVE_NONE,
+      CU_TENSOR_MAP_SWIZZLE_NONE, CU_TENSOR_MAP_L2_PROMOTION_NONE,
+      CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+}
+
 // Reference:
 // https://github.com/NVIDIA/TransformerEngine/blob/1ae1d228d725a488621deba685bd26d6ee1cdb21/transformer_engine/common/common.cu#L137
 // This was modified to make it compatible with our implementation and avoid
@@ -355,12 +420,7 @@ inline void create_2D_tensor_map(CUtensorMap &tensorMap, void *data_ptr,
                                  uint32_t shmem_x, const size_t stride_elems,
                                  const size_t type_num_bits) {
   // Get function pointer to cuTensorMapEncodeTiled
-  static void *driver_ptr = nullptr;
-  if (!driver_ptr) {
-    cudaDriverEntryPointQueryResult result;
-    cudaGetDriverEntryPoint("cuTensorMapEncodeTiled", &driver_ptr,
-                            cudaEnableDefault, &result);
-  }
+  void *driver_ptr = get_driver_ptr();
   auto cuTensorMapEncodeTiled =
       reinterpret_cast<PFN_cuTensorMapEncodeTiled_v12000>(driver_ptr);
 
@@ -371,19 +431,13 @@ inline void create_2D_tensor_map(CUtensorMap &tensorMap, void *data_ptr,
   uint32_t boxSize[rank] = {shmem_x, shmem_y};
   uint32_t elemStride[rank] = {1, 1};
 
-#if defined(DEBUG)
-  printf("TMA Descriptor: global_shape=(%llu, %llu), tile_shape=(%u, %u), "
-         "stride_bytes=%llu\n",
-         (unsigned long long)size[1], (unsigned long long)size[0], boxSize[1],
-         boxSize[0], (unsigned long long)stride[0]);
-#endif
-
   cuTensorMapEncodeTiled(
       &tensorMap, get_dtype_for_tma(dtype), rank, data_ptr, size, stride,
       boxSize, elemStride, CU_TENSOR_MAP_INTERLEAVE_NONE,
       CU_TENSOR_MAP_SWIZZLE_NONE, CU_TENSOR_MAP_L2_PROMOTION_NONE,
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
 }
+
 
 // Helper functions for TMA operations
 __device__ inline void copy_2d_to_shared(void *smem,
@@ -906,8 +960,8 @@ template <typename IType, typename OType, size_t SCALE_DIM_Y,
           size_t SCALE_DIM_X, ScaleCalculationMode ScalingMode>
 __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
     mxfp8_quantize_kernel_3d(
-        const CUtensorMap* tensor_maps_input,
-        const CUtensorMap* tensor_maps_output,
+        const __grid_constant__ CUtensorMap tensor_map_input,
+        const __grid_constant__ CUtensorMap tensor_map_output,
         e8m0_t *const scales_colwise,
         const size_t E, const size_t N, const size_t K,
         const size_t scales_colwise_stride_dim0,
@@ -941,15 +995,18 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
   const int tid_colwise_X = threadIdx.x % THREADS_PER_CHUNK_X_COLWISE;
   const int expert_idx = blockIdx.z;
+  const int expert_logical_base_row = expert_idx * N;
 
   // The destination shared memory buffer of a bulk tensor operation should be
   // 128 e8m0_t aligned
   __shared__ alignas(128)
       IType in_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_Y][MXFP8_SHMEM_DIM_X];
+
+  // SMEM buffer for expert must be 3d since we use cp async bulk tensor 3d ptx instruction.
+  // We parallelize across experts, so leading "E" dim will always be 1 for single expert.
+  constexpr size_t smem_e = 1;
   __shared__ alignas(128) OType
-      out_rowwise_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_Y][MXFP8_SHMEM_DIM_X];
-  __shared__ alignas(128) OType
-      out_colwise_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_X][MXFP8_SHMEM_DIM_Y];
+      out_colwise_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_X][MXFP8_SHMEM_DIM_Y][smem_e];
 
   constexpr int shmem_buff_size = sizeof(in_sh) / MXFP8_BUFFERS_NUM;
 
@@ -988,10 +1045,15 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       const int chunk_stage_offset_Y =
           chunk_offset_Y + prefetch_buff * MXFP8_BUFFER_DIM_Y;
       const int chunk_stage_offset_X = chunk_offset_X;
+
+      // Calculate TMA coordinates for using 2D descriptor to read 3D input data
+      const int tma_x_offset = chunk_stage_offset_X;
+      const int tma_y_offset = expert_logical_base_row + chunk_stage_offset_Y;
+
       copy_2d_to_shared(&in_sh[prefetch_buff],
-                        &tensor_maps_input[expert_idx],
-                        chunk_stage_offset_X,
-                        chunk_stage_offset_Y,
+                        &tensor_map_input,
+                        tma_x_offset,
+                        tma_y_offset,
                         shmem_buff_size, &mbar[prefetch_buff],
                         is_master_thread);
     }
@@ -1002,7 +1064,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
     for (int iter = 0; iter < MXFP8_ITERATIONS; ++iter) {
       const int buff = iter % MXFP8_BUFFERS_NUM;
       const int next_iter = iter + MXFP8_PREFETCH_BUFFERS_NUM;
-      const size_t row_base = chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
+      const size_t row_base = expert_logical_base_row + chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
 
       // Prefetch next iteration data
       if (next_iter < MXFP8_ITERATIONS) {
@@ -1010,10 +1072,15 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         const int chunk_it_offset_y =
             chunk_offset_Y + next_iter * MXFP8_BUFFER_DIM_Y;
         const int chunk_it_offset_x = chunk_offset_X;
+
+        // Calculate TMA coordinates for using 2D descriptor to read 3D input data
+        const int tma_x_offset = chunk_it_offset_x;
+        const int tma_y_offset = expert_logical_base_row + chunk_it_offset_y;
+
         copy_2d_to_shared(&in_sh[next_buff],
-                          &tensor_maps_input[expert_idx],
-                          chunk_it_offset_x,
-                          chunk_it_offset_y,
+                          &tensor_map_input,
+                          tma_x_offset,
+                          tma_y_offset,
                           shmem_buff_size,
                           &mbar[next_iter],
                           is_master_thread);
@@ -1024,25 +1091,11 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       // Wait for the data to have arrived
       ptx::mbarrier_wait_parity(&mbar[iter], parity);
 
-#if defined(DEBUG_SMEM)
-      // Debugging smem data
-      if (threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
-        printf("Shared memory values for expert %d:\n", expert_idx);
-        for (int b = 0; b < MXFP8_BUFFERS_NUM; b++) {
-          for (int y = 0; y < MXFP8_SHMEM_DIM_Y; y++) {
-            for (int x = 0; x < MXFP8_SHMEM_DIM_X; x++) {
-              printf("in_sh[%d][%d][%d] = %f\n", b, y, x,
-                     DataTypeTraits<IType>::to_float(in_sh[b][y][x]));
-            }
-          }
-        }
-      }
-#endif
 
       // ======== 3d tensor column-wise scaling
 
-      // Create bounds checker for this chunk
-      BoundsChecker bounds(N, K, chunk_offset_X, chunk_offset_Y);
+      // Create bounds checker for this chunk - using the full tensor dimensions (E*N, K)
+      BoundsChecker bounds(E * N, K, chunk_offset_X, chunk_offset_Y);
 
       const size_t col = chunk_offset_X + tid_colwise_X;
       const bool col_out_of_bounds = (col >= K);
@@ -1062,9 +1115,9 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         in_compute[i] = elt;
 
         // Update thread local amax
-        if (!out_of_bounds) {
-          amax = fmaxf(amax, fabsf(elt));
-        }
+       if (!out_of_bounds) {
+        amax = fmaxf(amax, fabsf(elt));
+       }
       }
 
       // Apply quantization to the local block.
@@ -1085,22 +1138,18 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           global_scales_offset_X * scales_colwise_stride_dim2;
 
       // Bounds check for scale writing
-      const bool row_out_of_bounds = (row_base >= N);
+      const bool row_out_of_bounds = (row_base >= E * N);
       if (!row_out_of_bounds && !col_out_of_bounds) {
         scales_colwise[scale_idx] = e8m0_biased_scale;
       }
 
-      // Store quantized values to shared memory
+      // Store quantized values to shared memory.
+      // SHMEM E dim is 1 since we parallelize across experts, so always index 0.
+      const int shmem_e_idx = 0;
 #pragma unroll
       for (int i = 0; i < SCALE_DIM_Y; ++i) {
-        out_colwise_sh[buff][tid_colwise_X][i] = quantized_values[i];
+        out_colwise_sh[buff][tid_colwise_X][i][shmem_e_idx] = quantized_values[i];
       }
-
-#if defined(DEBUG)
-      if (tid_colwise_X == 0) {
-        printf("Colwise: amax=%f, e8m0_scale=%u\n", amax, e8m0_biased_scale);
-      }
-#endif
 
       // Wait for shared memory writes to be visible to TMA engine.
       ptx::fence_proxy_async_shared_cta();
@@ -1109,15 +1158,18 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
       // Initiate TMA transfer to copy shared memory to global memory
       if (is_master_thread) {
-        // Swap logical destination offsets for TMA to write into column major layout.
-        const int chunk_it_offset_y = chunk_offset_X;
-        const int chunk_it_offset_x = chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
-        ptx::cp_async_bulk_tensor_2d_shared_to_global(
-            // TMA descriptor for this expert in the output tensor
-            reinterpret_cast<const uint64_t *>(&tensor_maps_output[expert_idx]),
-            chunk_it_offset_x,
-            chunk_it_offset_y,
-            reinterpret_cast<uint64_t *>(&out_colwise_sh[buff]));
+        // For per expert col major,
+        const int output_tma_x_offset = chunk_offset_X;
+        const int output_tma_y_offset = chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
+
+        // Pass in TMA offsets in the same order as the tensor map exists (N, K, E)
+        // which is fastest moving dim (stride 1) -> slowest moving.
+        cuda::device::experimental::cp_async_bulk_tensor_3d_shared_to_global(
+            &tensor_map_output,
+            output_tma_y_offset, // N
+            output_tma_x_offset, // K
+            expert_idx,          // E
+            reinterpret_cast<void *>(&out_colwise_sh[buff]));
         // Create a "bulk async-group" out of the previous bulk copy operation.
         ptx::cp_async_bulk_commit_group();
 
@@ -1143,12 +1195,12 @@ public:
   // output_rowwise: pointer to row-wise quantized output (can be nullptr)
   // output_colwise: pointer to column-wise quantized output (can be nullptr)
   // scales_rowwise: pointer to row-wise scaling factors (required if
-  // output_rowwise is not null) scales_colwise: pointer to column-wise scaling
-  // factors (required if output_colwise is not null) rows, cols: tensor
-  // dimensions input_dtype: data type of input output_dtype: FP8 output type
-  // (fp8e4m3 or fp8e5m2) scale_dim_x: block size for row-wise scaling
-  // (typically 32) scale_dim_y: block size for column-wise scaling (typically
-  // 32)
+  // output_rowwise is not null) scales_colwise: pointer to column-wise scaling factors (required if output_colwise is not null)
+  // rows, cols: tensor dimensions
+  // input_dtype: data type of input
+  // output_dtype: FP8 output type (fp8e4m3 or fp8e5m2)
+  // scale_dim_x: block size for row-wise scaling (typically 32)
+  // scale_dim_y: block size for column-wise scaling (typically 32)
   static void
   quantize(const void *input, void *output_rowwise, void *output_colwise,
            e8m0_t *scales_rowwise, e8m0_t *scales_colwise,
@@ -1283,8 +1335,8 @@ public:
   }
 
   // Quantize a 3D tensor using MXFP8 with colwise scaling
-  // input: pointer to input data with shape (E, N, K) and strides (N*K, 1, N) (column major)
-  // output_colwise: pointer to column-wise quantized output with same layout
+  // input: pointer to input data with shape (E, N, K)
+  // output_colwise: pointer to column-wise quantized output in column major format.
   // scales_colwise: pointer to column-wise scaling factors with shape (E, num_n_blocks, K)
   // E, N, K: tensor dimensions
   // scales_colwise_stride_dim0: stride for E dimension in scales
@@ -1294,7 +1346,7 @@ public:
   // scale_dim_n: block size for column-wise scaling along N dimension (typically 32)
   static void
   quantize_3d(const void *input, void *output_colwise, e8m0_t *scales_colwise,
-              size_t E, size_t N, size_t K,
+              const size_t E, size_t N, size_t K,
               size_t input_stride_dim0, size_t input_stride_dim1, size_t input_stride_dim2,
               size_t output_stride_dim0, size_t output_stride_dim1, size_t output_stride_dim2,
               size_t scales_colwise_stride_dim0, size_t scales_colwise_stride_dim1, size_t scales_colwise_stride_dim2,
@@ -1319,56 +1371,29 @@ public:
 
     // Create TMA descriptors for each expert
     // Allocate GPU-accessible memory for TMA descriptors
-    CUtensorMap* tensor_maps_input = nullptr;
-    CUtensorMap* tensor_maps_output = nullptr;
-
-    // Use cudaMallocManaged for GPU-accessible TMA descriptors
-    cudaError_t err1 = cudaMallocManaged(&tensor_maps_input, E * sizeof(CUtensorMap));
-    cudaError_t err2 = cudaMallocManaged(&tensor_maps_output, E * sizeof(CUtensorMap));
-
-    if (err1 != cudaSuccess || err2 != cudaSuccess) {
-      printf("Failed to allocate managed memory for TMA descriptors\n");
-      return;
-    }
-
+    alignas(64) CUtensorMap tensor_map_input{};
+    alignas(64) CUtensorMap tensor_map_output{};
     int32_t input_bits_per_elem = get_dtype_bits(input_dtype);
     int32_t output_bits_per_elem = get_dtype_bits(output_dtype);
 
-    for (int expert_idx = 0; expert_idx < E; ++expert_idx) {
-      // Calculate expert base addresses using actual tensor strides
-      const char* input_base = static_cast<const char*>(input);
-      char* output_base = static_cast<char*>(output_colwise);
+    create_2D_tensor_map(
+      tensor_map_input, const_cast<void *>(input),
+      input_dtype,
+      E * N, K,
+      MXFP8_SHMEM_DIM_Y, MXFP8_SHMEM_DIM_X,
+      K,                    // stride of "slowest moving" dim (to increment along E*N dimension, we move K elements)
+      input_bits_per_elem); // bits per elem in input
 
-      // Use input_stride_dim0 to get correct byte offset for each expert
-      void* input_expert_base_addr = const_cast<char*>(input_base) +
-          expert_idx * input_stride_dim0 * (input_bits_per_elem / 8);
-      void* output_expert_base_addr = output_base +
-          expert_idx * output_stride_dim0 * (output_bits_per_elem / 8);
+    size_t shmem_e = 1;
+    create_3D_tensor_map_output(
+      tensor_map_output,
+      output_colwise,
+      output_dtype,
+      E, N, K,
+      shmem_e, MXFP8_SHMEM_DIM_Y, MXFP8_SHMEM_DIM_X, // Y = N = rows, X = K = cols
+      output_bits_per_elem); // bits per elem in input
 
-      // Input tensor map for reading from a specific expert, from input shape (E,N,K).
-      // For input stride pattern (input_stride_dim0, input_stride_dim1, input_stride_dim2)
-      // within each expert (N,K) slice, the stride for rows is input_stride_dim1 (elements)
-      create_2D_tensor_map(
-        tensor_maps_input[expert_idx],
-        input_expert_base_addr,
-        input_dtype,
-        N, K,
-        MXFP8_SHMEM_DIM_Y, MXFP8_SHMEM_DIM_X,
-        input_stride_dim1,         // stride between rows within expert (N,K) slice
-        input_bits_per_elem);      // bits per elem in input
 
-      // Output tensor map: column major layout with dimensions swapped for TMA
-      // For output stride pattern (output_stride_dim0, output_stride_dim1, output_stride_dim2)
-      // within each expert (K,N) slice (swapped), use output_stride_dim2 for TMA stride
-      create_2D_tensor_map(
-        tensor_maps_output[expert_idx],
-        output_expert_base_addr,
-        output_dtype,
-        K, N,  // Swap for column major layout
-        MXFP8_SHMEM_DIM_X, MXFP8_SHMEM_DIM_Y,
-        output_stride_dim2,        // stride for swapped dimensions in column major
-        output_bits_per_elem);     // bits per elem in output fp8e4m3
-    }
 
 // Launch 3D kernel based on input/output types and scaling dimensions
 // Only compile kernel launches for SM90+
@@ -1379,7 +1404,7 @@ public:
 #define LAUNCH_KERNEL_3D(IType, OType, SCALE_Y, SCALE_X, ScalingMode)         \
   mxfp8_quantize_kernel_3d<IType, OType, SCALE_Y, SCALE_X, ScalingMode>       \
       <<<grid, block, 0, stream>>>(                                            \
-          tensor_maps_input, tensor_maps_output, \
+          tensor_map_input, tensor_map_output, \
           scales_colwise,         \
           E, N, K, \
           scales_colwise_stride_dim0, scales_colwise_stride_dim1, scales_colwise_stride_dim2);
@@ -1414,10 +1439,6 @@ public:
     }
 
 #undef LAUNCH_KERNEL_3D
-
-    // Clean up managed memory for TMA descriptors
-    cudaFree(tensor_maps_input);
-    cudaFree(tensor_maps_output);
 
 #endif
   }

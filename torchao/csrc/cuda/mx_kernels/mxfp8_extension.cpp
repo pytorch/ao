@@ -54,7 +54,8 @@ mxfp8_quantize(torch::Tensor input, bool rowwise, bool colwise,
 
   // Validate inputs
   TORCH_CHECK(!rowwise, "rowwise scaling is not supported yet");
-  check_cuda_tensor(input, "input");
+  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   TORCH_CHECK(input.dim() == 2, "input must be 2D");
   TORCH_CHECK(input.scalar_type() == torch::kFloat32 ||
                   input.scalar_type() == torch::kFloat16 ||
@@ -130,6 +131,7 @@ mxfp8_quantize_3d(torch::Tensor input, int64_t scale_dim_n,
 
   // Validate inputs
   TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   // Note: We don't check contiguous for 3D as it may have column major strides
   TORCH_CHECK(input.dim() == 3, "input must be 3D");
   TORCH_CHECK(input.scalar_type() == torch::kFloat32 ||
@@ -148,7 +150,6 @@ mxfp8_quantize_3d(torch::Tensor input, int64_t scale_dim_n,
   TORCH_CHECK((N >= 32) && (N % 32 == 0), "N must be a multiple of 32");
   TORCH_CHECK((K >= 32) && (K % 32 == 0), "K must be a multiple of 32");
 
-  // The kernel should work with any stride pattern - no layout requirements
 
   c10::cuda::CUDAGuard device_guard(input.device());
 
