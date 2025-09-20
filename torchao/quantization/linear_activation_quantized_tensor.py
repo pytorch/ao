@@ -133,11 +133,14 @@ implements = LinearActivationQuantizedTensor.implements
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
-    input_tensor, weight_tensor, bias = (
-        args[0],
-        args[1],
-        args[2] if len(args) > 2 else None,
-    )
+
+    input_tensor = kwargs.get("input", args[0] if len(args) > 0 else None)
+    weight_tensor = kwargs.get("weight", args[1] if len(args) > 1 else None)
+    bias = kwargs.get("bias", args[2] if len(args) > 2 else None)
+
+    assert input_tensor is not None, "input tensor must not be None"
+    assert weight_tensor is not None, "weight tensor must not be None"
+
     if isinstance(weight_tensor, LinearActivationQuantizedTensor):
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
 
@@ -216,6 +219,11 @@ def _(func, types, args, kwargs):
         for tensor_name in self_tensors:
             getattr(self, tensor_name).copy_(getattr(src, tensor_name))
         return
+    elif type(self) is torch.Tensor and type(src) is LinearActivationQuantizedTensor:
+        new_src = src.to(dtype=self.dtype, device=self.device)
+        self.copy_(new_src)
+        return
+
     raise ValueError(
         f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
     )
