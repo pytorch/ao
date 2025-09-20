@@ -15,8 +15,10 @@ from torchao.quantization.quant_primitives import _fake_quantize_affine
 from .granularity import (
     Granularity,
     PerAxis,
+    PerGroup,
     PerRow,
     PerTensor,
+    PerToken,
 )
 from .quant_primitives import (
     MappingType,
@@ -78,8 +80,13 @@ def get_block_size(
         block_size = list(input_shape)
         block_size[granularity.axis] = 1
         return tuple(block_size)
-    elif isinstance(granularity, PerRow):
+    elif isinstance(granularity, (PerRow, PerToken)):
         return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
+    elif isinstance(granularity, PerGroup):
+        assert input_shape[-1] % granularity.group_size == 0, (
+            f"Group size {granularity.group_size} does not divide input shape {input_shape}"
+        )
+        return (1,) * (len(input_shape) - 1) + (granularity.group_size,)
     raise ValueError(f"Unsupported Granularity: {granularity}")
 
 
