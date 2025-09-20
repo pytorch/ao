@@ -336,7 +336,7 @@ if __name__ == "__main__":
     )
 
     # Optional arguments with default values
-    parser.add_argument("--repo", type=str, help="Repository ID of the model.")
+    parser.add_argument("--model", type=str, help="Repository ID of the model.")
     parser.add_argument(
         "--quant",
         type=str,
@@ -402,7 +402,7 @@ if __name__ == "__main__":
     # Convert precision argument to torch dtype
     precision_dtype = getattr(torch, args.precision, torch.bfloat16)
     result = quantize_and_eval(
-        args.repo,
+        args.model,
         args.quant,
         args.tasks,
         args.max_seq_length,
