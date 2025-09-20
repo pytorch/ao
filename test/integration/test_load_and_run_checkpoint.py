@@ -193,7 +193,7 @@ class TestLoadAndRunCheckpoint(TestCase):
         with warnings.catch_warnings(record=True) as caught_warnings:
             quantized_model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype="bfloat16",
+                dtype="bfloat16",
                 device_map="cuda:0",
             )
             # version mismatch check in config.py
@@ -250,7 +250,7 @@ class TestLoadAndRunCheckpoint(TestCase):
         with warnings.catch_warnings(record=True) as caught_warnings:
             _ = AutoModelForCausalLM.from_pretrained(
                 _HIGH_PRECISION_MODEL,
-                torch_dtype="bfloat16",
+                dtype="bfloat16",
                 device_map="cuda:0",
                 quantization_config=quantized_model.config.quantization_config,
             )

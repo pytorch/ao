@@ -100,7 +100,7 @@ def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
     with sdpa_kernel(SDPBackend.MATH):
         # have been tested models Llama-3-8B, Llama-2-7B, Mistral-7B, and stories110M
         model = transformers.AutoModelForCausalLM.from_pretrained(
-            checkpoint, torch_dtype=torch.bfloat16
+            checkpoint, dtype=torch.bfloat16
         )
         tokenizer = transformers.AutoTokenizer.from_pretrained(checkpoint)
         model = model.to(device)

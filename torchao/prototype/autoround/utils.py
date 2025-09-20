@@ -140,11 +140,11 @@ def _auto_detect_decoder_cls(model):
             return type(first_module)
 
 
-def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
+def get_float_model_info(model_name_or_path, dtype=torch.float32):
     import transformers
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
-        model_name_or_path, torch_dtype=torch_dtype
+        model_name_or_path, dtype=dtype
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
     decoder_cls = _auto_detect_decoder_cls(model)
