@@ -325,8 +325,8 @@ def test_triton_mx_block_rearrange_2d_K_groups(
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("E", (1, 2, 4, 8))
-@pytest.mark.parametrize("N", (32, 64, 8192))
-@pytest.mark.parametrize("K", (32, 64, 8192))
+@pytest.mark.parametrize("N", (32, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.FLOOR,))
 def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
@@ -361,7 +361,6 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     y_d1, s_d1 = mxfp8_cuda.quantize_3d(
         x, scale_dim_n=block_size, scaling_mode=scaling_mode_str
     )
-
     # Check scales
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
 
