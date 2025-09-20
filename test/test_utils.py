@@ -345,58 +345,52 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
-        def test_implements_and_torch_function_together(self):
-            """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
-            counter = {"calls": 0}
+    def test_implements_and_torch_function_together(self):
+        """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
+        counter = {"calls": 0}
 
-            class MyTensor(TorchAOBaseTensor):
-                tensor_data_names = ["qdata"]
-                tensor_attribute_names = ["attr", "device"]
+        class MyTensor(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr", "device"]
 
-                def __new__(cls, qdata, attr="attr", device=None):
-                    shape = qdata.shape
-                    if device is None:
-                        device = qdata.device
-                    kwargs = {"device": device}
-                    return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
+            def __new__(cls, qdata: torch.Tensor, attr: str = "attr", device=None):
+                kwargs = {}
+                if device is None:
+                    device = qdata.device
+                kwargs["device"] = device
+                kwargs["dtype"] = qdata.dtype
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
+                r.qdata = qdata
+                r.attr = attr
+                return r
 
-                def __init__(self, qdata, attr="attr", device=None):
-                    self.qdata = qdata
-                    self.attr = attr
+            def __init__(self, qdata: torch.Tensor, attr: str = "attr", device=None):
+                pass
 
-            # Register the same implementation for both aten and torch-level function
-            @MyTensor.implements(torch.ops.aten.linear.default)
-            @MyTensor.implements_torch_function(F.linear)
-            def fake_linear(f, types, args, kwargs):
-                x, w, b = args
-                w_plain = getattr(w, "qdata", w)
-                b_plain = getattr(b, "qdata", b) if b is not None else None
-                counter["calls"] += 1
-                return torch.matmul(x, w_plain.T) + (
-                    b_plain if b_plain is not None else 0
-                )
+        implements = MyTensor.implements
+        implements_torch_function = MyTensor.implements_torch_function
 
-            l = torch.nn.Linear(2, 3)
-            orig_w = l.weight.detach().clone()
+        @implements([torch.ops.aten.t.default])
+        @implements_torch_function([F.linear])
+        def fake_linear(func, types, args, kwargs):
+            counter["calls"] += 1
 
-            l.weight = torch.nn.Parameter(MyTensor(orig_w, "attr", None))
+        l = torch.nn.Linear(2, 3)
+        l.weight = torch.nn.Parameter(MyTensor(l.weight.detach(), "attr", None))
+        x = torch.randn(4, 2)
 
-            x = torch.randn(4, 2)
+        # Torch function path
+        F.linear(x, l.weight, l.bias)
+        self.assertEqual(
+            counter["calls"], 1, "Expected fake_linear to be called via F.linear"
+        )
 
-            # module path (F.linear)
-            self.assertEqual(
-                counter["calls"],
-                1,
-                "Expected fake_linear to be called once via F.linear",
-            )
-
-            # aten path
-            torch.ops.aten.linear.default(x, l.weight, l.bias)
-            self.assertEqual(
-                counter["calls"],
-                2,
-                "Expected fake_linear to be called once via aten.linear",
-            )
+        # ATen path
+        mt = MyTensor(torch.randn(3, 4))
+        torch.ops.aten.t.default(mt)
+        self.assertEqual(
+            counter["calls"], 2, "Expected fake_linear to be called via aten.t.default"
+        )
 
 
 if __name__ == "__main__":
