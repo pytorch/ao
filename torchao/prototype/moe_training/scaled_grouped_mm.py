@@ -358,17 +358,11 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # Quantize 3d expert weights along N (contraction dimension for next grouped gemm)
         # (E, K, N) -> (E, N, K)
         B = B_t.transpose(-2, -1)
-        E, N, K = B.shape
-
-        # mxfp8_quantize_cuda_3d is only faster for E > 8
-        if E > 8:
-            B_data, B_scales = mxfp8_quantize_cuda_3d(
-                B._data if hasattr(B, "_data") else B, block_size=block_size
-            )
-            # (E, N//block_size, K) -> (E, K, N//block_size)
-            B_scales = B_scales.transpose(-2, -1)
-        else:
-            B_scales, B_data = _to_mxfp8_dim1_3d(B, block_size=block_size)
+        B_data, B_scales = mxfp8_quantize_cuda_3d(
+            B._data if hasattr(B, "_data") else B, block_size=block_size
+        )
+        # (E, N//block_size, K) -> (E, K, N//block_size)
+        B_scales = B_scales.transpose(-2, -1)
 
         # Convert scales to blocked format for 2d-3d grouped mm
         grad_out_scales_blocked = triton_mx_block_rearrange_2d_M_groups(
