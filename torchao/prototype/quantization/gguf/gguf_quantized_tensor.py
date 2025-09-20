@@ -245,7 +245,8 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
