@@ -9,14 +9,14 @@ set -e
 source eval_env_checks.sh
 
 usage() {
-  echo "Usage: $0 --eval_type <all|memory|latency|quality> --model_ids <model1> <model2> ... [--batch_sizes <batch_sizes>] [--tasks <tasks>]"
+  echo "Usage: $0 --model_ids <model1> <model2> ... [--eval_type <all|memory|latency|quality>] [--batch_sizes <batch_sizes>] [--tasks <tasks>]"
   echo "Defaults:"
   echo "  batch_sizes: 1 256"
   echo "  tasks: mmlu"
   exit 1
 }
-EVAL_TYPE=""
 MODEL_ID_ARRAY=()
+EVAL_TYPE="all"
 # these will be parsed in the other scripts
 BATCH_SIZES="1 256"    # Default for latency eval
 TASKS="mmlu"           # Default for quality eval
@@ -64,8 +64,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-if [[ -z "$EVAL_TYPE" || ${#MODEL_ID_ARRAY[@]} -eq 0 ]]; then
-  echo "Error: --eval_type and --model_ids are required"
+if [[ ${#MODEL_ID_ARRAY[@]} -eq 0 ]]; then
+  echo "Error: --model_ids is required"
   usage
 fi
 
@@ -96,9 +96,9 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
       run_quality "$MODEL_ID"
       ;;
     all)
+      run_quality "$MODEL_ID"
       run_memory "$MODEL_ID"
       run_latency "$MODEL_ID"
-      run_quality "$MODEL_ID"
       ;;
     *)
       echo "Unknown eval_type: $EVAL_TYPE"

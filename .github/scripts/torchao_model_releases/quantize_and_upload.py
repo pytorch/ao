@@ -36,7 +36,7 @@ def _get_username():
 
 def _untie_weights_and_save_locally(model_id):
     untied_model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="auto"
+        model_id, torch_dtype="auto", device_map="cuda:0"
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -209,7 +209,7 @@ _int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig
 quant_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -217,7 +217,7 @@ _fp8_quant_code = """
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -238,7 +238,7 @@ linear_config = Int8DynamicActivationIntxWeightConfig(
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -250,12 +250,12 @@ from torchao.prototype.awq import (
 from torchao._models._eval import TransformerEvalWrapper
 model = AutoModelForCausalLM.from_pretrained(
     model_to_quantize,
-    device_map="auto",
+    device_map="cuda:0",
     torch_dtype=torch.bfloat16,
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-base_config = Int4WeightOnlyConfig(group_size=128)
+base_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
 quant_config = AWQConfig(base_config, step="prepare")
 quantize_(
     model,
@@ -333,7 +333,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     torch_dtype="auto",
-    device_map="auto"
+    device_map="cuda:0"
 )
 
 # prepare the model input
@@ -394,7 +394,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 # use "{base_model}" or "{quantized_model}"
 model_id = "{quantized_model}"
-quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda:0", torch_dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 torch.cuda.reset_peak_memory_stats()
@@ -438,7 +438,8 @@ _server_model_performance = """
 | Benchmark (Latency)              |                |                          |
 |----------------------------------|----------------|--------------------------|
 |                                  | {base_model}   | {quantized_model}        |
-| latency (batch_size=1)           | ?s          | ?s (?x speedup)    |
+| latency (batch_size=1)           | ?s             | ?s (?x speedup)          |
+| latency (batch_size=256)         | ?s             | ?s (?x speedup)          |
 
 <details>
 <summary> Reproduce Model Performance Results </summary>
@@ -470,48 +471,6 @@ python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model 
 export MODEL={quantized_model}
 VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model $MODEL --batch-size 1
 ```
-
-## benchmark_serving
-
-We benchmarked the throughput in a serving environment.
-
-Download sharegpt dataset:
-
-```Shell
-wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
-```
-
-
-
-Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
-
-Note: you can change the number of prompts to be benchmarked with `--num-prompts` argument for `benchmark_serving` script.
-
-### baseline
-Server:
-```Shell
-export MODEL={base_model}
-vllm serve $MODEL --tokenizer $MODEL -O3
-```
-
-Client:
-```Shell
-export MODEL={base_model}
-python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer $MODEL --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model $MODEL --num-prompts 1
-```
-
-### {quant}
-Server:
-```Shell
-export MODEL={quantized_model}
-VLLM_DISABLE_COMPILE_CACHE=1 vllm serve $MODEL --tokenizer $MODEL -O3 --pt-load-map-location cuda:0
-```
-
-Client:
-```Shell
-export MODEL={quantized_model}
-python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer $MODEL --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model $MODEL --num-prompts 1
-```
 </details>
 """
 
@@ -538,7 +497,7 @@ from transformers import (
 import torch
 
 model_id = "{base_model}"
-untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
+untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 print(untied_model)
@@ -592,7 +551,7 @@ The following script does this for you.
 python -m executorch.examples.models.qwen3.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
 ```
 
-Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows. 
+Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows.
 
 [TODO: fix config path in note where necessary]
 (Note: ExecuTorch LLM export script requires config.json have certain key names. The correct config to use for the LLM export script is located at examples/models/qwen3/config/4b_config.json within the ExecuTorch repo.)
@@ -611,7 +570,7 @@ python -m executorch.examples.models.llama.export_llama \
   --max_context_length 1024 \
   --max_seq_length 1024 \
   --dtype fp32 \
-  --metadata '{"get_bos_id":199999, "get_eos_ids":[200020,199999]}'
+  --metadata '{{"get_bos_id":199999, "get_eos_ids":[200020,199999]}}'
 ```
 
 After that you can run the model in a mobile app (see [Running in a mobile app](#running-in-a-mobile-app)).
@@ -672,12 +631,16 @@ def quantize_and_upload(
         assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
-            device_map="auto",
+            device_map="cuda:0",
             torch_dtype=torch.bfloat16,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        base_config = Int4WeightOnlyConfig(group_size=128)
+        base_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+        )
         quant_config = AWQConfig(base_config, step="prepare")
         quantize_(
             model,
@@ -712,7 +675,7 @@ def quantize_and_upload(
         )
         quantized_model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
-            device_map="auto",
+            device_map="cuda:0",
             torch_dtype=torch.bfloat16,
             quantization_config=quantization_config,
         )

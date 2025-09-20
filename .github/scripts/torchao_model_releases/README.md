@@ -1,8 +1,51 @@
-# Scripts for torchao model release and eval
+# Scripts for torchao Model Release and Eval
 
-Note: all commands below are run in directory: `.github/scripts/torchao_model_releases/`
+Note: all commands below should be run in directory: `.github/scripts/torchao_model_releases/`
 
-## Release
+## Frequently Used Commands
+### Release and Eval Scripts for New Model Releases
+```
+MODEL=Qwen/Qwen3-8B
+# Releasing all models: INT4, INT8, INT8-INT4
+sh release.sh --model_id $MODEL --push_to_hub --populate_model_card_template
+
+# INT8-INT4 requires additional steps to export and run so it's skipped from
+# general eval here
+# Need to set QMODEL_PREFIX properly before running eval
+# QMODEL_PREFIX=pytorch/Qwen3-8B
+sh eval.sh --model_ids $MODEL "$QMODEL_PREFIX-FP8" "$QMODEL_PREFIX-INT4"
+
+# Some follow up evals
+sh eval.sh --eval_type latency --batch_size 256 "$QMODEL_PREFIX-FP8"
+sh eval.sh --eval_type quality --batch_size 256 "$QMODEL_PREFIX-INT8-INT4"
+
+# Summarize all results
+sh summarize_results.sh --model_ids $MODEL "$QMODEL_PREFIX-FP8" "$QMODEL_PREFIX-INT4" "$QMODEL_PREFIX-INT8-INT4" "$QMODEL_PREFIX-AWQ-INT4"
+```
+
+### AWQ Release and Eval
+```
+MODEL=Qwen/Qwen3-8B
+TASK=mmlu_abstract_algebra
+python quantize_and_upload.py --model_id $MODEL --quant AWQ-INT4 --push_to_hub --task $TASK --calibration_limit 10 --populate_model_card_template
+sh eval.sh --model_ids $MODEL "$QMODEL_PREFIX-AWQ-INT4"
+```
+
+### Update Released Checkpoints in PyTorch
+Sometimes we may have to update the checkpoints under a different user name (organization) without changing the model card, e.g. for INT4
+```
+MODEL=Qwen/Qwen3-8B
+sh release.sh --model $MODEL --quants INT4 --push_to_hub --push_to_user_id pytorch
+```
+
+Or AWQ checkpoint:
+```
+MODEL=Qwen/Qwen3-8B
+TASK=mmlu_abstract_algebra
+python quantize_and_upload.py --model_id $MODEL --quant AWQ-INT4--task $TASK --calibration_limit 10 --push_to_hub --push_to_user_id pytorch
+```
+
+## Release Scripts
 ### default options
 By default, we release FP8, INT4, INT8-INT4 checkpoints, with model card pre-filled with template content, that can be modified later after we have eval results.
 
@@ -12,10 +55,10 @@ Examples:
 # the logged in user
 
 # release with default quant options (FP8, INT4, INT8-INT4)
-./release.sh --model_id Qwen/Qwen3-8B
+./release.sh --model_id Qwen/Qwen3-8B --push_to_hub
 
 # release a custom set of quant options
-./release.sh --model_id Qwen/Qwen3-8B --quants INT4 FP8
+./release.sh --model_id Qwen/Qwen3-8B --quants INT4 FP8 --push_to_hub
 ```
 
 Note: for initial release, please include `--populate_model_card_template` to populate model card template.
@@ -41,7 +84,7 @@ sh release.sh --model_id microsoft/Phi-4-mini-instruct --quants FP8 --push_to_hu
 
 This will update `pytorch/Phi-4-mini-instruct-FP8` without changing the model card.
 
-## Eval
+## Eval Scripts
 After we run the release script for a model, we can find new models in the huggingface hub page for the user, e.g. https://huggingface.co/torchao-testing, the models will have a model card that's filled in with template content, such as information about the model and eval instructions, there are a few things we need to fill in, including 1. peak memory usage, 2. latency when running model with vllm and 3. quality measurement using lm-eval.
 
 ### Single Script
@@ -64,15 +107,15 @@ sh eval.sh --eval_type memory --model_ids Qwen/Qwen3-8B
 ```
 
 #### Latency Eval
-For latency eval, make sure vllm is cloned and installed from source,
-and `VLLM_DIR` should be set to the source directory of the cloned vllm repo.
+For latency eval, make sure vllm is installed.
 ```
-git clone https://github.com/vllm-project/vllm.git
-cd vllm
-VLLM_USE_PRECOMPILED=1 uv pip install --editable .
-export VLLM_DIR=path_to_vllm
+uv pip install vllm
 ```
-see https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html#set-up-using-python-only-build-without-compilation for more details.
+
+Or install vllm nightly:
+```
+uv pip install vllm --pre --extra-index-url https://download.pytorch.org/whl/nightly/cu126
+```
 
 After environment is setup, we can run eval:
 ```
@@ -82,7 +125,7 @@ sh eval.sh --eval_type latency --model_ids Qwen/Qwen3-8B --batch_sizes 1,256
 #### Model Quality Eval
 For model quality eval, we need to install lm-eval
 ```
-pip install lm-eval
+uv pip install lm-eval
 ```
 After environment is setup, we can run eval:
 ```

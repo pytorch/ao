@@ -12,13 +12,8 @@ check_torch() {
 }
 
 check_vllm() {
-  # Check if VLLM_DIR is set
-  if [ -z "$VLLM_DIR" ]; then
-    echo "Error: VLLM_DIR environment variable is not set. Please set it before running this script."
-    exit 1
-  fi
   if ! pip show vllm > /dev/null 2>&1; then
-    echo "Error: vllm package is NOT installed. please install from source: https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html#set-up-using-python-only-build-without-compilation" >&2
+    echo "Error: vllm package is NOT installed. please install with `pip install vllm`" >&2
     exit 1
   fi
 }
