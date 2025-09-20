@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import tempfile
 import unittest
 from typing import Optional
 
@@ -53,9 +54,83 @@ from torchao.utils import (
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+class M(nn.Module):
+    _tied_weights_keys: list[str] = []
+
+    def __init__(
+        self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
+    ):
+        nn.Module.__init__(self)
+        self.embed_tokens = nn.Embedding(k, m) if embedding else nn.Identity()
+        self.linear1 = nn.Linear(m, n, bias=bias)
+        self.linear2 = nn.Linear(n, k, bias=bias)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+        if embedding and tied_weights:
+            assert self.embed_tokens.weight.shape == self.linear2.weight.shape
+            self.tie_weights()
+            self._tied_weights_keys.append("linear2.weight")
+
+    def tie_weights(self):
+        self.linear2.weight = self.embed_tokens.weight
+
+    def example_inputs(self, device=None):
+        if isinstance(self.embed_tokens, nn.Identity):
+            inputs = torch.randn(1, self.linear1.in_features, device=device)
+        else:
+            k = self.embed_tokens.num_embeddings
+            inputs = torch.randint(1, k, (1, self.linear1.in_features), device=device)
+        return inputs
+
+    def forward(self, x):
+        x = self.embed_tokens(x)
+        x = self.relu(self.linear1(x))
+        x = self.sigmoid(self.linear2(x))
+        return x
+
+
 if TRANSFORMERS_AVAIL:
-    from transformers import PretrainedConfig, TorchAoConfig
-    from transformers.quantizers.quantizer_torchao import TorchAoHfQuantizer
+    from transformers import PretrainedConfig, PreTrainedModel, TorchAoConfig
+
+    class MConfig(PretrainedConfig):
+        def __init__(
+            self,
+            m=256,
+            n=128,
+            k=16,
+            bias=False,
+            embedding=True,
+            tied_weights=False,
+            **kwargs,
+        ):
+            super().__init__(**kwargs)
+            self.m = m
+            self.n = n
+            self.k = k
+            self.bias = bias
+            self.embedding = embedding
+            self.tied_weights = tied_weights
+
+    class PreTrainedM(M, PreTrainedModel):
+        base_model_prefix = "base"
+        config_class = MConfig
+
+        def __init__(self, config: MConfig):
+            PreTrainedModel.__init__(self, config)
+            M.__init__(
+                self,
+                m=config.m,
+                n=config.n,
+                k=config.k,
+                bias=config.bias,
+                embedding=config.embedding,
+                tied_weights=config.tied_weights,
+            )
+
+        def get_input_embeddings(self) -> nn.Module:
+            return self.embed_tokens
 
 
 def split_param_groups(model) -> tuple[list, list, list]:
@@ -199,55 +274,9 @@ def apply_activation_quantization(
                 pass
 
 
-class M(nn.Module):
-    _tied_weights_keys: list[str] = []
-
-    def __init__(
-        self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
-    ):
-        super().__init__()
-        self.embedding = nn.Embedding(k, m) if embedding else nn.Identity()
-        self.linear1 = nn.Linear(m, n, bias=bias)
-        self.linear2 = nn.Linear(n, k, bias=bias)
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-
-        if embedding and tied_weights:
-            assert self.embedding.weight.shape == self.linear2.weight.shape
-            self.tie_weights()
-            self._tied_weights_keys.append("linear2.weight")
-
-    def tie_weights(self):
-        self.linear2.weight = self.embedding.weight
-
-    def reset_parameters(self):
-        for module in (self.linear1, self.linear2):
-            nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
-
-    def example_inputs(self, device=None):
-        if isinstance(self.embedding, nn.Identity):
-            inputs = torch.randn(1, self.linear1.in_features, device=device)
-        else:
-            k = self.embedding.num_embeddings
-            inputs = torch.randint(1, k, (1, self.linear1.in_features), device=device)
-        return inputs
-
-    def get_input_embeddings(self) -> nn.Module:
-        return self.embedding
-
-    def forward(self, x):
-        x = self.embedding(x)
-        x = self.relu(self.linear1(x))
-        x = self.sigmoid(self.linear2(x))
-        return x
-
-
 class TestPARQuantization(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
-        self.model = M(bias=True).to(_DEVICE)
 
     @common_utils.parametrize("b", [0, 1, 2, 4])
     @common_utils.parametrize("unif_quant", [True, False])
@@ -256,13 +285,13 @@ class TestPARQuantization(common_utils.TestCase):
     def test_parq_train_loop(
         self, b: int = 2, unif_quant=True, hard_prox=True, per_group_quantizer=False
     ):
-        self.model.reset_parameters()
+        model = M(bias=True).to(_DEVICE)
         if unif_quant:
             quantizer = TernaryUnifQuantizer() if b == 0 else UnifQuantizer()
         else:
             quantizer = LSBQuantizer()
         param_groups = build_param_groups(
-            self.model, b, quantizer=quantizer if per_group_quantizer else None
+            model, b, quantizer=quantizer if per_group_quantizer else None
         )
         base_optimizer = torch.optim.AdamW(param_groups)
 
@@ -271,12 +300,12 @@ class TestPARQuantization(common_utils.TestCase):
         )
         optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map)
         for _ in range(3):
-            x = self.model.example_inputs(device=_DEVICE)
-            out = self.model(x)
+            x = model.example_inputs(device=_DEVICE)
+            out = model(x)
             out.sum().backward()
             optimizer.step()
 
-        for child in self.model.children():
+        for child in model.children():
             if isinstance(child, nn.Linear):
                 self.assertEqual(
                     child.weight.unique().numel(), quantizer.get_quant_size(b)
@@ -295,7 +324,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE, dtype=torch.bfloat16)
-        model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         config = Int4WeightOnlyConfig(group_size=group_size)
@@ -313,7 +341,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @common_utils.parametrize("group_size", [32, 512])
     def test_intx_weight_only(self, b: int = 2, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE)
-        model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         quantize_(
@@ -333,7 +360,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     )
     def test_int4_weight_only_e2e(self, group_size: int = 32):
         model = M(m=512, n=512, embedding=False).to(torch.bfloat16).to(_DEVICE)
-        model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         config = Int4WeightOnlyConfig(group_size=group_size)
@@ -353,7 +379,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @common_utils.parametrize("b", [2, 3, 4, 8])
     def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
         model = M(m=512, n=512, embedding=False).to(_DEVICE)
-        model.reset_parameters()
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         config = IntxWeightOnlyConfig(
@@ -380,7 +405,6 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
     @common_utils.parametrize("group_size", [32, 256])
     def test_intx_weight_only_parq_equivalent(self, b: int = 2, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE)
-        model.reset_parameters()
 
         quantizer_ref = UnifQuantizer()
         quantizer = StretchedUnifTorchaoQuantizer(b)
@@ -403,7 +427,6 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
     @common_utils.parametrize("group_size", [32, 512])
     def test_intx_weight_only(self, b: int = 2, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE)
-        model.reset_parameters()
 
         quantizer = StretchedUnifTorchaoQuantizer(b)
 
@@ -425,7 +448,6 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
     @common_utils.parametrize("b", [2, 3])
     def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
         model = M(m=512, n=512, embedding=False).to(_DEVICE)
-        model.reset_parameters()
 
         quantizer = StretchedUnifTorchaoQuantizer(b)
 
@@ -470,7 +492,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         optimizer.torchao_convert(model)
         check_torchao_tensor_subclass(self, model)
         self.assertTrue(
-            torch.equal(model.embedding.weight.qdata, model.linear2.weight.qdata)
+            torch.equal(model.embed_tokens.weight.qdata, model.linear2.weight.qdata)
         )
 
 
@@ -478,6 +500,8 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
+    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
+    @unittest.skipIf(not TRANSFORMERS_AVAIL, "Need transformers")
     @common_utils.parametrize("b", [2, 3, 4, 8])
     @common_utils.parametrize(
         "model_dtype", [torch.float16, torch.float32, torch.bfloat16]
@@ -489,7 +513,8 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
         model_dtype: torch.dtype = torch.float32,
         group_size: int = 32,
     ):
-        model = M(embedding=False, bias=True).to(_DEVICE, dtype=model_dtype)
+        config = MConfig(embedding=False, bias=True)
+        model = PreTrainedM(config).to(_DEVICE, dtype=model_dtype)
         x = model.example_inputs(device=_DEVICE).to(model_dtype)
 
         # reference model using native quantization
@@ -520,7 +545,6 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         attach_hf_config = False
         if TRANSFORMERS_AVAIL:
-            model.config = PretrainedConfig()  # pretend this is a HF model
             attach_hf_config = _is_hf_model(model)
             self.assertTrue(attach_hf_config)
 
@@ -543,10 +567,11 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
 
 class TestTorchAoConfigIntegration(common_utils.TestCase):
+    @unittest.skipIf(torch.backends.mps.is_available(), "MPS not supported")
     @unittest.skipIf(not TRANSFORMERS_AVAIL, "Need transformers")
     def test_tied_weights_quantization(self, b: int = 4):
-        model = M(m=128, n=128, tied_weights=True).to(_DEVICE)
-        model.config = PretrainedConfig()  # pretend this is a HF model
+        config = MConfig(m=128, n=128, tied_weights=True)
+        model = PreTrainedM(config).to(_DEVICE)
 
         quantizer = StretchedUnifTorchaoQuantizer(b)
         linear_config = StretchedIntxWeightConfig(
@@ -567,27 +592,20 @@ class TestTorchAoConfigIntegration(common_utils.TestCase):
         self.assertTrue(isinstance(quantization_config, TorchAoConfig))
         self.assertTrue(quantization_config.modules_to_not_convert == ["linear2"])
 
-        # Simulate transformers.PreTrainedModel.from_pretrained
-        hf_quantizer = TorchAoHfQuantizer(
-            quantization_config,
-            pre_quantized=False,
-            modules_to_not_convert=quantization_config.modules_to_not_convert,
-        )
-        state_dict = model.state_dict()
-        unexpected_keys = []
-        for n, p in state_dict.items():
-            if hf_quantizer.check_quantized_param(model, p, n, state_dict):
-                hf_quantizer.create_quantized_param(
-                    model, p, n, _DEVICE, state_dict, unexpected_keys
-                )
-        model.tie_weights()
+        # Let HF apply quantize_ given quantization_config
+        del model.config.quantization_config
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model.save_pretrained(tmp_dir, safe_serialization=False)
+            model = PreTrainedM.from_pretrained(
+                tmp_dir, quantization_config=quantization_config
+            )
 
         check_torchao_tensor_subclass(self, model.linear1)
         check_torchao_tensor_subclass(self, model.linear2, weight_only=True)
-        check_torchao_tensor_subclass(self, model.embedding, weight_only=True)
+        check_torchao_tensor_subclass(self, model.embed_tokens, weight_only=True)
 
         self.assertTrue(
-            model.linear2.weight.data_ptr() == model.embedding.weight.data_ptr()
+            model.linear2.weight.data_ptr() == model.embed_tokens.weight.data_ptr()
         )
 
 
