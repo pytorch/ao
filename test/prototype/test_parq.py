@@ -27,9 +27,13 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
-from torchao.prototype.parq.quant.config_torchao import TRANSFORMERS_AVAIL, _is_hf_model
+from torchao.prototype.parq.quant.config_torchao import (
+    TRANSFORMERS_AVAIL,
+    _attach_hf_quantization_config,
+    _is_hf_model,
+)
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
-from torchao.quantization.granularity import PerGroup
+from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
@@ -48,6 +52,10 @@ from torchao.utils import (
 )
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+if TRANSFORMERS_AVAIL:
+    from transformers import PretrainedConfig, TorchAoConfig
+    from transformers.quantizers.quantizer_torchao import TorchAoHfQuantizer
 
 
 def split_param_groups(model) -> tuple[list, list, list]:
@@ -206,8 +214,11 @@ class M(nn.Module):
 
         if embedding and tied_weights:
             assert self.embedding.weight.shape == self.linear2.weight.shape
-            self.linear2.weight = self.embedding.weight
+            self.tie_weights()
             self._tied_weights_keys.append("linear2.weight")
+
+    def tie_weights(self):
+        self.linear2.weight = self.embedding.weight
 
     def reset_parameters(self):
         for module in (self.linear1, self.linear2):
@@ -222,6 +233,9 @@ class M(nn.Module):
             k = self.embedding.num_embeddings
             inputs = torch.randint(1, k, (1, self.linear1.in_features), device=device)
         return inputs
+
+    def get_input_embeddings(self) -> nn.Module:
+        return self.embedding
 
     def forward(self, x):
         x = self.embedding(x)
@@ -506,8 +520,6 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         attach_hf_config = False
         if TRANSFORMERS_AVAIL:
-            from transformers import PretrainedConfig
-
             model.config = PretrainedConfig()  # pretend this is a HF model
             attach_hf_config = _is_hf_model(model)
             self.assertTrue(attach_hf_config)
@@ -528,6 +540,55 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
             self.assertEqual(set(module_fqn_to_config.keys()), reg_param_names)
             for torchao_config in module_fqn_to_config.values():
                 self.assertTrue(isinstance(torchao_config, config.__class__))
+
+
+class TestTorchAoConfigIntegration(common_utils.TestCase):
+    @unittest.skipIf(not TRANSFORMERS_AVAIL, "Need transformers")
+    def test_tied_weights_quantization(self, b: int = 4):
+        model = M(m=128, n=128, tied_weights=True).to(_DEVICE)
+        model.config = PretrainedConfig()  # pretend this is a HF model
+
+        quantizer = StretchedUnifTorchaoQuantizer(b)
+        linear_config = StretchedIntxWeightConfig(
+            b=b,
+            quant_min=quantizer.quant_min,
+            quant_max=quantizer.quant_max,
+            granularity=PerAxis(0),
+        )
+        embed_config = IntxWeightOnlyConfig(
+            weight_dtype=_BIT_WIDTH_TO_DTYPE[b], granularity=PerGroup(32)
+        )
+        module_to_config = {"_default": linear_config}
+        configs = [embed_config]
+        filter_fns = [lambda m: isinstance(m, nn.Embedding)]
+        _attach_hf_quantization_config(model, filter_fns, configs, module_to_config)
+
+        quantization_config = getattr(model.config, "quantization_config", None)
+        self.assertTrue(isinstance(quantization_config, TorchAoConfig))
+        self.assertTrue(quantization_config.modules_to_not_convert == ["linear2"])
+
+        # Simulate transformers.PreTrainedModel.from_pretrained
+        hf_quantizer = TorchAoHfQuantizer(
+            quantization_config,
+            pre_quantized=False,
+            modules_to_not_convert=quantization_config.modules_to_not_convert,
+        )
+        state_dict = model.state_dict()
+        unexpected_keys = []
+        for n, p in state_dict.items():
+            if hf_quantizer.check_quantized_param(model, p, n, state_dict):
+                hf_quantizer.create_quantized_param(
+                    model, p, n, _DEVICE, state_dict, unexpected_keys
+                )
+        model.tie_weights()
+
+        check_torchao_tensor_subclass(self, model.linear1)
+        check_torchao_tensor_subclass(self, model.linear2, weight_only=True)
+        check_torchao_tensor_subclass(self, model.embedding, weight_only=True)
+
+        self.assertTrue(
+            model.linear2.weight.data_ptr() == model.embedding.weight.data_ptr()
+        )
 
 
 common_utils.instantiate_parametrized_tests(TestPARQuantization)
