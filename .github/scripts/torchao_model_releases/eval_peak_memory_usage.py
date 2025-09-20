@@ -12,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 def eval_peak_memory_usage(model_id: str):
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="auto", dtype=torch.bfloat16
+        model_id, device_map="auto", torch_dtype=torch.bfloat16
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 

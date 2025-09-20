@@ -36,7 +36,7 @@ def _get_username():
 
 def _untie_weights_and_save_locally(model_id):
     untied_model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype="auto", device_map="auto"
+        model_id, torch_dtype="auto", device_map="auto"
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -209,7 +209,7 @@ _int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig
 quant_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -217,7 +217,7 @@ _fp8_quant_code = """
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -238,7 +238,7 @@ linear_config = Int8DynamicActivationIntxWeightConfig(
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -251,7 +251,7 @@ from torchao._models._eval import TransformerEvalWrapper
 model = AutoModelForCausalLM.from_pretrained(
     model_to_quantize,
     device_map="auto",
-    dtype=torch.bfloat16,
+    torch_dtype=torch.bfloat16,
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -332,7 +332,7 @@ model_name = "{quantized_model}"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
-    dtype="auto",
+    torch_dtype="auto",
     device_map="auto"
 )
 
@@ -394,7 +394,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 # use "{base_model}" or "{quantized_model}"
 model_id = "{quantized_model}"
-quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", dtype=torch.bfloat16)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 torch.cuda.reset_peak_memory_stats()
@@ -538,7 +538,7 @@ from transformers import (
 import torch
 
 model_id = "{base_model}"
-untied_model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", device_map="auto")
+untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 print(untied_model)
@@ -592,7 +592,7 @@ The following script does this for you.
 python -m executorch.examples.models.qwen3.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
 ```
 
-Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows. 
+Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows.
 
 [TODO: fix config path in note where necessary]
 (Note: ExecuTorch LLM export script requires config.json have certain key names. The correct config to use for the LLM export script is located at examples/models/qwen3/config/4b_config.json within the ExecuTorch repo.)
@@ -673,7 +673,7 @@ def quantize_and_upload(
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
             device_map="auto",
-            dtype=torch.bfloat16,
+            torch_dtype=torch.bfloat16,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -713,7 +713,7 @@ def quantize_and_upload(
         quantized_model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
             device_map="auto",
-            dtype=torch.bfloat16,
+            torch_dtype=torch.bfloat16,
             quantization_config=quantization_config,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
