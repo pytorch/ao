@@ -144,6 +144,10 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         self.assertTrue(torch.equal(lp_tensor.qdata, reconstructed.qdata))
         self.assertEqual(lp_tensor.attr, reconstructed.attr)
 
+        # test _get_to_kwargs
+        _ = lp_tensor._get_to_kwargs(torch.strided, device="cuda")
+        _ = lp_tensor._get_to_kwargs(layout=torch.strided, device="cuda")
+
         # `to` / `_to_copy`
         original_device = lp_tensor.device
         lp_tensor = lp_tensor.to("cuda")
