@@ -45,12 +45,12 @@ def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
         torch.ops.torchao.sparse24_sm90_sparsify(
             input_tensor,
             "cutlass",
-            "srelu",
+            "identity",
             "largest",
             dtype=torch.float8_e4m3fn,
         )
     )
-    cusparse_time = benchmark_microseconds(torch._cslt_compress, input_tensor)
+    cusparselt_time = benchmark_microseconds(torch._cslt_compress, input_tensor)
 
     # bf16
     ffn_clone = (
@@ -130,9 +130,9 @@ def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
         "fp8_c_sparse_time (us)": fp8_c_sparse_time,
         "fp8_c_activation_sparse_time (us)": fp8_c_activation_sparse_time,
         "ao_fast_sparsification_time (us)": ao_fast_sparsification_time,
-        "cusparse*_compress_time (us)": cusparse_time,
+        "cusparselt_compress_time (us)": cusparselt_time,
         "speedup": fp8_c_time / fp8_c_activation_sparse_time,
-        "sparsify_speedup": cusparse_time / ao_fast_sparsification_time,
+        "sparsify_speedup": cusparselt_time / ao_fast_sparsification_time,
     }
 
 
