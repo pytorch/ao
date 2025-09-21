@@ -2740,8 +2740,6 @@
     <span class="k">return</span> <span class="n">_RoundToFloat8</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">tensor_clamped</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="p">)</span>
 
 
-<span class="c1"># TODO: don&#39;t register as custom op?</span>
-<span class="nd">@_register_custom_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_float8</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -2759,7 +2757,48 @@
     <span class="k">return</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 
 
-<span class="nd">@_register_meta_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="s2">&quot;dequantize_affine_float8&quot;</span><span class="p">)</span>
+<span class="nd">@_register_custom_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_float8_non_decomposed</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_quantize_affine_float8</span><span class="p">(</span>
+        <span class="n">tensor</span><span class="o">=</span><span class="n">tensor</span><span class="p">,</span>
+        <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span>
+        <span class="n">float8_dtype</span><span class="o">=</span><span class="n">float8_dtype</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@_register_meta_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="s2">&quot;quantize_affine_float8_non_decomposed&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_float8_meta</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float8_dtype</span><span class="p">)</span>
+
+
+<span class="nd">@_register_custom_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_float8_non_decomposed</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">output_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Dequantizes the float8 tensor to high precision tensor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_dequantize_affine_float8</span><span class="p">(</span>
+        <span class="n">tensor</span><span class="o">=</span><span class="n">tensor</span><span class="p">,</span>
+        <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span>
+        <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@_register_meta_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">,</span> <span class="s2">&quot;dequantize_affine_float8_non_decomposed&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_float8_meta</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
