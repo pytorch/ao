@@ -1224,16 +1224,33 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
          /                   /
         x -> clone(x) -> a -/
 
-        Clone is annotated such that its input uses a QuantizationSpec and its
-        output a SharedQuantizationSpec pointing to the former.
+        Clone is annotated such that (x, clone) uses a QuantizationSpec and
+        its output (clone) a SharedQuantizationSpec pointing to its input
+        (x, clone).
 
-        Eq is annotated such that its first input uses a QuantizationSpec and
-        its second input uses a SharedQuantizationSpec to the former.
-        The output is not quantized (bool output).
+        Eq is annotated such that (clone, eq) uses a QuantizationSpec and
+        (x, eq) uses a SharedQuantizationSpec to the former.
+        The output (eq) is not quantized (bool output).
 
         Verify that the input to clone and its output share the same observer;
         inputs to eq should also share that same observer due to implicit
         sharing.
+
+        Context: This test used to trigger a cyclic recursion bug in the
+        following manner:
+        1) Processing edge (x, clone): implicit sharing sees that eq is
+           another user of x with an identical qspec, so (x, clone) starts
+           sharing with (x, eq) by pointing to it.
+        2) Processing edge (clone, eq): implicit sharing tries to share this
+           input edge with the producer output clone. But clone's output
+           uses SharedQuantizationSpec((x, clone)), and from step (1),
+           (x, clone) already points to (x, eq). Therefore unwrapping leads to
+           (x, eq) and (clone, eq) is set to share with (x, eq) by pointing to
+           it.
+        3) Processing edge (x, eq): when resolving its qspec, the algorithm
+           follows the shared reference to (clone, eq), which immediately
+           points back to (x, eq) from step (2). This created a cycle and the
+           unwrap logic recursed endlessly.
         """
 
         class BackendAQuantizer(Quantizer):
