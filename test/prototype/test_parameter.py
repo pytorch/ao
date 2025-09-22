@@ -27,6 +27,16 @@ from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
 from torchao.utils import is_sm_at_least_90
 import torch.nn.functional as F
 
+import re
+import unittest
+import warnings
+import torch
+from torch.testing._internal.common_utils import TestCase, run_tests
+from torchao.utils import is_fbcode, is_sm_at_least_90
+
+if not is_fbcode():
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -87,7 +97,7 @@ class TestMoE3d(nn.Module):
                 Size of the output.
         """
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(num_experts, output_size, input_size))
+        self.moe_weight = nn.Parameter(torch.randn(num_experts, output_size, input_size))
         self.num_experts = num_experts
         self.input_size = input_size
         self.output_size = output_size
@@ -109,7 +119,7 @@ class TestMoE3d(nn.Module):
         input_list = inputs.split(expert_size, dim=0)
         output_list = []
         for i in range(self.num_experts):
-            output_list.append(F.linear(input_list[i], self.weight[i]))
+            output_list.append(F.linear(input_list[i], self.moe_weight[i]))
         results = torch.cat(output_list, dim=0)
         return results
 
@@ -133,7 +143,7 @@ class TestQuantizeParameterMoE(common_utils.TestCase):
         model_3d = TestMoE3d(2, 1024, 1024).cuda()
 
         for i, expert in enumerate(model_2d.experts):
-            model_3d.weight.data[i] = expert.weight.detach().clone()
+            model_3d.moe_weight.data[i] = expert.weight.detach().clone()
 
         output_2d = model_2d(test_input, 512)
         output_3d = model_3d(test_input, 512)
@@ -149,7 +159,7 @@ class TestQuantizeParameterMoE(common_utils.TestCase):
         model_3d = TestMoE3d(2, 1024, 1024).cuda().bfloat16()
 
         for i, expert in enumerate(model_2d.experts):
-            model_3d.weight.data[i] = expert.weight.detach().clone()
+            model_3d.moe_weight.data[i] = expert.weight.detach().clone()
 
         # quantize all linears in 2d
         quantize_(
@@ -159,7 +169,7 @@ class TestQuantizeParameterMoE(common_utils.TestCase):
         
         quantize_(
             model_3d,
-            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), param_name="moe_weight"),
             filter_fn=lambda mod, fqn: fqn is '' # top level module has no fqn
         )
 
@@ -167,3 +177,34 @@ class TestQuantizeParameterMoE(common_utils.TestCase):
         output_2d = model_2d(test_input, 512)
 
         torch.testing.assert_close(output_2d, output_3d, rtol=1e-3, atol=1e-3)
+
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
+@unittest.skipIf(
+    is_fbcode(),
+    "Skipping the test in fbcode for now, not sure how to download from transformers",
+)
+class TestTorchAOCheckpoint(TestCase):
+
+    def test_comprehensive_checkpoint_loading(self):
+        from transformers import AutoTokenizer, Llama4ForConditionalGeneration
+        import torch
+
+        model_id = "RedHatAI/Llama-4-Scout-17B-16E-Instruct"
+
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        messages = [
+            {"role": "user", "content": "Who are you?"},
+        ]
+        inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
+
+        model = Llama4ForConditionalGeneration.from_pretrained(
+            model_id,
+            device_map="auto",
+            dtype=torch.bfloat16
+        )
+
+        outputs = model.generate(**inputs.to(model.device), max_new_tokens=100)
+        outputs = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:])
+        print(outputs[0])

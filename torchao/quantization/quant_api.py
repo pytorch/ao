@@ -1742,7 +1742,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor (default)
 
     """
-
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
@@ -1752,6 +1751,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
+    param_name: Optional[str] = None
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1851,14 +1851,19 @@ def _float8_dynamic_activation_float8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
+
+    param_name = getattr(config, "param_name")
+    if param_name is None:
+        param_name = "weight"
+
+    assert hasattr(module, param_name), (
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
     )
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-        module.weight, config
+        getattr(module, param_name), config
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    setattr(module, param_name, torch.nn.Parameter(quantized_weight, requires_grad=False))
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
