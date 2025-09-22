@@ -32,6 +32,9 @@ Examples:
 # release AWQ-INT4 model, calibrated with a specific task
 # with some calibration_limit (number of samples)
 python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant AWQ-INT4 --push_to_hub --task bbh --calibration_limit 2
+
+# release SMOOTHQUANT-INT8-INT8 model, calibrated with a specific task
+python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SMOOTHQUANT-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
 ```
 
 ### Update checkpoints for a different user_id (e.g. pytorch)
