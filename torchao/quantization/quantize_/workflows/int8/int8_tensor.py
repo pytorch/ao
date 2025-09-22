@@ -9,13 +9,13 @@ import torch
 
 from torchao.utils import TorchAOBaseTensor
 
-__all__ = ["Int8PlainInt8Tensor"]
+__all__ = ["Int8Tensor"]
 
 aten = torch.ops.aten
 
 
 # TODO: Implement block-wise quantization using block_size
-class Int8PlainInt8Tensor(TorchAOBaseTensor):
+class Int8Tensor(TorchAOBaseTensor):
     """
     int8 quantized tensor with plain layout
 
@@ -62,7 +62,7 @@ class Int8PlainInt8Tensor(TorchAOBaseTensor):
         )
 
 
-implements = Int8PlainInt8Tensor.implements
+implements = Int8Tensor.implements
 
 
 @implements([aten.dequantize.self])
@@ -84,7 +84,7 @@ def _(func, types, args, kwargs):
         args[2] if len(args) > 2 else None,
     )
 
-    if isinstance(input_tensor, Int8PlainInt8Tensor):
+    if isinstance(input_tensor, Int8Tensor):
         # INT8 × INT8
         x_int32 = input_tensor.qdata.to(torch.int32)
         w_int32 = weight_tensor.qdata.to(torch.int32).t()
@@ -102,5 +102,5 @@ def _(func, types, args, kwargs):
     return result + bias if bias is not None else result
 
 
-Int8PlainInt8Tensor.__module__ = "torchao.quantization"
-torch.serialization.add_safe_globals([Int8PlainInt8Tensor])
+Int8Tensor.__module__ = "torchao.quantization"
+torch.serialization.add_safe_globals([Int8Tensor])

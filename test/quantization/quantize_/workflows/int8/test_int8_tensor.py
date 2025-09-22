@@ -10,7 +10,7 @@ import torch
 from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    Int8PlainInt8Tensor,
+    Int8Tensor,
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -28,7 +28,7 @@ class TestInt8PlainInt8Tensor(TorchAOIntegrationTestCase):
 
     def test_creation_and_attributes(self):
         """Test tensor creation, dtypes, and ranges"""
-        tensor = Int8PlainInt8Tensor.from_hp(self.weight_fp, self.block_size)
+        tensor = Int8Tensor.from_hp(self.weight_fp, self.block_size)
 
         self.assertEqual(tensor.shape, (4, 3))
         self.assertEqual(tensor.qdata.dtype, torch.int8)
@@ -38,8 +38,8 @@ class TestInt8PlainInt8Tensor(TorchAOIntegrationTestCase):
 
     def test_linear_operations(self):
         """Test fp+int8 and int8+int8 linear ops with quantization error check"""
-        weight_q8 = Int8PlainInt8Tensor.from_hp(self.weight_fp, self.block_size)
-        input_q8 = Int8PlainInt8Tensor.from_hp(self.input_fp, self.block_size)
+        weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
+        input_q8 = Int8Tensor.from_hp(self.input_fp, self.block_size)
 
         reference = torch.nn.functional.linear(self.input_fp, self.weight_fp, self.bias)
         result_fp = torch.nn.functional.linear(self.input_fp, weight_q8, self.bias)
@@ -54,15 +54,15 @@ class TestInt8PlainInt8Tensor(TorchAOIntegrationTestCase):
         """Test input validation and dequantization accuracy"""
         # Test 1D tensor validation
         with self.assertRaises((AssertionError, ValueError, RuntimeError)):
-            Int8PlainInt8Tensor.from_hp(torch.randn(5), [1])
+            Int8Tensor.from_hp(torch.randn(5), [1])
 
         # Test wrong block_size validation
         with self.assertRaises((AssertionError, ValueError, RuntimeError)):
-            Int8PlainInt8Tensor.from_hp(self.weight_fp, [1])
+            Int8Tensor.from_hp(self.weight_fp, [1])
 
         # Test dequantization with exact values
         test_data = torch.tensor([[1.0, -1.0]], dtype=torch.float32)
-        tensor = Int8PlainInt8Tensor.from_hp(test_data, [1, 1])
+        tensor = Int8Tensor.from_hp(test_data, [1, 1])
 
         dequantized = tensor.dequantize()
         self.assertEqual(dequantized.shape, test_data.shape)
