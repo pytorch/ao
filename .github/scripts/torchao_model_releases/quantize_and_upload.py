@@ -245,7 +245,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
 
-_smoothquant_w8a8_quant_code = """
+_smoothquant_int8_int8_quant_code = """
 from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
 from torchao.prototype.smoothquant import SmoothQuantConfig
 
@@ -689,7 +689,7 @@ def quantize_and_upload(
                 "model.embed_tokens": _int8_int4_embedding_config,
             }
         ),
-        "SMOOTHQUANT-W8A8": Int8DynamicActivationInt8WeightConfig(),
+        "SMOOTHQUANT-INT8-INT8": Int8DynamicActivationInt8WeightConfig(),
     }
 
     quant_to_quant_code = {
@@ -697,7 +697,7 @@ def quantize_and_upload(
         "INT4": _int4_quant_code,
         "INT8-INT4": _int8_int4_quant_code,
         "AWQ-INT4": _awq_int4_quant_code,
-        "SMOOTHQUANT-W8A8": _smoothquant_w8a8_quant_code,
+        "SMOOTHQUANT-INT8-INT8": _smoothquant_int8_int8_quant_code,
     }
 
     # preparation
@@ -737,7 +737,7 @@ def quantize_and_upload(
         quantized_model = model
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
         quantized_model.config.quantization_config = TorchAoConfig(quant_config)
-    elif quant == "SMOOTHQUANT-W8A8":
+    elif quant == "SMOOTHQUANT-INT8-INT8":
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
             device_map="auto",
@@ -881,7 +881,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quant",
         type=str,
-        help="Quantization method. Options are FP8, INT4, INT8-INT4, AWQ-INT4, SMOOTHQUANT-W8A8",
+        help="Quantization method. Options are FP8, INT4, INT8-INT4, AWQ-INT4, SMOOTHQUANT-INT8-INT8",
     )
     parser.add_argument(
         "--tasks",

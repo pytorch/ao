@@ -19,7 +19,7 @@ Examples:
 
 Note: for initial release, please include `--populate_model_card_template` to populate model card template.
 
-### SMOOTHQUANT-W8A8
+### SMOOTHQUANT-INT8-INT8
 [SmoothQuant](https://arxiv.org/abs/2211.10438) smooths activation outliers by migrating quantization difficulty from activations to weights through a mathematically equivalent per-channel scaling transformation. That means SmoothQuant observes activation distribution before applying quantization.
 
 ### AWQ-INT4
