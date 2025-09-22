@@ -29,16 +29,9 @@ from torchao.quantization.pt2e.quantize_pt2e import (
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
+from torchao.utils import torch_version_at_least
 
 
-@unittest.skipIf(
-    not TORCH_VERSION_AT_LEAST_2_5,
-    "only works for torch 2.5+ since export_for_training is only supported after 2.5",
-)
 class PT2EQuantizationTestCase(QuantizationTestCase):
     """
     Base QuantizationTestCase for PT2 with some helper methods.
@@ -78,7 +71,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             {0: torch.export.Dim("dim")} if i == 0 else None
             for i in range(len(example_inputs))
         )
-        m = export_for_training(
+        m = torch.export.export(
             m,
             example_inputs,
             dynamic_shapes=dynamic_shapes if export_with_dynamic_shape else None,
@@ -119,7 +112,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
             m_fx = _convert_to_reference_decomposed_fx(
                 m_fx, backend_config=backend_config
             )
-            m_fx = export_for_training(
+            m_fx = torch.export.export(
                 m_fx,
                 example_inputs,
                 dynamic_shapes=dynamic_shapes if export_with_dynamic_shape else None,
@@ -139,7 +132,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
         return m
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class PT2ENumericDebuggerTestCase(TestCase):
     """
     Base test case class for PT2E numeric debugger tests containing common utility functions

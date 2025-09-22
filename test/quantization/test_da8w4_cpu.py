@@ -8,6 +8,7 @@ import copy
 import unittest
 
 import torch
+from torch._dynamo.utils import counters
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -23,10 +24,7 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
-    TORCH_VERSION_AT_LEAST_2_8,
-)
+from torchao.utils import torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -53,14 +51,14 @@ class TestDa8w4Cpu(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
         reason="cpp kernels not built",
     )
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Test only enabled for 2.7+")
+    @unittest.skipIf(not torch_version_at_least("2.7.0"), "Test only enabled for 2.7+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("bs", [1, 160])
     @common_utils.parametrize("sym_quant_a", [True, False])
     def test_8da4w_cpu(self, dtype, x_dim, bias, bs, sym_quant_a):
-        if sym_quant_a and not TORCH_VERSION_AT_LEAST_2_8:
+        if sym_quant_a and not torch_version_at_least("2.8.0"):
             # not supported until PT 2.8
             return
         device = "cpu"
@@ -119,11 +117,10 @@ class TestDa8w4Cpu(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
         reason="cpp kernels not built",
     )
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Test only enabled for 2.8+")
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Test only enabled for 2.8+")
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
     def test_8da4w_concat_linear_cpu(self, x_dim, bias):
-        self.skipTest("Disabled for now")
         N, K = 64, 128
 
         class Mod(torch.nn.Module):
@@ -166,6 +163,15 @@ class TestDa8w4Cpu(TestCase):
             # ensure the expected op occurs only once in the code after fusion
             # The trailing "(" is to avoid matching the op in the comment
             assert code[0].count("torch.ops.torchao.da8w4_linear_cpu.default(") == 1
+
+            # Ensure that when concat linear is enabled, fxgraph cache works
+            # without being bypassed (fxgraph_cache_bypass = 0), indicating that
+            # DA8W4ConcatLinearCPUPass properly implements the CustomGraphPass
+            # interface and uuid() function, allowing fxgraph to be saved and hit
+            # on subsequent runs (fxgraph_cache_hit > 0).
+            fx_cache_bypass_count = counters["inductor"]["fxgraph_cache_bypass"]
+            assert fx_cache_bypass_count == 0
+
             with torch._inductor.config.patch(
                 {"freezing": True, "cpp.enable_concat_linear": False}
             ):
@@ -174,6 +180,10 @@ class TestDa8w4Cpu(TestCase):
                     x,
                 )
             assert torch.allclose(y, y_ref)
+
+            # Ensure that the fxgraph cache is also not bypassed when concat linear is disabled
+            fx_cache_bypass_count = counters["inductor"]["fxgraph_cache_bypass"]
+            assert fx_cache_bypass_count == 0
 
 
 common_utils.instantiate_parametrized_tests(TestDa8w4Cpu)

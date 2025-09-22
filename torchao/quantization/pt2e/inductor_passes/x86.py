@@ -1815,7 +1815,7 @@ def _register_smooth_quant_int_mm_pattern():
         KeywordArg("out_shape_with_bias"),
     )
 
-    # The following patterns are for torchao int8_dynamic_activation_int8_weight linear,
+    # The following patterns are for torchao Int8DynamicActivationInt8WeightConfig linear,
     # when both activation and weights are symmetrically quantized.
     # In practice, though, they may also match smooth-quant pattern when a 2D input shape would be used.
     # Since add is not currently being used as a oneDNN post-op, but is unfused, we don't need these patterns with bias.

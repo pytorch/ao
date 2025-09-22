@@ -11,7 +11,6 @@
 
 import torch
 
-from torchao.ops import lib
 from torchao.prototype.spinquant._hadamard_matrices import (
     get_had12,
     get_had20,
@@ -26,7 +25,6 @@ from torchao.prototype.spinquant._hadamard_matrices import (
     get_had156,
     get_had172,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 try:
     from fast_hadamard_transform import hadamard_transform as _fast_hadamard_transform
@@ -50,21 +48,14 @@ except ImportError:
 
 def register_custom_op_impl(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.custom_op(f"{name}", mutates_args=())(func)
-        else:
-            lib.define("hadamard_transform(Tensor x, float scale = 0.0) -> Tensor")
-            return torch.library.impl(f"{name}", "cuda")(func)
+        return torch.library.custom_op(f"{name}", mutates_args=())(func)
 
     return decorator
 
 
 def register_custom_op_abstract(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.register_fake(f"{name}")(func)
-        else:
-            return torch.library.impl_abstract(f"{name}")(func)
+        return torch.library.register_fake(f"{name}")(func)
 
     return decorator
 
@@ -246,6 +237,10 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
         assert is_pow2(had_dim), "Hadamard dimension must be a power of 2!"
 
     W = module.weight.data
+    if output and module.bias is not None:
+        B = module.bias.data
+        bias_dtype_orig = B.dtype
+        B = B.float()
     dtype_orig = W.dtype
     W = W.float()
 
@@ -253,9 +248,13 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
         if output:
             had_K, K = get_hadK(out_features)
             W = matmul_hadU(W.t(), had_K.to(W.device), K).t()
+            if output and module.bias is not None:
+                B = matmul_hadU(B, had_K.to(B.device), K)
         else:
             had_K, K = get_hadK(in_features)
             W = matmul_hadU(W, had_K.to(W.device), K)
+            if output and module.bias is not None:
+                B = matmul_hadU(B, had_K.to(B.device), K)
     else:
         if R2 is not None:
             hadK = R2.to(torch.float64)
@@ -269,8 +268,15 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
         temp = W.reshape(-1, shape[-1] // had_dim, had_dim)
         temp = temp.to(torch.float64) @ hadK
         W = temp.reshape(shape)
+        if output and module.bias is not None:
+            shape = B.shape
+            temp = B.reshape(-1, had_dim)
+            temp = temp.to(torch.float64) @ hadK
+            B = temp.reshape(shape)
 
         if output:
             W = W.t()
 
     module.weight.data = W.to(dtype=dtype_orig)
+    if output and module.bias is not None:
+        module.bias.data = B.to(dtype=bias_dtype_orig)

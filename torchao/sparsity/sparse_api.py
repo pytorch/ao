@@ -50,6 +50,9 @@ def apply_fake_sparsity(model, **kwargs):
 class BlockSparseWeightConfig(AOBaseConfig):
     blocksize: int = 64
 
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.sparsity.BlockSparseWeightConfig")
+
 
 # for bc
 block_sparse_weight = BlockSparseWeightConfig
@@ -72,7 +75,8 @@ class SemiSparseWeightConfig(AOBaseConfig):
     Configuration for converting the weight of linear modules to semi-structured (2:4) sparsity
     """
 
-    pass
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.sparsity.SemiSparseWeightConfig")
 
 
 # for bc
@@ -125,8 +129,9 @@ def sparsify_(
 
             # for int8 dynamic quantization + 2:4 sparsity
             from torchao.dtypes import SemiSparseLayout
-            m = quantize_(m, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout), filter_fn)
+            m = quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout), filter_fn)
     """
+    torch._C._log_api_usage_once("torchao.sparsity.sparsify_")
     handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
     _replace_with_custom_fn_if_matches_filter(
         model,

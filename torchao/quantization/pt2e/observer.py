@@ -1877,13 +1877,6 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             observer_node: the observer node to convert
         """
 
-        from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            raise NotImplementedError(
-                "convert for AffineQuantization is not implemented for pytorch version earlier than 2.5, please upgrade your pytorch to 2.5+."
-            )
-
         from torchao.quantization.pt2e.utils import create_getattr_from_value
 
         with model.graph.inserting_before(observer_node):
@@ -1915,10 +1908,18 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             else:
                 scale, zero_point = self.calculate_qparams()
                 scale_node = create_getattr_from_value(
-                    model, model.graph, "_scale", scale
+                    model,
+                    model.graph,
+                    "_scale",
+                    scale,
+                    scale.device if isinstance(scale, torch.Tensor) else None,
                 )
                 zero_point_node = create_getattr_from_value(
-                    model, model.graph, "_zero_point", zero_point
+                    model,
+                    model.graph,
+                    "_zero_point",
+                    zero_point,
+                    zero_point.device if isinstance(zero_point, torch.Tensor) else None,
                 )
 
             q_node = model.graph.call_function(

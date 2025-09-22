@@ -27,10 +27,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 
-from .quant_api import (
-    choose_qparams_stretched_affine,
-    quantize_stretched_affine,
-)
+from .quant_api import choose_qparams_stretched_affine, quantize_stretched_affine
 from .quantizer import Quantizer
 
 _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
@@ -142,7 +139,7 @@ class UnifTorchaoQuantizer(Quantizer):
 
 
 class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
-    def __init__(self, b: int, int_shift: float = 0.5) -> None:
+    def __init__(self, b: int, int_shift: float = 0.5, **kwargs) -> None:
         quant_absmax = 2 ** (b - 1) - int_shift
         self.quant_min = -quant_absmax
         self.quant_max = quant_absmax
@@ -152,6 +149,7 @@ class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
             mapping_type=MappingType.ASYMMETRIC,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
+            **kwargs,
         )
 
         self._choose_qparams = partial(choose_qparams_stretched_affine, b=b)

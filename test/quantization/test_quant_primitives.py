@@ -16,6 +16,7 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_affine_tinygemm,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
+    _maybe_expand_scale_to_tensor_shape,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -29,10 +30,6 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor_from_qparams,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
@@ -132,11 +129,10 @@ def _groupwise_affine_quantize_tensor_from_qparams(
             .reshape_as(w)
         )
 
-    if TORCH_VERSION_AT_LEAST_2_5:
-        if (not (check_cpu_version(w.device))) and (not (check_xpu_version(w.device))):
-            w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
-        if check_xpu_version(w.device):
-            w_int4x8 = (w_int4x8[::, 1::2] << 4 | w_int4x8[::, ::2]).to(torch.uint8)
+    if (not (check_cpu_version(w.device))) and (not (check_xpu_version(w.device))):
+        w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
+    if check_xpu_version(w.device):
+        w_int4x8 = (w_int4x8[::, 1::2] << 4 | w_int4x8[::, ::2]).to(torch.uint8)
 
     return w_int4x8
 
@@ -175,9 +171,6 @@ def _groupwise_affine_dequantize_tensor_from_qparams(
 class TestQuantPrimitives(unittest.TestCase):
     SEED = 123
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch version is 2.3 or lower"
-    )
     def test_get_group_qparams_symmetric(self):
         """
         Test that `get_group_qparams_symmetric` produces the exact same scales as
@@ -264,34 +257,21 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch version is 2.3 or lower"
-    )
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_token_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
         block_size = (1, 10)
-        if TORCH_VERSION_AT_LEAST_2_6:
-            scale, zero_point = choose_qparams_affine(
-                input,
-                mapping_type,
-                block_size,
-                dtype,
-                eps=torch.finfo(torch.float32).eps,
-                scale_dtype=torch.float64,
-                zero_point_dtype=torch.int64,
-            )
-        else:
-            scale, zero_point = choose_qparams_affine(
-                input,
-                mapping_type,
-                block_size,
-                dtype,
-                eps=torch.finfo(torch.float32).eps,
-            )
-
+        scale, zero_point = choose_qparams_affine(
+            input,
+            mapping_type,
+            block_size,
+            dtype,
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float64,
+            zero_point_dtype=torch.int64,
+        )
         scale_ref, zp_ref = (
             torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(
                 input, dtype
@@ -347,9 +327,6 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_quantize_activation_per_token_abs_max(self):
         input = torch.randn(10, 10)
         quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
@@ -380,17 +357,11 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(scale, scale_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_quantize_activation_per_token_abs_max_zero_input(self):
         input = torch.zeros(10, 10)
         # make sure it still works
         quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_quantize_activation_per_token_abs_max_dtype(self):
         input = torch.zeros(10, 10, dtype=torch.bfloat16)
         quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
@@ -404,9 +375,6 @@ class TestQuantPrimitives(unittest.TestCase):
         quantized_ref, scale_ref = _quantize_activation_per_token_absmax(input)
         self.assertTrue(scale_ref.dtype, torch.float32)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_group_sym(self):
         input = torch.randn(10, 10)
@@ -449,9 +417,6 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym(self):
         input = torch.randn(10, 10)
@@ -493,9 +458,6 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_tensor_asym(self):
         input = torch.randn(10, 10)
@@ -535,9 +497,6 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym_4d(self):
         input = torch.randn(3, 3, 10, 10)
@@ -578,9 +537,6 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch version is 2.3 or lower"
-    )
     def test_quantize_dequantize_channel_asym_4d_multi_dim_reduction(self):
         input = torch.randn(3, 3, 10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -726,32 +682,22 @@ class TestQuantPrimitives(unittest.TestCase):
         for zero_point_domain in [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]:
             if zero_point_domain == ZeroPointDomain.INT:
                 zeros = torch.randint(0, 15, (10, 2), dtype=torch.int32)
-            if TORCH_VERSION_AT_LEAST_2_5:
-                input_tmp = input
-                if (not (check_cpu_version(input.device))) and (
-                    not (check_xpu_version(input.device))
-                ):
-                    input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
-                if check_xpu_version(input.device):
-                    input_tmp = (input[::, 1::2] << 4 | input[::, ::2]).to(torch.uint8)
-                w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
-                    input_tmp, scales, zeros, n_bit, groupsize, zero_point_domain
-                )
-            else:
-                if zero_point_domain == ZeroPointDomain.INT:
-                    continue
-                w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
-                    input, scales, zeros, n_bit, groupsize
-                )
+            input_tmp = input
+            if (not (check_cpu_version(input.device))) and (
+                not (check_xpu_version(input.device))
+            ):
+                input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
+            if check_xpu_version(input.device):
+                input_tmp = (input[::, 1::2] << 4 | input[::, ::2]).to(torch.uint8)
+            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
+                input_tmp, scales, zeros, n_bit, groupsize, zero_point_domain
+            )
             w_bf16_ref = _groupwise_affine_dequantize_tensor_from_qparams(
                 input, scales, zeros, n_bit, groupsize, zero_point_domain
             )
 
         self.assertTrue(torch.equal(w_bf16, w_bf16_ref))
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantize_affine(self):
         input = torch.randn(10, 10)
 
@@ -785,9 +731,6 @@ class TestQuantPrimitives(unittest.TestCase):
         )
         torch.testing.assert_close(dequantized, fake_quantized)
 
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
-    )
     def test_fake_quantize_affine_cachemask(self):
         input = torch.randn(10, 10)
 
@@ -828,6 +771,32 @@ class TestQuantPrimitives(unittest.TestCase):
         expected_mask = torch.full(input.shape, True)
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
+
+    def test_maybe_expand_scale_to_tensor_shape(self):
+        # rowwise quantization: if all dimensions match except for the last one,
+        # and the last dimension is 1, then just return the scale as is
+        scale = torch.randn([3, 2, 1])
+        target_shape = torch.Size([3, 2, 8])
+        new_scale = _maybe_expand_scale_to_tensor_shape(scale, target_shape)
+        self.assertIs(scale, new_scale)
+        # other broadcastable shapes
+        scale1 = torch.randn([3, 1, 1])
+        scale2 = torch.randn([1, 2, 1])
+        scale3 = torch.randn([1, 1, 8])
+        scale4 = torch.randn([1, 1, 1])
+        new_scale1 = _maybe_expand_scale_to_tensor_shape(scale1, target_shape)
+        new_scale2 = _maybe_expand_scale_to_tensor_shape(scale2, target_shape)
+        new_scale3 = _maybe_expand_scale_to_tensor_shape(scale3, target_shape)
+        new_scale4 = _maybe_expand_scale_to_tensor_shape(scale4, target_shape)
+        self.assertIs(scale1, new_scale1)
+        self.assertIs(scale2, new_scale2)
+        self.assertIs(scale3, new_scale3)
+        self.assertIs(scale4, new_scale4)
+        # blockwise quantization: scales are repeated to fit target_shape
+        scale5 = torch.randn([3, 2, 2])
+        new_scale5 = _maybe_expand_scale_to_tensor_shape(scale5, target_shape)
+        self.assertEqual(new_scale5.shape, torch.Size([3, 2, 8]))
+        self.assertEqual(new_scale5.unique(dim=-1).shape, torch.Size([3, 2, 2]))
 
 
 if __name__ == "__main__":
