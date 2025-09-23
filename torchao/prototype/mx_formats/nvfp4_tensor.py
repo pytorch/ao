@@ -798,7 +798,6 @@ def _nvfp4_quantize(
     assert data_hp.is_contiguous(), "Only support contiguous data for now"
     assert block_size == 16, "NVFP4 requires block_size=16"
 
-    orig_dtype = data_hp.dtype
     orig_shape = data_hp.shape
     # Convert to float32 early for consistent precision with Triton implementation
     data_hp = data_hp.float().reshape(orig_shape[0], -1, block_size)
@@ -834,7 +833,7 @@ def _nvfp4_quantize(
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
     if skip_dtype_cast_and_packing:
-        return out_scales.to(torch.float32), data_scaled.to(orig_dtype)
+        return _Float8Round.apply(out_scales), data_scaled
     else:
         data_lp = f32_to_f4_unpacked(data_scaled)
         # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'

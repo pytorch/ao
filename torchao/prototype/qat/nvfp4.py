@@ -2,6 +2,10 @@ from dataclasses import dataclass
 
 import torch
 
+from torchao.prototype.mx_formats.kernels import (
+    f4_unpacked_to_f32,
+    f32_to_f4_unpacked,
+)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     _nvfp4_quantize,
     per_tensor_amax_to_scale,
@@ -56,13 +60,14 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
             per_tensor_scale=per_tensor_scale,
             skip_dtype_cast_and_packing=True,
         )
+        q = f32_to_f4_unpacked(q, fake_quantize=True)
         if self.config.use_per_tensor_scale:
             scale = scale * per_tensor_scale
-        assert q.dtype == x.dtype
         assert scale.dtype == torch.float32
 
         # dequantize
         M, K = q.shape[0], q.shape[1]
+        q = f4_unpacked_to_f32(q, fake_quantize=True)
         q = q.view(M, K // block_size, block_size)
         scale = scale.view(M, K // block_size, 1)
         dq = q * scale

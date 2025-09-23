@@ -1910,7 +1910,6 @@ class TestQAT(TestCase):
         quantize_(m, QATConfig(base_config, step="prepare"), filter_fn)
         out_prepared = m(*example_inputs)
         prepare_sqnr = compute_error(out_prepared, out_baseline)
-
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
@@ -2086,9 +2085,14 @@ class TestQAT(TestCase):
         """
         from torchao.prototype.mx_formats import NVFP4InferenceConfig
 
+        if use_per_tensor_scale:
+            target_prepare_sqnr = 36
+        else:
+            target_prepare_sqnr = float("inf")
+
         self._test_quantize_api_against_ptq(
             NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
-            target_prepare_sqnr=12,
+            target_prepare_sqnr=target_prepare_sqnr,
             target_convert_sqnr=float("inf"),
         )
 
@@ -2116,7 +2120,7 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        self.assertGreater(sqnr, 24)
+        self.assertGreater(sqnr, 10)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
