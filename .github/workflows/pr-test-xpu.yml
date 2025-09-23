@@ -64,6 +64,7 @@ jobs:
           echo "📁 Current directory: $(pwd)"
           echo "📄 Listing parent directory:"
           ls -la ..
+          find . -type d -path '*/pytorch/.ci/docker'
           echo "📄 Listing ../pytorch:"
           ls -la ../pytorch || echo "❌ ../pytorch does not exist"
           echo "📄 Checking for .ci/docker in PyTorch:"
