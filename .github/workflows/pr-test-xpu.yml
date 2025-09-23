@@ -34,12 +34,24 @@ jobs:
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
       XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
     steps:
-      # [see note: pytorch repo ref]
+      steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@main
-
-      - name: Checkout Torchao
         uses: actions/checkout@v4
+        with:
+          repository: pytorch/pytorch
+          ref: main
+          path: pytorch
+          fetch-depth: 0
+          submodules: recursive
+    
+      - name: Checkout Torchao (ao)
+        uses: actions/checkout@v4
+        with:
+          repository: DiweiSun/ao
+          ref: 526abad316a8884ec1b065098d2c35dc31cc2ca5
+          path: torchao
+          fetch-depth: 0
+          submodules: recursive
 
       - name: Clean all stopped docker containers
         if: always()
