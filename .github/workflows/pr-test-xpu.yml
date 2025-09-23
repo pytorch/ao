@@ -29,7 +29,6 @@ jobs:
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
       XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
     steps:
-      # [see note: pytorch repo ref]
       - name: Checkout PyTorch
         uses: actions/checkout@v4
         with:
