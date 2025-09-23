@@ -43,7 +43,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: DiweiSun/ao
-          ref: 526abad316a8884ec1b065098d2c35dc31cc2ca5
           path: torchao
           fetch-depth: 1
           submodules: recursive
@@ -125,7 +124,7 @@ jobs:
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         with:
           docker-image-name: ${{ env.DOCKER_IMAGE }}
-          working-directory: ../pytorch/.ci/docker
+          working-directory: pytorch/.ci/docker
 
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror
