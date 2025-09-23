@@ -105,6 +105,7 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
 )
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -126,6 +127,7 @@ def test_inference_workflow_nvfp4(
     mm_config: NVFP4MMConfig,
     inpt_dtype: torch.dtype,
     use_triton_kernel: bool,
+    use_dynamic_per_tensor_scale: bool,
     shapes: tuple,
 ):
     """
@@ -147,7 +149,9 @@ def test_inference_workflow_nvfp4(
     m_mx = copy.deepcopy(m)
 
     config = NVFP4InferenceConfig(
-        mm_config=mm_config, use_triton_kernel=use_triton_kernel
+        mm_config=mm_config,
+        use_triton_kernel=use_triton_kernel,
+        use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
     )
     quantize_(m_mx, config=config)
 
