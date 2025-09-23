@@ -11,13 +11,14 @@ from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
     Int8Tensor,
+    QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-class TestInt8PlainInt8Tensor(TorchAOIntegrationTestCase):
+class TestInt8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         super().setUp()
         torch.manual_seed(42)
@@ -50,6 +51,20 @@ class TestInt8PlainInt8Tensor(TorchAOIntegrationTestCase):
         self.assertTrue(compute_error(result_fp, reference) > 10)
         self.assertTrue(compute_error(result_q8, reference) > 10)
 
+    def test_dynamic_quantization(self):
+        weight_q8_dynamic = Int8Tensor.from_hp(
+            self.weight_fp,
+            self.block_size,
+            act_quant_kwargs=QuantizeTensorToInt8Kwargs(),
+        )
+
+        reference = torch.nn.functional.linear(self.input_fp, self.weight_fp, self.bias)
+        result_dynamic = torch.nn.functional.linear(
+            self.input_fp, weight_q8_dynamic, self.bias
+        )
+
+        self.assertEqual(result_dynamic.shape, reference.shape)
+
     def test_error_handling_and_dequant(self):
         """Test input validation and dequantization accuracy"""
         # Test 1D tensor validation
@@ -64,7 +79,7 @@ class TestInt8PlainInt8Tensor(TorchAOIntegrationTestCase):
         test_data = torch.tensor([[1.0, -1.0]], dtype=torch.float32)
         tensor = Int8Tensor.from_hp(test_data, [1, 1])
 
-        dequantized = tensor.dequantize()
+        dequantized = torch.ops.aten.dequantize.self(tensor)
         self.assertEqual(dequantized.shape, test_data.shape)
         self.assertLess(torch.abs(dequantized - test_data).max().item(), 0.1)
 
