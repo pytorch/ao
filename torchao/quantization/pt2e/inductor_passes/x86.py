@@ -2917,7 +2917,10 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
     def quant_input_check(node):
         if len(node.all_input_nodes) == 1:
             return True
-        elif node.target == torch.ops.torchao.quantize_affine_float8_non_decomposed.default:
+        elif (
+            node.target
+            == torch.ops.torchao.quantize_affine_float8_non_decomposed.default
+        ):
             # check if scale created by torch.tensor
             return (
                 len(node.all_input_nodes) == 2
