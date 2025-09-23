@@ -41,7 +41,7 @@ jobs:
           ref: main
           path: pytorch
           fetch-depth: 1
-          submodules: recursive
+          submodules: false
     
       - name: Checkout Torchao (ao)
         uses: actions/checkout@v4
