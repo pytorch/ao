@@ -124,6 +124,7 @@ jobs:
         with:
           docker-image-name: ${{ env.DOCKER_IMAGE }}
           working-directory: pytorch
+          repo-name: pytorch
 
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror
