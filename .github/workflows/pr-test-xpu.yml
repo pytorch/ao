@@ -123,7 +123,7 @@ jobs:
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         with:
           docker-image-name: ${{ env.DOCKER_IMAGE }}
-          working-directory: pytorch/.ci/docker
+          working-directory: pytorch
 
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror
