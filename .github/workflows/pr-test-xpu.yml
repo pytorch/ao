@@ -156,7 +156,7 @@ jobs:
         id: test
         env:
           TEST_COMMAND: .github/scripts/ci_test_xpu.sh
-          DOCKER_IMAGE: ci-image:pytorch-linux-jammy-xpu-n-py3
+          DOCKER_IMAGE: ${{ steps.calculate-docker-image.outputs.docker-image }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
