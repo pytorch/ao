@@ -187,17 +187,16 @@ def _attach_hf_quantization_config(
     if module_to_config is None:
         module_to_config = {}
 
-    seen_data_ptrs = set()
+    tied_weights_keys = set(getattr(model, "_tied_weights_keys", []))
     modules_to_not_convert = []
     for name, module in model.named_modules():
         if not hasattr(module, "weight"):
             continue
 
-        data_ptr = module.weight.data_ptr()
-        if data_ptr in seen_data_ptrs:  # do not re-quantize tied weight
+        # Do not quantize pointers to tied weights or normalization layers
+        if f"{name}.weight" in tied_weights_keys or "norm" in name:
             modules_to_not_convert.append(name)
             continue
-        seen_data_ptrs.add(data_ptr)
 
         for i, filter_fn in enumerate(filter_fns):
             if filter_fn(module):
