@@ -394,8 +394,14 @@ def get_extensions():
 
     # Only skip CUDA extensions if neither CUDA_HOME nor nvcc is available.
     # In many CI environments CUDA_HOME may be unset even though nvcc is on PATH.
-    if torch.version.cuda and CUDA_HOME is None and get_cuda_version_from_nvcc() is None:
-        print("CUDA toolkit is not available (CUDA_HOME unset and nvcc not found). Skipping compilation of CUDA extensions")
+    if (
+        torch.version.cuda
+        and CUDA_HOME is None
+        and get_cuda_version_from_nvcc() is None
+    ):
+        print(
+            "CUDA toolkit is not available (CUDA_HOME unset and nvcc not found). Skipping compilation of CUDA extensions"
+        )
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
@@ -404,7 +410,9 @@ def get_extensions():
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
     # Build CUDA extensions if CUDA is available and either CUDA_HOME is set or nvcc is present
-    use_cuda = bool(torch.version.cuda) and (CUDA_HOME is not None or get_cuda_version_from_nvcc() is not None)
+    use_cuda = bool(torch.version.cuda) and (
+        CUDA_HOME is not None or get_cuda_version_from_nvcc() is not None
+    )
     use_rocm = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
 
