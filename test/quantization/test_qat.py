@@ -2102,11 +2102,16 @@ class TestQAT(TestCase):
         """
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
         from torchao.prototype.qat import NVFP4FakeQuantizeConfig
 
         torch.manual_seed(self.SEED)
         m = M().cuda()
         baseline_model = copy.deepcopy(m)
+        quantize_(
+            baseline_model,
+            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+        )
         qat_config = QATConfig(
             activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
@@ -2120,7 +2125,11 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        self.assertGreater(sqnr, 10)
+        if use_per_tensor_scale:
+            target_sqnr = 130
+        else:
+            target_sqnr = float("inf")
+        self.assertGreaterEqual(sqnr, target_sqnr)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
