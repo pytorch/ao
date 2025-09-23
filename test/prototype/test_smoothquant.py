@@ -103,7 +103,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_observer_insertion(self, base_config):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
 
-        m = ToyTwoLinearModel().eval().to(device="cuda", dtype=torch.bfloat16)
+        m = ToyTwoLinearModel(256, 64, dtype=torch.bfloat16, device="cuda").eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)
@@ -142,7 +142,7 @@ class TestSmoothQuant(unittest.TestCase):
     def test_prepare_for_loading(self, base_config):
         """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
-        m = ToyTwoLinearModel().eval().to(device="cuda", dtype=torch.bfloat16)
+        m = ToyTwoLinearModel(256, 64, dtype=torch.bfloat16, device="cuda").eval()
 
         # Before quantization - should be regular Linear
         self.assertIsInstance(m.linear1, torch.nn.Linear)

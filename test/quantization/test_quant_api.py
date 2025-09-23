@@ -206,7 +206,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "only works for torch 2.8+")
     def test_int4_wo_quant_save_load(self):
-        m = ToyTwoLinearModel(64, 32, 64).eval().cpu()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu").eval()
 
         def api(model):
             quantize_(model, Int4WeightOnlyConfig(layout=Int4XPULayout(), version=1))
@@ -221,7 +221,7 @@ class TestQuantFlow(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        m2 = ToyTwoLinearModel(64, 32, 64).eval().cpu()
+        m2 = ToyTwoLinearModel(64, 32, 64, device="cpu").eval()
         api(m2)
 
         m2.load_state_dict(state_dict)
@@ -233,7 +233,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int8_wo_quant_save_load(self):
-        m = ToyTwoLinearModel(64, 32, 64).eval().cpu()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu").eval()
 
         def api(model):
             quantize_(model, Int8WeightOnlyConfig())
@@ -248,7 +248,7 @@ class TestQuantFlow(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        m2 = ToyTwoLinearModel(64, 32, 64).eval().cpu()
+        m2 = ToyTwoLinearModel(64, 32, 64, device="cpu").eval()
         api(m2)
 
         m2.load_state_dict(state_dict)
@@ -433,7 +433,9 @@ class TestQuantFlow(TestCase):
     def test_quantized_tensor_subclass_int4(self):
         for device in self.GPU_DEVICES:
             # use 1024 so that we don't need padding
-            m = ToyTwoLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
+            m = ToyTwoLinearModel(
+                1024, 1024, 1024, dtype=torch.bfloat16, device=device
+            ).eval()
             m_copy = copy.deepcopy(m)
             example_inputs = m.example_inputs()
 
@@ -460,7 +462,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_wo(self):
-        m = ToyTwoLinearModel(64, 32, 64).eval().to(torch.bfloat16)
+        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16).eval()
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
 
@@ -479,7 +481,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load(self):
-        m = ToyTwoLinearModel(64, 32, 64).eval().to(torch.bfloat16)
+        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16).eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
 
@@ -497,7 +499,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int8wo_quantized_model_to_device(self):
-        m = ToyTwoLinearModel(64, 32, 64).eval().to(torch.bfloat16)
+        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16).eval()
         example_inputs = m.example_inputs()
 
         quantize_(m, Int8WeightOnlyConfig())
@@ -510,8 +512,8 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load_map_location(self):
-        m = ToyTwoLinearModel(64, 32, 64).eval().to(dtype=torch.bfloat16, device="cuda")
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
+        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16, device="cuda").eval()
+        example_inputs = m.example_inputs()
 
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
@@ -652,7 +654,7 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
-        model = ToyTwoLinearModel(64, 32, 64).cuda().to(dtype=torch.bfloat16)
+        model = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16, device="cuda")
         example_inputs = model.example_inputs()
         quantize_(model, config)
         model(*example_inputs)
@@ -666,7 +668,7 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
-        model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
+        model = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16)
         example_inputs = model.example_inputs()
         quantize_(model, config)
         model(*example_inputs)
@@ -722,8 +724,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int4wo_cuda_serialization(self):
         config = Int4WeightOnlyConfig(group_size=32)
-        model = ToyTwoLinearModel(64, 32, 64).to(dtype=torch.bfloat16)
-
+        model = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16)
         # quantize in cuda
         quantize_(model, config)
         example_inputs = model.example_inputs()

@@ -2031,8 +2031,9 @@ class TestUtils(unittest.TestCase):
 class TestBenchmarkModel(unittest.TestCase):
     def run_benchmark_model(self, device):
         # params
-        dtype = torch.bfloat16
-        m = ToyTwoLinearModel(1024, 1024, 1024).eval().to(dtype).to(device)
+        m = ToyTwoLinearModel(
+            1024, 1024, 1024, dtype=torch.bfloat16, device=device
+        ).eval()
         m_bf16 = copy.deepcopy(m)
         example_inputs = m.example_inputs()
         m_bf16 = torch.compile(m_bf16, mode="max-autotune")
