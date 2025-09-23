@@ -27,7 +27,7 @@ quantized = torch.ops.quantized
 _PER_TENSOR_QUANTIZE_OPS = [
     quantized_decomposed.quantize_per_tensor.default,
     quantized_decomposed.quantize_per_tensor.tensor,
-    torch.ops.torchao.quantize_affine_float8.default,
+    torch.ops.torchao.quantize_affine_float8_non_decomposed.default,
 ]
 
 _VIEW_FUNCTION_OPS = [
@@ -135,7 +135,7 @@ def get_dequantize_per_tensor_activation_pattern(
 ):
     if is_fp8:
         dequantize_per_tensor_activation_pattern = CallFunction(
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
             KeywordArg("x"),
             KeywordArg("x_scale"),
             output_dtype=KeywordArg("x_dq_dtype"),
@@ -351,7 +351,7 @@ def generate_pattern_with_output_quant(
     )
     if is_fp8:
         quantized_op_output_pattern_pt2e = CallFunction(
-            torch.ops.torchao.quantize_affine_float8.default,
+            torch.ops.torchao.quantize_affine_float8_non_decomposed.default,
             may_generate_pattern_with_dtype_convert,
             KeywordArg("o_inv_scale"),
             float8_dtype=KeywordArg("o_dtype"),
@@ -474,7 +474,7 @@ def _is_valid_quantized_op_binary_optimization_pattern(
                     extra_input_of_binary_node.target
                     not in [
                         quantized_decomposed.dequantize_per_tensor.default,
-                        torch.ops.torchao.dequantize_affine_float8.default,
+                        torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
                     ]
                 )
             ):
@@ -529,7 +529,7 @@ def _is_valid_dequant_promotion_pattern(dtype=torch.float32):
         if dequant_pattern_end_node.target not in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
             prims.convert_element_type.default,
             aten.reshape.default,
         ]:
@@ -559,7 +559,7 @@ def _is_valid_dequant_promotion_pattern(dtype=torch.float32):
             in [
                 quantized_decomposed.dequantize_per_tensor.default,
                 quantized_decomposed.dequantize_per_tensor.tensor,
-                torch.ops.torchao.dequantize_affine_float8.default,
+                torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
             ]
             and len(list(dequant_pattern_end_node.users)) > 1
         ):
@@ -626,7 +626,7 @@ def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
         assert dequant_pattern_end_node.target in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
             prims.convert_element_type.default,
             aten.reshape.default,
         ]
@@ -639,7 +639,7 @@ def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
             if _node.target in [
                 quantized_decomposed.dequantize_per_tensor.default,
                 quantized_decomposed.dequantize_per_tensor.tensor,
-                torch.ops.torchao.dequantize_affine_float8.default,
+                torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
             ]:
                 # For a dequant pattern, we expect the start node is a dequantize_per_tensor node
                 return _node
@@ -656,7 +656,7 @@ def _register_dequant_promotion_pass(pattern, pass_number, dtype=torch.float32):
         assert dequant_pattern_start_node.target in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
         ]
 
         # Clone the dequant pattern for each user node
@@ -761,7 +761,7 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
 
         assert dequant_per_channel.target in [  # type: ignore[union-attr]
             quantized_decomposed.dequantize_per_channel.default,
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
         ]
 
         # Activation QParams
@@ -979,7 +979,7 @@ def _is_valid_dequant_linear_pattern(dtype, input_dim_exceeds_two, input_contigu
         assert dequant_node.target in [
             quantized_decomposed.dequantize_per_tensor.default,
             quantized_decomposed.dequantize_per_tensor.tensor,
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
         ]
 
         if len(list(dequant_node.users)) != 1:
@@ -1090,7 +1090,7 @@ def _register_qlinear_weight_prepack_pass(
             dequant = weight_to_bf16_node.args[0]
         assert dequant.target in [
             quantized_decomposed.dequantize_per_channel.default,
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
         ]
 
         # Activation QParams
@@ -1302,7 +1302,7 @@ def _generate_qlinear_weight_prepack_patterns(
 ):
     if is_fp8:
         dequant_wgt_pattern = CallFunction(
-            torch.ops.torchao.dequantize_affine_float8.default,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
             KeywordArg("q_weight"),
             KeywordArg("w_scale"),
             output_dtype=KeywordArg("w_dtype"),
@@ -2917,7 +2917,7 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
     def quant_input_check(node):
         if len(node.all_input_nodes) == 1:
             return True
-        elif node.target == torch.ops.torchao.quantize_affine_float8.default:
+        elif node.target == torch.ops.torchao.quantize_affine_float8_non_decomposed.default:
             # check if scale created by torch.tensor
             return (
                 len(node.all_input_nodes) == 2

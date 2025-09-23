@@ -113,18 +113,18 @@ class FP8QDQLinear(torch.nn.Module):
             self.bias = torch.randn((out_features,))
 
     def forward(self, input):
-        weight = torch.ops.torchao.dequantize_affine_float8.default(
+        weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
             tensor=self.weight.data,
             scale=torch.tensor([self.weight_scale]),
             output_dtype=torch.float,
         )
 
-        q_input = torch.ops.torchao.quantize_affine_float8.default(
+        q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
             tensor=input,
             scale=torch.tensor([self.scale]),
             float8_dtype=self.qtype,
         )
-        dq_input = torch.ops.torchao.dequantize_affine_float8.default(
+        dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
             tensor=q_input,
             scale=torch.tensor([self.scale]),
             output_dtype=torch.float,
@@ -136,12 +136,12 @@ class FP8QDQLinear(torch.nn.Module):
 
 def qdq(input, scale):
     dtype = input.dtype
-    q_input = torch.ops.torchao.quantize_affine_float8.default(
+    q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
         input,
         torch.tensor([scale]),
         torch.float8_e4m3fn,
     )
-    dq_input = torch.ops.torchao.dequantize_affine_float8.default(
+    dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
         q_input,
         torch.tensor([scale]),
         dtype,
