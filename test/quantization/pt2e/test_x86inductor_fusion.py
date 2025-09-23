@@ -91,7 +91,7 @@ quantization_inplace_add_fn_list = [
 ]
 
 skipIfNoFloat8Support = unittest.skipIf(
-    not torch_version_at_least("2.9.0.dev20250725"), "Float8 requires torch 2.9+"
+    not torch_version_at_least("2.9.0"), "Float8 requires torch 2.9+"
 )
 
 
