@@ -31,10 +31,22 @@ jobs:
     steps:
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@main
-
-      - name: Checkout Torchao
         uses: actions/checkout@v4
+        with:
+          repository: pytorch/pytorch
+          ref: main
+          path: pytorch
+          fetch-depth: 1
+          submodules: false
+    
+      - name: Checkout Torchao (ao)
+        uses: actions/checkout@v4
+        with:
+          repository: DiweiSun/ao
+          ref: 526abad316a8884ec1b065098d2c35dc31cc2ca5
+          path: torchao
+          fetch-depth: 1
+          submodules: recursive
 
       - name: Clean all stopped docker containers
         if: always()
@@ -107,22 +119,6 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-
-      - name: Debug Check workspace structure
-        run: |
-          echo "🔍 Current workspace: $GITHUB_WORKSPACE"
-          echo "📁 Current directory: $(pwd)"
-          echo "📄 Listing parent directory:"
-          ls -la ..
-          echo "📄 Listing ../pytorch:"
-          ls -la ../pytorch || echo "❌ ../pytorch does not exist"
-          echo "📄 Checking for .ci/docker in PyTorch:"
-          if [ -d "../pytorch/.ci/docker" ]; then
-            echo "✅ Found ../pytorch/.ci/docker"
-            ls -la ../pytorch/.ci/docker
-          else
-            echo "❌ ../pytorch/.ci/docker does not exist"
-          fi
 
       - name: Calculate docker image
         id: calculate-docker-image
