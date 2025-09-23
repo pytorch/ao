@@ -2077,7 +2077,8 @@ class TestQAT(TestCase):
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
-    def test_quantize_api_nvfp4(self):
+    @parametrize("use_per_tensor_scale", [True, False])
+    def test_quantize_api_nvfp4(self, use_per_tensor_scale: bool):
         """
         Test the following:
             quantize_(model, QATConfig(NVFP4InferenceConfig(), step="prepare"))
@@ -2086,8 +2087,8 @@ class TestQAT(TestCase):
         from torchao.prototype.mx_formats import NVFP4InferenceConfig
 
         self._test_quantize_api_against_ptq(
-            NVFP4InferenceConfig(),
-            target_prepare_sqnr=8,
+            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+            target_prepare_sqnr=12,
             target_convert_sqnr=float("inf"),
         )
 
