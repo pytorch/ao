@@ -40,7 +40,7 @@ jobs:
           repository: pytorch/pytorch
           ref: main
           path: pytorch
-          fetch-depth: 0
+          fetch-depth: 1
           submodules: recursive
     
       - name: Checkout Torchao (ao)
@@ -49,7 +49,7 @@ jobs:
           repository: DiweiSun/ao
           ref: 526abad316a8884ec1b065098d2c35dc31cc2ca5
           path: torchao
-          fetch-depth: 0
+          fetch-depth: 1
           submodules: recursive
 
       - name: Clean all stopped docker containers
@@ -69,29 +69,12 @@ jobs:
           env | grep '^GITHUB' >> "/tmp/github_env_${GITHUB_RUN_ID}"
           env | grep '^CI' >> "/tmp/github_env_${GITHUB_RUN_ID}"
 
-      - name: Debug Check workspace structure
-        run: |
-          echo "🔍 Current workspace: $GITHUB_WORKSPACE"
-          echo "📁 Current directory: $(pwd)"
-          echo "📄 Listing parent directory:"
-          ls -la ..
-          find . -type d -path '*/pytorch/.ci/docker'
-          echo "📄 Listing ../pytorch:"
-          ls -la ../pytorch || echo "❌ ../pytorch does not exist"
-          echo "📄 Checking for .ci/docker in PyTorch:"
-          if [ -d "../pytorch/.ci/docker" ]; then
-            echo "✅ Found ../pytorch/.ci/docker"
-            ls -la ../pytorch/.ci/docker
-          else
-            echo "❌ ../pytorch/.ci/docker does not exist"
-          fi
-
       - name: Calculate docker image
         id: calculate-docker-image
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         with:
           docker-image-name: ${{ env.DOCKER_IMAGE }}
-          working-directory: ../pytorch/.ci/docker
+          working-directory: pytorch/.ci/docker
 
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror
