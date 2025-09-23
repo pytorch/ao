@@ -90,6 +90,10 @@ quantization_inplace_add_fn_list = [
     lambda x, y: x.add_(y),
 ]
 
+skipIfNoFloat8Support = unittest.skipIf(
+    not torch_version_at_least("2.9.0.dev20250725"), "Float8 requires torch 2.9+"
+)
+
 
 def get_default_quantizer(is_qat, is_dynamic):
     quantizer = X86InductorQuantizer()
@@ -1500,6 +1504,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_cpu(self):
         r"""
         This testcase will quantize a single Linear Moduel.
@@ -1555,6 +1560,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_mixed_bf16(self):
         r"""
         This testcase will quantize a single Linear Moduel with mixed_bf16 quantization.
@@ -1575,6 +1581,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_input_dim_exceeds_2(self):
         r"""
         This testcase will quantize a single Linear Moduel.
@@ -1597,6 +1604,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_mixed_bf16_input_dim_exceeds_2(self):
         r"""
         This testcase will quantize a single Linear Moduel with mixed_bf16 quantization.
@@ -1634,6 +1642,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_input_dim_exceeds_2_and_not_contiguous(self):
         r"""
         This testcase will quantize a single Linear Module.
@@ -1690,6 +1699,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_mixed_bf16_input_dim_exceeds_2_and_not_contiguous(self):
         r"""
         This testcase will quantize a single Linear Module for int8_bf16.
@@ -1774,6 +1784,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_relu_cpu(self):
         r"""
         This testcase will quantize a Linear->ReLU pattern.
@@ -1792,6 +1803,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_relu_mixed_bf16(self):
         r"""
         This testcase will quantize a Linear->ReLU pattern with mixed_bf16 quantization.
@@ -1810,6 +1822,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_relu_input_dim_exceeds_2(self):
         r"""
         This testcase will quantize a Linear->ReLU pattern.
@@ -1828,6 +1841,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_relu_mixed_bf16_input_dim_exceeds_2(self):
         r"""
         This testcase will quantize a Linear->ReLU pattern with mixed_bf16 quantization.
@@ -1845,6 +1859,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
         for gelu in [torch.nn.GELU("none"), torch.nn.GELU("tanh")]:
             self._qlinear_unary_test_helper((torch.randn((2, 4)),), gelu)
 
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_gelu_cpu(self):
         r"""
         This testcase will quantize a Linear->GELU pattern.
@@ -1867,6 +1884,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_gelu_mixed_bf16(self):
         r"""
         This testcase will quantize a Linear->GELU pattern with mixed_bf16 quantization.
@@ -2077,6 +2095,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     @parametrize("use_relu", [True, False])
     @parametrize("mixed_bf16", [True, False])
     def test_fp8_qlinear_add_cpu(self, use_relu, mixed_bf16):
@@ -2160,6 +2179,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_dequant_promotion_cpu(self):
         r"""
         This testcase test if dequant node before linear is promoted correctly:
@@ -2199,6 +2219,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_dequant_promotion_mixed_bf16(self):
         r"""
         Test with mixed_bf16 quantization.
@@ -2236,6 +2257,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_dequant_promotion_cpu_input_dim_exceeds_2(self):
         r"""
         This testcase test if dequant node before linear is promoted correctly:
@@ -2277,6 +2299,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_dequant_promotion_mixed_bf16_input_dim_exceeds_2(self):
         r"""
         Test with mixed_bf16 quantization.
@@ -2360,6 +2383,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_qlinear_mul_cpu(self):
         r"""
         This testcase will quantize a Linear->Mul pattern.
@@ -3014,6 +3038,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
     def test_fp8_q_attention_block(self):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(
