@@ -21,9 +21,7 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
 )
-from torchao.utils import (
-    is_sm_at_least_89,
-)
+from torchao.utils import is_sm_at_least_89
 
 
 def load_data(file_path: str, device: str):
@@ -42,17 +40,23 @@ def load_data(file_path: str, device: str):
 @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
 class TestSafeTensors(TestCase):
     @parametrize(
-        "config",
+        "config, act_pre_scale",
         [
-            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
-            Int4WeightOnlyConfig(),
+            (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), None),
+            (Int4WeightOnlyConfig(), None),
+            (
+                Int4WeightOnlyConfig(),
+                torch.ones((1), dtype=torch.bfloat16, device="cuda"),
+            ),
         ],
     )
-    def test_safetensors(self, config):
+    def test_safetensors(self, config, act_pre_scale=None):
         model = torch.nn.Sequential(
             torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         )
         quantize_(model, config)
+        if act_pre_scale is not None:
+            model[0].weight.act_pre_scale = act_pre_scale
         example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device="cuda"),)
         ref_output = model(*example_inputs)
 

@@ -142,8 +142,14 @@ def flatten_tensor_state_dict(
     for tensor_name, tensor in tensors_dict.items():
         if tensor.__class__.__name__ in ALLOWED_TENSORS_SUBCLASSES:
             tensor_dict = {}
-            for tensor_data_name in tensor.tensor_data_names:
-                tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
+
+            all_tensor_data = list(tensor.tensor_data_names)  # create a copy
+            if hasattr(tensor, "optional_tensor_data_names"):
+                all_tensor_data += tensor.optional_tensor_data_names
+
+            for tensor_data_name in all_tensor_data:
+                if getattr(tensor, tensor_data_name) is not None:
+                    tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
 
             tensor_metadata = json.dumps(tensor, cls=TensorSubclassAttributeJSONEncoder)
         elif type(tensor) is torch.Tensor:
