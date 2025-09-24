@@ -6,9 +6,9 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch.testing._internal.common_utils import (
     TestCase,
-    run_tests,
     instantiate_parametrized_tests,
     parametrize,
+    run_tests,
 )
 
 from torchao import quantize_
@@ -17,7 +17,10 @@ from torchao.prototype.safetensors.safetensors_support import (
     unflatten_tensor_state_dict,
 )
 from torchao.quantization.granularity import PerRow
-from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig, Int4WeightOnlyConfig
+from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
+    Int4WeightOnlyConfig,
+)
 from torchao.utils import (
     is_sm_at_least_89,
 )
@@ -38,7 +41,13 @@ def load_data(file_path: str, device: str):
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
 class TestSafeTensors(TestCase):
-    @parametrize("config", [Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), Int4WeightOnlyConfig()])
+    @parametrize(
+        "config",
+        [
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+            Int4WeightOnlyConfig(),
+        ],
+    )
     def test_safetensors(self, config):
         model = torch.nn.Sequential(
             torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
@@ -61,6 +70,7 @@ class TestSafeTensors(TestCase):
         model.load_state_dict(reconstructed_dict, assign=True)
         output = model(*example_inputs)
         assert torch.equal(output, ref_output)
+
 
 instantiate_parametrized_tests(TestSafeTensors)
 

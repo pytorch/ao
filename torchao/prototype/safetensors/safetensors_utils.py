@@ -28,11 +28,16 @@ __all__ = [
     "is_metadata_torchao",
 ]
 
+
 class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if o.__class__.__name__ in ALLOWED_TENSORS:
             tensor_attr_dict = {}
-            optional_tensor_attributes = o.optional_tensor_attribute_names if hasattr(o, "optional_tensor_attribute_names") else []
+            optional_tensor_attributes = (
+                o.optional_tensor_attribute_names
+                if hasattr(o, "optional_tensor_attribute_names")
+                else []
+            )
 
             all_tensor_attributes = (
                 optional_tensor_attributes + o.tensor_attribute_names

@@ -5,11 +5,10 @@ from typing import Any, Dict
 import torch
 
 from torchao.prototype.safetensors.safetensors_utils import (
+    ALLOWED_TENSORS,
     Float8TensorAttributeJSONEncoder,
     object_from_dict,
-    ALLOWED_TENSORS
 )
-from torchao.quantization import Float8Tensor, Int4Tensor
 
 logger: logging.Logger = logging.getLogger(__name__)
 
