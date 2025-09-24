@@ -20,18 +20,18 @@ ALLOWED_CLASSES = {
     "KernelPreference": KernelPreference,
 }
 
-ALLOWED_TENSORS = ["Float8Tensor", "Int4Tensor", "Tensor"]
+ALLOWED_TENSORS_SUBCLASSES = ["Float8Tensor", "Int4Tensor"]
 
 __all__ = [
-    "Float8TensorAttributeJSONEncoder",
+    "TensorSubclassAttributeJSONEncoder",
     "object_from_dict",
     "is_metadata_torchao",
 ]
 
 
-class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
+class TensorSubclassAttributeJSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if o.__class__.__name__ in ALLOWED_TENSORS:
+        if o.__class__.__name__ in ALLOWED_TENSORS_SUBCLASSES:
             tensor_attr_dict = {}
             optional_tensor_attributes = (
                 o.optional_tensor_attribute_names
@@ -197,7 +197,7 @@ def is_metadata_torchao(metadata: Dict[str, Any]):
 
         # returns None if _type not in tensor_dict
         tensor_type = tensor_dict.get("_type")
-        if tensor_type not in ALLOWED_TENSORS:
+        if tensor_type not in ALLOWED_TENSORS_SUBCLASSES or tensor_type != "Tensor":
             return False
 
     return True

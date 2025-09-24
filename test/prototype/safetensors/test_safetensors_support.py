@@ -20,6 +20,7 @@ from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
+    Float8DynamicActivationInt4WeightConfig,
 )
 from torchao.utils import (
     is_sm_at_least_89,
