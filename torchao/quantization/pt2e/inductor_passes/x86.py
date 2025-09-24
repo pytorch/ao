@@ -2941,19 +2941,19 @@ def quant_lift_up(module_graph: torch.fx.graph.Graph):
             and is_view_op(node.all_input_nodes[0])
         ):
             quant_node = node
-            input_node_of_quant = quant_node.args[0]
+            input_node_of_quant = quant_node.all_input_nodes[0]
 
             # Check the nodes along lift up path has only 1 user node
             # Propagate view like node to find where to insert the new quant node
             could_lift_up = True
             current_node = quant_node
-            input_node = current_node.args[0]
+            input_node = current_node.all_input_nodes[0]
             while is_view_op(input_node):
                 if len(input_node.users) != 1:
                     could_lift_up = False
                     break
                 current_node = input_node
-                input_node = current_node.args[0]
+                input_node = current_node.all_input_nodes[0]
 
             # Further check the input node of the first view node has only 1 user node
             if could_lift_up and len(input_node.users) == 1:

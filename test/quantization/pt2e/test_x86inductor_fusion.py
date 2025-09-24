@@ -2944,9 +2944,8 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             def __init__(
                 self,
                 input_dim,
-                transpose_for_score=False,
-                num_attention_heads=None,
-                attention_head_size=None,
+                num_attention_heads,
+                attention_head_size,
                 annotate_matmul=False,
             ) -> None:
                 super().__init__()
@@ -2955,18 +2954,16 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 self.k_proj = torch.nn.Linear(input_dim, input_dim, bias=False)
                 self.v_proj = torch.nn.Linear(input_dim, input_dim, bias=False)
                 self.softmax = torch.nn.Softmax(dim=-1)
-                self.transpose_for_score = transpose_for_score
                 self.annotate_matmul = annotate_matmul
                 if self.annotate_matmul:
                     self.q_out_scale = 0.5
                     self.k_out_scale = 0.6
                     self.v_out_scale = 0.7
                     self.attn_weights_scale = 0.8
-                if self.transpose_for_score:
-                    assert num_attention_heads is not None
-                    assert attention_head_size is not None
-                    self.num_attention_heads = num_attention_heads
-                    self.attention_head_size = attention_head_size
+                self.num_attention_heads = num_attention_heads
+                self.attention_head_size = attention_head_size
+                self.all_head_size = self.num_attention_heads * self.attention_head_size
+                self.dense = torch.nn.Linear(self.all_head_size, self.all_head_size)
 
             def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
                 new_x_shape = x.size()[:-1] + (
@@ -2980,10 +2977,9 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 q = self.q_proj(x)
                 k = self.k_proj(x)
                 v = self.v_proj(x)
-                if self.transpose_for_score:
-                    q = self.transpose_for_scores(q)
-                    k = self.transpose_for_scores(k)
-                    v = self.transpose_for_scores(v)
+                q = self.transpose_for_scores(q)
+                k = self.transpose_for_scores(k)
+                v = self.transpose_for_scores(v)
                 k = k.transpose(-1, -2)
                 if self.annotate_matmul:
                     q = qdq(q, self.q_out_scale)
@@ -2994,11 +2990,14 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     attention = qdq(attention, self.attn_weights_scale)
                     v = qdq(v, self.v_out_scale)
                 weighted = torch.matmul(attention, v)
-                return weighted
+                weighted = weighted.permute(0, 2, 1, 3).contiguous()
+                weighted = weighted.reshape(
+                    weighted.size()[:-2] + (self.all_head_size,)
+                )
+                return self.dense(weighted)
 
         mod = SelfAttnLikeModule(
             input_dim=64 * 16,
-            transpose_for_score=True,
             num_attention_heads=16,
             attention_head_size=64,
             annotate_matmul=annotate_matmul and is_fp8,
@@ -3007,7 +3006,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
         def matcher_check_fn():
             self.assertEqual(
-                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 3
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 4
             )
             self.assertEqual(
                 counters["inductor"]["qlinear_unary_matcher_count"],
