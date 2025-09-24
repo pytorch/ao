@@ -43,6 +43,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           ref: ${{ github.head_ref || github.ref }}
+          path: torchao
           fetch-depth: 1
           submodules: recursive
 
@@ -155,7 +156,7 @@ jobs:
       - name: Test
         id: test
         env:
-          TEST_COMMAND: .github/scripts/ci_test_xpu.sh
+          TEST_COMMAND: torchao/.github/scripts/ci_test_xpu.sh
           DOCKER_IMAGE: ${{ steps.calculate-docker-image.outputs.docker-image }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
