@@ -203,7 +203,7 @@ jobs:
           # save container name for later step
           echo "CONTAINER_NAME=${container_name}" >> "$GITHUB_ENV"
           # jenkins user does not have write permission to mounted workspace; work-around by copying within container to jenkins home
-          docker exec -t "${container_name}" sh -c "bash ${env.TEST_COMMAND}"
+          docker exec -t "${container_name}" sh -c "bash ${TEST_COMMAND}"
 
       - name: Change permissions
         if: ${{ always() && steps.test.conclusion }}
