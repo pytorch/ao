@@ -492,11 +492,12 @@ void _float8_linear_impl(
 
   at::parallel_for(0, num_parallel_blocks, 1, [&](int64_t begin, int64_t end) {
     // Get the address of pre-allocated buffers
-    float* y_buf = y_buffer.data_ptr<float>() + at::get_thread_num() * block_size;
+    int tid = at::get_thread_num();
+    float* y_buf = y_buffer.data_ptr<float>() + tid * block_size;
     at::BFloat16 *dqA_buffer = nullptr, *dqB_buffer = nullptr;
     float* ukernel_buf = nullptr;
 #if defined(CPU_CAPABILITY_AVX512)
-    at::BFloat16* micro_gemm_buf = micro_gemm_buffer.data_ptr<at::BFloat16>() + at::get_thread_num() * buffer_size;
+    at::BFloat16* micro_gemm_buf = micro_gemm_buffer.data_ptr<at::BFloat16>() + tid * buffer_size;
     ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf);
 #ifndef CPUBLAS_BRGEMM_F8F8F32
     dqA_buffer = micro_gemm_buf;
