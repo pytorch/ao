@@ -100,6 +100,18 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
             raise ValueError(
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
+        elif func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+        elif func is aten.to.dtype_layout:
+            dense, scale, _ = args[0].get_plain()
+            product = dense.to(scale.dtype) * scale
+            return product.to(
+                *args[1:],
+                dtype=kwargs.get("dtype", dense.dtype),
+                device=kwargs.get("device", dense.device),
+            )
 
         raise NotImplementedError(
             f"CutlassSemiSparseTensorImpl dispatch: attempting to run {func}, this is not supported"
@@ -123,11 +135,12 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         # semi-structured format, so multiplying with identity matrix,
         # and using identity scale factors, for the conversion.
         cols = self.shape[1]
-        input = torch.eye(cols, dtype=self.sparse.dtype, device=self.sparse.device)
-        input_scale = torch.ones(
-            (cols,), dtype=self.scale.dtype, device=self.sparse.device
-        )
+        plain_input = torch.eye(cols, device=self.sparse.device)
+        input = plain_input.to(dtype=self.sparse.dtype)
+        plain_input_scale = torch.ones((cols,), device=self.sparse.device)
+        input_scale = plain_input_scale.to(dtype=self.scale.dtype)
         sparse_scale = torch.ones_like(self.scale)
+
         out_dtype = torch.bfloat16
         dense = (
             rowwise_scaled_linear_sparse_cutlass_f8f8(

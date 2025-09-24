@@ -219,6 +219,20 @@ class _Round(torch.autograd.Function):
         return gy
 
 
+class _RoundToFloat8(torch.autograd.Function):
+    """
+    Implementation of `tensor.to(float8_dtype)` with backward STE.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, float8_dtype: torch.dtype) -> torch.Tensor:
+        return x.to(float8_dtype)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        return gy, None
+
+
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     """Get quant_min and quant_max args based on dtype and also verify bounds.
@@ -2221,11 +2235,12 @@ def _choose_scale_float8(
     return scale.to(dtype=torch.float32)
 
 
-def _expand_scale_to_tensor_shape(
+def _maybe_expand_scale_to_tensor_shape(
     scale: torch.Tensor, target_shape: torch.Size
 ) -> torch.Tensor:
     """
     Expand a scale tensor to match the target tensor shape for block-wise quantization.
+    If this is rowwise quantization, however, just return the scale as is.
 
     Args:
         scale (torch.Tensor): Scale tensor with shape corresponding to block structure
@@ -2240,6 +2255,11 @@ def _expand_scale_to_tensor_shape(
 
     if scale.numel() == 1:
         # Scalar scale - can broadcast naturally
+        return scale
+
+    # If the scale can be broadcast as is, then we don't need to expand it
+    # E.g. for rowwise quantization, scale = [256, 1] and target_shape = [256, 512]
+    if all(a == b or a == 1 for a, b in zip(scale.shape, target_shape)):
         return scale
 
     # Calculate block sizes from shape difference
@@ -2275,7 +2295,6 @@ def _quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
-    cast_to_float8_dtype: bool = True,
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
@@ -2283,18 +2302,14 @@ def _quantize_affine_float8(
     tensor_fp32 = tensor.to(torch.float32)
 
     # Expand scale to match tensor dimensions for block-wise quantization
-    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+    scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
     tensor_scaled = tensor_fp32 / scale_expanded
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
-    if cast_to_float8_dtype:
-        tensor_clamped = tensor_clamped.to(float8_dtype)
-    return tensor_clamped
+    return _RoundToFloat8.apply(tensor_clamped, float8_dtype)
 
 
-# TODO: don't register as custom op?
-@_register_custom_op(quant_lib, False)
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2306,13 +2321,54 @@ def _dequantize_affine_float8(
     fp8_tensor = tensor.to(torch.float32)
 
     # Expand scale to match tensor dimensions for block-wise quantization
-    scale_expanded = _expand_scale_to_tensor_shape(scale, tensor.shape)
+    scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
     hp_tensor = fp8_tensor * scale_expanded
     return hp_tensor.to(output_dtype)
 
 
-@_register_meta_op(quant_lib, "dequantize_affine_float8")
+@_register_custom_op(quant_lib, False)
+def _quantize_affine_float8_non_decomposed(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    """
+    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
+    """
+    return _quantize_affine_float8(
+        tensor=tensor,
+        scale=scale,
+        float8_dtype=float8_dtype,
+    )
+
+
+@_register_meta_op(quant_lib, "quantize_affine_float8_non_decomposed")
+def _quantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=float8_dtype)
+
+
+@_register_custom_op(quant_lib, False)
+def _dequantize_affine_float8_non_decomposed(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """
+    Dequantizes the float8 tensor to high precision tensor.
+    """
+    return _dequantize_affine_float8(
+        tensor=tensor,
+        scale=scale,
+        output_dtype=output_dtype,
+    )
+
+
+@_register_meta_op(quant_lib, "dequantize_affine_float8_non_decomposed")
 def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,

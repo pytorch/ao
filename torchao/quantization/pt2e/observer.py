@@ -27,6 +27,7 @@ import torch.nn as nn
 from torch.fx import Node
 
 import torchao
+from torchao.quantization import Granularity
 from torchao.quantization.pt2e.utils import (
     calculate_qmin_qmax,
     check_min_max_valid,
@@ -67,17 +68,9 @@ __all__ = [
     "ReuseInputObserver",
     "UniformQuantizationObserverBase",
     "AffineQuantizedObserverBase",
-    "Granularity",
     "MappingType",
-    "PerAxis",
-    "PerBlock",
-    "PerGroup",
-    "PerRow",
-    "PerTensor",
-    "PerToken",
     "TorchAODType",
     "ZeroPointDomain",
-    "get_block_size",
 ]
 
 
@@ -1622,7 +1615,6 @@ class ReuseInputObserver(ObserverBase):
 We plan to merge the following with torchao repo after we move pt2e flow to torchao
 copied from https://github.com/pytorch/ao/blob/main/torchao/quantization/observer.py
 """
-from dataclasses import dataclass
 from enum import Enum, auto
 
 
@@ -1677,139 +1669,6 @@ class TorchAODType(Enum):
     INT5 = auto()
     INT6 = auto()
     INT7 = auto()
-
-
-@dataclass(frozen=True)
-class Granularity:
-    """
-    Base class for representing the granularity of quantization.
-
-    This class serves as a parent for specific granularity types used in
-    quantization operations, such as per-tensor or per-axis quantization.
-    """
-
-
-@dataclass(frozen=True)
-class PerBlock(Granularity):
-    """
-    Represents per-block granularity in quantization. See
-    :func:`~torchao.quantization.quant_primitives.quantize_affine` for docs for
-    `block_size`
-
-    Attributes:
-        block_size (Tuple[int, ...]): The size of each quantization group
-    """
-
-    block_size: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class PerTensor(Granularity):
-    """
-    Represents per-tensor granularity in quantization.
-
-    This granularity type calculates the quantization parameters
-    based off the entire tensor.
-
-    """
-
-
-@dataclass(frozen=True)
-class PerAxis(Granularity):
-    """
-    Represents per-axis granularity in quantization.
-
-    This granularity type calculates different quantization parameters
-    along a specified axis of the tensor.
-
-    For example if the input tensor is shape [8, 16] and axis=0, then
-    the quantization parameters are calculated for each row of the tensor.
-    Giving a total of 8 quantization parameters.
-
-    Attributes:
-        axis (int): The axis along which reduction is performed.
-    """
-
-    axis: int
-
-
-@dataclass(frozen=True)
-class PerGroup(Granularity):
-    """
-    Represents per-channel group granularity in quantization.
-
-    This granularity type calculates different quantization parameters
-    for each group of <group_size> elements.
-
-    For example if the input tensor is shape [8, 16], and the group size is 4, then
-    the input tensor is reshaped to [64, 4]
-    quantization parameters are calculated for each group of 4 elements,
-    giving a total of 64 quantization parameters.
-
-    Attributes:
-        group_size (int): The size of each quantization group
-
-    """
-
-    group_size: int
-
-
-class PerRow(Granularity):
-    """
-    Represents row-wise granularity in quantization.
-
-    This is a special case of per-axis quantization and is unique to Float8 matmuls
-    where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
-    is quantized with a block_size of (1, weight.shape[1]).
-    """
-
-
-class PerToken(Granularity):
-    """
-    Represents per-token granularity in quantization.
-
-    This granularity type calculates a different set of quantization parameters
-    for each token, which is represented as the last dimension of the tensor.
-
-    For example, if the input tensor has shape [2, 3, 4], then there are 6 tokens
-    with 4 elements each, and we will calculate 6 sets of quantization parameters,
-    one for each token.
-
-    If the input tensor has only two dimensions, e.g. [8, 16], then this is
-    equivalent to `PerAxis(axis=0)`, which yields 8 sets of quantization parameters.
-    """
-
-
-def get_block_size(
-    input_shape: tuple[int, ...], granularity: Granularity
-) -> tuple[int, ...]:
-    """Get the block size based on the input shape and granularity type.
-
-    Args:
-        input_shape: The input tensor shape possibly more than 2 dimensions
-        granularity: The granularity type of the quantization
-    """
-    assert isinstance(granularity, Granularity), (
-        "Please provide an instance of Granularity, not subclass of it"
-    )
-    if isinstance(granularity, PerTensor):
-        return input_shape
-    elif isinstance(granularity, PerAxis):
-        block_size = list(input_shape)
-        block_size[granularity.axis] = 1
-        return tuple(block_size)
-    elif isinstance(granularity, PerRow):
-        return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
-    elif isinstance(granularity, PerGroup):
-        assert len(input_shape) == 2, (
-            f"Expecting input shape dim to be 2 for per group quantization, gotinput shape: {input_shape}"
-        )
-        return (1, granularity.group_size)
-    elif isinstance(granularity, PerToken):
-        block_size = [1] * len(input_shape)
-        block_size[-1] = input_shape[-1]
-        return tuple(block_size)
-    raise ValueError(f"Unsupported Granularity: {granularity}")
 
 
 class AffineQuantizedObserverBase(ABC, torch.nn.Module):
@@ -1908,10 +1767,18 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             else:
                 scale, zero_point = self.calculate_qparams()
                 scale_node = create_getattr_from_value(
-                    model, model.graph, "_scale", scale
+                    model,
+                    model.graph,
+                    "_scale",
+                    scale,
+                    scale.device if isinstance(scale, torch.Tensor) else None,
                 )
                 zero_point_node = create_getattr_from_value(
-                    model, model.graph, "_zero_point", zero_point
+                    model,
+                    model.graph,
+                    "_zero_point",
+                    zero_point,
+                    zero_point.device if isinstance(zero_point, torch.Tensor) else None,
                 )
 
             q_node = model.graph.call_function(

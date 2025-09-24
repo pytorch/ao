@@ -58,7 +58,8 @@ class TestBenchmarkInference(unittest.TestCase):
 
         # Test with semi-sparse config
         mock_string_to_config.return_value = Int4WeightOnlyConfig(
-            layout=MarlinSparseLayout()
+            layout=MarlinSparseLayout(),
+            version=1,
         )
         config = BenchmarkConfig(
             quantization="marlin",

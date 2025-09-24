@@ -31,6 +31,7 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
+from torchao.quantization.quantize_.workflows import Int4PackingFormat
 from torchao.utils import _is_float8_type
 
 from .utils import _log_deprecation_warning
@@ -74,6 +75,29 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
         if type(self.granularity) not in [PerRow, PerTensor]:
             raise ValueError(
                 f"Expected PerRow or PerTensor granularity, got {self.granularity}"
+            )
+
+
+@dataclass
+class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
+    """
+    Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
+        torch.ops.fbgemm.f8i4bf16_shuffled
+        torch.ops.fbgemm.bf16i4bf16_shuffled
+        torch.ops.fbgemm.bf16i4bf16_rowwise
+
+    Currently this only supports float8 input activations. It is expected to be used in conjunction with
+    :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend
+    this to support bfloat16 as well.
+    """
+
+    group_size: int = 128
+    activation_dtype: torch.dtype = e4m3_dtype
+
+    def __post_init__(self):
+        if self.activation_dtype not in [e4m3_dtype, torch.bfloat16]:
+            raise ValueError(
+                f"Only {e4m3_dtype} or torch.bfloat16 activation are supported"
             )
 
 
@@ -320,7 +344,6 @@ class FakeQuantizeConfig(IntxFakeQuantizeConfig):
         _log_deprecation_warning(self)
 
 
-# TODO: rewrite using registration API?
 def _infer_fake_quantize_configs(
     base_config: AOBaseConfig,
 ) -> Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]:
@@ -331,12 +354,22 @@ def _infer_fake_quantize_configs(
 
     Return a 2-tuple of (activation_config, weight_config) for fake quantization.
     """
+    # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
+    from torchao.prototype.mx_formats import (
+        NVFP4InferenceConfig,
+        NVFP4MMConfig,
+    )
+    from torchao.prototype.qat import (
+        NVFP4FakeQuantizeConfig,
+    )
     from torchao.quantization import (
         Float8DynamicActivationFloat8WeightConfig,
         Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
         Int8DynamicActivationInt4WeightConfig,
+        Int8DynamicActivationIntxWeightConfig,
+        IntxWeightOnlyConfig,
     )
 
     if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
@@ -351,14 +384,38 @@ def _infer_fake_quantize_configs(
             is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
         )
     elif isinstance(base_config, Int4WeightOnlyConfig):
-        if base_config.version != 2:
-            raise ValueError(f"Only version 2 of {type(base_config)} is supported")
         act_config = None
-        weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
-            group_size=base_config.group_size,
-            is_symmetric=True,
-        )
+        if base_config.version == 2:
+            supported_packing_formats = [
+                Int4PackingFormat.PLAIN,
+                Int4PackingFormat.PRESHUFFLED,
+            ]
+            if base_config.int4_packing_format not in supported_packing_formats:
+                raise ValueError(
+                    f"Packing format must be one of {supported_packing_formats}"
+                )
+            weight_config = Int4WeightFakeQuantizeConfig(
+                group_size=128,
+                activation_dtype=torch.bfloat16,
+            )
+        elif base_config.version == 1:
+            # For BC
+            from torchao.quantization.quant_api import (
+                LAYOUT_TO_ZERO_POINT_DOMAIN,
+            )
+
+            if base_config.zero_point_domain == ZeroPointDomain.NONE:
+                zp_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(base_config.layout)][0]
+            else:
+                zp_domain = base_config.zero_point_domain
+            weight_config = IntxFakeQuantizeConfig(
+                dtype=torch.uint4,
+                group_size=base_config.group_size,
+                is_symmetric=False,
+                zero_point_domain=zp_domain,
+            )
+        else:
+            raise ValueError(f"Unknown version on base config {type(base_config)}")
     elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig):
         if base_config.version != 2:
             raise ValueError(f"Only version 2 of {type(base_config)} is supported")
@@ -377,13 +434,71 @@ def _infer_fake_quantize_configs(
         )
     elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig):
         act_config = Float8FakeQuantizeConfig(
-            dtype=torch.float8_e4m3fn,
+            dtype=e4m3_dtype,
             granularity=PerRow(),
         )
+        weight_config = Int4WeightFakeQuantizeConfig(
+            group_size=128,
+            activation_dtype=e4m3_dtype,
+        )
+    elif isinstance(base_config, NVFP4InferenceConfig):
+        # Note: today the PTQ config does not allow the user to specify
+        # `per_tensor_scales` due to serialization concerns. In the future
+        # we may add a way to compute these dynamically (for activations),
+        # but for now QAT will mimic the existing behavior of not having
+        # `per_tensor_scales` (subject to change)
+        if NVFP4MMConfig.DYNAMIC:
+            act_config = NVFP4FakeQuantizeConfig(False)
+        else:
+            act_config = None
+        weight_config = NVFP4FakeQuantizeConfig(False)
+    elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert base_config.intx_packing_format == "unpacked_to_int8", (
+            "Only unpacked_to_int8 is supported"
+        )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
+        assert base_config.act_mapping_type == MappingType.ASYMMETRIC, (
+            "Only asymmetric activation mapping is supported"
+        )
+        assert base_config.weight_mapping_type == MappingType.SYMMETRIC, (
+            "Only symmetric weight mapping is supported"
+        )
+        assert base_config.weight_scale_dtype is None, (
+            "Specifying weight_scale_dtype is not supported"
+        )
+
+        act_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+            scale_precision=base_config.weight_scale_dtype,
+        )
         weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
-            group_size=base_config.group_size,
-            is_symmetric=True,
+            dtype=base_config.weight_dtype,
+            granularity=base_config.weight_granularity,
+            mapping_type=base_config.weight_mapping_type,
+            scale_precision=base_config.weight_scale_dtype,
+        )
+    elif isinstance(base_config, IntxWeightOnlyConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert base_config.intx_packing_format == "unpacked_to_int8", (
+            "Only unpacked_to_int8 is supported"
+        )
+        assert base_config.mapping_type == MappingType.SYMMETRIC, (
+            "Only symmetric mapping is supported"
+        )
+        assert base_config.weight_dtype != torch.int1, "Only int2+ is supported"
+        assert base_config.scale_dtype is None, (
+            "Specifying scale_dtype is not supported"
+        )
+
+        act_config = None
+        weight_config = IntxFakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            granularity=base_config.granularity,
+            mapping_type=base_config.mapping_type,
+            scale_precision=base_config.scale_dtype,
         )
     else:
         raise ValueError("Unexpected base config: %s" % base_config)

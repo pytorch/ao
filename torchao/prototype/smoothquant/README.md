@@ -1,98 +1,82 @@
-# SmothQuant quantization
-This is a native PyTorch implementation of the algorithm described in [this paper](https://arxiv.org/abs/2211.10438).
+# SmoothQuant quantization
 
-In this implementation, weights are smoothed (equalized) and quantized to int8 during quantization. Activations are smoothed and quantized to int8 at runtime. Quantization is done either dynamically or statically. If activations are dynamically quantized, qparams (i.e., scales) are found at runtime while qparams are found during quantization for static quantization. For dynamic quantization, activations are quantized per token. And for static quantization, activations are quantized per tensor. Generally, dynamic quantization produces better accuracy while static quantization has better latency. In both cases, weights and activations are symmetrically quantized.
+This is a native PyTorch implementation of the algorithm described in [this paper](https://arxiv.org/abs/2211.10438) with TorchAO Quantization APIs.
+
+$$
+Smoothing factor: s_{j} = \frac{max(|X_{j})^\alpha}{max(|W_{j}|) ^(1-\alpha)}, \ j=1, 2, \dots, C_{i}
+$$
+
+In this implementation, weights are smoothed (equalized) and quantized to int8 during quantization. Activations are smoothed and quantized to int8 at runtime. Quantization is done either dynamically or statically. For dynamic quantization, activations are quantized per token. And for static quantization, activations are quantized per tensor.
 
 ## Quick start
+
 Run the example code with
+
 ```bash
-python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static>
+python example.py --model <MODEL_ID>  --device <cuda/cpu>
 # An example
-python example.py -m meta-llama/Llama-2-7b-hf --device=cuda --quant-mode=dynamic
-```
-To use the `torch.compile` for speedup, add `--compile`. You may want to export `TORCHINDUCTOR_FREEZING=1` for even better performance.
-```bash
-TORCHINDUCTOR_FREEZING=1 python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --compile
-```
-To save a quantized model for reuse, specify `--model-save-path`
-```bash
-python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-save-path ./quantized_model.pt
-```
-And load it by `--model-load-path`
-```bash
-python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or static> --model-load-path ./quantized_model.pt
+python example.py --model meta-llama/Llama-2-7b-chat-hf
 ```
 
+To save a quantized model for reuse, specify `--model_save_path`
+
+```bash
+python example.py --model <MODEL_ID> --model_save_path ./model_smoothquant.pt
+```
 
 ## Usage of API
-The following APIs are provided:
-- insert_smooth_quant_observer_
-- SmoothQuantConfig
-- save_smooth_quant_recipe (advanced)
-- load_smooth_quant_recipe (advanced)
 
-`insert_smooth_quant_observer_` inserts observers into the model to be quantized. For example:
+`SmoothQuantConfig` configures applying SmoothQuant to each linear layer of the model. Use it with `torchao.quantization.quantize_`. For example:
+
 ```python
-insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
-```
-After insertion, run the model for calibration on a certain dataset or (advanced) load a recipe.
+from torchao.prototype.smoothquant import SmoothQuantConfig
+from torchao.prototype.smoothquant.core import SmoothQuantStep
+from torchao.quantization import quantize_
+from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
-`SmoothQuantConfig` configures appliying SmoothQuant to each linear layer of the model. Use it by calling `torchao.quantization.quantize_`. For example:
-```python
-from torchao.prototype.smoothquant import SmoothQuantObservedLinear
-is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-torchao.quantization.quantize_(model, SmoothQuantConfig(), is_observed_linear)
-```
-`is_observed_linear` is a filter so that we only quantize observed linear layers.
+# Step 1: Prepare - insert observers
+quant_config = SmoothQuantConfig(
+    base_config=Int8DynamicActivationInt8WeightConfig(),
+    step=SmoothQuantStep.PREPARE,
+    alpha=0.5,
+)
+quantize_(model, quant_config)
 
-(Advanced) `save_smooth_quant_recipe` and `load_smooth_quant_recipe` saves or loads a recipe for a model.
-
-A recipe contains smoothing factors and quantization parameters of weights and activation for all linear layers that are to be quantized. For advanced users, these parameters can be saved and modified somehow to produce better accuray, e.g., different alpha for different layers. Users can even leave some linear layers unquantized by deleting these layers in the recipe. Such modifications can be published as a recipe. By loading the recipe, it can be reused and calibration is no longer needed.
-
-To save a recipe, users should insert observers and run calibration first. For example,
-```python
-insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
-for data in dataset_for_calibration:
+# Step 2: Calibration
+for data in calibration_dataset:
     model(data)
-save_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
-```
-To load a recipe, users should insert observers first. For example,
-```python
-insert_smooth_quant_observer_(model)
-load_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
+
+# Step 3: Convert
+quant_config.step = SmoothQuantStep.CONVERT
+quantize_(model, quant_config)
 ```
 
-## Benchmark
-Running the example with `torch.compile` on a NVIDIA A10G GPU.
-### meta-llama/Llama-2-7b-hf
-Perplexity
-| Quant Method | alpha=0.25 | alpha=0.5 | alpha=0.75 | alpha=None* |
-|-|-|-|-|-|
-| Dynamic | 8.1872 | 7.4257 | 7.2518 | 7.5509 |
-| Static | 43.8051 | 11.2984 | 7.5791 | 19.5050 |
+## Benchmarks
 
-Note*: Conventional quantization without SmoothQuant
+All experiments use the `meta-llama/Llama-2-7b-chat-hf` model with max sequence length (SeqLen) 512 and calibration limit 128 on a 1xH100 80GB HBM2 instance. For comprehensive benchmarking, we compare three cases: 1. origin, 2. W8A8, 3. SmoothQuant (W8A8).
 
-### meta-llama/Meta-Llama-3-8B
-Perplexity
-| Quant Method | alpha=0.25 | alpha=0.5 | alpha=0.75 | alpha=None* |
-|-|-|-|-|-|
-| Dynamic | 21.2475 | 8.8288 | 9.6514 | 8.3574 |
-| Static | 301.7118 | 18.0617 | 10.8343 | 278.9819 |
+### Benchmark Results
 
-Note*: Conventional quantization without SmoothQuant
+Result shows SmoothQuant with W8A8 slightly increase perplexity, reducing latency 33.82%. Since tinygemm kernel only uses bfloat16 inputs, Tokens/sec decreases for float16 input.
 
-### Test method
-**Commands**
-```bash
-# dynamic quant
-TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=dynamic --compile
-# static quant
-TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=static --compile
-```
-Use `--alpha` to specify the alpha parameter. Add `--disable-smooth-quant` to run quantization without SmoothQuant.
+| Precision dtype | Quantization | Perplexity | Tokens/sec | PPL Change | Speed Change |
+|-----------|--------------|------------|------------|------------|--------------|
+| bfloat16  |  -             | 6.93       | 667        |  -         |  -          |
+| bfloat16* |  -             | 6.93       | 27    🐌   |  -         |  -          |
+| bfloat16  | W8A8-dynamic   | 7.35       | 1,967      | +6.07%     | +33.89%     |
+| bfloat16  | W8A8-dynamic** | 7.03       | **1,972**  | **+1.39%** | **+33.82%** |
+| float16   |  -             | 6.93       | 625        |  -         |  -          |
+| float16   | W8A8-dynamic   | 7.29       | 523        | +5.21%     | -19.42%     |
+| float16   | W8A8-dynamic** | 6.94       | 516        | **+0.21%** | -21.23%     |
+| bfloat16* | W8A8-dynamic** | 6.92       | 3      🐌  | -0.18%     | -768.29%    |
 
-**Environment**
-- AWS g5.12xlarge instance
-- torch==2.6.0.dev20241017+cu124
-- python==3.12.6
+> *Used with `torch.compile`, **Used with **SmoothQuant**
+
+### Key Findings
+
+- **Speed Improvement**: Most configurations show 35-40% speed improvement with both W8A8 and SmoothQuant-W8A8
+- **Quality Trade-off**: Slight perplexity increase (~1-1.4%) in most cases
+- **Compilation Impact**: Using `--compile` flag significantly degrades performance (768% slower)
+- **Best Configuration**: `bfloat16` without `--compile` provides optimal balance
+
+> Note: Unlike AWQ, this benchmark isn't computed using the script in `vllm/benchmarks` or `lm_eval`. vLLM benchmark will be introduced in foreseeable future. See https://github.com/pytorch/ao/issues/2815 for more information.

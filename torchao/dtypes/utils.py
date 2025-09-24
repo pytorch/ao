@@ -68,6 +68,9 @@ class Layout:
     def extra_repr(self) -> str:
         return ""
 
+    def __post_init__(self):
+        torch._C._log_api_usage_once(str(type(self)))
+
 
 @dataclass(frozen=True)
 class PlainLayout(Layout):

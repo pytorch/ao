@@ -45,7 +45,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
@@ -269,7 +269,7 @@ class TestPatternMatcherBase(TestCase):
                 torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 class TestPatternMatcher(TestPatternMatcherBase):
     def _qconv2d_test_helper(self, device="cpu", int8_mixed_bf16=False):
         class M(torch.nn.Module):
@@ -2336,7 +2336,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self, has_bias, dtype, dynamic, reshape_a, M, inplace_add, expand_a_scale
     ):
         r"""
-        This testcase check if we can match the int8_dynamic_activation_int8_weight int8 linear pattern from torchao,
+        This testcase check if we can match the Int8DynamicActivationInt8WeightConfig int8 linear pattern from torchao,
         when activation is symmetrically quantized dynamically & weights are symmetrically quantized (statically)
         The pattern is:
             (no bias) _int_mm -> convert_element_type -> ([expand_a] -> mul) -> mul
@@ -2426,7 +2426,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         "specialize_float": True,
     }
 )
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
         r"""

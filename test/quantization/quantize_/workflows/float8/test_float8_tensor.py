@@ -10,6 +10,8 @@ from contextlib import nullcontext
 from typing import Tuple
 
 import torch
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     run_tests,
@@ -26,10 +28,10 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     _is_fbgemm_genai_gpu_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 # Needed since changing args to function causes recompiles
@@ -49,7 +51,7 @@ class ToyLinearModel(torch.nn.Module):
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
@@ -85,6 +87,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
+        if (
+            isinstance(granularity, PerTensor)
+            and kernel_preference == KernelPreference.FBGEMM
+        ):
+            return unittest.skip(
+                "per tensor with fbgemm kernel preferece does not work yet"
+            )
+
         error_message = None
         if isinstance(granularity, PerRow):
             if mode == "dynamic" and dtype != torch.bfloat16:
@@ -237,7 +247,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         other_kernel_preferences = [
             KernelPreference.AUTO,
         ]
-        if _is_fbgemm_genai_gpu_available() and is_sm_at_least_90():
+        if (
+            _is_fbgemm_genai_gpu_available()
+            and is_sm_at_least_90()
+            and not isinstance(granularity, PerTensor)
+        ):
             other_kernel_preferences.append(KernelPreference.FBGEMM)
 
         quantized_outputs = {}
@@ -398,6 +412,39 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         granularity = PerRow()
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         self._test_moe_weight_reshape_ops(config)
+
+    # TODO: we have some other tests living in https://github.com/pytorch/ao/blob/4ecc89edd7b5cfc12e6f80854c85d04c472a0eb0/test/dtypes/test_affine_quantized_float.py#L743
+    # that should be moved here after v1 config is deprecated:
+    # https://github.com/pytorch/ao/issues/2649
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    def test_expected_gpu_kernel_fbgemm(self):
+        """Making sure KernelPreference.FBGEMM calls correct quantize and gemm kernels
+        and the bias add happens in the gemm kernel for per row quantization
+        """
+        torch.compiler.reset()
+
+        M, K, N = 128, 256, 512
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+        )
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(),
+            kernel_preference=KernelPreference.FBGEMM,
+        )
+        quantize_(m, config)
+        m = torch.compile(m)
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        out, code = run_and_get_code(m, x)
+
+        # 1. check at least one occurrence of the quantize op and rowwise gemm op
+        # 2. check that there are no additional kernels like `triton_poi_fused_add_0`
+        # are run, since the bias add should happen in the `f8f8bf16_rowwise.default`
+        # op instead of separately
+        FileCheck().check_count(
+            "torch.ops.triton.quantize_fp8_row.default(", 1
+        ).check_count("torch.ops.fbgemm.f8f8bf16_rowwise.default(", 1).check_not(
+            ".run("
+        ).run(code[0])
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

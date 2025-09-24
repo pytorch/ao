@@ -7,6 +7,15 @@
 import operator
 
 import torch
+from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
+
+
+class DA8W4ConcatLinearCPUPass(CustomGraphPass):
+    def __call__(self, graph: torch.fx.Graph):
+        _concat_linear_dq8w4_cpu(graph)
+
+    def uuid(self):
+        return get_hash_for_files((__file__,))
 
 
 # Inductor FX passes for concat linear for DA8W4
@@ -213,4 +222,5 @@ def _concat_linear_dq8w4_cpu(graph: torch.fx.Graph):
 def register_da8w4_concat_linear_cpu_pass():
     from torch._inductor import config as inductor_config
 
-    inductor_config.post_grad_custom_post_pass = _concat_linear_dq8w4_cpu
+    da8w4_concat_linear_cpu_pass = DA8W4ConcatLinearCPUPass()
+    inductor_config.post_grad_custom_post_pass = da8w4_concat_linear_cpu_pass

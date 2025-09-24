@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import tempfile
 import unittest
 
@@ -17,29 +18,29 @@ from torch.testing._internal.common_utils import (
 
 from torchao.quantization import (
     Float8DynamicActivationInt4WeightConfig,
+    Int4PreshuffledTensor,
     Int4WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
     _is_fbgemm_genai_gpu_available,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 BF16_ACT_CONFIG = Int4WeightOnlyConfig(
     group_size=128,
-    packing_format="preshuffled",
-    version=2,
+    int4_packing_format="preshuffled",
 )
 
+# only 128 group_size is supported
 FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
-    group_size=128,
-    packing_format="preshuffled",
+    int4_packing_format="preshuffled",
 )
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
 @unittest.skipIf(
@@ -82,6 +83,34 @@ class TestInt4PreshuffledTensor(TestCase):
         quantize_(m, bmm_config, filter_fn=lambda x, fqn: True)
         quantized = m(input)
         self.assertTrue(compute_error(original, quantized) > 18)
+
+    def test_from_int4_tensor(self):
+        """Test that constructing Int4PreshuffledTensor from Int4Tensor
+        is the same as quantizing the original weight to Int4PreshuffledTensor
+        """
+        int4_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="plain",
+        )
+        int4_preshuffled_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="preshuffled",
+        )
+        linear1 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        linear2 = copy.deepcopy(linear1)
+
+        quantize_(linear1, int4_config)
+        quantize_(linear2, int4_preshuffled_config)
+
+        # now convert the linear1.weight to Int4PreshuffledTensor
+        w1_preshuffled = Int4PreshuffledTensor.from_int4_tensor(linear1.weight)
+        linear1.weight = torch.nn.Parameter(w1_preshuffled, requires_grad=False)
+
+        example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device="cuda"),)
+
+        output1 = linear1(*example_inputs)
+        output2 = linear2(*example_inputs)
+        self.assertEqual(output1, output2)
 
     @parametrize("config", [BF16_ACT_CONFIG, FP8_ACT_CONFIG])
     def test_to_device(self, config):

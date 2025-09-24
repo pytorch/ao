@@ -86,7 +86,7 @@ def main(args):
     with torch.no_grad():
         model_name_or_path = args.model_name_or_path
         model, tokenizer, decoder_cls = ar_utils.get_float_model_info(
-            model_name_or_path, torch_dtype=torch.bfloat16
+            model_name_or_path, dtype=torch.bfloat16
         )
         model.eval()
         model_device = args.model_device
@@ -101,25 +101,28 @@ def main(args):
             # Evaluate the quantized model
             if args.woq_int4:
                 msg += " (int4wo)"
-                from torchao.quantization import int4_weight_only, quantize_
+                from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
                 quantize_(
                     model,
-                    int4_weight_only(group_size=args.group_size),
+                    Int4WeightOnlyConfig(group_size=args.group_size, version=1),
                     filter_fn=filter_fn,
                     device=model_device,
                 )
             elif args.uintx:
                 msg += f" (uintx {args.bits} bits)"
                 from torchao.dtypes.uintx.uintx import _BIT_WIDTH_TO_DTYPE
-                from torchao.quantization.quant_api import quantize_, uintx_weight_only
+                from torchao.quantization.quant_api import (
+                    UIntXWeightOnlyConfig,
+                    quantize_,
+                )
 
                 bits = args.bits
                 assert bits in _BIT_WIDTH_TO_DTYPE, f"Invalid bits: {bits}"
                 dtype = _BIT_WIDTH_TO_DTYPE[bits]
                 quantize_(
                     model,
-                    uintx_weight_only(dtype=dtype, group_size=args.group_size),
+                    UIntXWeightOnlyConfig(dtype=dtype, group_size=args.group_size),
                     filter_fn=filter_fn,
                     device=model_device,
                 )

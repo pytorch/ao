@@ -11,7 +11,6 @@ Defines the prototype UX for converting a model to use mx weights
 from typing import Any, Optional
 
 import torch
-from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
@@ -19,76 +18,11 @@ from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     ScaleCalculationMode,
 )
-from torchao.prototype.mx_formats.kernels import (
-    mxfp8_quantize_cuda,
-    triton_to_mxfp8_dim1,
-)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-
-
-def _to_mxfp8_dim1_kernel_wrapper(
-    a,
-    block_size,
-    elem_dtype,
-    hp_dtype,
-    gemm_kernel_choice,
-    cast_kernel_choice,
-    scale_calculation_mode: ScaleCalculationMode,
-):
-    if cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        assert scale_calculation_mode == ScaleCalculationMode.FLOOR
-        a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
-    elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
-        assert scale_calculation_mode in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        )
-        _, a_data, _, a_scale = mxfp8_quantize_cuda(
-            a,
-            rowwise=False,
-            colwise=True,
-            scaling_mode=scale_calculation_mode.value,
-        )
-    else:
-        raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
-
-    if isinstance(a_data, DTensor):
-        assert isinstance(a_scale, DTensor)
-        a_data_local = a_data.to_local()
-        a_scale_local = a_scale.to_local()
-        inner = MXTensor(
-            a_scale_local,
-            a_data_local.t(),
-            elem_dtype,
-            block_size,
-            hp_dtype,
-            False,
-            gemm_kernel_choice,
-            False,
-        )
-        mx_tensor = DTensor.from_local(
-            inner,
-            a_data.device_mesh,
-            a_data.placements,
-            run_check=False,
-            shape=a_data.t().size(),
-            stride=a_data.t().stride(),
-        )
-    else:
-        mx_tensor = MXTensor(
-            a_scale,
-            a_data.t(),
-            elem_dtype,
-            block_size,
-            hp_dtype,
-            False,
-            gemm_kernel_choice,
-            False,
-        )
-    return mx_tensor
 
 
 @torch._dynamo.allow_in_graph

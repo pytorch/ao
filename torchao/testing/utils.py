@@ -17,7 +17,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 
 import torchao
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
-from torchao.quantization import int8_weight_only, quantize_
+from torchao.quantization import Int8WeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -331,7 +331,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
-    QUANT_METHOD_FN = staticmethod(int8_weight_only)
+    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
     QUANT_METHOD_KWARGS = {}
 
     @staticmethod
@@ -455,18 +455,23 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
             param = l.weight
             param_data = param.data
             param_data = param_data.narrow(output_dim, start_idx, shard_size)
-            orig_value = param_data.qdata[0][0].item()
+            orig_value = param_data.qdata[0][0]
             loaded_weight = dummy_l.weight
             loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
 
             # making sure param.data.qdata[0][0] is not the same as loaded_weight.qdata[0][0]
-            assert orig_value != loaded_weight.qdata[0][0]
+            assert not torch.equal(orig_value, loaded_weight.qdata[0][0])
             param_data.copy_(loaded_weight)
             # making sure param.data is updated to loaded_weight
-            assert param_data.qdata[0][0] == loaded_weight.qdata[0][0]
-            assert torch.equal(param_data.scale, loaded_weight.scale)
+            assert torch.equal(param_data.qdata[0][0], loaded_weight.qdata[0][0])
+            if hasattr(param_data, "scale"):
+                assert torch.equal(param_data.scale, loaded_weight.scale)
             if hasattr(param_data, "zero_point"):
                 assert torch.equal(param_data.zero_point, loaded_weight.zero_point)
+            if hasattr(param_data, "scale_and_zero"):
+                assert torch.equal(
+                    param_data.scale_and_zero, loaded_weight.scale_and_zero
+                )
 
     def _test_moe_weight_reshape_ops(self, config):
         """This is testing the op call sequence in saving and loading quantization

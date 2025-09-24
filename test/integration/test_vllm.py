@@ -17,9 +17,9 @@ import pytest
 import torch
 
 from packaging import version
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import torch_version_at_least
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not torch_version_at_least("2.8.0"):
     pytest.skip("Requires PyTorch 2.8 or higher", allow_module_level=True)
 
 
@@ -153,7 +153,7 @@ class TestVLLMIntegration:
         # Load and quantize model
         quantized_model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype="bfloat16",
+            dtype="bfloat16",
             device_map="cuda",
             quantization_config=quantization_config,
         )

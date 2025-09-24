@@ -14,20 +14,27 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8, is_sm_at_least_90
+from torchao.utils import (
+    _is_fbgemm_genai_gpu_available,
+    is_sm_at_least_90,
+    torch_version_at_least,
+)
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+@unittest.skipIf(
+    not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+)
 class TestInt4Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         self.config = Int4WeightOnlyConfig(
             group_size=128,
-            packing_format="plain",
-            version=2,
+            int4_packing_format="plain",
         )
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
@@ -212,6 +219,25 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
 
     def test_moe_weight_reshape_ops(self):
         self._test_moe_weight_reshape_ops(self.config)
+
+    def test_activation_prescaling(self):
+        dtype = torch.bfloat16
+        device = "cuda"
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, self.config)
+        qw = linear.weight
+        assert isinstance(qw, SupportsActivationPreScaling), (
+            "Expected int4 tensor supports activation prescaling"
+        )
+        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
+        _ACT_PRE_SCALE = 2
+        qw.act_pre_scale = _ACT_PRE_SCALE
+        quantized = linear(input)
+
+        # making sure activation pre scaling is successfully applied to the activation
+        self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
 
 instantiate_parametrized_tests(TestInt4Tensor)
