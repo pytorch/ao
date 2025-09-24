@@ -2096,6 +2096,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("use_per_tensor_scale", [True, False])
     def test_qat_nvfp4(self, use_per_tensor_scale: bool):
