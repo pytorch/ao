@@ -22,6 +22,12 @@ Note: for initial release, please include `--populate_model_card_template` to po
 ### SMOOTHQUANT-INT8-INT8
 [SmoothQuant](https://arxiv.org/abs/2211.10438) smooths activation outliers by migrating quantization difficulty from activations to weights through a mathematically equivalent per-channel scaling transformation. That means SmoothQuant observes activation distribution before applying quantization.
 
+Examples:
+```
+# release SMOOTHQUANT-INT8-INT8 model, calibrated with a specific task
+python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SMOOTHQUANT-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
+```
+
 ### AWQ-INT4
 Similar to SmoothQuant, [AWQ](https://arxiv.org/abs/2306.00978) improves accuracy by preserving "salient" weight channels that has high impact on the accuracy of output. The notable point is that AWQ uses activation distribution to find salient weights, not weight distribution, multiplying the weight channel by a scale, and doing the reverse for the corresponding activation. Since activation is not quantized, there is no additional loss from activation, while the quantization loss from weight can be reduced.
 
@@ -32,9 +38,6 @@ Examples:
 # release AWQ-INT4 model, calibrated with a specific task
 # with some calibration_limit (number of samples)
 python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant AWQ-INT4 --push_to_hub --task bbh --calibration_limit 2
-
-# release SMOOTHQUANT-INT8-INT8 model, calibrated with a specific task
-python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SMOOTHQUANT-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
 ```
 
 ### Update checkpoints for a different user_id (e.g. pytorch)
