@@ -14,6 +14,7 @@ from torchao.quantization.granularity import (
     PerRow,
     PerToken,
 )
+from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
@@ -27,7 +28,6 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
-    get_block_size,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
 )

@@ -48,6 +48,7 @@ from .fake_quantize import (
 from .observer import (
     AffineQuantizedObserverBase,
     FixedQParamsObserver,
+    Granularity,
     HistogramObserver,
     MappingType,
     MinMaxObserver,
@@ -56,13 +57,20 @@ from .observer import (
     NoopObserver,
     ObserverBase,
     PartialWrapper,
+    PerAxis,
+    PerBlock,
     PerChannelMinMaxObserver,
+    PerGroup,
+    PerRow,
+    PerTensor,
+    PerToken,
     PlaceholderObserver,
     RecordingObserver,
     ReuseInputObserver,
     TorchAODType,
     UniformQuantizationObserverBase,
     ZeroPointDomain,
+    get_block_size,
 )
 
 for _f in [
@@ -131,9 +139,17 @@ __all__ = [
     "compare_results",
     # should be merged with torchao/quantization/observer.py in the future
     "AffineQuantizedObserverBase",
+    "Granularity",
     "MappingType",
+    "PerAxis",
+    "PerBlock",
+    "PerGroup",
+    "PerRow",
+    "PerTensor",
+    "PerToken",
     "TorchAODType",
     "ZeroPointDomain",
+    "get_block_size",
     "default_fake_quant",
     "default_dynamic_fake_quant",
 ]

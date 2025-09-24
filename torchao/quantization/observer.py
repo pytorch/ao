@@ -14,6 +14,7 @@ from torchao.quantization.quant_primitives import _fake_quantize_affine
 
 from .granularity import (
     Granularity,
+    PerAxis,
     PerRow,
     PerTensor,
 )
@@ -23,7 +24,6 @@ from .quant_primitives import (
     _get_reduction_params,
     choose_qparams_affine_with_min_max,
 )
-from .utils import get_block_size
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,26 @@ def _with_args(cls_or_self, *args, **kwargs):
     """
     r = _PartialWrapper(partial(cls_or_self, *args, **kwargs))
     return r
+
+
+def get_block_size(
+    input_shape: Tuple[int, ...], granularity: Granularity
+) -> Tuple[int, ...]:
+    """Get the block size based on the input shape and granularity type.
+
+    Args:
+        input_shape: The input tensor shape possibly more than 2 dimensions
+        granularity: The granularity type of the quantization
+    """
+    if isinstance(granularity, PerTensor):
+        return input_shape
+    elif isinstance(granularity, PerAxis):
+        block_size = list(input_shape)
+        block_size[granularity.axis] = 1
+        return tuple(block_size)
+    elif isinstance(granularity, PerRow):
+        return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
+    raise ValueError(f"Unsupported Granularity: {granularity}")
 
 
 ABC: Any = ABCMeta("ABC", (object,), {})  # compatible with Python 2 *and* 3:

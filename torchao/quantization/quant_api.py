@@ -64,7 +64,7 @@ from torchao.float8.inference import (
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
-from torchao.quantization.observer import AffineQuantizedObserverBase
+from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
 from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
@@ -87,7 +87,6 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
-from torchao.quantization.utils import get_block_size
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )

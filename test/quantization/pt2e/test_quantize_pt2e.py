@@ -2948,11 +2948,10 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
-        from torchao.quantization import PerGroup, PerToken
         from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
         )
-        from torchao.quantization.pt2e.observer import MappingType
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
@@ -3032,13 +3031,13 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_affine_act_per_channel_weights(self):
         import operator
 
-        from torchao.quantization import PerToken
         from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMovingAverageMinMaxObserver,
         )
         from torchao.quantization.pt2e.observer import (
             MappingType,
             PerChannelMinMaxObserver,
+            PerToken,
         )
 
         class BackendAQuantizer(Quantizer):
@@ -3123,14 +3122,12 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_per_tok_act_per_group_weights(self):
         import operator
 
-        from torchao.quantization import PerGroup, PerToken
-
         # TODO: merge into torchao observer
         from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
             AffineQuantizedPlaceholderObserver,
         )
-        from torchao.quantization.pt2e.observer import MappingType
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
