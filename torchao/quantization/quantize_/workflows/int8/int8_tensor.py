@@ -53,7 +53,7 @@ class Int8Tensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
-    tensor_attribute_names = ["block_size"]
+    tensor_attribute_names = ["block_size", "_shape"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
         "kernel_preference",
@@ -94,6 +94,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.scale = scale
         self.zero_point = zero_point
         self.block_size = block_size
+        self._shape = shape
         self.act_quant_kwargs = act_quant_kwargs
         self.kernel_preference = kernel_preference
 
