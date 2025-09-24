@@ -1,5 +1,8 @@
 #!/bin/bash
 
+conda create -yn xpu_ao_ci python=3.10
+source activate xpu_ao_ci
+
 python3 -m pip install torch torchvision torchaudio pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir 
 cd torchao && python3 setup.py install
 
