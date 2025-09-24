@@ -3,7 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -27,15 +27,6 @@ from torchao.quantization.quant_primitives import (
 from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
-)
-
-from .granularity import (
-    Granularity,
-    PerAxis,
-    PerGroup,
-    PerRow,
-    PerTensor,
-    PerToken,
 )
 
 __all__ = [
@@ -687,28 +678,3 @@ def recommended_inductor_config_setter():
     torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
     torch.set_float32_matmul_precision("high")
-
-
-def get_block_size(
-    input_shape: Tuple[int, ...], granularity: Granularity
-) -> Tuple[int, ...]:
-    """Get the block size based on the input shape and granularity type.
-
-    Args:
-        input_shape: The input tensor shape possibly more than 2 dimensions
-        granularity: The granularity type of the quantization
-    """
-    if isinstance(granularity, PerTensor):
-        return input_shape
-    elif isinstance(granularity, PerAxis):
-        block_size = list(input_shape)
-        block_size[granularity.axis] = 1
-        return tuple(block_size)
-    elif isinstance(granularity, (PerRow, PerToken)):
-        return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
-    elif isinstance(granularity, PerGroup):
-        assert input_shape[-1] % granularity.group_size == 0, (
-            f"Group size {granularity.group_size} does not divide input shape {input_shape}"
-        )
-        return (1,) * (len(input_shape) - 1) + (granularity.group_size,)
-    raise ValueError(f"Unsupported Granularity: {granularity}")

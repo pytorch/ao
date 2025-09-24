@@ -19,8 +19,8 @@ from torchao.quantization.pt2e.observer import (
     MappingType,
     TorchAODType,
     ZeroPointDomain,
+    get_block_size,
 )
-from torchao.quantization.utils import get_block_size
 
 ABC: Any = ABCMeta("ABC", (object,), {})  # compatible with Python 2 *and* 3:
 
