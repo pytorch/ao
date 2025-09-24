@@ -2310,8 +2310,6 @@ def _quantize_affine_float8(
     return _RoundToFloat8.apply(tensor_clamped, float8_dtype)
 
 
-# TODO: don't register as custom op?
-@_register_custom_op(quant_lib, False)
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2329,7 +2327,48 @@ def _dequantize_affine_float8(
     return hp_tensor.to(output_dtype)
 
 
-@_register_meta_op(quant_lib, "dequantize_affine_float8")
+@_register_custom_op(quant_lib, False)
+def _quantize_affine_float8_non_decomposed(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    """
+    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
+    """
+    return _quantize_affine_float8(
+        tensor=tensor,
+        scale=scale,
+        float8_dtype=float8_dtype,
+    )
+
+
+@_register_meta_op(quant_lib, "quantize_affine_float8_non_decomposed")
+def _quantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=float8_dtype)
+
+
+@_register_custom_op(quant_lib, False)
+def _dequantize_affine_float8_non_decomposed(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """
+    Dequantizes the float8 tensor to high precision tensor.
+    """
+    return _dequantize_affine_float8(
+        tensor=tensor,
+        scale=scale,
+        output_dtype=output_dtype,
+    )
+
+
+@_register_meta_op(quant_lib, "dequantize_affine_float8_non_decomposed")
 def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
