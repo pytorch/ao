@@ -65,13 +65,13 @@ ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
 
 
-def f32_to_f4_unpacked(x, fake_quantize: bool = False):
+def f32_to_f4_unpacked(x):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
     """
-    return _f32_to_floatx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1, fake_quantize)
+    return _f32_to_floatx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f32_to_f6_e2m3_unpacked(x):
@@ -92,13 +92,13 @@ def f32_to_f6_e3m2_unpacked(x):
     return _f32_to_floatx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-def f4_unpacked_to_f32(x: torch.Tensor, fake_quantize: bool = False):
+def f4_unpacked_to_f32(x: torch.Tensor):
     """
     Input: torch.Tensor of dtype uint8, with bits 0-3 empty and bits 4-7
       containing an fp4_e2m1 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _floatx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1, fake_quantize)
+    return _floatx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
