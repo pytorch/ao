@@ -42,22 +42,20 @@ class TestSafeTensors(TestCase):
     @parametrize(
         "config, act_pre_scale",
         [
-            (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), None),
-            (Int4WeightOnlyConfig(), None),
-            (
-                Int4WeightOnlyConfig(),
-                torch.ones((1), dtype=torch.bfloat16),
-            ),
+            (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
+            (Int4WeightOnlyConfig(), False),
+            (Int4WeightOnlyConfig(), True),
         ],
     )
-    def test_safetensors(self, config, act_pre_scale=None):
+    def test_safetensors(self, config, act_pre_scale=False):
         model = torch.nn.Sequential(
             torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         )
         quantize_(model, config)
-        if act_pre_scale is not None:
-            act_pre_scale = act_pre_scale.to("cuda")
-            model[0].weight.act_pre_scale = act_pre_scale
+        if act_pre_scale:
+            model[0].weight.act_pre_scale = torch.ones(
+                (1), dtype=torch.bfloat16, device="cuda"
+            )
         example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device="cuda"),)
         ref_output = model(*example_inputs)
 
