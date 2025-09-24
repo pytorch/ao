@@ -7,8 +7,9 @@ import torch
 from torchao.prototype.safetensors.safetensors_utils import (
     Float8TensorAttributeJSONEncoder,
     object_from_dict,
+    ALLOWED_TENSORS
 )
-from torchao.quantization import Float8Tensor
+from torchao.quantization import Float8Tensor, Int4Tensor
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -76,12 +77,11 @@ def unflatten_tensor_state_dict(
 
         tensor_metadata = json.loads(metadata.get(tensor_name))
         tensor_type = tensor_metadata.get("_type")
-
-        if tensor_type == Float8Tensor.__name__:
+        if tensor_type == torch.Tensor.__name__:
+            result[tensor_name] = tensor_tensors["_data"]
+        elif tensor_type in ALLOWED_TENSORS:
             tensor_metadata["_data"].update(tensor_tensors)
             result[tensor_name] = object_from_dict(tensor_metadata)
-        elif tensor_type == torch.Tensor.__name__:
-            result[tensor_name] = tensor_tensors["_data"]
         else:
             raise ValueError(f"Unsupported tensor type: {tensor_type}")
 
@@ -140,15 +140,15 @@ def flatten_tensor_state_dict(
     tensors_data_dict = {}
 
     for tensor_name, tensor in tensors_dict.items():
-        if isinstance(tensor, Float8Tensor):
+        if type(tensor) is torch.Tensor:
+            tensor_dict = {"_data": tensor}
+            tensor_metadata = json.dumps({"_type": torch.Tensor.__name__})
+        elif tensor.__class__.__name__ in ALLOWED_TENSORS:
             tensor_dict = {}
             for tensor_data_name in tensor.tensor_data_names:
                 tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
 
             tensor_metadata = json.dumps(tensor, cls=Float8TensorAttributeJSONEncoder)
-        elif type(tensor) is torch.Tensor:
-            tensor_dict = {"_data": tensor}
-            tensor_metadata = json.dumps({"_type": torch.Tensor.__name__})
         else:
             raise ValueError(f"Unsupported tensor type: {type(tensor)}")
 

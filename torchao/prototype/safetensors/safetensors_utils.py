@@ -6,12 +6,13 @@ from typing import Any, Dict
 import torch
 
 import torchao
-from torchao.quantization import Float8Tensor
+from torchao.quantization import Float8Tensor, Int4Tensor
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 
 ALLOWED_CLASSES = {
     "Float8Tensor": Float8Tensor,
+    "Int4Tensor": Int4Tensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
     "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
     "PerRow": torchao.quantization.PerRow,
@@ -19,7 +20,7 @@ ALLOWED_CLASSES = {
     "KernelPreference": KernelPreference,
 }
 
-ALLOWED_TENSORS = ["Float8Tensor", "Tensor"]
+ALLOWED_TENSORS = ["Float8Tensor", "Int4Tensor", "Tensor"]
 
 __all__ = [
     "Float8TensorAttributeJSONEncoder",
@@ -27,13 +28,14 @@ __all__ = [
     "is_metadata_torchao",
 ]
 
-
 class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if isinstance(o, Float8Tensor):
+        if o.__class__.__name__ in ALLOWED_TENSORS:
             tensor_attr_dict = {}
+            optional_tensor_attributes = o.optional_tensor_attribute_names if hasattr(o, "optional_tensor_attribute_names") else []
+
             all_tensor_attributes = (
-                o.optional_tensor_attribute_names + o.tensor_attribute_names
+                optional_tensor_attributes + o.tensor_attribute_names
             )
 
             for tensor_attribute_name in all_tensor_attributes:
