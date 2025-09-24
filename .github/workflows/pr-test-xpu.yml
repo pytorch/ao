@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pytorch/pytorch
-          ref: main
+          ref: nightly
           path: pytorch
           fetch-depth: 1
           submodules: false
@@ -41,8 +41,8 @@ jobs:
       - name: Checkout Torchao (ao)
         uses: actions/checkout@v4
         with:
-          repository: DiweiSun/ao
-          path: torchao
+          repository: ${{ github.repository }}
+          ref: ${{ github.head_ref || github.ref }}
           fetch-depth: 1
           submodules: recursive
 
