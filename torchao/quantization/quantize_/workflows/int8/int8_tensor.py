@@ -27,6 +27,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     Args:
         kernel_preference (KernelPreference): kernel preference for ops like matmul, grouped matmul etc.
+            TODO: Implement flags for kernel preference, same as QuantizeTensorToFloat8Kwargs
         block_size (Optional[list[int]]): block size for quantization granularity
     """
 
@@ -165,26 +166,68 @@ def _(func, types, args, kwargs):
         f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
     )
 
-    # Dynamic activation quantization if enabled
-    if weight_tensor.act_quant_kwargs is not None:
-        input_tensor = _choose_quant_func_and_quantize_tensor(
-            input_tensor, weight_tensor.act_quant_kwargs
-        )
-
     if isinstance(input_tensor, Int8Tensor):
-        # INT8 × INT8 (dynamic)
-        x_int32 = input_tensor.qdata.to(torch.int32)
-        w_int32 = weight_tensor.qdata.to(torch.int32).t()
+        # INT8 × INT8 (static)
+        x_vals_int8 = input_tensor.qdata
+        x_scales = input_tensor.scale
+        w_vals_int8_t = weight_tensor.qdata.contiguous().t()
+        w_scales = weight_tensor.scale
 
-        result = torch.mm(x_int32.view(-1, x_int32.size(-1)), w_int32)
-        scale = input_tensor.scale.view(-1, 1) * weight_tensor.scale.unsqueeze(0)
-        result = result.to(scale.dtype) * scale
-        result = result.view(*input_tensor.shape[:-1], -1)
-    else:
-        # FP × INT8 (static)
-        result = torch.nn.functional.linear(
-            input_tensor, weight_tensor.dequantize(), None
+        tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+        x_scales_dtype = x_scales.dtype
+
+        # Cast fp16 scale to float to avoid overflow in y_dot_int32
+        intermediate_dtype = (
+            torch.float if x_scales_dtype == torch.half else x_scales_dtype
         )
+
+        # First apply input scaling to avoid overflow
+        y_dot_int32 = torch.mm(tmp.to(torch.int32), w_vals_int8_t.to(torch.int32))
+        y_dot_scaled = y_dot_int32.to(intermediate_dtype) * x_scales.reshape(-1, 1).to(
+            intermediate_dtype
+        )
+        y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
+
+        # Then apply weight scaling
+        result = (y_dot_scaled * w_scales).reshape(
+            *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
+        )
+        result = result.to(input_tensor.dtype)
+
+    else:
+        if weight_tensor.act_quant_kwargs is not None:
+            # INT8 × INT8 (dynamic)
+            input_tensor = _choose_quant_func_and_quantize_tensor(
+                input_tensor, weight_tensor.act_quant_kwargs
+            )
+
+            x_vals_int8 = input_tensor.qdata
+            x_scales = input_tensor.scale
+            w_vals_int8_t = weight_tensor.qdata.contiguous().t()
+            w_scales = weight_tensor.scale
+
+            tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+            x_scales_dtype = x_scales.dtype
+
+            # Cast fp16 scale to float to avoid overflow in y_dot_int32
+            intermediate_dtype = (
+                torch.float if x_scales_dtype == torch.half else x_scales_dtype
+            )
+            y_dot_int32 = torch.mm(tmp.to(torch.int32), w_vals_int8_t.to(torch.int32))
+            y_dot_scaled = y_dot_int32.to(intermediate_dtype) * x_scales.reshape(
+                -1, 1
+            ).to(intermediate_dtype)
+            y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
+
+            result = (y_dot_scaled * w_scales).reshape(
+                *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
+            )
+            result = result.to(input_tensor.dtype)
+        else:
+            # FP × INT8 (weight-only)
+            result = torch.nn.functional.linear(
+                input_tensor, weight_tensor.dequantize(), None
+            )
 
     return result + bias if bias is not None else result
 
