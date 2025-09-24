@@ -7,8 +7,10 @@
 import unittest
 
 import torch
+from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import run_tests
 
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
     Int8Tensor,
     QuantizeTensorToInt8Kwargs,
@@ -36,6 +38,18 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertTrue(
             torch.all(tensor.qdata >= -128) and torch.all(tensor.qdata <= 127)
         )
+
+    @common_utils.parametrize(
+        "kernel_preference",
+        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+    )
+    def test_kernel_preference(self, kernel_preference):
+        """Test Int8Tensor with different kernels"""
+        tensor = Int8Tensor.from_hp(
+            self.weight_fp, self.block_size, kernel_preference=kernel_preference
+        )
+
+        self.assertEqual(tensor.kernel_preference, kernel_preference)
 
     def test_linear_operations(self):
         """Test fp+int8 and int8+int8 linear ops with quantization error check"""
