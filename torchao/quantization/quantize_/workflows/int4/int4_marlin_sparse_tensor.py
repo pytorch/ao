@@ -162,7 +162,7 @@ implements = Int4MarlinSparseTensor.implements
 implements_torch_function = Int4MarlinSparseTensor.implements_torch_function
 
 
-@implements(torch.nn.functional.linear)
+@implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     from torchao.ops import marlin_24_gemm
