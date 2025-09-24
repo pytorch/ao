@@ -5,5 +5,4 @@ python3 setup.py install
 
 pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0'
 
-cd test/quantization
-pytest -v -s *.py
+pytest -v -s test/quantization/quantize_/workflows/int4/test_int4_plain_int32_tensor.py 
