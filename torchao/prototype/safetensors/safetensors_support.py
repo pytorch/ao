@@ -5,10 +5,10 @@ from typing import Any, Dict
 import torch
 
 from torchao.prototype.safetensors.safetensors_utils import (
-    Float8TensorAttributeJSONEncoder,
+    ALLOWED_TENSORS_SUBCLASSES,
+    TensorSubclassAttributeJSONEncoder,
     object_from_dict,
 )
-from torchao.quantization import Float8Tensor
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def unflatten_tensor_state_dict(
         tensor_metadata = json.loads(metadata.get(tensor_name))
         tensor_type = tensor_metadata.get("_type")
 
-        if tensor_type == Float8Tensor.__name__:
+        if tensor_type in ALLOWED_TENSORS_SUBCLASSES:
             tensor_metadata["_data"].update(tensor_tensors)
             result[tensor_name] = object_from_dict(tensor_metadata)
         elif tensor_type == torch.Tensor.__name__:
@@ -140,12 +140,18 @@ def flatten_tensor_state_dict(
     tensors_data_dict = {}
 
     for tensor_name, tensor in tensors_dict.items():
-        if isinstance(tensor, Float8Tensor):
+        if tensor.__class__.__name__ in ALLOWED_TENSORS_SUBCLASSES:
             tensor_dict = {}
-            for tensor_data_name in tensor.tensor_data_names:
-                tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
 
-            tensor_metadata = json.dumps(tensor, cls=Float8TensorAttributeJSONEncoder)
+            all_tensor_data = list(tensor.tensor_data_names)  # create a copy
+            if hasattr(tensor, "optional_tensor_data_names"):
+                all_tensor_data += tensor.optional_tensor_data_names
+
+            for tensor_data_name in all_tensor_data:
+                if getattr(tensor, tensor_data_name) is not None:
+                    tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
+
+            tensor_metadata = json.dumps(tensor, cls=TensorSubclassAttributeJSONEncoder)
         elif type(tensor) is torch.Tensor:
             tensor_dict = {"_data": tensor}
             tensor_metadata = json.dumps({"_type": torch.Tensor.__name__})
