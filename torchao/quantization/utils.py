@@ -711,14 +711,14 @@ def get_block_size(
         )
         for i in range(len(block_size)):
             assert input_shape[i] % block_size[i] == 0, (
-                f"Block size {block_size} does not divide input shape {input_shape}"
+                f"Not all shapes in input shape {input_shape} are divisible by block size {block_size}"
             )
         return block_size
     elif isinstance(granularity, (PerRow, PerToken)):
         return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
     elif isinstance(granularity, PerGroup):
         assert input_shape[-1] % granularity.group_size == 0, (
-            f"Group size {granularity.group_size} does not divide input shape {input_shape}"
+            f"Last dimension of input {input_shape[-1]} is not divisible by group size {granularity.group_size}"
         )
         return (1,) * (len(input_shape) - 1) + (granularity.group_size,)
     raise ValueError(f"Unsupported Granularity: {granularity}")

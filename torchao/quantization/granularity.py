@@ -110,7 +110,7 @@ class PerBlock(Granularity):
     :func:`~torchao.quantization.quant_primitives.quantize_affine` for docs for
     `block_size`
     Attributes:
-        block_size (Tuple[int, ...]): The size of each quantization group
+        block_size (tuple[int, ...]): The size of each quantization group
     """
 
     block_size: tuple[int, ...]
