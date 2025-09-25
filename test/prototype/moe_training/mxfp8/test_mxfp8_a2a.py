@@ -1,8 +1,9 @@
 import pytest
-
-pytest.importorskip("triton")
-
 import torch
+
+if not torch.cuda.is_available() or torch.cuda.get_device_capability() != (10, 0):
+    pytest.skip("Test requires CUDA build on SM100", allow_module_level=True)
+
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
 from torch.distributed._functional_collectives import (
@@ -24,6 +25,8 @@ from torchao.prototype.moe_training.kernels.mxfp8.comms import (
     mxfp8_on_device_all_to_all_v,
 )
 
+from ..testing_utils import generate_split_sizes
+
 
 @instantiate_parametrized_tests
 class TritonAllReduceTest(MultiProcessTestCase):
@@ -33,7 +36,7 @@ class TritonAllReduceTest(MultiProcessTestCase):
 
     @property
     def world_size(self) -> int:
-        return 2
+        return 4
 
     @property
     def device(self) -> torch.device:
@@ -138,35 +141,6 @@ class TritonAllReduceTest(MultiProcessTestCase):
 
         finally:
             dist.destroy_process_group()
-
-
-def generate_split_sizes(K: int, N: int, device: str = "cpu") -> torch.Tensor:
-    """
-    Generates a tensor of K random non-negative integers that sum to N.
-    """
-    if K <= 0:
-        raise ValueError("K must be a positive integer.")
-    if N < 0:
-        raise ValueError("N must be a non-negative integer.")
-
-    if K == 1:
-        return torch.tensor([N], dtype=torch.long, device=device)
-
-    # Generate K-1 random "dividers" in the range [0, N].
-    dividers = torch.randint(0, N + 1, (K - 1,), device=device)
-
-    # Add 0 and N to the set of dividers to form the boundaries.
-    boundaries = torch.cat(
-        [torch.tensor([0], device=device), dividers, torch.tensor([N], device=device)]
-    )
-
-    # Sort the boundaries to ensure they are in order
-    sorted_boundaries = torch.sort(boundaries).values
-
-    # The K integers are the differences between consecutive boundaries (will sum to N)
-    result = sorted_boundaries[1:] - sorted_boundaries[:-1]
-
-    return result.to(dtype=torch.int64)
 
 
 if __name__ == "__main__":

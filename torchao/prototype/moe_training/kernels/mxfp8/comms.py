@@ -57,7 +57,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
 
         # Quantize input
         block_size = 32
-        input_scales, input_data = to_mx(
+        to_mx_c = torch.compile(to_mx)
+        input_scales, input_data = to_mx_c(
             input,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
@@ -237,8 +238,7 @@ def _mxfp8_on_device_all_to_all_v(
     output_scales: torch.Tensor,
     output_splits: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
-    BLOCKS_PER_REMOTE_RANK: int = 1,
-    UNROLL_FACTOR: int = 8,
+    BLOCKS_PER_REMOTE_RANK: int = 8,
     BLOCK_SIZE: int = 16384,
 ):
     assert input.dim() == 2, f"{input.shape}"
@@ -274,7 +274,6 @@ def _mxfp8_on_device_all_to_all_v(
         rank=input_hdl.rank,
         world_size=input_hdl.world_size,
         BLOCKS_PER_REMOTE_RANK=BLOCKS_PER_REMOTE_RANK,
-        UNROLL_FACTOR=UNROLL_FACTOR,
         BLOCK_SIZE=BLOCK_SIZE,
         num_warps=1,
     )
@@ -296,7 +295,6 @@ def _mxfp8_all_to_all_v_kernel(
     rank: tl.constexpr,
     world_size: tl.constexpr,
     BLOCKS_PER_REMOTE_RANK: tl.constexpr,
-    UNROLL_FACTOR: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
     blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
