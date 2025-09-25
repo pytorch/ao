@@ -110,9 +110,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 ),
             }
 
-            # Create a linear layer with bfloat16 dtype
+            # Create a linear layer
             model = ToyTwoLinearModel(
-                K, N, K, dtype=torch.bfloat16, device="cuda"
+                K, N, K, dtype=dtype, device="cuda"
             ).eval()
 
             quantized_model = copy.deepcopy(model)
@@ -185,7 +185,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     def test_serialization(self, mode: str):
         # Create and quantize the model
-        model = ToyTwoLinearModel(16, 32, 16, dtype=torch.bfloat16, device="cuda")
+        model = ToyTwoLinearModel(16, 32, 16, device="cuda")
 
         mode_map = {
             "dynamic": partial(
