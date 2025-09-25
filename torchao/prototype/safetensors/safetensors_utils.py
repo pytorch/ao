@@ -6,14 +6,13 @@ from typing import Any, Dict
 import torch
 
 import torchao
-from torchao.quantization import Float8Tensor, Int4PreshuffledTensor, Int4Tensor
+from torchao.quantization import Float8Tensor, Int4Tensor
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 
 ALLOWED_CLASSES = {
     "Float8Tensor": Float8Tensor,
     "Int4Tensor": Int4Tensor,
-    "Int4PreshuffledTensor": Int4PreshuffledTensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
     "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
     "PerRow": torchao.quantization.PerRow,
@@ -21,7 +20,7 @@ ALLOWED_CLASSES = {
     "KernelPreference": KernelPreference,
 }
 
-ALLOWED_TENSORS_SUBCLASSES = ["Float8Tensor", "Int4Tensor", "Int4PreshuffledTensor"]
+ALLOWED_TENSORS_SUBCLASSES = ["Float8Tensor", "Int4Tensor"]
 
 __all__ = [
     "TensorSubclassAttributeJSONEncoder",
