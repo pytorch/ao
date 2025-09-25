@@ -189,6 +189,9 @@ def _nvfp4_inference_linear_transform(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
         )
 
+    torch.set_printoptions(precision=10)
+    torch.save(weight, "/tmp/weight.pt")
+    torch.save(per_tensor_scale, "/tmp/per_tensor_scale.pt")
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
         per_tensor_scale=per_tensor_scale,
@@ -196,6 +199,10 @@ def _nvfp4_inference_linear_transform(
         use_triton_kernel=False,  # Always use traditional construction for weights
         act_quant_kwargs=act_quant_kwargs,
     )
+    torch.save(quantized_weight, "/tmp/nvfp4.pt")
+    print("PTQ weight qdata is contiguous? ", quantized_weight.qdata.is_contiguous())
+    print("PTQ weight qdata.t() is contiguous? ", quantized_weight.qdata.is_contiguous())
+
     # Set triton preference after construction
     quantized_weight.use_triton_kernel = config.use_triton_kernel
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)

@@ -112,7 +112,11 @@ class FakeQuantizedLinear(torch.nn.Linear):
             w = self.weight_fake_quantizer(self.weight)
         else:
             w = self.weight
-        return F.linear(x, w, self.bias)
+        from torchao.prototype.mx_formats.nvfp4_tensor import _addmm_nvfp4_dispatch, NVFP4Tensor
+        assert isinstance(x, NVFP4Tensor)
+        assert isinstance(w, NVFP4Tensor)
+        return _addmm_nvfp4_dispatch(x, w.t(), None, bias=self.bias)
+        #return F.linear(x, w, self.bias)
 
     def to_linear(self) -> torch.nn.Linear:
         new_linear = torch.nn.Linear(

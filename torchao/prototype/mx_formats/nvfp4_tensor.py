@@ -131,7 +131,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return self
 
     def __repr__(self):
-        return f"NVFP4Tensor: blockwise_scales: {self._scale_e4m3}, per_tensor_scale: {self._per_tensor_scale}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"
+        return f"NVFP4Tensor: blockwise_scales: {self._scale_e4m3.flatten()[:5]},\n    per_tensor_scale: {self._per_tensor_scale.flatten()[:5]},\n    d: {self.qdata.flatten()[:5]},\n    d_hp: {self.to_dtype(self._orig_dtype).flatten()[:5]}"
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -664,6 +664,8 @@ def nvfp4_linear(func, types, args, kwargs):
 @implements([aten.mm.default, aten.matmul.default])
 def nvfp4_mm(func, types, args, kwargs):
     input_tensor, weight_tensor = args[0], args[1]
+    print("nvfp4_mm, weight_tensor", weight_tensor)
+    torch.save(weight_tensor, "/tmp/nvfp42.pt")
 
     if not isinstance(weight_tensor, NVFP4Tensor):
         raise NotImplementedError("NVFP4Tensor: weight must be NVFP4Tensor")

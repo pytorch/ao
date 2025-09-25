@@ -20,15 +20,44 @@ class _NVFP4FakeQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx, x: torch.Tensor, per_tensor_scale: Optional[torch.Tensor]
+        ctx, x: torch.Tensor, use_per_tensor_scale: bool, use_swizzled_scales: bool, use_triton_kernel: bool,
     ) -> torch.Tensor:
-        q = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=per_tensor_scale)
-        dq = q.to_dtype(x.dtype)
-        return dq
+        if use_per_tensor_scale:
+            tensor_amax = torch.max(torch.abs(x))
+            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+        else:
+            per_tensor_scale = None
+
+        q = NVFP4Tensor.to_nvfp4(x, is_swizzled_scales=use_swizzled_scales, use_triton_kernel=False, per_tensor_scale=per_tensor_scale)
+        # Simulate NVFP4InferenceConfig behavior for weights
+        if use_triton_kernel:
+            q.use_triton_kernel = True
+        print("QAT qdata is contiguous? ", q.qdata.is_contiguous())
+        print("QAT qdata.t() is contiguous? ", q.qdata.t().is_contiguous())
+
+        #dq = q.to_dtype(x.dtype)
+
+
+
+
+
+        print("QAT quantized tensor", q)
+        original_weight = torch.load("/tmp/weight.pt", weights_only=False)
+        ptq_per_tensor_scale = torch.load("/tmp/per_tensor_scale.pt", weights_only=False)
+        ptq_weight = torch.load("/tmp/nvfp4.pt", weights_only=False)
+        ptq_weight2 = torch.load("/tmp/nvfp42.pt", weights_only=False)
+        qat_weight = q
+        breakpoint()
+
+
+
+        return q
+
+        #return dq
 
     @staticmethod
     def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
-        return gy, None
+        return gy, None, None, None
 
 
 @dataclass
@@ -45,6 +74,8 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     """
 
     use_per_tensor_scale: bool = True
+    use_swizzled_scales: bool = False
+    use_triton_kernel: bool = True
 
 
 class NVFP4FakeQuantizer(FakeQuantizerBase):
@@ -61,11 +92,6 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
         original_shape = x.shape
         if x.dim() == 3:
             x = x.view(-1, x.shape[-1])
-        if self.config.use_per_tensor_scale:
-            tensor_amax = torch.max(torch.abs(x))
-            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
-        else:
-            per_tensor_scale = None
-        fq = _NVFP4FakeQuantize.apply(x, per_tensor_scale)
+        fq = _NVFP4FakeQuantize.apply(x, self.config.use_per_tensor_scale, self.config.use_swizzled_scales, self.config.use_triton_kernel)
         assert fq.dtype == x.dtype
         return fq.view(original_shape)
