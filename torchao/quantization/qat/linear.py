@@ -136,7 +136,8 @@ class FakeQuantizedLinear(torch.nn.Linear):
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
-        # TODO: rewrite this using a registration API
+        # TODO: rewrite this using a registration API so
+        # specific quantization schemes do not leak here
         from torchao.prototype.qat import (
             NVFP4FakeQuantizeConfig,
             NVFP4FakeQuantizedLinear,
