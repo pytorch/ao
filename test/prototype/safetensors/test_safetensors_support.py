@@ -19,7 +19,6 @@ from torchao.prototype.safetensors.safetensors_support import (
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
-    Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     IntxWeightOnlyConfig,
 )
@@ -48,7 +47,6 @@ class TestSafeTensors(TestCase):
             (Int4WeightOnlyConfig(), False),
             (Int4WeightOnlyConfig(), True),
             (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
-            (Float8DynamicActivationInt4WeightConfig(), False),
             (IntxWeightOnlyConfig(), False),
         ],
     )

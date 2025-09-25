@@ -8,7 +8,6 @@ import torch
 import torchao
 from torchao.quantization import (
     Float8Tensor,
-    Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
     IntxUnpackedToInt8Tensor,
@@ -19,7 +18,6 @@ from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwarg
 ALLOWED_CLASSES = {
     "Float8Tensor": Float8Tensor,
     "Int4Tensor": Int4Tensor,
-    "Int4PreshuffledTensor": Int4PreshuffledTensor,
     "Int4TilePackedTo4dTensor": Int4TilePackedTo4dTensor,
     "IntxUnpackedToInt8Tensor": IntxUnpackedToInt8Tensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
@@ -32,7 +30,6 @@ ALLOWED_CLASSES = {
 ALLOWED_TENSORS_SUBCLASSES = [
     "Float8Tensor",
     "Int4Tensor",
-    "Int4PreshuffledTensor",
     "Int4TilePackedTo4dTensor",
     "IntxUnpackedToInt8Tensor",
 ]
