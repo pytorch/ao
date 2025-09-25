@@ -27,9 +27,7 @@ class _FP4Round(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x: torch.Tensor) -> torch.Tensor:
-        q = _f32_to_floatx_unpacked(
-            x, EBITS_F4_E2M1, MBITS_F4_E2M1, compute_dtype=torch.int32
-        )
+        q = _f32_to_floatx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
         dq = _floatx_unpacked_to_f32(q, EBITS_F4_E2M1, MBITS_F4_E2M1)
         return dq
 

@@ -24,12 +24,7 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
-def _f32_to_floatx_unpacked(
-    x: Tensor,
-    ebits: int,
-    mbits: int,
-    compute_dtype: torch.dtype = torch.uint8,
-) -> Tensor:
+def _f32_to_floatx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
 
@@ -49,7 +44,6 @@ def _f32_to_floatx_unpacked(
     Background 2: Computer Organization and Design, RISC-V edition, Chapter 3.5
     """
     assert x.dtype == torch.float
-    assert compute_dtype in [torch.uint8, torch.int32]
     assert 1 + ebits + mbits <= 8
 
     # calculate constants
@@ -111,7 +105,7 @@ def _f32_to_floatx_unpacked(
     denormal_x = x + denorm_mask_float
     denormal_x = denormal_x.view(torch.int32)
     denormal_x -= denorm_mask_int
-    denormal_x = denormal_x.to(compute_dtype)
+    denormal_x = denormal_x.to(torch.uint8)
 
     #
     # branch 3: stay in normal range, adjust the exponent and round
@@ -126,18 +120,18 @@ def _f32_to_floatx_unpacked(
     normal_x += mant_odd
     # take the bits!
     normal_x = normal_x >> (MBITS_F32 - mbits)
-    normal_x = normal_x.to(compute_dtype)
+    normal_x = normal_x.to(torch.uint8)
 
     #
     # combine the branches
     #
-    x = torch.full_like(x, max_int, dtype=compute_dtype)
+    x = torch.full_like(x, max_int, dtype=torch.uint8)
     x = torch.where(denormal_mask, denormal_x, x)
     x = torch.where(normal_mask, normal_x, x)
 
     # add sign back
     sign_lp = sign >> (MBITS_F32 + EBITS_F32 - mbits - ebits)
-    sign_lp = sign_lp.to(compute_dtype)
+    sign_lp = sign_lp.to(torch.uint8)
     # Right shift of a negative signed integer can fill the least significant
     # bits with either 1s or 0s, depending on the implementation. Since PyTorch
     # doesn't have an uint32 dtype, we mask out these bits to get just the
@@ -145,7 +139,7 @@ def _f32_to_floatx_unpacked(
     sign_lp = sign_lp & sign_mask
     x = x | sign_lp
 
-    return x.to(compute_dtype)
+    return x.to(torch.uint8)
 
 
 # TODO(future): check if LUT for everything is faster than bit shifting,
@@ -160,7 +154,7 @@ def _floatx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
       fp6: bits 0-1 empty and bits 2-7 in fp6_e2m3 or fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    assert x.dtype in [torch.uint8, torch.int32]
+    assert x.dtype == torch.uint8
     assert 1 + ebits + mbits <= 8
 
     sign_mask = 1 << (ebits + mbits)
