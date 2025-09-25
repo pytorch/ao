@@ -6,7 +6,7 @@ from typing import Any, Dict
 import torch
 
 import torchao
-from torchao.quantization import Float8Tensor, Int4Tensor, Int4PreshuffledTensor
+from torchao.quantization import Float8Tensor, Int4PreshuffledTensor, Int4Tensor
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 
