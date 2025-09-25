@@ -442,16 +442,15 @@ def _infer_fake_quantize_configs(
             activation_dtype=e4m3_dtype,
         )
     elif isinstance(base_config, NVFP4InferenceConfig):
-        # Note: today the PTQ config does not allow the user to specify
-        # `per_tensor_scales` due to serialization concerns. In the future
-        # we may add a way to compute these dynamically (for activations),
-        # but for now QAT will mimic the existing behavior of not having
-        # `per_tensor_scales` (subject to change)
         if NVFP4MMConfig.DYNAMIC:
-            act_config = NVFP4FakeQuantizeConfig(False)
+            act_config = NVFP4FakeQuantizeConfig(
+                use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale
+            )
         else:
             act_config = None
-        weight_config = NVFP4FakeQuantizeConfig(False)
+        weight_config = NVFP4FakeQuantizeConfig(
+            use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale
+        )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"
         assert base_config.intx_packing_format == "unpacked_to_int8", (

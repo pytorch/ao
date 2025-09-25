@@ -617,6 +617,28 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    old_float8_tensor, dim, index = args
+    assert dim == 0, f"Float8Tensor aten.select.int with {dim=} is not yet supported"
+    assert len(old_float8_tensor.qdata.shape) == len(old_float8_tensor.scale.shape), (
+        "unsupported"
+    )
+    assert len(old_float8_tensor.qdata.shape) == len(old_float8_tensor.block_size), (
+        "unsupported"
+    )
+    new_float8_tensor = old_float8_tensor.__class__(
+        old_float8_tensor.qdata[index],
+        old_float8_tensor.scale[index],
+        old_float8_tensor.block_size[1:],
+        old_float8_tensor.mm_config,
+        old_float8_tensor.act_quant_kwargs,
+        old_float8_tensor.kernel_preference,
+        old_float8_tensor.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_float8_tensor)
+
+
 Float8Tensor.__module__ = "torchao.quantization"
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
