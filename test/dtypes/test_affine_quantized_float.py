@@ -171,7 +171,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             match="PerRow quantization only works for bfloat16 precision",
         ):
             model = ToyTwoLinearModel(
-                64, 64, 64, dtype=torch.bfloat16, device="cuda"
+                64, 64, 64, dtype=torch.float32, device="cuda"
             ).eval()
             quantize_(
                 model,
