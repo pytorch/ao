@@ -19,7 +19,9 @@ from .GPTQ import (
     MultiTensorInputRecorder,
 )
 from .granularity import (
+    Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -197,8 +199,10 @@ __all__ = [
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "Granularity",
     "PerTensor",
     "PerAxis",
+    "PerBlock",
     "PerGroup",
     "PerRow",
     "PerToken",

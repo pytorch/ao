@@ -124,9 +124,16 @@ def _find_tied_params(model):
 
 
 def _convert_model_for_aarch64(
-    model, *, tensor_type="auto", intx_packing_format="opaque_torchao_auto"
+    model,
+    *,
+    tensor_type="auto",
+    intx_packing_format="opaque_torchao_auto",
+    convert_tied_embedding=True,
+    convert_linear=True,
 ):
-    module_name_to_tied_param = _find_tied_params(model)
+    module_name_to_tied_param = (
+        _find_tied_params(model) if convert_tied_embedding else {}
+    )
 
     # Iterate through modules in model and convert IntxUnpackedToInt8Tensor tensors to Int8LutTensor
     for name, module in model.named_modules():
@@ -138,7 +145,7 @@ def _convert_model_for_aarch64(
             print("Skipping converting nn.Embedding {name} because it is not tied")
             continue
 
-        if not isinstance(module, nn.Linear):
+        if not (convert_linear and isinstance(module, nn.Linear)):
             continue
 
         weight = module.weight
