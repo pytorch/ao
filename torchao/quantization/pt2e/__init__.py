@@ -33,6 +33,8 @@ from torchao.quantization.pt2e.graph_utils import (
     update_equivalent_types_dict,
 )
 
+from .. import Granularity, PerAxis, PerBlock, PerGroup, PerRow, PerTensor, PerToken
+from ..utils import get_block_size
 from .fake_quantize import (
     FakeQuantize,
     FakeQuantizeBase,
@@ -48,7 +50,6 @@ from .fake_quantize import (
 from .observer import (
     AffineQuantizedObserverBase,
     FixedQParamsObserver,
-    Granularity,
     HistogramObserver,
     MappingType,
     MinMaxObserver,
@@ -57,20 +58,13 @@ from .observer import (
     NoopObserver,
     ObserverBase,
     PartialWrapper,
-    PerAxis,
-    PerBlock,
     PerChannelMinMaxObserver,
-    PerGroup,
-    PerRow,
-    PerTensor,
-    PerToken,
     PlaceholderObserver,
     RecordingObserver,
     ReuseInputObserver,
     TorchAODType,
     UniformQuantizationObserverBase,
     ZeroPointDomain,
-    get_block_size,
 )
 
 for _f in [

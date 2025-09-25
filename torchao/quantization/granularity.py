@@ -71,6 +71,7 @@ class PerGroup(Granularity):
     group_size: int
 
 
+@dataclass(frozen=True)
 class PerRow(Granularity):
     """
     Represents row-wise granularity in quantization.
@@ -83,6 +84,7 @@ class PerRow(Granularity):
     pass
 
 
+@dataclass(frozen=True)
 class PerToken(Granularity):
     """
     Represents per-token granularity in quantization.
@@ -99,3 +101,16 @@ class PerToken(Granularity):
     """
 
     pass
+
+
+@dataclass(frozen=True)
+class PerBlock(Granularity):
+    """
+    Represents per-block granularity in quantization. See
+    :func:`~torchao.quantization.quant_primitives.quantize_affine` for docs for
+    `block_size`
+    Attributes:
+        block_size (Tuple[int, ...]): The size of each quantization group
+    """
+
+    block_size: tuple[int, ...]
