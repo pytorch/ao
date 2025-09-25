@@ -1910,7 +1910,6 @@ class TestQAT(TestCase):
         quantize_(m, QATConfig(base_config, step="prepare"), filter_fn)
         out_prepared = m(*example_inputs)
         prepare_sqnr = compute_error(out_prepared, out_baseline)
-
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
@@ -2086,23 +2085,34 @@ class TestQAT(TestCase):
         """
         from torchao.prototype.mx_formats import NVFP4InferenceConfig
 
+        if use_per_tensor_scale:
+            target_prepare_sqnr = 21
+        else:
+            target_prepare_sqnr = float("inf")
+
         self._test_quantize_api_against_ptq(
             NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
-            target_prepare_sqnr=12,
+            target_prepare_sqnr=target_prepare_sqnr,
             target_convert_sqnr=float("inf"),
         )
 
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("use_per_tensor_scale", [True, False])
     def test_qat_nvfp4(self, use_per_tensor_scale: bool):
         """
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
         from torchao.prototype.qat import NVFP4FakeQuantizeConfig
 
         torch.manual_seed(self.SEED)
         m = M().cuda()
         baseline_model = copy.deepcopy(m)
+        quantize_(
+            baseline_model,
+            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+        )
         qat_config = QATConfig(
             activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
@@ -2116,7 +2126,11 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        self.assertGreater(sqnr, 24)
+        if use_per_tensor_scale:
+            target_sqnr = 130
+        else:
+            target_sqnr = float("inf")
+        self.assertGreaterEqual(sqnr, target_sqnr)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
