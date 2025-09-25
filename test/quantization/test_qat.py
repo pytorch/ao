@@ -2086,7 +2086,7 @@ class TestQAT(TestCase):
         from torchao.prototype.mx_formats import NVFP4InferenceConfig
 
         if use_per_tensor_scale:
-            target_prepare_sqnr = 36
+            target_prepare_sqnr = 21
         else:
             target_prepare_sqnr = float("inf")
 

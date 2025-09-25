@@ -3,9 +3,8 @@ from typing import Optional
 
 import torch
 
-from torchao.prototype.mx_formats.kernels import f4_unpacked_to_f32
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    _nvfp4_quantize,
+    NVFP4Tensor,
     per_tensor_amax_to_scale,
 )
 from torchao.quantization.qat import (
@@ -23,26 +22,9 @@ class _NVFP4FakeQuantize(torch.autograd.Function):
     def forward(
         ctx, x: torch.Tensor, per_tensor_scale: Optional[torch.Tensor]
     ) -> torch.Tensor:
-        block_size = 16
-
-        # quantize
-        scale, q = _nvfp4_quantize(
-            x,
-            block_size=block_size,
-            per_tensor_scale=per_tensor_scale,
-            skip_packing=True,
-        )
-        scale = scale.to(torch.float32)
-        if per_tensor_scale is not None:
-            scale = scale * per_tensor_scale
-
-        # dequantize
-        M, K = q.shape[0], q.shape[1]
-        q = f4_unpacked_to_f32(q)
-        q = q.view(M, K // block_size, block_size)
-        scale = scale.view(M, K // block_size, 1)
-        dq = q * scale
-        return dq.view(x.shape).to(x.dtype)
+        q = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=per_tensor_scale)
+        dq = q.to_dtype(x.dtype)
+        return dq
 
     @staticmethod
     def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
@@ -76,6 +58,7 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
         self.config = config
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        original_shape = x.shape
         if x.dim() == 3:
             x = x.view(-1, x.shape[-1])
         if self.config.use_per_tensor_scale:
@@ -83,4 +66,6 @@ class NVFP4FakeQuantizer(FakeQuantizerBase):
             per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
         else:
             per_tensor_scale = None
-        return _NVFP4FakeQuantize.apply(x, per_tensor_scale)
+        fq = _NVFP4FakeQuantize.apply(x, per_tensor_scale)
+        assert fq.dtype == x.dtype
+        return fq.view(original_shape)

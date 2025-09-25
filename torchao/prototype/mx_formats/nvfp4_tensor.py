@@ -768,15 +768,6 @@ def nvfp4_quantize(
         AssertionError: If input dtype is not supported, tensor size is not
             divisible by block_size, tensor is not contiguous, or block_size != 16
     """
-    return _nvfp4_quantize(data_hp, block_size, per_tensor_scale)
-
-
-def _nvfp4_quantize(
-    data_hp: torch.Tensor,
-    block_size: int = 16,
-    per_tensor_scale: Optional[torch.Tensor] = None,
-    skip_packing: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
     assert data_hp.dtype in (torch.bfloat16, torch.float), (
         f"{data_hp.dtype} not supported"
     )
@@ -821,8 +812,7 @@ def _nvfp4_quantize(
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
     data_lp = f32_to_f4_unpacked(data_scaled)
-    if not skip_packing:
-        # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
-        # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
-        data_lp = pack_uint4(data_lp)
+    # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
+    # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
+    data_lp = pack_uint4(data_lp)
     return out_scales.to(torch.float8_e4m3fn), data_lp
