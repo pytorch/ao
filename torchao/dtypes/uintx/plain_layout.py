@@ -256,7 +256,11 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     w_vals_int8 = weight_tensor.tensor_impl.int_data
     scale = weight_tensor.tensor_impl.scale
     try:
-        y = torch.ops.aten._weight_int8pack_mm(input_tensor.reshape(-1, input_tensor.shape[-1]), w_vals_int8, scale.to(input_tensor.dtype))
+        y = torch.ops.aten._weight_int8pack_mm(
+            input_tensor.reshape(-1, input_tensor.shape[-1]),
+            w_vals_int8,
+            scale.to(input_tensor.dtype),
+        )
     except Exception:
         w_vals_int8_t = w_vals_int8.t()
         scale = weight_tensor.tensor_impl.scale
