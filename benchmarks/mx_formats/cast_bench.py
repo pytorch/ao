@@ -59,8 +59,15 @@ def to_mx_dim0_reference(
     block_size,
     scaling_mode=ScaleCalculationMode.FLOOR,
     target_dtype=torch.float8_e4m3fn,
+    use_fp32_to_fp4_triton_kernel=False,
 ):
-    scale_d0, data_d0 = to_mx(x_hp, target_dtype, block_size, scaling_mode=scaling_mode)
+    scale_d0, data_d0 = to_mx(
+        x_hp,
+        target_dtype,
+        block_size,
+        scaling_mode=scaling_mode,
+        use_fp32_to_fp4_triton_kernel=use_fp32_to_fp4_triton_kernel,
+    )
     return data_d0, scale_d0
 
 
@@ -96,6 +103,7 @@ def run(
         "dim0_dim1",
         "dim0_mxfp8_floor",
         "dim0_mxfp4_floor",
+        "dim0_mxfp4_triton_floor",
         "dim0_mxfp8_rceil",
         "dim1_mxfp8_floor",
         "dim1_mxfp8_rceil",
@@ -192,6 +200,40 @@ def run(
         time_us = benchmark_cuda_function_in_microseconds(
             lambda x, b: to_mx_dim0_reference_c(
                 x, BLOCK_SIZE, target_dtype=torch.float4_e2m1fn_x2
+            ),
+            x,
+            BLOCK_SIZE,
+        )
+
+        # TODO(future PR): make to_mx return float4 directly
+        assert y_d0.dtype == torch.uint8
+        assert s_d0.dtype == torch.float8_e8m0fnu
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim0_mxfp4_triton_floor":
+        to_mx_dim0_reference_c = torch.compile(to_mx_dim0_reference)
+        y_d0, s_d0 = to_mx_dim0_reference_c(
+            x,
+            BLOCK_SIZE,
+            target_dtype=torch.float4_e2m1fn_x2,
+            use_fp32_to_fp4_triton_kernel=True,
+        )
+
+        for _ in range(2):
+            __ = to_mx_dim0_reference_c(
+                x,
+                BLOCK_SIZE,
+                target_dtype=torch.float4_e2m1fn_x2,
+                use_fp32_to_fp4_triton_kernel=True,
+            )
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: to_mx_dim0_reference_c(
+                x,
+                BLOCK_SIZE,
+                target_dtype=torch.float4_e2m1fn_x2,
+                use_fp32_to_fp4_triton_kernel=True,
             ),
             x,
             BLOCK_SIZE,
