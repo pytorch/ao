@@ -544,6 +544,9 @@ class MXTensor(TorchAOBaseTensor):
         # TODO better elem dtype print for fp4
         return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
 
+    def _quantization_type(self):
+        return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         # avoid circular dependency
