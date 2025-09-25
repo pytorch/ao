@@ -130,13 +130,26 @@ class FakeQuantizedLinear(torch.nn.Linear):
             new_linear.bias = self.bias
         return new_linear
 
-    @classmethod
+    @staticmethod
     def from_linear(
-        cls,
         mod: torch.nn.Linear,
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
+        # TODO: rewrite this using a registration API
+        from torchao.prototype.qat import (
+            NVFP4FakeQuantizeConfig,
+            NVFP4FakeQuantizedLinear,
+        )
+
+        if isinstance(weight_config, NVFP4FakeQuantizeConfig):
+            assert activation_config is None or isinstance(
+                activation_config, NVFP4FakeQuantizeConfig
+            )
+            return NVFP4FakeQuantizedLinear.from_linear(
+                mod, activation_config, weight_config
+            )
+
         new_linear = FakeQuantizedLinear(
             mod.in_features,
             mod.out_features,
