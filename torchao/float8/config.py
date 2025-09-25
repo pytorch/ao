@@ -7,7 +7,7 @@
 import enum
 import logging
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import torch
 
@@ -203,6 +203,17 @@ class Float8LinearConfig:
     # by the scaling factor, as well as ensuring large values are quantized to the
     # same value in the forward pass as the backward passes.
     round_scales_to_power_of_2: bool = False
+
+    # If specified, the debug fqn, the name of each gemm
+    # (output/grad_input/grad_weight) and the high_precision and float8 inputs to
+    # each gemm are passed to this function at each iteration. The intended use
+    # case is accuracy and performance logging for debugging. This feature is
+    # prototype and the API may change.
+    _debug_logging_fn: Optional[
+        Callable[
+            [str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], None
+        ]
+    ] = None
 
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
