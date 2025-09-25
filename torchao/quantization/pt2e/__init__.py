@@ -5,6 +5,15 @@ from typing import Callable, Optional, Union
 import torch
 from torch import Tensor
 
+from torchao.quantization import (
+    Granularity,
+    PerAxis,
+    PerBlock,
+    PerGroup,
+    PerRow,
+    PerTensor,
+    PerToken,
+)
 from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
     FROM_NODE_KEY,
@@ -32,9 +41,8 @@ from torchao.quantization.pt2e.graph_utils import (
     get_equivalent_types,
     update_equivalent_types_dict,
 )
+from torchao.quantization.utils import get_block_size
 
-from .. import Granularity, PerAxis, PerBlock, PerGroup, PerRow, PerTensor, PerToken
-from ..utils import get_block_size
 from .fake_quantize import (
     FakeQuantize,
     FakeQuantizeBase,
