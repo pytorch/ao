@@ -771,25 +771,11 @@ def nvfp4_quantize(
     return _nvfp4_quantize(data_hp, block_size, per_tensor_scale)
 
 
-class _Float8Round(torch.autograd.Function):
-    """
-    Cast a tensor to float8 and back to float32 with backward STE.
-    """
-
-    @staticmethod
-    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
-        return x.to(torch.float8_e4m3fn).to(torch.float32)
-
-    @staticmethod
-    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
-        return gy
-
-
 def _nvfp4_quantize(
     data_hp: torch.Tensor,
     block_size: int = 16,
     per_tensor_scale: Optional[torch.Tensor] = None,
-    skip_dtype_cast_and_packing: bool = False,
+    skip_packing: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     assert data_hp.dtype in (torch.bfloat16, torch.float), (
         f"{data_hp.dtype} not supported"
@@ -809,8 +795,10 @@ def _nvfp4_quantize(
     out_scales = None
     if per_tensor_scale is None:
         # We are doing single level scaling
-        block_scale_fp8 = torch.clamp(block_scale, min=E4M3_EPS, max=F8E4M3_MAX)
-        block_scale_fp32 = _Float8Round.apply(block_scale_fp8)
+        block_scale_fp8 = torch.clamp(block_scale, min=E4M3_EPS, max=F8E4M3_MAX).to(
+            torch.float8_e4m3fn
+        )
+        block_scale_fp32 = block_scale_fp8.to(torch.float32)
         data_scaled = data_hp / block_scale_fp32.unsqueeze(-1)
         out_scales = block_scale_fp8
     else:
@@ -822,8 +810,8 @@ def _nvfp4_quantize(
         scaled_block_scales = block_scale_fp32 / per_tensor_scale
         scaled_block_scales_fp8 = torch.clamp(
             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
-        )
-        scaled_block_scales_fp32 = _Float8Round.apply(scaled_block_scales_fp8)
+        ).to(torch.float8_e4m3fn)
+        scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
         # We "temporarily" dequant the scaled_block_scales_fp32 to get the per_tensor_scale
         # To apply to data
         total_scale = per_tensor_scale * scaled_block_scales_fp32
@@ -832,11 +820,9 @@ def _nvfp4_quantize(
 
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
-    if skip_dtype_cast_and_packing:
-        return _Float8Round.apply(out_scales), data_scaled
-    else:
-        data_lp = f32_to_f4_unpacked(data_scaled)
+    data_lp = f32_to_f4_unpacked(data_scaled)
+    if not skip_packing:
         # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
         # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
         data_lp = pack_uint4(data_lp)
-        return out_scales.to(torch.float8_e4m3fn), data_lp
+    return out_scales.to(torch.float8_e4m3fn), data_lp
