@@ -444,7 +444,6 @@
     <span class="n">PerRow</span><span class="p">,</span>
     <span class="n">PerToken</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_block_size</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="p">,</span>
     <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">,</span>
@@ -458,6 +457,7 @@
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_get_per_token_block_size</span><span class="p">,</span>
+    <span class="n">get_block_size</span><span class="p">,</span>
     <span class="n">get_group_qparams_symmetric</span><span class="p">,</span>
     <span class="n">get_groupwise_affine_qparams</span><span class="p">,</span>
 <span class="p">)</span>
