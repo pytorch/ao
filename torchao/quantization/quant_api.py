@@ -1872,20 +1872,14 @@ def _float8_dynamic_activation_float8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    param_name = getattr(config, "param_name")
-    if param_name is None:
-        param_name = "weight"
-
-    assert hasattr(module, param_name), (
+    assert hasattr(module, "weight"), (
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
     )
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-        getattr(module, param_name), config
+        getattr(module, "weight"), config
     )
-    setattr(
-        module, param_name, torch.nn.Parameter(quantized_weight, requires_grad=False)
-    )
+    setattr(module, "weight", torch.nn.Parameter(quantized_weight, requires_grad=False))
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
