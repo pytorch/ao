@@ -322,3 +322,23 @@ def mx_clone(func, types, args, kwargs):
         clone_fn = lambda x: x.clone()
 
     return self._apply_fn_to_data(clone_fn)
+
+
+@implements([aten.select.int])
+def mx_select(func, types, args, kwargs):
+    old_mx_tensor, dim, index = args
+    assert dim == 0, f"MXTensor aten.select.int with {dim=} is not yet supported"
+    assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor._scale_e8m0.shape), (
+        "unsupported"
+    )
+    new_mx_tensor = old_mx_tensor.__class__(
+        old_mx_tensor.qdata[index],
+        old_mx_tensor._scale_e8m0[index],
+        old_mx_tensor._elem_dtype,
+        old_mx_tensor._block_size,
+        old_mx_tensor._orig_dtype,
+        old_mx_tensor._gemm_kernel_choice,
+        old_mx_tensor._pack_fp6,
+        old_mx_tensor.act_quant_kwargs,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_mx_tensor)
