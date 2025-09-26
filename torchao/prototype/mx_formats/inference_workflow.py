@@ -96,10 +96,6 @@ def _linear_extra_repr(self):
 def _mx_inference_linear_transform(
     module: torch.nn.Module, config: MXFPInferenceConfig
 ):
-    # TODO Sm120 has slightly more restrictive reqs
-    # TODO handle AMD
-    assert is_sm_at_least_100(), "MXFP is only supported on sm100 machiens for now"
-
     weight = module.weight
 
     assert weight.dtype == torch.bfloat16, (
