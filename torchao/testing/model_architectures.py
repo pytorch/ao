@@ -22,6 +22,20 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+class ToyTokenizer:
+    def __init__(self):
+        self.vocab_size = 1000
+
+    def encode(self, string, **kwargs):
+        if not string:
+            return [1]
+        tokens = [hash(word) % (self.vocab_size - 10) + 10 for word in string.split()]
+        return [101] + tokens + [102]  # [CLS] + tokens + [SEP]
+
+    def decode(self, token_ids, skip_special_tokens=True):
+        return " ".join([f"word_{i}" for i in token_ids])
+
+
 class ConvWithSharedWeightInExportedModel(nn.Module):
     def __init__(
         self, n_chunks, in_channels, out_channels, kernel_size=3, stride=1, padding=1
