@@ -354,7 +354,7 @@ def to_dtype(
     elem_dtype,
     block_size,
     target_dtype,
-    pack_fp6,
+    pack_fp6: bool = False,
 ):
     orig_shape = data_lp.shape
     is_transposed = not data_lp.is_contiguous()

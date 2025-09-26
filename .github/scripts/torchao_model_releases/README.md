@@ -119,7 +119,7 @@ uv pip install vllm --pre --extra-index-url https://download.pytorch.org/whl/nig
 
 After environment is setup, we can run eval:
 ```
-sh eval.sh --eval_type latency --model_ids Qwen/Qwen3-8B --batch_sizes 1,256
+sh eval.sh --eval_type latency --model_ids Qwen/Qwen3-8B --batch_sizes 1 256
 ```
 
 #### Model Quality Eval
@@ -129,8 +129,15 @@ uv pip install lm-eval
 ```
 After environment is setup, we can run eval:
 ```
-sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag,mmlu
+sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag mmlu
 ```
+
+Note: you can pass in `--use_cache` if the eval task failed during the middle of the run
+and you don't want to re-run all evals.
+```
+sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag mmlu --use_cache
+```
+
 
 #### Summarize results
 After we have finished all evals for each model, we can summarize the results with:
