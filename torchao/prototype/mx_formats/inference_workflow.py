@@ -22,6 +22,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4MMConfig,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
+    per_tensor_amax_to_scale,
 )
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
@@ -134,7 +135,8 @@ class NVFP4InferenceConfig(AOBaseConfig):
     This is a specialized configuration for NVIDIA's FP4 format.
     Configuration parameters:
     - mm_config: NVFP4MMConfig, which can be set to DYNAMIC or WEIGHT_ONLY (emulated mm in high precision)
-    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: False)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
+    - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - Data: float4_e2m1fn_x2
     - Scales: float8_e4m3fn
     - Block size: 16 along the reduction dim
@@ -145,6 +147,7 @@ class NVFP4InferenceConfig(AOBaseConfig):
 
     mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC
     use_triton_kernel: bool = True
+    use_dynamic_per_tensor_scale: bool = True
 
     def __post_init__(self):
         # Validate PyTorch version
@@ -175,12 +178,20 @@ def _nvfp4_inference_linear_transform(
             "Please use bfloat16 or float16 weights, or remove the bias from the linear layer."
         )
 
+    per_tensor_scale = None
+    if config.use_dynamic_per_tensor_scale:
+        tensor_amax = torch.max(torch.abs(weight))
+        per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+
     act_quant_kwargs = None
     if config.mm_config == NVFP4MMConfig.DYNAMIC:
-        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+        )
 
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
+        per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=True,
         use_triton_kernel=False,  # Always use traditional construction for weights
         act_quant_kwargs=act_quant_kwargs,
