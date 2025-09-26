@@ -529,15 +529,6 @@ def quantize_(
     if isinstance(model, nn.Parameter):
         handler = _QUANTIZE_CONFIG_PARAM_HANDLER[type(config)]
         return nn.Parameter(handler(model, config))
-    if isinstance(config, ModuleFqnToConfig):
-        _replace_with_custom_fn_if_matches_filter_with_name(
-            model,
-            _module_fqn_to_config_handler,
-            filter_fn,
-            device=device,
-            extra_args=(config,),
-        )
-        return
     if isinstance(config, ParamFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
@@ -548,6 +539,15 @@ def quantize_(
                 for name, _ in mod.named_parameters()
                 if "." not in name
             ),
+            device=device,
+            extra_args=(config,),
+        )
+        return
+    if isinstance(config, ModuleFqnToConfig):
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _module_fqn_to_config_handler,
+            filter_fn,
             device=device,
             extra_args=(config,),
         )
@@ -1771,7 +1771,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
-    param_name: Optional[str] = None
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1877,9 +1876,9 @@ def _float8_dynamic_activation_float8_weight_transform(
         + f"but {module} does not have one"
     )
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-        getattr(module, "weight"), config
+        module.weight, config
     )
-    setattr(module, "weight", torch.nn.Parameter(quantized_weight, requires_grad=False))
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -2389,18 +2388,18 @@ class ParamFqnToConfig(AOBaseConfig):
 
 
 def _param_fqn_to_config_handler(
-    mod_containg_param: torch.nn.Module, fqn: str, config: ParamFqnToConfig
+    mod_containing_param: torch.nn.Module, fqn: str, config: ParamFqnToConfig
 ):
-    for name, param in list(mod_containg_param.named_parameters()):
+    for name, param in list(mod_containing_param.named_parameters()):
         # skip if not direct child
         if "." not in name:
             for pattern in config.param_fqn_to_config:
                 if re.match(pattern, f"{fqn}.{name}"):
                     param_config = config.param_fqn_to_config.get(pattern)
                     assert param_config is not None
-                    setattr(mod_containg_param, name, quantize_(param, param_config))
+                    setattr(mod_containing_param, name, quantize_(param, param_config))
 
-    return mod_containg_param
+    return mod_containing_param
 
 
 torch.serialization.add_safe_globals(
