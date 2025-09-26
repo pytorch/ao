@@ -20,6 +20,7 @@ import types
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import re
 
 import torch
 import torch.nn as nn
@@ -532,18 +533,31 @@ def quantize_(
             extra_args=(config,),
         )
         return
+    if isinstance(config, ParamFqnToConfig):
+        def my_filter_fn(mod, fqn):
+            for name, _ in mod.named_parameters():
+                if "." not in name:
+                    return any(re.match(pattern, f"{fqn}.{name}") for pattern in config.param_fqn_to_config)
 
-    if isinstance(config, AOBaseConfig):
-        handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
-        # for each linear in the model, apply the transform if filtering passes
-        _replace_with_custom_fn_if_matches_filter(
+        _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            handler,
-            filter_fn,
+            _param_fqn_to_config_handler,
+            my_filter_fn,
             device=device,
             extra_args=(config,),
         )
-
+        return
+    if isinstance(config, AOBaseConfig):
+        handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
+        # for each linear in the model, apply the transform if filtering passes
+        if isinstance(model, nn.Module):
+            _replace_with_custom_fn_if_matches_filter(
+                model,
+                handler,
+                filter_fn,
+                device=device,
+                extra_args=(config,),
+            )
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
@@ -2356,6 +2370,36 @@ def _module_fqn_to_config_handler(
 
     return module
 
+@dataclass
+class ParamFqnToConfig(AOBaseConfig):
+    """Per param configurations for torchao quantize_ API
+
+    Args:
+        `param_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
+         the fully qualified name of the parameter to the AOBaseConfig that we want to apply to that parameter.
+    """
+
+    param_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.ParamFqnToConfig")
+
+def _param_fqn_to_config_handler(
+    mod_containg_param: torch.nn.Module, fqn: str, config: ParamFqnToConfig
+):
+    for name, param in list(mod_containg_param.named_parameters()):
+        # skip if not direct child
+        print(mod_containg_param, fqn, name)
+        if "." not in name:
+            for pattern in config.param_fqn_to_config:
+                if re.match(pattern, f"{fqn}.{name}"):
+                    print("Matching pattern", pattern)
+                    param_config = config.param_fqn_to_config.get(pattern)
+                    setattr(mod_containg_param, name, nn.Parameter(_float8_dynamic_activation_float8_weight_quantize_tensor(param, param_config)))
+
+    return mod_containg_param
 
 torch.serialization.add_safe_globals(
     [

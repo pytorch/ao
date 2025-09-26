@@ -386,7 +386,7 @@ def _(func, types, args, kwargs):
         a_data = input_tensor.qdata
         a_scale = input_tensor.scale
 
-        b_data = weight_tensor.qdata
+        b_data = weight_tensor.qdata.transpose(1, 2).contiguous()
         b_scale = weight_tensor.scale.squeeze(-1)
         assert b_data.is_contiguous(), "weight for bmm must be contiguous"
 
@@ -400,7 +400,7 @@ def _(func, types, args, kwargs):
         ), "bmm only works for per row activation quantization"
 
         orig_out_features = b_data.shape[-2]
-
+        breakpoint()
         res = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
             a_data,
             b_data,
@@ -414,7 +414,6 @@ def _(func, types, args, kwargs):
         )
 
     return res
-
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):

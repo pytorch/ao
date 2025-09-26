@@ -23,6 +23,7 @@ from torchao.quantization.quant_api import (
     PerTensor,
     quantize_,
 )
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
 from torchao.utils import is_sm_at_least_90
 import torch.nn.functional as F
@@ -190,10 +191,52 @@ class TestTorchAOCheckpoint(TestCase):
         from transformers import AutoConfig, AutoModel
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
-        config = AutoConfig.from_pretrained("unsloth/Llama-4-Scout-17B-16E-Instruct")
-        model = Llama4TextMoe(config.text_config).to(torch.bfloat16).cuda()
+        config = AutoConfig.from_pretrained("unsloth/Llama-4-Scout-17B-16E-Instruct").text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        input_tensor = torch.randn(16, 128, config.hidden_size).cuda().bfloat16()
+        # print(model.experts)
+        for name, param in model.named_parameters():
+            print(name)
+
+        from torchao.quantization.quant_api import ParamFqnToConfig 
+
+        quant_config = ParamFqnToConfig({
+            "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerRow(),
+            ),
+        })
+
+
         quantize_(
             model,
-            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
-        print(model)
-        print("DONE")
+            quant_config,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+
+    def test_regex(self):
+        from transformers import AutoConfig, AutoModel
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained("unsloth/Llama-4-Scout-17B-16E-Instruct").text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        input_tensor = torch.randn(16, 128, config.hidden_size).cuda().bfloat16()
+        # print(model.experts)
+        for name, param in model.named_parameters():
+            print(name)
+
+        from torchao.quantization.quant_api import ParamFqnToConfig 
+
+        quant_config = ParamFqnToConfig({
+            ".*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerRow(),
+            ),
+        })
+
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
