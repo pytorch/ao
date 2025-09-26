@@ -815,4 +815,4 @@ def nvfp4_quantize(
     # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
     # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
     data_lp = pack_uint4(data_lp)
-    return out_scales.to(torch.float8_e4m3fn), data_lp
+    return out_scales, data_lp

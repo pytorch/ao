@@ -45,8 +45,6 @@ class _NVFP4FakeQuantizedForward(torch.autograd.Function):
         activation_config: NVFP4FakeQuantizeConfig,
         weight_config: NVFP4FakeQuantizeConfig,
     ) -> torch.Tensor:
-        ctx.save_for_backward(_input, weight)
-
         # quantize input activations
         if activation_config.use_per_tensor_scale:
             tensor_amax = torch.max(torch.abs(_input))
@@ -77,6 +75,8 @@ class _NVFP4FakeQuantizedForward(torch.autograd.Function):
         # for weights and set `use_triton_kernel` afterwards
         weight.use_triton_kernel = weight_config.use_triton_kernel
 
+        ctx.save_for_backward(_input, weight)
+
         return _addmm_nvfp4_dispatch(
             _input,
             weight.t(),
@@ -87,6 +87,10 @@ class _NVFP4FakeQuantizedForward(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         _input, weight = ctx.saved_tensors
+        assert isinstance(_input, NVFP4Tensor)
+        assert isinstance(weight, NVFP4Tensor)
+        _input = _input.to_dtype(_input._orig_dtype)
+        weight = weight.to_dtype(weight._orig_dtype)
         grad_input = torch.mm(grad_output, weight)
         grad_weight = torch.mm(grad_output.t(), _input)
         return grad_input, grad_weight, None, None, None
