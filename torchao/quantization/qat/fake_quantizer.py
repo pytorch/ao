@@ -60,20 +60,12 @@ class FakeQuantizerBase(torch.nn.Module):
 
     @staticmethod
     def from_config(config: FakeQuantizeConfigBase) -> "FakeQuantizerBase":
-        # TODO: rewrite using registration API so we don't need to import here
-        from torchao.prototype.qat import (
-            NVFP4FakeQuantizeConfig,
-            NVFP4FakeQuantizer,
-        )
-
         if isinstance(config, IntxFakeQuantizeConfig):
             return IntxFakeQuantizer(config)
         elif isinstance(config, Int4WeightFakeQuantizeConfig):
             return Int4WeightFakeQuantizer(config)
         elif isinstance(config, Float8FakeQuantizeConfig):
             return Float8FakeQuantizer(config)
-        elif isinstance(config, NVFP4FakeQuantizeConfig):
-            return NVFP4FakeQuantizer(config)
         else:
             raise ValueError(f"Unknown config type: {config}")
 
