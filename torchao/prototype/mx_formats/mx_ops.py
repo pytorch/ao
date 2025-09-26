@@ -352,3 +352,16 @@ def autocast_to_copy(func, types, args, kwargs):
 
     # If only device was changed, return the device-changed tensor
     return tensor
+
+
+@implements([aten.clone.default])
+def mx_clone(func, types, args, kwargs):
+    self = args[0]
+    memory_format = kwargs.get("memory_format", None)
+
+    if memory_format is not None:
+        clone_fn = lambda x: x.clone(memory_format=memory_format)
+    else:
+        clone_fn = lambda x: x.clone()
+
+    return self._apply_fn_to_data(clone_fn)
