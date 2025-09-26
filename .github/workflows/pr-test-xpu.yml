@@ -206,11 +206,6 @@ jobs:
           # jenkins user does not have write permission to mounted workspace; work-around by copying within container to jenkins home
           docker exec -t "${container_name}" sh -c "bash ${TEST_COMMAND}"
 
-      - name: Change permissions
-        if: ${{ always() && steps.test.conclusion }}
-        run: |
-          docker exec -t "${{ env.CONTAINER_NAME }}" sh -c "sudo chown -R jenkins:jenkins test"
-
       - name: Collect backtraces from coredumps (if any)
         if: always()
         run: |
