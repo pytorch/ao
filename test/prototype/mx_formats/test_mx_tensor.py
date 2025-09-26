@@ -456,6 +456,20 @@ def test_view(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_clone():
+    data = torch.randn(8, 8, device="cuda", dtype=torch.bfloat16)
+    block_size = 4
+    data_mx = MXTensor.to_mx(data, torch.float8_e4m3fn, block_size)
+    data_mx_c = data_mx.clone()
+    torch.testing.assert_close(
+        data_mx.to_dtype(torch.bfloat16),
+        data_mx_c.to_dtype(torch.bfloat16),
+        atol=0,
+        rtol=0,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
 @pytest.mark.parametrize("pack_fp6", [False, True])
 def test_fp6_packing(elem_dtype, pack_fp6):
