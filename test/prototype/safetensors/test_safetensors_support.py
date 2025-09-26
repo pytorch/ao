@@ -45,6 +45,7 @@ class TestSafeTensors(TestCase):
             (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
             (Int4WeightOnlyConfig(), False),
             (Int4WeightOnlyConfig(), True),
+            (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
         ],
     )
     def test_safetensors(self, config, act_pre_scale=False):
