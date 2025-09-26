@@ -23,7 +23,6 @@ from torchao.float8.inference import (
     preprocess_scale,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
     _dequantize_affine_float8,
@@ -34,6 +33,7 @@ from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_fbgemm_genai_gpu_available,
@@ -619,25 +619,24 @@ def _(func, types, args, kwargs):
 
 @implements(aten.select.int)
 def _(func, types, args, kwargs):
-    self, dim, index = args
-    qdata = self.qdata.select(dim, index)
-    # TODO we need to handle this case differently based on the scaling config
-
-    scale = self.scale.select(dim, index).t()
-    """
-    Without the transpose here, I run into the following runtime error:
-    E       RuntimeError: Invalid scaling configuration. For TensorWise scaling, both scales should be scalar. For RowWise scaling, scale_a should be (512, 1) and scale_b should be (1, 1024). Got scale_a.size()=(512, 1) and scale_b.size()=(1024, 1)
-    """
-
-    new = self.__class__(
-        qdata,
-        scale,
-        self.block_size,
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
+    old_float8_tensor, dim, index = args
+    assert dim == 0, f"Float8Tensor aten.select.int with {dim=} is not yet supported"
+    assert len(old_float8_tensor.qdata.shape) == len(old_float8_tensor.scale.shape), (
+        "unsupported"
     )
-    return return_and_correct_aliasing(func, args, kwargs, new)
+    assert len(old_float8_tensor.qdata.shape) == len(old_float8_tensor.block_size), (
+        "unsupported"
+    )
+    new_float8_tensor = old_float8_tensor.__class__(
+        old_float8_tensor.qdata[index],
+        old_float8_tensor.scale[index],
+        old_float8_tensor.block_size[1:],
+        old_float8_tensor.mm_config,
+        old_float8_tensor.act_quant_kwargs,
+        old_float8_tensor.kernel_preference,
+        old_float8_tensor.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_float8_tensor)
 
 
 Float8Tensor.__module__ = "torchao.quantization"
