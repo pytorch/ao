@@ -34,6 +34,7 @@ _VIEW_FUNCTION_OPS = [
     aten.transpose.int,
     aten.permute.default,
     aten.view.default,
+    aten.reshape.default,
 ]
 
 _VIEW_METHOD_OPS = [
