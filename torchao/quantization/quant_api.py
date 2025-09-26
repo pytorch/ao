@@ -20,6 +20,7 @@ import types
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import re
 
 import torch
 import torch.nn as nn
@@ -85,7 +86,9 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
+    _QUANTIZE_CONFIG_PARAM_HANDLER,
     register_quantize_module_handler,
+    register_quantize_param_handler,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
@@ -533,18 +536,34 @@ def quantize_(
             extra_args=(config,),
         )
         return
+    if isinstance(config, ParamFqnToConfig):
+        def my_filter_fn(mod, fqn):
+            for name, _ in mod.named_parameters():
+                if "." not in name:
+                    return any(re.match(pattern, f"{fqn}.{name}") for pattern in config.param_fqn_to_config)
 
-    if isinstance(config, AOBaseConfig):
-        handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
-        # for each linear in the model, apply the transform if filtering passes
-        _replace_with_custom_fn_if_matches_filter(
+        _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            handler,
-            filter_fn,
+            _param_fqn_to_config_handler,
+            my_filter_fn,
             device=device,
             extra_args=(config,),
         )
-
+        return
+    if isinstance(model, nn.Parameter):
+        handler = _QUANTIZE_CONFIG_PARAM_HANDLER[type(config)]
+        return nn.Parameter(handler(model, config))
+    if isinstance(config, AOBaseConfig):
+        handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
+        # for each linear in the model, apply the transform if filtering passes
+        if isinstance(model, nn.Module):
+            _replace_with_custom_fn_if_matches_filter(
+                model,
+                handler,
+                filter_fn,
+                device=device,
+                extra_args=(config,),
+            )
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
@@ -1770,7 +1789,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor (default)
 
     """
-
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
@@ -1780,6 +1798,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
+    param_name: Optional[str] = None
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1798,7 +1817,7 @@ float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
     "float8_dynamic_activation_float8_weight", Float8DynamicActivationFloat8WeightConfig
 )
 
-
+@register_quantize_param_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -1879,14 +1898,19 @@ def _float8_dynamic_activation_float8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
+
+    param_name = getattr(config, "param_name")
+    if param_name is None:
+        param_name = "weight"
+
+    assert hasattr(module, param_name), (
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
     )
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-        module.weight, config
+        getattr(module, param_name), config
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    setattr(module, param_name, torch.nn.Parameter(quantized_weight, requires_grad=False))
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -2398,6 +2422,35 @@ def _module_fqn_to_config_handler(
 
     return module
 
+@dataclass
+class ParamFqnToConfig(AOBaseConfig):
+    """Per param configurations for torchao quantize_ API
+
+    Args:
+        `param_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
+         the fully qualified name of the parameter to the AOBaseConfig that we want to apply to that parameter.
+    """
+
+    param_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.ParamFqnToConfig")
+
+def _param_fqn_to_config_handler(
+    mod_containg_param: torch.nn.Module, fqn: str, config: ParamFqnToConfig
+):
+    for name, param in list(mod_containg_param.named_parameters()):
+        # skip if not direct child
+        if "." not in name:
+            for pattern in config.param_fqn_to_config:
+                if re.match(pattern, f"{fqn}.{name}"):
+                    param_config = config.param_fqn_to_config.get(pattern)
+                    assert param_config is not None
+                    setattr(mod_containg_param, name, quantize_(param, param_config))
+
+    return mod_containg_param
 
 torch.serialization.add_safe_globals(
     [
