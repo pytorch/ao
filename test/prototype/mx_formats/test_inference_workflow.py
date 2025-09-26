@@ -21,7 +21,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -190,3 +190,21 @@ def test_inference_workflow_nvfp4(
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
     )
+
+
+class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
+    def test_slice_and_copy_similar_to_vllm(self):
+        config = MXFPInferenceConfig(
+            activation_dtype=torch.float8_e4m3fn,
+            weight_dtype=torch.float8_e4m3fn,
+            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+        )
+        self._test_slice_and_copy_similar_to_vllm(config)
+
+    def test_narrow_similar_to_vllm(self):
+        config = MXFPInferenceConfig(
+            activation_dtype=torch.float8_e4m3fn,
+            weight_dtype=torch.float8_e4m3fn,
+            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+        )
+        self._test_narrow_similar_to_vllm(config)
