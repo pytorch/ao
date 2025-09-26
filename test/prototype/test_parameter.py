@@ -240,3 +240,10 @@ class TestTorchAOCheckpoint(TestCase):
         )
 
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+
+    def test_top_level_param(self):
+        param = nn.Parameter(torch.randn(1024, 1024).cuda().to(torch.bfloat16))
+
+        new_param = quantize_(param, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
+
+        assert isinstance(new_param, Float8Tensor)

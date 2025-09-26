@@ -86,7 +86,9 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
+    _QUANTIZE_CONFIG_PARAM_HANDLER,
     register_quantize_module_handler,
+    register_quantize_param_handler,
 )
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
@@ -547,6 +549,9 @@ def quantize_(
             extra_args=(config,),
         )
         return
+    if isinstance(model, nn.Parameter):
+        handler = _QUANTIZE_CONFIG_PARAM_HANDLER[type(config)]
+        return nn.Parameter(handler(model, config))
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
@@ -1784,7 +1789,7 @@ float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
     "float8_dynamic_activation_float8_weight", Float8DynamicActivationFloat8WeightConfig
 )
 
-
+@register_quantize_param_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -2391,13 +2396,12 @@ def _param_fqn_to_config_handler(
 ):
     for name, param in list(mod_containg_param.named_parameters()):
         # skip if not direct child
-        print(mod_containg_param, fqn, name)
         if "." not in name:
             for pattern in config.param_fqn_to_config:
                 if re.match(pattern, f"{fqn}.{name}"):
-                    print("Matching pattern", pattern)
                     param_config = config.param_fqn_to_config.get(pattern)
-                    setattr(mod_containg_param, name, nn.Parameter(_float8_dynamic_activation_float8_weight_quantize_tensor(param, param_config)))
+                    assert param_config is not None
+                    setattr(mod_containg_param, name, quantize_(param, param_config))
 
     return mod_containg_param
 
