@@ -24,6 +24,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
 )
+from torchao.quantization.quant_api import _quantization_type
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -89,7 +90,7 @@ class MXFPInferenceConfig(AOBaseConfig):
 
 
 def _linear_extra_repr(self):
-    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={repr(self.weight)}"
+    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
 @register_quantize_module_handler(MXFPInferenceConfig)
