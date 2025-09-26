@@ -555,14 +555,13 @@ def quantize_(
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
-        if isinstance(model, nn.Module):
-            _replace_with_custom_fn_if_matches_filter(
-                model,
-                handler,
-                filter_fn,
-                device=device,
-                extra_args=(config,),
-            )
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            handler,
+            filter_fn,
+            device=device,
+            extra_args=(config,),
+        )
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
