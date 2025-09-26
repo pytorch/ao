@@ -212,14 +212,14 @@ inline void sub_exp_sum_div_quant_sum_fusion_kernel(
       for (; col < vec_size * (kvBlockSize / vec_size); col += vec_size) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
         auto tmp1 = tmp0 - vec_max;
-        auto tmp2 = tmp1.exp_u20();
+        auto tmp2 = tmp1.fexp_u20();
         vec_tmp_sum += tmp2;
         store(tmp_out + col, tmp2);
       }
       if (col < kvBlockSize) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, kvBlockSize - col);
         auto tmp1 = tmp0 - vec_max;
-        auto tmp2 = tmp1.exp_u20();
+        auto tmp2 = tmp1.fexp_u20();
         store(tmp_out + col, tmp2, kvBlockSize - col);
         vec_tmp_sum = at::vec::Vectorized<float>::set(vec_tmp_sum, vec_tmp_sum + tmp2, kvBlockSize - col);
       }
@@ -316,14 +316,14 @@ inline void sub_exp_sum_div_quant_fusion_kernel(
       for (; col < vec_size * (kvBlockSize / vec_size); col += vec_size) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
         auto tmp1 = tmp0 - vec_max;
-        auto tmp2 = tmp1.exp_u20();
+        auto tmp2 = tmp1.fexp_u20();
         vec_tmp_sum += tmp2;
         store(tmp_out + col, tmp2);
       }
       if (col < kvBlockSize) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, kvBlockSize - col);
         auto tmp1 = tmp0 - vec_max;
-        auto tmp2 = tmp1.exp_u20();
+        auto tmp2 = tmp1.fexp_u20();
         vec_tmp_sum = at::vec::Vectorized<float>::set(vec_tmp_sum, vec_tmp_sum + tmp2, kvBlockSize - col);
         store(tmp_out + col, tmp2, kvBlockSize - col);
       }
@@ -1300,7 +1300,6 @@ extern "C"
       int64_t i = 0, j = 0, l = 0, n = 0;
       at::native::data_index_init(
           begin, i, batchSize, j, num_head, l, kvSlice);
-      uint8_t* B_blocked_xform_u8 = new uint8_t[rndHeadSize * kvSplitSize];
       for (const auto z : c10::irange(begin, end)) {
         (void)z; // Suppress unused variable
         n = l * kvSplitSize;
@@ -1310,19 +1309,12 @@ extern "C"
                       i * num_head * kvSlice * v_reorder_strideL +
                       j * kvSlice * v_reorder_strideL + n * rndHeadSize;
         int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
-        at::native::utils::transpose<uint8_t>(
-              kvBlockSize,
-              headSize,
-              k_data + i * kStrideB + j * kStrideH + n * kStrideN,
-              kStrideN,
-              B_blocked_xform_u8,
-              kvBlockSize);
-        at::vec::pack_vnni4(
-              /* src */ B_blocked_xform_u8,
+        at::vec::transpose_pack_vnni4(
+              /* src */ k_data + i * kStrideB + j * kStrideH + n * kStrideN,
               /* dst */ k_reorder,
-              /* ld_src */ kvBlockSize,
-              /* K */ rndHeadSize,
-              /* N */ kvBlockSize);
+              /* ld_src */ kStrideN,
+              /* K */ kvBlockSize,
+              /* N */ rndHeadSize);
         at::vec::pack_vnni4(
               /* src */ v_data + i * vStrideB + j * vStrideH + n * vStrideN,
               /* dst */ v_reorder,

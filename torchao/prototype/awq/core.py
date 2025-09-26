@@ -75,11 +75,13 @@ class AWQObserver(torch.nn.Module):
 
         best_loss = float("inf")
         best_scales = None
+
         for i in range(self.scale_options):
             ratio = i * 1 / self.scale_options
             scales = x_max.pow(ratio).to(self.weight.dtype).clamp(min=1e-4).view(-1)
             if best_scales is None:
-                best_scales = scales
+                best_scales = torch.ones_like(scales)
+
             scales = scales / (scales.max() * scales.min()).sqrt()
             config_handler = _QUANTIZE_CONFIG_HANDLER[type(self.base_config)]
             dummy_mod = DummyModule(self.weight * scales)
