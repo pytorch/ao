@@ -31,9 +31,10 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     use_triton_kernel: bool = False
 
 
-class _NVFP4FakeQuantizedLinearForward(torch.autograd.Function):
+class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
-    Autograd function for NVFP4 fake quantization + addmm.
+    Autograd function for NVFP4 quantization + addmm in low precision during forward,
+    and fake quantization in high precision during backward.
     """
 
     @staticmethod
@@ -100,7 +101,9 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
     """
     Linear module for fake quantized NVFP4 weights and/or activations.
 
-    The forward pass follows quantization and addmm numerics in `NVFP4Tensor` exactly.
+    The forward pass follows quantization and addmm numerics in `NVFP4Tensor`
+    in lower precision exactly, while the backward pass uses dequantize
+    (fake quantized) values in high precision.
 
     Example usage::
 
@@ -146,7 +149,7 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
             x = x.view(-1, x.shape[-1])
         else:
             batch_size = None
-        fq = _NVFP4FakeQuantizedLinearForward.apply(
+        fq = _NVFP4QuantizedForwardFakeQuantizedBackward.apply(
             x, self.weight, self.bias, self.activation_config, self.weight_config
         )
         assert fq.dtype == x.dtype
