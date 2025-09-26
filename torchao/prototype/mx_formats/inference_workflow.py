@@ -17,7 +17,11 @@ from torchao.prototype.mx_formats.config import (
     _validate_elem_dtype,
     _validate_gemm_kernel_choice,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor, QuantizeTensorToMXKwargs
+from torchao.prototype.mx_formats.mx_tensor import (
+    MXTensor,
+    QuantizeTensorToMXKwargs,
+    ScaleCalculationMode,
+)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4MMConfig,
     NVFP4Tensor,
@@ -206,6 +210,8 @@ torch.serialization.add_safe_globals(
         NVFP4Tensor,
         NVFP4MMConfig,
         MXGemmKernelChoice,
+        QuantizeTensorToMXKwargs,
+        ScaleCalculationMode,
     ]
 )
 

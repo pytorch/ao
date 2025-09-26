@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import tempfile
 
 import pytest
 import torch
@@ -99,6 +100,16 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
+
+    # serialization
+    with tempfile.NamedTemporaryFile() as f:
+        torch.save(m_mx.state_dict(), f)
+        f.seek(0)
+
+        # temporary workaround for https://github.com/pytorch/ao/issues/3077
+        torch.serialization.add_safe_globals([getattr])
+
+        _ = torch.load(f, weights_only=True)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
