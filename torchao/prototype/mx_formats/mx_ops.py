@@ -45,15 +45,7 @@ MX_OPS_TABLE: Dict[Any, Any] = {}
 MX_FUNCTION_TABLE: Dict[Any, Any] = {}
 
 
-def implements(aten_ops):
-    """Register aten ops to the mx op table"""
-
-    def decorator(func):
-        for op in aten_ops:
-            MX_OPS_TABLE[op] = func
-        return func
-
-    return decorator
+implements = MXTensor.implements
 
 
 @implements([aten.detach.default, aten.alias.default])
