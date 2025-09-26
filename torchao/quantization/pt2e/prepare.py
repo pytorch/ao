@@ -154,17 +154,17 @@ def _union(
     root_child = _find_root_edge_or_node(child, shared_with_map)
 
     parent_qspec = edge_or_node_to_qspec[root_parent]
-    if not (
+    if (
         isinstance(parent_qspec, SharedQuantizationSpec)
         and parent_qspec.edge_or_node == root_child
     ):
-        # union the two trees by pointing the root of child to root of parent
-        shared_with_map[root_child] = root_parent
-    else:
         # Parent already references child with a shared qspec. We would create
         # a cycle if we formed an edge from the child to the parent. Therefore,
         # we reverse the edge in this particular case.
         shared_with_map[root_parent] = root_child
+    else:
+        # union the two trees by pointing the root of child to root of parent
+        shared_with_map[root_child] = root_parent
 
 
 def _update_shared_with(
