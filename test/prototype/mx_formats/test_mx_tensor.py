@@ -557,6 +557,7 @@ def test_to_mx_inductor_single_kernel():
     FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(code[0])
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipIf(not is_sm_at_least_90(), "Need sm90+")
 def test_index_select():
     """
