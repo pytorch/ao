@@ -23,7 +23,7 @@ from torchao.float8.inference import (
     preprocess_scale,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.utils import get_block_size
+from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
     _dequantize_affine_float8,
