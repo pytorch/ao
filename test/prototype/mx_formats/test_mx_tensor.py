@@ -570,8 +570,6 @@ def test_index_select():
     x = torch.randn(E, N, K, device="cuda", dtype=torch.bfloat16)
     x_mx = MXTensor.to_mx(x, torch.float8_e4m3fn, 32)
 
-    # import pdb; pdb.set_trace()
-
     x_mx_1 = x_mx[1]
     torch.testing.assert_close(
         x_mx.to_dtype(x.dtype)[1], x_mx_1.to_dtype(x.dtype), atol=0, rtol=0
