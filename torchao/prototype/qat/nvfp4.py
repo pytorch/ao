@@ -31,9 +31,9 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     use_triton_kernel: bool = False
 
 
-class _NVFP4FakeQuantizedForward(torch.autograd.Function):
+class _NVFP4FakeQuantizedLinearForward(torch.autograd.Function):
     """
-    TODO: write me
+    Autograd function for NVFP4 fake quantization + addmm.
     """
 
     @staticmethod
@@ -98,7 +98,22 @@ class _NVFP4FakeQuantizedForward(torch.autograd.Function):
 
 class NVFP4FakeQuantizedLinear(torch.nn.Linear):
     """
-    TODO: write me
+    Linear module for fake quantized NVFP4 weights and/or activations.
+
+    The forward pass follows quantization and addmm numerics in `NVFP4Tensor` exactly.
+
+    Example usage::
+
+        from torchao.quantization import quantize_
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+
+        base_config = NVFP4InferenceConfig()
+        quantize_(model, QATConfig(base_config, step="prepare"))
+        # Model contains `NVFP4FakeQuantizedLinear` now
+
+        train_loop(model)
+        quantize_(model, QATConfig(base_config, step="convert"))
+        # Model contains `nn.Linear` with `NVFP4Tensor` weights now
     """
 
     def __init__(
@@ -131,7 +146,7 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
             x = x.view(-1, x.shape[-1])
         else:
             batch_size = None
-        fq = _NVFP4FakeQuantizedForward.apply(
+        fq = _NVFP4FakeQuantizedLinearForward.apply(
             x, self.weight, self.bias, self.activation_config, self.weight_config
         )
         assert fq.dtype == x.dtype
