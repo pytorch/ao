@@ -193,6 +193,11 @@ def test_inference_workflow_nvfp4(
 
 
 class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
     def test_slice_and_copy_similar_to_vllm(self):
         config = MXFPInferenceConfig(
             activation_dtype=torch.float8_e4m3fn,
@@ -201,6 +206,11 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         )
         self._test_slice_and_copy_similar_to_vllm(config)
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
     def test_narrow_similar_to_vllm(self):
         config = MXFPInferenceConfig(
             activation_dtype=torch.float8_e4m3fn,
