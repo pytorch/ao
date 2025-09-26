@@ -14,10 +14,12 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.quantization.quantize_.workflows.int4.int4_tile_packed_to_4d_tensor import (
+from torchao.quantization import (
     Int4TilePackedTo4dTensor,
+    Int4WeightOnlyConfig,
+    quantize_,
 )
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import is_sm_at_least_90
@@ -235,6 +237,26 @@ class TestInt4TilePackedTo4dTensor(TorchAOIntegrationTestCase):
         input = torch.randn(1, 512, device=device, dtype=dtype)
         # make sure it runs
         torch.nn.functional.linear(input, weight)
+
+    @parametrize("config", [INT4_CONFIG, INT4_HQQ_CONFIG])
+    def test_activation_prescaling(self, config):
+        dtype = torch.bfloat16
+        device = "cuda"
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, config)
+        qw = linear.weight
+        assert isinstance(qw, SupportsActivationPreScaling), (
+            "Expected int4 tensor supports activation prescaling"
+        )
+        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
+        _ACT_PRE_SCALE = 2
+        qw.act_pre_scale = _ACT_PRE_SCALE
+        quantized = linear(input)
+
+        # making sure activation pre scaling is successfully applied to the activation
+        self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
     @parametrize("group_size", [32, 64, 128])
     def test_different_group_sizes(self, group_size):

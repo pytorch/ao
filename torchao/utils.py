@@ -736,9 +736,7 @@ def _get_tensor_impl_constructor(
 
 def _get_to_kwargs(self, *args, **kwargs):
     # `torch._C._nn._parse_to` can't handle `layout` argument
-    for arg in args:
-        if isinstance(arg, torch.layout):
-            args.remove(arg)
+    args = tuple(arg for arg in args if not isinstance(arg, torch.layout))
     if "layout" in kwargs:
         kwargs.pop("layout")
     # ignoring `non_blocking` and `memory_format` args since these are not
