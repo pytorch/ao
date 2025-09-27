@@ -129,7 +129,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         # Dequantize output
         lowp_dtype = output.dtype
         highp_dtype = input.dtype
-        hp_output = to_dtype(
+        to_dtype_c = torch.compile(to_dtype)
+        hp_output = to_dtype_c(
             output,
             output_scales.view(torch.float8_e8m0fnu),
             lowp_dtype,
@@ -171,7 +172,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
 
         # Quantize grad_output
         block_size = 32
-        grad_out_scales, grad_out_data = to_mx(
+        to_mx_c = torch.compile(to_mx)
+        grad_out_scales, grad_out_data = to_mx_c(
             grad_output,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
@@ -215,7 +217,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
 
         # Dequantize grad_input
         lowp_dtype = grad_out_data.dtype
-        grad_input_highp = to_dtype(
+        to_dtype_c = torch.compile(to_dtype)
+        grad_input_highp = to_dtype_c(
             grad_input,
             grad_input_scales.view(torch.float8_e8m0fnu),
             lowp_dtype,
@@ -238,7 +241,7 @@ def _mxfp8_on_device_all_to_all_v(
     output_scales: torch.Tensor,
     output_splits: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
-    BLOCKS_PER_REMOTE_RANK: int = 8,
+    BLOCKS_PER_REMOTE_RANK: int = 32,
     BLOCK_SIZE: int = 16384,
 ):
     assert input.dim() == 2, f"{input.shape}"
@@ -349,21 +352,60 @@ def _mxfp8_all_to_all_v_kernel(
 
     # Copy target region of remote rank input data to our local output buffer.
     total_input_elems_to_read = num_rows_to_read * dim
-    num_input_blocks = tl.cdiv(total_input_elems_to_read, BLOCK_SIZE)
-    for block_idx in tl.range(num_input_blocks):
-        offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = offs < total_input_elems_to_read
+
+    # Calculate max elements per block to prevent overlap
+    block_start = block_offset * (total_input_elems_to_read // BLOCKS_PER_REMOTE_RANK)
+    block_end = (block_offset + 1) * (
+        total_input_elems_to_read // BLOCKS_PER_REMOTE_RANK
+    )
+    if block_offset == BLOCKS_PER_REMOTE_RANK - 1:  # Last block handles remainder
+        block_end = total_input_elems_to_read
+
+    # Only process blocks within this thread block's assigned range
+    block_size_for_tb = block_end - block_start
+    if block_size_for_tb <= 0:
+        return
+
+    num_input_blocks_this_thread = tl.cdiv(block_size_for_tb, BLOCK_SIZE)
+    for block_idx in tl.range(num_input_blocks_this_thread):
+        offs = block_start + block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = (
+            (offs >= block_start)
+            & (offs < block_end)
+            & (offs < total_input_elems_to_read)
+        )
         data = tl.load(input_ptr + offs, mask=mask, other=0.0)
         tl.store(output_ptr + offs, data, mask=mask)
 
     # Copy input_scales (scales on remote rank) to output_scales local buffer.
     total_input_scales_to_read = num_rows_to_read * dim_scaling_groups
-    num_input_scale_blocks = tl.cdiv(total_input_scales_to_read, BLOCK_SIZE)
-    for block_idx in tl.range(num_input_scale_blocks):
-        offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = offs < total_input_scales_to_read
-        data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
-        tl.store(output_scale_ptr + offs, data, mask=mask)
+
+    # Calculate work partitioning for scales to prevent overlap between blocks
+    scale_block_start = block_offset * (
+        total_input_scales_to_read // BLOCKS_PER_REMOTE_RANK
+    )
+    scale_block_end = (block_offset + 1) * (
+        total_input_scales_to_read // BLOCKS_PER_REMOTE_RANK
+    )
+    if block_offset == BLOCKS_PER_REMOTE_RANK - 1:  # Last block handles remainder
+        scale_block_end = total_input_scales_to_read
+
+    # Only process scale blocks within this thread block's assigned range
+    scale_block_size_for_tb = scale_block_end - scale_block_start
+    if scale_block_size_for_tb > 0:
+        num_input_scale_blocks_this_thread = tl.cdiv(
+            scale_block_size_for_tb, BLOCK_SIZE
+        )
+        for block_idx in tl.range(num_input_scale_blocks_this_thread):
+            offs = scale_block_start + block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+            # Double bounds check: within assigned range AND within total scales size
+            mask = (
+                (offs >= scale_block_start)
+                & (offs < scale_block_end)
+                & (offs < total_input_scales_to_read)
+            )
+            data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
+            tl.store(output_scale_ptr + offs, data, mask=mask)
 
     sync_threads()
     blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
