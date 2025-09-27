@@ -111,9 +111,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             }
 
             # Create a linear layer
-            model = ToyTwoLinearModel(
-                K, N, K, dtype=dtype, device="cuda"
-            ).eval()
+            model = ToyTwoLinearModel(K, N, K, device="cuda", dtype=dtype).eval()
 
             quantized_model = copy.deepcopy(model)
             factory = mode_map[mode]()
@@ -171,7 +169,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             match="PerRow quantization only works for bfloat16 precision",
         ):
             model = ToyTwoLinearModel(
-                64, 64, 64, dtype=torch.float32, device="cuda"
+                64, 64, 64, device="cuda", dtype=torch.float
             ).eval()
             quantize_(
                 model,
@@ -185,7 +183,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     def test_serialization(self, mode: str):
         # Create and quantize the model
-        model = ToyTwoLinearModel(16, 32, 16, device="cuda")
+        model = ToyTwoLinearModel(16, 32, 16, device="cuda", dtype=torch.float)
 
         mode_map = {
             "dynamic": partial(
@@ -217,7 +215,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         # Create a new model and load the state dict
         with torch.device("meta"):
-            new_model = ToyTwoLinearModel(16, 32, 16)
+            new_model = ToyTwoLinearModel(16, 32, 16, device="cuda", dtype=torch.float)
             if mode == "static":
                 quantize_(new_model, factory)
             new_model.load_state_dict(loaded_state_dict, assign=True)
@@ -259,7 +257,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     def test_fp8_weight_dimension_warning(self):
         # Create model with incompatible dimensions (not multiples of 16)
-        model = ToyTwoLinearModel(10, 25, 10, device="cuda")  # 10x25 and 25x10 weights
+        model = ToyTwoLinearModel(
+            10, 25, 10, device="cuda", dtype=torch.float
+        )  # 10x25 and 25x10 weights
 
         # Set up logging capture
         with self.assertLogs(

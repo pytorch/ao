@@ -2032,7 +2032,7 @@ class TestBenchmarkModel(unittest.TestCase):
     def run_benchmark_model(self, device):
         # params
         m = ToyTwoLinearModel(
-            1024, 1024, 1024, dtype=torch.bfloat16, device=device
+            1024, 1024, 1024, device=device, dtype=torch.bfloat16
         ).eval()
         m_bf16 = copy.deepcopy(m)
         example_inputs = m.example_inputs()

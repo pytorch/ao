@@ -112,7 +112,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
+            model = ToyTwoLinearModel(K, N, K, device="cuda", dtype=dtype).eval()
 
             quantized_model = copy.deepcopy(model)
 
@@ -221,7 +221,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype = torch.bfloat16
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         # Create a linear layer with bfloat16 dtype
-        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
+        model = ToyTwoLinearModel(K, N, K, device="cuda", dtype=dtype).eval()
 
         # reference kernel preference and results
         # we are using KerenelPreference.TORCH as the reference
