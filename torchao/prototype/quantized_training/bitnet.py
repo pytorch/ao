@@ -140,7 +140,7 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
         return BitNetPacked2bitLinearWeight(data_i2, scale), all_gather_outputs
 
 
-@BitNetTrainingLinearWeight.implements(F.linear)
+@BitNetTrainingLinearWeight.implements_torch_function(F.linear)
 def _(func, types, args, kwargs):
     if torch.is_autocast_enabled("cuda"):
         dtype = torch.get_autocast_gpu_dtype()
@@ -324,7 +324,7 @@ class BitNetPacked2bitLinearWeight(TorchAOBaseTensor):
         return out
 
 
-@BitNetPacked2bitLinearWeight.implements(F.linear)
+@BitNetPacked2bitLinearWeight.implements_torch_function(F.linear)
 def _(func, types, args, kwargs):
     return _BitNetPacked2bitLinear.apply(*args, **kwargs)
 
