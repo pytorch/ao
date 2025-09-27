@@ -54,7 +54,6 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype, e5m2_dtype
-from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
@@ -198,12 +197,6 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-    if isinstance(model, Float8Linear):
-        with torch.device("meta"):
-            new_module = nn.Linear(model.in_features, model.out_features)
-        new_module.weight = model.weight
-        new_module.bias = model.bias
-        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -244,12 +237,6 @@ def _replace_with_custom_fn_if_matches_filter_with_name(
     Returns:
         None
     """
-    if isinstance(model, Float8Linear):
-        with torch.device("meta"):
-            new_module = nn.Linear(model.in_features, model.out_features)
-        new_module.weight = model.weight
-        new_module.bias = model.bias
-        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
