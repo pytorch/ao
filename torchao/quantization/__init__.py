@@ -97,6 +97,8 @@ from .quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    Int8CsrSparseTensor,
+    Int8PackingFormat,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
 )
@@ -167,6 +169,8 @@ __all__ = [
     "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
+    "Int8CsrSparseTensor",
+    "Int8PackingFormat",
     "IntxOpaqueTensor",
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",
