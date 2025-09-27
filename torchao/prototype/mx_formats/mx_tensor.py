@@ -836,9 +836,7 @@ def mx_slice(func, types, args, kwargs):
         end_block = -1 if end is None else end // x._block_size
 
         # Slice the scale tensor accordingly
-        sliced_scale = aten.slice.Tensor(
-            scale_shaped, 1, start_block, end_block, step
-        ).unsqueeze(-1)
+        sliced_scale = aten.slice.Tensor(scale_shaped, 1, start_block, end_block, step)
     else:
         raise ValueError(
             f"MXTensor only supports slicing along dimensions 0 and 1, got dim={dim}"
@@ -858,20 +856,6 @@ def mx_slice(func, types, args, kwargs):
             x._pack_fp6,
             x.act_quant_kwargs,
         ),
-    )
-
-
-@implements([aten.copy_.default])
-def mx_copy_(func, types, args, kwargs):
-    self = args[0]
-    src = args[1]
-    if MXTensor._same_metadata(self, src):
-        self_tensors = self.__tensor_flatten__()[0]
-        for tensor_name in self_tensors:
-            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
-        return
-    raise ValueError(
-        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
     )
 
 
