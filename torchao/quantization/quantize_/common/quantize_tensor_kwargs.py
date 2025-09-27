@@ -39,7 +39,9 @@ def _choose_quant_func_and_quantize_tensor(
     """
     from torchao.quantization.quantize_.workflows import (
         Float8Tensor,
+        Int8Tensor,
         QuantizeTensorToFloat8Kwargs,
+        QuantizeTensorToInt8Kwargs,
     )
 
     if isinstance(quant_kwargs, QuantizeTensorToFloat8Kwargs):
@@ -51,6 +53,12 @@ def _choose_quant_func_and_quantize_tensor(
             quant_kwargs.hp_value_lb,
             quant_kwargs.hp_value_ub,
             quant_kwargs.kernel_preference,
+        )
+    elif isinstance(quant_kwargs, QuantizeTensorToInt8Kwargs):
+        return Int8Tensor.from_hp(
+            tensor,
+            quant_kwargs.block_size or [1, tensor.shape[-1]],
+            kernel_preference=quant_kwargs.kernel_preference,
         )
 
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")
