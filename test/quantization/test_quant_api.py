@@ -34,6 +34,7 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
+    Int4Tensor,
     LinearActivationQuantizedTensor,
     PerGroup,
 )
@@ -67,6 +68,7 @@ from torchao.quantization.subclass import (
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
+    _is_fbgemm_genai_gpu_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -690,6 +692,20 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+    )
+    def test_module_fqn_to_config_module_name_regex(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config = ModuleFqnToConfig({"linear*": config1})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, Int4Tensor)
+        assert isinstance(model.linear2.weight, Int4Tensor)
 
     def test_module_fqn_to_config_embedding_linear(self):
         weight_dtype = torch.int8
