@@ -12,8 +12,9 @@ from typing import List, NamedTuple, Optional, Tuple, Union
 import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
-from torchao.float8.types import FP8Granularity
+from torchao.float8.types import FP8Granularity, FP8GranularityCPU
 from torchao.quantization.granularity import (
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -226,6 +227,47 @@ def _normalize_granularity(
     else:
         raise ValueError(
             f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
+        )
+    return processed_granularity
+
+
+def _normalize_granularity_opaque_tensor(
+    granularity: Optional[
+        Union[
+            FP8GranularityCPU,
+            Tuple[FP8GranularityCPU, FP8GranularityCPU],
+            list[FP8GranularityCPU],
+        ]
+    ],
+) -> Tuple[FP8GranularityCPU, FP8GranularityCPU]:
+    """For Float8OpaqueTensor on CPU"""
+    supported_granularities = (PerTensor, PerRow, PerGroup)
+    processed_granularity = None
+    if granularity is None:
+        processed_granularity = (PerTensor(), PerTensor())
+    elif isinstance(granularity, supported_granularities):
+        processed_granularity = (granularity, granularity)
+    elif isinstance(granularity, (tuple, list)) and len(granularity) == 2:
+        if not (
+            isinstance(granularity[0], supported_granularities)
+            and isinstance(granularity[1], supported_granularities)
+        ):
+            raise ValueError(
+                f"Invalid granularity types: {granularity}, only PerTensor, PerRow or PerGroup are supported."
+            )
+        if isinstance(granularity[0], PerGroup):
+            if not isinstance(granularity[1], PerGroup):
+                raise ValueError(
+                    "When granularity for activation is PerGroup, granularity for weight must be PerGroup, too."
+                )
+            if granularity[0].group_size != granularity[1].group_size:
+                raise ValueError(
+                    f"Group sizes for activation and weight must be the same, got {granularity[0].group_size} and {granularity[1].group_size}."
+                )
+        processed_granularity = tuple(granularity)
+    else:
+        raise ValueError(
+            f"Invalid granularity specification: {granularity}, only PerTensor, PerRow or PerGroup are supported."
         )
     return processed_granularity
 
