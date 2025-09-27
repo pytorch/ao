@@ -31,6 +31,21 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
     # Maximum output length (need to be set before use of MXFP8OnDeviceAllToAllV)
     max_output_rows_per_rank = None
 
+    # A preallocated buffer for holding the output, that can be reused without cudaMalloc/cudaFree each iteration
+    output_buf = None
+
+    # A preallocated buffer for holding the output scales, that can be reused without cudaMalloc/cudaFree each iteration
+    output_scales_buf = None
+
+    # A preallocated buffer for holding the grad_input, that can be reused without cudaMalloc/cudaFree each iteration
+    grad_input_buf = None
+
+    # A preallocated buffer for holding the grad_input scales, that can be reused without cudaMalloc/cudaFree each iteration
+    grad_input_scales_buf = None
+
+    # A preallocated buffer for holding the grad_input splits, that can be reused without cudaMalloc/cudaFree each iteration
+    grad_input_splits_buf = None
+
     @staticmethod
     def forward(
         ctx,
@@ -76,14 +91,6 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
                 device=input_data.device,
             )
 
-        # Initialize input splits buffer (one time only)
-        if MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf is None:
-            MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf = symm_mem.empty(
-                *input_splits.shape,
-                dtype=input_splits.dtype,
-                device=input_splits.device,
-            )
-
         # Initialize symm mem buffer for float8 e8m0 scales (one time only)
         if MXFP8OnDeviceAllToAllV.scales_sym_mem_buf is None:
             MXFP8OnDeviceAllToAllV.scales_sym_mem_buf = symm_mem.empty(
@@ -93,7 +100,15 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
                 device=input_scales.device,
             )
 
-        # Copy quantized input data to symm mem buffer
+        # Initialize input splits buffer (one time only)
+        if MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf is None:
+            MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf = symm_mem.empty(
+                *input_splits.shape,
+                dtype=input_splits.dtype,
+                device=input_splits.device,
+            )
+
+        # Copy quantized data, scales, and output splits to symm mem buffers
         MXFP8OnDeviceAllToAllV.input_sym_mem_buf.narrow(
             0, 0, input_data.shape[0]
         ).copy_(input_data)
@@ -128,23 +143,26 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
 
         # Dequantize output
         lowp_dtype = output.dtype
-        highp_dtype = input.dtype
-        hp_output = to_dtype(
+        hp_dtype = input.dtype
+        to_dtype_c = torch.compile(to_dtype)
+        hp_output = to_dtype_c(
             output,
             output_scales.view(torch.float8_e8m0fnu),
             lowp_dtype,
             block_size,
-            highp_dtype,
+            hp_dtype,
         )
 
         # Saving for backward: output splits in forward is the input splits in backward
-        ctx.save_for_backward(output_splits)
         ctx.group = group
         ctx.input_shape = input_data.shape
         ctx.input_scales_shape = input_scales.shape
-        ctx.highp_dtype = highp_dtype
-
-        return hp_output, output_splits
+        ctx.hp_dtype = hp_dtype
+        ctx.max_output_rows_per_rank = max_output_rows_per_rank
+        ctx.save_for_backward(output_splits)
+        tokens_on_device_after_a2a_fwd = output_splits.sum()
+        hp_output_no_padding = hp_output[:tokens_on_device_after_a2a_fwd]
+        return hp_output_no_padding, output_splits
 
     @staticmethod
     def backward(ctx, grad_output, grad_splits):
@@ -155,13 +173,10 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             `grad_splits`: unused.
         """
         # In backward, mxfp8_all_to_all_v input is `grad_output`, and output is `grad_input`.
-        (grad_output_splits,) = ctx.saved_tensors
+        grad_output_splits = ctx.saved_tensors[0]
 
         # Initialize grad_output sym mem buffer (one time only)
         if MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf is None:
-            assert MXFP8OnDeviceAllToAllV.max_output_rows_per_rank is not None, (
-                "`max_output_rows_per_rank` not set"
-            )
             MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf = symm_mem.empty(
                 MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
                 *grad_output.shape[1:],
@@ -171,7 +186,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
 
         # Quantize grad_output
         block_size = 32
-        grad_out_scales, grad_out_data = to_mx(
+        to_mx_c = torch.compile(to_mx)
+        grad_out_scales, grad_out_data = to_mx_c(
             grad_output,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
@@ -193,36 +209,50 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         # Copy in splits to symm mem buffer
         MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf.copy_(grad_output_splits)
 
-        # Allocate outputs.
-        grad_input = grad_out_data.new_empty(*ctx.input_shape)
-        grad_input_scales = torch.empty(
-            *ctx.input_scales_shape,
-            dtype=grad_out_scales.dtype,
-            device=grad_out_scales.device,
-        )
-        grad_input_splits = torch.empty_like(grad_output_splits)
+        # Allocate buffers for grad_input data, scales, and splits if necessary
+        if MXFP8OnDeviceAllToAllV.grad_input_buf is None:
+            MXFP8OnDeviceAllToAllV.grad_input_buf = grad_out_data.new_empty(
+                ctx.max_output_rows_per_rank,
+                *ctx.input_shape[1:],
+            )
+
+        if MXFP8OnDeviceAllToAllV.grad_input_scales_buf is None:
+            MXFP8OnDeviceAllToAllV.grad_input_scales_buf = torch.empty(
+                ctx.max_output_rows_per_rank,
+                *ctx.input_scales_shape[1:],
+                dtype=grad_out_scales.dtype,
+                device=grad_out_scales.device,
+            )
+        if MXFP8OnDeviceAllToAllV.grad_input_splits_buf is None:
+            MXFP8OnDeviceAllToAllV.grad_input_splits_buf = torch.empty_like(
+                grad_output_splits
+            )
 
         # Shuffle gradients back to the input
         _mxfp8_on_device_all_to_all_v(
             MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf,  # input
             MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,  # input scales
             MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf,  # input splits
-            grad_input,  # output
-            grad_input_scales,  # output scales
-            grad_input_splits,  # output splits
+            MXFP8OnDeviceAllToAllV.grad_input_buf,  # output
+            MXFP8OnDeviceAllToAllV.grad_input_scales_buf,  # output scales
+            MXFP8OnDeviceAllToAllV.grad_input_splits_buf,  # output splits
             group=ctx.group,
         )
 
         # Dequantize grad_input
         lowp_dtype = grad_out_data.dtype
-        grad_input_highp = to_dtype(
-            grad_input,
-            grad_input_scales.view(torch.float8_e8m0fnu),
+        to_dtype_c = torch.compile(to_dtype)
+        grad_input_hp = to_dtype_c(
+            MXFP8OnDeviceAllToAllV.grad_input_buf,
+            MXFP8OnDeviceAllToAllV.grad_input_scales_buf.view(torch.float8_e8m0fnu),
             lowp_dtype,
             block_size,
-            ctx.highp_dtype,
+            ctx.hp_dtype,
         )
-        return grad_input_highp, None, None, None
+        tokens_on_device_after_a2a_bwd = (
+            MXFP8OnDeviceAllToAllV.grad_input_splits_buf.sum()
+        )
+        return grad_input_hp[:tokens_on_device_after_a2a_bwd], None, None, None
 
 
 # Alias
@@ -238,7 +268,7 @@ def _mxfp8_on_device_all_to_all_v(
     output_scales: torch.Tensor,
     output_splits: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
-    BLOCKS_PER_REMOTE_RANK: int = 8,
+    BLOCKS_PER_REMOTE_RANK: int = 32,
     BLOCK_SIZE: int = 16384,
 ):
     assert input.dim() == 2, f"{input.shape}"
