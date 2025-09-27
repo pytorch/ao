@@ -504,9 +504,10 @@ def _implements_torch_function(cls, torch_fns):
 
 def _implements_common_tensor_ops(cls):
     implements = cls.implements
+    implements_torch_function = cls.implements_torch_function
     aten = torch.ops.aten
 
-    @implements(
+    @implements_torch_function(
         [
             torch.Tensor.contiguous,
         ]
