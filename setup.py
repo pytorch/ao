@@ -254,6 +254,15 @@ def get_cuda_version_from_nvcc():
         return None
 
 
+def is_nvcc_available():
+    """Check if nvcc is available on the system."""
+    try:
+        subprocess.check_output(["nvcc", "--version"], stderr=subprocess.STDOUT)
+        return True
+    except:
+        return False
+
+
 def get_cutlass_build_flags():
     """Determine which CUTLASS kernels to build based on CUDA version.
     SM90a: CUDA 12.6+, SM100a: CUDA 12.8+
@@ -397,7 +406,7 @@ def get_extensions():
     if (
         torch.version.cuda
         and CUDA_HOME is None
-        and get_cuda_version_from_nvcc() is None
+        and not is_nvcc_available()
     ):
         print(
             "CUDA toolkit is not available (CUDA_HOME unset and nvcc not found). Skipping compilation of CUDA extensions"
@@ -411,7 +420,7 @@ def get_extensions():
 
     # Build CUDA extensions if CUDA is available and either CUDA_HOME is set or nvcc is present
     use_cuda = bool(torch.version.cuda) and (
-        CUDA_HOME is not None or get_cuda_version_from_nvcc() is not None
+        CUDA_HOME is not None or is_nvcc_available()
     )
     use_rocm = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
