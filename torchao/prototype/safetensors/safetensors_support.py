@@ -73,15 +73,14 @@ def unflatten_tensor_state_dict(
             if key.startswith(f"{tensor_name}:"):
                 # Remove the prefix
                 tensor_tensors[key[len(tensor_name) + 1 :]] = value
-
-        tensor_metadata = json.loads(metadata.get(tensor_name))
+        tensor_metadata = json.loads(metadata.get(f"{tensor_name}_metadata"))
         tensor_type = tensor_metadata.get("_type")
 
         if tensor_type in ALLOWED_TENSORS_SUBCLASSES:
             tensor_metadata["_data"].update(tensor_tensors)
             result[tensor_name] = object_from_dict(tensor_metadata)
         elif tensor_type == torch.Tensor.__name__:
-            result[tensor_name] = tensor_tensors["_data"]
+            result[tensor_name] = combined_data[tensor_name]
         else:
             raise ValueError(f"Unsupported tensor type: {tensor_type}")
 
@@ -149,25 +148,18 @@ def flatten_tensor_state_dict(
 
             for tensor_data_name in all_tensor_data:
                 if getattr(tensor, tensor_data_name) is not None:
-                    tensor_dict[tensor_data_name] = getattr(tensor, tensor_data_name)
+                    tensor_dict[f"{tensor_name}:{tensor_data_name}"] = getattr(tensor, tensor_data_name)
 
             tensor_metadata = json.dumps(tensor, cls=TensorSubclassAttributeJSONEncoder)
         elif type(tensor) is torch.Tensor:
-            tensor_dict = {"_data": tensor}
+            tensor_dict = {f"{tensor_name}": tensor}
             tensor_metadata = json.dumps({"_type": torch.Tensor.__name__})
         else:
             raise ValueError(f"Unsupported tensor type: {type(tensor)}")
 
-        # Clone tensors to avoid memory sharing issues
-        prefixed_tensors_dict = {
-            f"{tensor_name}:{key}": (
-                value.detach().clone() if isinstance(value, torch.Tensor) else value
-            )
-            for key, value in tensor_dict.items()
-        }
-
-        metadata[tensor_name] = tensor_metadata
-        tensors_data_dict.update(prefixed_tensors_dict)
+        metadata[f"{tensor_name}_metadata"] = tensor_metadata
+        tensors_data_dict.update(tensor_dict)
 
     metadata["tensor_names"] = json.dumps(list(tensors_dict.keys()))
+    # print(metadata)
     return tensors_data_dict, metadata

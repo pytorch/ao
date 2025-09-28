@@ -77,21 +77,17 @@ fi
 run_memory() {
   check_torch
   local model_id="$1"
-  sh eval_memory.sh --model_ids "$model_id"
+  ./eval_memory.sh --model_ids "$model_id"
 }
 run_latency() {
   check_vllm
   local model_id="$1"
-  sh eval_latency.sh --model_ids "$model_id" --batch_sizes $BATCH_SIZES
+  ./eval_latency.sh --model_ids "$model_id" --batch_sizes $BATCH_SIZES
 }
 run_quality() {
   check_lm_eval
   local model_id="$1"
-  if $USE_CACHE; then
-    sh eval_quality.sh --model_ids "$model_id" --tasks $TASKS --use_cache
-  else
-    sh eval_quality.sh --model_ids "$model_id" --tasks $TASKS
-  fi
+  ./eval_quality.sh --model_ids "$model_id" --tasks $TASKS
 }
 for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
   case "$EVAL_TYPE" in
@@ -107,7 +103,8 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
     all)
       run_quality "$MODEL_ID"
       run_memory "$MODEL_ID"
-      run_latency "$MODEL_ID"
+      # run_latency "$MODEL_ID"
+      run_quality "$MODEL_ID"
       ;;
     *)
       echo "Unknown eval_type: $EVAL_TYPE"

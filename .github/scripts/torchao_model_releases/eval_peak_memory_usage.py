@@ -19,20 +19,21 @@ def eval_peak_memory_usage(model_id: str):
     torch.cuda.reset_peak_memory_stats()
 
     prompt = "Hey, are you conscious? Can you talk to me?"
-    messages = [
-        {
-            "role": "system",
-            "content": "",
-        },
-        {"role": "user", "content": prompt},
-    ]
-    templated_prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
+    # messages = [
+    #     {
+    #         "role": "system",
+    #         "content": "",
+    #     },
+    #     {"role": "user", "content": prompt},
+    # ]
+    # templated_prompt = tokenizer.apply_chat_template(
+    #     messages,
+    #     tokenize=False,
+    #     add_generation_prompt=True,
+    # )
     print("Prompt:", prompt)
-    print("Templated prompt:", templated_prompt)
+    # print("Templated prompt:", templated_prompt")
+    templated_prompt = "Hey, are you conscious? Can you talk to me?"
     inputs = tokenizer(
         templated_prompt,
         return_tensors="pt",

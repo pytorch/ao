@@ -180,7 +180,7 @@ def object_from_dict(data: Dict[str, Any]):
             }
         else:
             processed_data[key] = value
-
+    print(processed_data)
     # Create and return the instance
     try:
         return cls(**processed_data)
