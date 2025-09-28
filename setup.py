@@ -403,11 +403,7 @@ def get_extensions():
 
     # Only skip CUDA extensions if neither CUDA_HOME nor nvcc is available.
     # In many CI environments CUDA_HOME may be unset even though nvcc is on PATH.
-    if (
-        torch.version.cuda
-        and CUDA_HOME is None
-        and not is_nvcc_available()
-    ):
+    if torch.version.cuda and CUDA_HOME is None and not is_nvcc_available():
         print(
             "CUDA toolkit is not available (CUDA_HOME unset and nvcc not found). Skipping compilation of CUDA extensions"
         )
