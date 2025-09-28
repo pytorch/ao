@@ -26,6 +26,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     is_sm_at_least_89,
+    is_sm_at_least_90,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -456,6 +457,20 @@ def test_view(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_clone():
+    data = torch.randn(8, 8, device="cuda", dtype=torch.bfloat16)
+    block_size = 4
+    data_mx = MXTensor.to_mx(data, torch.float8_e4m3fn, block_size)
+    data_mx_c = data_mx.clone()
+    torch.testing.assert_close(
+        data_mx.to_dtype(torch.bfloat16),
+        data_mx_c.to_dtype(torch.bfloat16),
+        atol=0,
+        rtol=0,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
 @pytest.mark.parametrize("pack_fp6", [False, True])
 def test_fp6_packing(elem_dtype, pack_fp6):
@@ -540,6 +555,26 @@ def test_to_mx_inductor_single_kernel():
     to_mx_c = torch.compile(MXTensor.to_mx, fullgraph=True)
     out, code = run_and_get_code(to_mx_c, x, torch.float8_e4m3fn, block_size)
     FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(code[0])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipIf(not is_sm_at_least_90(), "Need sm90+")
+def test_index_select():
+    """
+    test that `x_0 = x[0]` works when `x` is a 3D `MXTensor`. This is
+    useful when stitching checkpoints of `num_experts` 2D parameters into
+    a single 3D parameter when converting between model definitions that
+    use 2D and 3D parameters for their expert weights.
+    """
+
+    E, K, N = 128, 256, 512
+    x = torch.randn(E, N, K, device="cuda", dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(x, torch.float8_e4m3fn, 32)
+
+    x_mx_1 = x_mx[1]
+    torch.testing.assert_close(
+        x_mx.to_dtype(x.dtype)[1], x_mx_1.to_dtype(x.dtype), atol=0, rtol=0
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")

@@ -6,12 +6,20 @@ from typing import Any, Dict
 import torch
 
 import torchao
-from torchao.quantization import Float8Tensor
+from torchao.quantization import (
+    Float8Tensor,
+    Int4Tensor,
+    Int4TilePackedTo4dTensor,
+    IntxUnpackedToInt8Tensor,
+)
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 
 ALLOWED_CLASSES = {
     "Float8Tensor": Float8Tensor,
+    "Int4Tensor": Int4Tensor,
+    "Int4TilePackedTo4dTensor": Int4TilePackedTo4dTensor,
+    "IntxUnpackedToInt8Tensor": IntxUnpackedToInt8Tensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
     "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
     "PerRow": torchao.quantization.PerRow,
@@ -19,21 +27,32 @@ ALLOWED_CLASSES = {
     "KernelPreference": KernelPreference,
 }
 
-ALLOWED_TENSORS = ["Float8Tensor", "Tensor"]
+ALLOWED_TENSORS_SUBCLASSES = [
+    "Float8Tensor",
+    "Int4Tensor",
+    "Int4TilePackedTo4dTensor",
+    "IntxUnpackedToInt8Tensor",
+]
 
 __all__ = [
-    "Float8TensorAttributeJSONEncoder",
+    "TensorSubclassAttributeJSONEncoder",
     "object_from_dict",
     "is_metadata_torchao",
 ]
 
 
-class Float8TensorAttributeJSONEncoder(json.JSONEncoder):
+class TensorSubclassAttributeJSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if isinstance(o, Float8Tensor):
+        if o.__class__.__name__ in ALLOWED_TENSORS_SUBCLASSES:
             tensor_attr_dict = {}
+            optional_tensor_attributes = (
+                o.optional_tensor_attribute_names
+                if hasattr(o, "optional_tensor_attribute_names")
+                else []
+            )
+
             all_tensor_attributes = (
-                o.optional_tensor_attribute_names + o.tensor_attribute_names
+                optional_tensor_attributes + o.tensor_attribute_names
             )
 
             for tensor_attribute_name in all_tensor_attributes:
@@ -190,7 +209,7 @@ def is_metadata_torchao(metadata: Dict[str, Any]):
 
         # returns None if _type not in tensor_dict
         tensor_type = tensor_dict.get("_type")
-        if tensor_type not in ALLOWED_TENSORS:
+        if tensor_type not in ALLOWED_TENSORS_SUBCLASSES or tensor_type != "Tensor":
             return False
 
     return True

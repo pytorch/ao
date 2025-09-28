@@ -47,6 +47,7 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     block_size: int = 16
     is_swizzled_scales: bool = False
     use_triton_kernel: bool = False
+    use_dynamic_per_tensor_scale: bool = False
 
 
 # TODO(future PR): move over to TorchAOBaseTensor's dispatch
@@ -245,7 +246,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         return (
             scale_e4m3.to(self._orig_dtype)
-            if not self._per_tensor_scale
+            if self._per_tensor_scale is None
             else self._per_tensor_scale * scale_e4m3.to(self._orig_dtype)
         )
 
@@ -645,10 +646,15 @@ def nvfp4_linear(func, types, args, kwargs):
     else:
         # dynamic quant
         k = weight_tensor.act_quant_kwargs
+        if k.use_dynamic_per_tensor_scale:
+            tensor_amax = torch.max(torch.abs(input_tensor))
+            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+        else:
+            per_tensor_scale = weight_tensor._act_per_tensor_scale
         input_tensor = NVFP4Tensor.to_nvfp4(
             input_tensor,
             block_size=k.block_size,
-            per_tensor_scale=weight_tensor._act_per_tensor_scale,
+            per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
         )
@@ -672,10 +678,15 @@ def nvfp4_mm(func, types, args, kwargs):
     else:
         if not isinstance(input_tensor, NVFP4Tensor):
             k = weight_tensor.act_quant_kwargs
+            if k.use_dynamic_per_tensor_scale:
+                tensor_amax = torch.max(torch.abs(input_tensor))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            else:
+                per_tensor_scale = weight_tensor._act_per_tensor_scale
             input_tensor = NVFP4Tensor.to_nvfp4(
                 input_tensor,
                 block_size=k.block_size,
-                per_tensor_scale=weight_tensor._act_per_tensor_scale,
+                per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
             )
@@ -697,12 +708,18 @@ def nvfp4_addmm(func, types, args, kwargs):
         else:
             return torch.addmm(bias, input_tensor, weight_dequant)
     else:
+        # TODO: refactor duplicate code
         if not isinstance(input_tensor, NVFP4Tensor):
             k = weight_tensor.act_quant_kwargs
+            if k.use_dynamic_per_tensor_scale:
+                tensor_amax = torch.max(torch.abs(input_tensor))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            else:
+                per_tensor_scale = weight_tensor._act_per_tensor_scale
             input_tensor = NVFP4Tensor.to_nvfp4(
                 input_tensor,
                 block_size=k.block_size,
-                per_tensor_scale=weight_tensor._act_per_tensor_scale,
+                per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
             )

@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import tempfile
 
 import pytest
 import torch
@@ -50,12 +51,12 @@ def run_around_tests():
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
+@pytest.mark.parametrize("emulate", [True, False])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
 )  # TODO(future): deploy gfx950 in ROCM CI
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required")
-def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
+def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: bool):
     """
     Smoke test for inference compile
     """
@@ -64,17 +65,24 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+        elif not is_sm_at_least_100() and not emulate:
+            pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
     elif elem_dtype == torch.float4_e2m1fn_x2:
-        if not is_sm_at_least_100():
-            pytest.skip("CUDA capability >= 10.0 required for float4 gemm")
+        if not is_sm_at_least_100() and not emulate:
+            pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
+        elif not is_sm_at_least_100() and emulate and compile:
+            # TODO(future PR): investigate and fix this
+            pytest.skip("mxfp4 + emulate + compile currently does not work, low SQNR")
 
     m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
     m_mx = copy.deepcopy(m)
-    kernel_choice = (
-        MXGemmKernelChoice.CUTLASS
-        if elem_dtype == torch.float4_e2m1fn_x2
-        else MXGemmKernelChoice.CUBLAS
-    )
+
+    if emulate:
+        kernel_choice = MXGemmKernelChoice.EMULATED
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        kernel_choice = MXGemmKernelChoice.CUTLASS
+    else:
+        kernel_choice = MXGemmKernelChoice.CUBLAS
     config = MXFPInferenceConfig(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
@@ -93,6 +101,16 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
 
+    # serialization
+    with tempfile.NamedTemporaryFile() as f:
+        torch.save(m_mx.state_dict(), f)
+        f.seek(0)
+
+        # temporary workaround for https://github.com/pytorch/ao/issues/3077
+        torch.serialization.add_safe_globals([getattr])
+
+        _ = torch.load(f, weights_only=True)
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
@@ -105,6 +123,7 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
 )
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -126,6 +145,7 @@ def test_inference_workflow_nvfp4(
     mm_config: NVFP4MMConfig,
     inpt_dtype: torch.dtype,
     use_triton_kernel: bool,
+    use_dynamic_per_tensor_scale: bool,
     shapes: tuple,
 ):
     """
@@ -147,7 +167,9 @@ def test_inference_workflow_nvfp4(
     m_mx = copy.deepcopy(m)
 
     config = NVFP4InferenceConfig(
-        mm_config=mm_config, use_triton_kernel=use_triton_kernel
+        mm_config=mm_config,
+        use_triton_kernel=use_triton_kernel,
+        use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
     )
     quantize_(m_mx, config=config)
 
