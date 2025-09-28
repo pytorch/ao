@@ -164,7 +164,7 @@ class TestQuantFlow(TestCase):
     )
 
     def test_dynamic_quant_gpu_singleline(self):
-        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
         example_inputs = m.example_inputs()
         quantize_(m, Int8DynamicActivationInt8WeightConfig())
         m(*example_inputs)
@@ -195,7 +195,7 @@ class TestQuantFlow(TestCase):
     )
     def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
         quantizer = TorchCompileDynamicQuantizer()
-        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         quantized = m(*example_inputs)
@@ -206,7 +206,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "only works for torch 2.8+")
     def test_int4_wo_quant_save_load(self):
-        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
 
         def api(model):
             quantize_(model, Int4WeightOnlyConfig(layout=Int4XPULayout(), version=1))
@@ -221,7 +221,7 @@ class TestQuantFlow(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        m2 = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float).eval()
+        m2 = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
         api(m2)
 
         m2.load_state_dict(state_dict)
@@ -233,7 +233,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int8_wo_quant_save_load(self):
-        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
 
         def api(model):
             quantize_(model, Int8WeightOnlyConfig())
@@ -248,7 +248,7 @@ class TestQuantFlow(TestCase):
             f.seek(0)
             state_dict = torch.load(f)
 
-        m2 = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float).eval()
+        m2 = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
         api(m2)
 
         m2.load_state_dict(state_dict)
@@ -265,7 +265,7 @@ class TestQuantFlow(TestCase):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
-        m = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.float).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
@@ -278,7 +278,7 @@ class TestQuantFlow(TestCase):
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
         m = ToyTwoLinearModel(
-            64, 32, 64, device="cuda", dtype=torch.float, has_bias=True
+            64, 32, 64, device="cpu", dtype=torch.float32, has_bias=True
         ).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
@@ -397,7 +397,7 @@ class TestQuantFlow(TestCase):
     )
     def test_quantized_tensor_subclass_8da4w(self, mapping_type):
         group_size = 32
-        m = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.float).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32).eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
         quantize_(
@@ -464,7 +464,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_wo(self):
-        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.bfloat16).eval()
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
 
@@ -483,7 +483,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load(self):
-        m = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.bfloat16).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.bfloat16).eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
 
@@ -501,7 +501,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int8wo_quantized_model_to_device(self):
-        m = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.bfloat16).eval()
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.bfloat16).eval()
         example_inputs = m.example_inputs()
 
         quantize_(m, Int8WeightOnlyConfig())
@@ -526,7 +526,7 @@ class TestQuantFlow(TestCase):
 
         with torch.device("meta"):
             m_copy = ToyTwoLinearModel(
-                64, 32, 64, device="cuda", dtype=torch.float
+                64, 32, 64, device="cpu", dtype=torch.float32
             ).eval()
 
         m_copy.load_state_dict(state_dict, assign=True)
@@ -544,14 +544,14 @@ class TestQuantFlow(TestCase):
 
         reset_memory()
 
-        m = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.float)
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32)
         quantize_(m.to(device="cuda"), Int8WeightOnlyConfig())
         memory_baseline = torch.cuda.max_memory_allocated()
 
         del m
         reset_memory()
 
-        m = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.float)
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=torch.float32)
         quantize_(m, Int8WeightOnlyConfig(), device="cuda")
         memory_streaming = torch.cuda.max_memory_allocated()
 
@@ -559,13 +559,12 @@ class TestQuantFlow(TestCase):
             assert param.is_cuda
         self.assertLess(memory_streaming, memory_baseline)
 
-    @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("dtype", [torch.float32, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("use_hqq", [True, False])
     def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
-        device = "cpu"
-        m = ToyTwoLinearModel(64, 32, 64, device=device, dtype=dtype).eval()
-        example_inputs = m.example_inputs(dtype=dtype, device=device)
+        m = ToyTwoLinearModel(64, 32, 64, device="cpu", dtype=dtype).eval()
+        example_inputs = m.example_inputs()
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
@@ -658,7 +657,7 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
-        model = ToyTwoLinearModel(64, 32, 64, dtype=torch.bfloat16, device="cuda")
+        model = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.bfloat16)
         example_inputs = model.example_inputs()
         quantize_(model, config)
         model(*example_inputs)
