@@ -7,11 +7,8 @@
 import unittest
 
 import torch
-from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import run_tests
-from torch._inductor.utils import run_and_get_code
 
-from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
     Int8Tensor,
     QuantizeTensorToInt8Kwargs,
@@ -40,18 +37,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             torch.all(tensor.qdata >= -128) and torch.all(tensor.qdata <= 127)
         )
 
-    @common_utils.parametrize(
-        "kernel_preference",
-        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
-    )
-    def test_kernel_preference(self, kernel_preference):
-        """Test Int8Tensor with different kernels"""
-        tensor = Int8Tensor.from_hp(
-            self.weight_fp, self.block_size, kernel_preference=kernel_preference
-        )
-
-        self.assertEqual(tensor.kernel_preference, kernel_preference)
-
     def test_linear_operations(self):
         """Test fp+int8 and int8+int8 linear ops with quantization error check"""
         weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
@@ -79,31 +64,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
         self.assertEqual(result_dynamic.shape, reference.shape)
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_expected_kernel_operations(self):
-        """Test Int8Tensor with FBGEMM kernels"""
-
-        # Setup model with Int8Tensor
-        weight_q8 = Int8Tensor.from_hp(
-            self.weight_fp,
-            self.block_size,
-            kernel_preference=KernelPreference.FBGEMM
-        )
-
-        def model(x):
-            return torch.nn.functional.linear(x, weight_q8, self.bias)
-
-        compiled_model = torch.compile(model)
-
-        output, code = run_and_get_code(compiled_model, self.input_fp)
-
-        self.assertEqual(output.shape, (2, 4))
-        self.assertTrue(len(code) > 0, "Should generate some compiled code")
-
-        # Test dequantization kernel
-        dequant_output = torch.ops.aten.dequantize.self(weight_q8)
-        self.assertEqual(dequant_output.shape, self.weight_fp.shape)
 
     def test_error_handling_and_dequant(self):
         """Test input validation and dequantization accuracy"""

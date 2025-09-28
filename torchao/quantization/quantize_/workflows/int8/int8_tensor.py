@@ -10,7 +10,6 @@ from typing import Optional
 import torch
 
 from torchao.quantization.quantize_.common import (
-    KernelPreference,
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
@@ -26,12 +25,9 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor (either activation or weight)
 
     Args:
-        kernel_preference (KernelPreference): kernel preference for ops like matmul, grouped matmul etc.
-            TODO: Implement flags for kernel preference, same as QuantizeTensorToFloat8Kwargs
         block_size (Optional[list[int]]): block size for quantization granularity
     """
 
-    kernel_preference: KernelPreference = KernelPreference.AUTO
     block_size: Optional[list[int]] = None
 
 
@@ -49,14 +45,12 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: block size for quantization granularity
         shape: original tensor shape
         act_quant_kwargs: flags for static/dynamic activation quantization
-        kernel_preference: kernel preference for operations
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
     tensor_attribute_names = ["block_size", "_shape"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
-        "kernel_preference",
         "dtype",
     ]
 
@@ -68,7 +62,6 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size,
         shape,
         act_quant_kwargs=None,
-        kernel_preference=KernelPreference.AUTO,
         dtype=None,
     ):
         kwargs = {
@@ -86,7 +79,6 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size,
         shape,
         act_quant_kwargs=None,
-        kernel_preference=KernelPreference.AUTO,
         dtype=None,
     ):
         super().__init__()
@@ -96,12 +88,11 @@ class Int8Tensor(TorchAOBaseTensor):
         self.block_size = block_size
         self._shape = shape
         self.act_quant_kwargs = act_quant_kwargs
-        self.kernel_preference = kernel_preference
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.zero_point=}, {self.block_size=}, {self.kernel_preference=}, "
+            f"{self.zero_point=}, {self.block_size=}, "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
 
@@ -111,7 +102,6 @@ class Int8Tensor(TorchAOBaseTensor):
         w: torch.Tensor,
         block_size: list[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
@@ -129,7 +119,6 @@ class Int8Tensor(TorchAOBaseTensor):
             block_size,
             w.shape,
             act_quant_kwargs=act_quant_kwargs,
-            kernel_preference=kernel_preference,
             dtype=w.dtype,
         )
 
