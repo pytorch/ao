@@ -29,6 +29,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """
 
     block_size: Optional[list[int]] = None
+    kernel_preference: Optional[str] = None
 
 
 # TODO: Implement block-wise quantization using block_size
@@ -102,6 +103,7 @@ class Int8Tensor(TorchAOBaseTensor):
         w: torch.Tensor,
         block_size: list[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        kernel_preference: Optional[str] = None,
     ):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
