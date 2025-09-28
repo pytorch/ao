@@ -41,15 +41,19 @@ class ToyLinearModel(torch.nn.Module):
         dtype=torch.bfloat16,
         device="cuda",
     ):
-        return (
-            torch.randn(
-                batch_size,
-                sequence_length,
-                self.linear1.in_features,
-                dtype=dtype,
-                device=device,
-            ),
+        # For SmoothQuant tests, we intentionally insert some outliers to input features
+        x = torch.randn(
+            batch_size,
+            sequence_length,
+            self.linear1.in_features,
+            dtype=dtype,
+            device=device,
         )
+        n_outliers = max(1, int(x.size(-1) * 0.1))
+        # Randomly select outlier features
+        outlier_indices = torch.randperm(x.size(-1))[:n_outliers]
+        x[:, :, outlier_indices] *= 10.0
+        return (x,)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -82,43 +86,24 @@ class TestSmoothQuant(unittest.TestCase):
     )
     @common_utils.parametrize("device", device_list)
     @common_utils.parametrize("input_dtype", [torch.bfloat16])
-    def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
+    def test_smoothquant_dynamic_act_accuracy(
+        self, alpha, base_config, device, input_dtype
+    ):
         """Test if SmoothQuant achieves lower loss than basic quantization."""
-        torch.manual_seed(42)
-        in_features = 64
-        out_features = 128
-
-        class Mod(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = (
-                    torch.nn.Linear(in_features, out_features, bias=False)
-                    .to(device)
-                    .to(input_dtype)
-                )
-
-            def forward(self, x):
-                return self.linear(x)
-
-        # Note: This is sanity check. For real run, consider Transformer model to reproduce.
-        X = torch.randn(16, in_features, dtype=input_dtype, device=device)
-        W = torch.randn(out_features, in_features, dtype=input_dtype, device=device)
-
         # Create linear layer
-        m = Mod().eval()
-        with torch.no_grad():
-            m.linear.weight.copy_(W)
+        m = ToyLinearModel().eval().to(device).to(input_dtype)
+        x = m.example_inputs(batch_size=16, dtype=input_dtype, device=device)
 
         # Reference output
-        out_ref = m(X)
+        out_ref = m(*x)
 
         # Step 1. Basic quantization
         basic_model = deepcopy(m)
         quantize_(basic_model, base_config)
-        out_basic = basic_model(X)
+        out_basic = basic_model(*x)
         loss_base = torch.nn.functional.mse_loss(out_basic, out_ref).item()
 
-        # SmoothQuant quantization
+        # Step 2. SmoothQuant
         model = deepcopy(m)
         config = SmoothQuantConfig(
             base_config=base_config,
@@ -128,16 +113,18 @@ class TestSmoothQuant(unittest.TestCase):
         quantize_(model, config)
 
         # Perform calibration with test data
-        model(X)
+        model(*x)
 
-        # Step 2. SmoothQuant
         config.step = SmoothQuantStep.CONVERT
         quantize_(model, config)
         assert isinstance(
-            model.linear.weight, WeightTensorWithLinearActivationScaleMetadata
+            model.linear1.weight, WeightTensorWithLinearActivationScaleMetadata
+        )
+        assert isinstance(
+            model.linear2.weight, WeightTensorWithLinearActivationScaleMetadata
         )
 
-        out_smoothquant = model(X)
+        out_smoothquant = model(*x)
         loss_smoothquant = torch.nn.functional.mse_loss(out_smoothquant, out_ref).item()
 
         assert loss_smoothquant < loss_base, (
@@ -145,16 +132,15 @@ class TestSmoothQuant(unittest.TestCase):
         )
 
     @common_utils.parametrize("alpha", [0.5, 0.25])
-    @common_utils.parametrize("device", ["cpu"])
+    @common_utils.parametrize("device", device_list)
     @common_utils.parametrize("input_dtype", [torch.bfloat16])
     def test_smoothquant_static_act_accuracy(self, alpha, device, input_dtype):
         """Test if SmoothQuant with static quantization achieves lower loss than basic quantization."""
-        torch.manual_seed(42)
         m = ToyLinearModel().eval().to(device).to(input_dtype)
-        x = m.example_inputs(batch_size=1, dtype=input_dtype, device=device)
+        x = m.example_inputs(batch_size=16, dtype=input_dtype, device=device)
 
         # Output without quantization
-        y_nq = m(*x)
+        out_ref = m(*x)
 
         # Step 1. Reference with alpha=0
         m_ref = deepcopy(m)
@@ -166,15 +152,13 @@ class TestSmoothQuant(unittest.TestCase):
         )
         with torch.no_grad():
             quantize_(m_ref, config)
-            # Perform calibration with test data
-            m_ref(*x)
-            # Step 2. SmoothQuant
+            m_ref(*x)  # calibration
             config.step = SmoothQuantStep.CONVERT
             quantize_(m_ref, config)
-            y_ref = m_ref(*x)
-        loss_base = torch.nn.functional.mse_loss(y_ref, y_nq).item()
+            out_base = m_ref(*x)
+        loss_base = torch.nn.functional.mse_loss(out_base, out_ref).item()
 
-        # SmoothQuant quantization
+        # Step 2. SmoothQuant quantization
         base_config = Int8StaticActivationInt8WeightConfig()
         config = SmoothQuantConfig(
             base_config=base_config,
@@ -183,27 +167,23 @@ class TestSmoothQuant(unittest.TestCase):
         )
         with torch.no_grad():
             quantize_(m, config)
-
-            # Perform calibration with test data
-            m(*x)
-
-            # Step 2. SmoothQuant
+            m(*x)  # calibration
             config.step = SmoothQuantStep.CONVERT
             quantize_(m, config)
-            y = m(*x)
+            out_sq = m(*x)
         assert isinstance(
             m.linear1.weight, WeightTensorWithLinearActivationScaleMetadata
         )
         assert isinstance(
             m.linear2.weight, WeightTensorWithLinearActivationScaleMetadata
         )
-        loss_smoothquant = torch.nn.functional.mse_loss(y, y_nq).item()
+        loss_smoothquant = torch.nn.functional.mse_loss(out_sq, out_ref).item()
 
         assert loss_smoothquant < loss_base, (
             f"SmoothQuant loss ({loss_smoothquant:.6f}) should not be higher than basic loss ({loss_base:.6f})"
         )
-        sqnr = SQNR(y_ref, y)
-        self.assertGreater(sqnr, 20.0)
+        # Make sure the result is reasonable
+        self.assertGreater(SQNR(out_ref, out_sq), 20.0)
 
     @common_utils.parametrize(
         "base_config",
