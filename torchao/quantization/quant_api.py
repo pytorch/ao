@@ -46,6 +46,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
+    to_affine_quantized_intx_static,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -1609,6 +1610,108 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     )
 
     return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
+
+
+def _activation_static_sym_quant_func_int8(
+    x: torch.Tensor, scale: torch.Tensor, zero_point: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+    assert zero_point is None, "Zero point must be None"
+    quant_min = -127
+    quant_max = 127
+    target_dtype = torch.int8
+    zero_point_domain = ZeroPointDomain.NONE
+
+    return to_affine_quantized_intx_static(
+        x,
+        scale=scale,
+        zero_point=zero_point,
+        block_size=get_block_size(x.shape, PerTensor()),
+        target_dtype=target_dtype,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        zero_point_domain=zero_point_domain,
+    )
+
+
+@dataclass
+class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
+    """
+    Configuration for applying int8 static activation and int8 per-channel weight
+    quantization to linear layers. Activation is always quantized with symmetric per-tensor quantization.
+
+    Args:
+        layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
+            quantized data is stored and accessed. Only PlainLayout is supported now.
+        set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
+            for better performance with this quantization scheme.
+    """
+
+    act_scale: Optional[torch.Tensor] = None
+    layout: Optional[Layout] = PlainLayout()
+    set_inductor_config: bool = False
+
+    def __post_init__(self):
+        assert isinstance(self.layout, PlainLayout), (
+            f"Only support PlainLayout for layout, got {self.layout}"
+        )
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8StaticActivationInt8WeightConfig"
+        )
+
+
+def _int8_static_activation_int8_weight_quantize_tensor(weight, config):
+    act_scale = config.act_scale
+    layout = config.layout
+
+    # weight settings
+    mapping_type = MappingType.SYMMETRIC
+    weight_zero_point_domain = ZeroPointDomain.NONE
+
+    target_dtype = torch.int8
+    eps = torch.finfo(torch.float32).eps
+    zero_point_dtype = torch.int64
+
+    block_size = get_block_size(weight.shape, PerRow())
+    new_weight = to_affine_quantized_intx(
+        weight,
+        mapping_type,
+        block_size,
+        target_dtype,
+        eps=eps,
+        zero_point_dtype=zero_point_dtype,
+        _layout=layout,
+        zero_point_domain=weight_zero_point_domain,
+    )
+    new_weight = to_weight_tensor_with_linear_activation_quantization_metadata(
+        new_weight,
+        _activation_static_sym_quant_func_int8,
+        scale=act_scale,
+        zero_point=None,
+    )
+    return new_weight
+
+
+@register_quantize_module_handler(Int8StaticActivationInt8WeightConfig)
+def _int8_static_activation_int8_weight_transform(
+    module: torch.nn.Module, config: Int8StaticActivationInt8WeightConfig
+) -> torch.nn.Module:
+    assert config.act_scale is not None, (
+        "act_scale must be provided for static activation quantization"
+    )
+    assert config.act_scale.numel() == 1, "Only support per-tensor quantization"
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying int8 static activation int8 weight quant requires module to have weight attribute"
+        + f"but {module} does not have one"
+    )
+    new_weight = _int8_static_activation_int8_weight_quantize_tensor(
+        module.weight, config
+    )
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 @dataclass
