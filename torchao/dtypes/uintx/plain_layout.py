@@ -263,7 +263,6 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
         )
     except Exception:
         w_vals_int8_t = w_vals_int8.t()
-        scale = weight_tensor.tensor_impl.scale
         m = torch.mm(
             input_tensor.reshape(-1, input_tensor.shape[-1]),
             w_vals_int8_t.to(input_tensor.dtype),
