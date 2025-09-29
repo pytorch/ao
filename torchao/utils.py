@@ -525,6 +525,8 @@ def _implements_common_tensor_ops(cls):
         )
 
     def _same_metadata(self: TorchAOBaseTensor, src: TorchAOBaseTensor) -> bool:
+        if not (hasattr(self, "tensor_data_names") and hasattr(src, "tensor_data_names")):
+            return False
         _tensor_shape_match = all(
             getattr(self, t_name).shape == getattr(src, t_name).shape
             for t_name in self.tensor_data_names
