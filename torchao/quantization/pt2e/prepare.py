@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
+# Copyright 2025 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
@@ -146,18 +147,31 @@ def _union(
     parent: EdgeOrNode,
     child: EdgeOrNode,
     shared_with_map: dict[EdgeOrNode, EdgeOrNode],
+    edge_or_node_to_qspec: dict[EdgeOrNode, QuantizationSpecBase],
 ) -> None:
     """Merge the subtree for `child` with `parent`, the order is important here"""
     root_parent = _find_root_edge_or_node(parent, shared_with_map)
     root_child = _find_root_edge_or_node(child, shared_with_map)
-    # union the two trees by pointing the root of child to root of parent
-    shared_with_map[root_child] = root_parent
+
+    parent_qspec = edge_or_node_to_qspec[root_parent]
+    if (
+        isinstance(parent_qspec, SharedQuantizationSpec)
+        and parent_qspec.edge_or_node == root_child
+    ):
+        # Parent already references child with a shared qspec. We would create
+        # a cycle if we formed an edge from the child to the parent. Therefore,
+        # we reverse the edge in this particular case.
+        shared_with_map[root_parent] = root_child
+    else:
+        # union the two trees by pointing the root of child to root of parent
+        shared_with_map[root_child] = root_parent
 
 
 def _update_shared_with(
     child: EdgeOrNode,
     qspec: QuantizationSpecBase,
     shared_with_map: dict[EdgeOrNode, EdgeOrNode],
+    edge_or_node_to_qspec: dict[EdgeOrNode, QuantizationSpecBase],
 ):
     """Update the `shared_with_map` based on the qspec, this applies the `SharedQuantizationSpec`
     configuration and established the relationship between `edge_or_node` with the edge/node that it
@@ -167,7 +181,7 @@ def _update_shared_with(
         parent = qspec.edge_or_node
         # we point from edge_or_node to the node that it is sharing_with, e.g.
         # qspec for a = SharedQuantizationSpec(b) means `a` points to `b`
-        _union(parent, child, shared_with_map)
+        _union(parent, child, shared_with_map, edge_or_node_to_qspec)
 
 
 def _unwrap_shared_qspec(
@@ -249,7 +263,7 @@ def _union_input_edge_with(
         # since dtype is the same (we may want to extend this to be a more strict check
         # in the future)
         # so we point from `input_edge` to `arg` (output of the argument)
-        _union(edge_or_node, input_edge, shared_with_map)
+        _union(edge_or_node, input_edge, shared_with_map, edge_or_node_to_qspec)
 
 
 def _get_edge_or_node_to_group_id(
@@ -311,7 +325,9 @@ def _get_edge_or_node_to_group_id(
     for edge_or_node, qspec in edge_or_node_to_qspec.items():
         if isinstance(edge_or_node, torch.fx.Node):
             output_node = edge_or_node
-            _update_shared_with(output_node, qspec, shared_with_map)
+            _update_shared_with(
+                output_node, qspec, shared_with_map, edge_or_node_to_qspec
+            )
         else:
             input_edge = edge_or_node
             input_edge_root_qspec = _unwrap_shared_qspec(
@@ -332,9 +348,6 @@ def _get_edge_or_node_to_group_id(
                 # because we will point the root of (node1, node2) (in this case node1) to the root of (node1, node3)
                 # Step 3. and when we process (node1, node3), it can try to point to node1 as well, then we'll
                 # have a circular dependency
-                # the following order works around this issue, but this does not allow arbitrary configuration
-                # of sharing so it might break in a different case in the future, when it breaks
-                # quantizer writer can check the notes here to debug the issue
 
                 # sharing with other users of the producer node
                 # (arg, user)
@@ -363,7 +376,9 @@ def _get_edge_or_node_to_group_id(
                     shared_with_map,
                 )
 
-            _update_shared_with(input_edge, qspec, shared_with_map)
+            _update_shared_with(
+                input_edge, qspec, shared_with_map, edge_or_node_to_qspec
+            )
 
     # now that we get the sharing relations between all edges and nodes, we can assingn group ids
     cur_group_id = 0
