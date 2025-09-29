@@ -16,6 +16,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 )
 
 import torchao
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
 from torchao.quantization import Int8WeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import MappingType
@@ -426,7 +427,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
 
 class TorchAOIntegrationTestCase(common_utils.TestCase):
-    def _test_slice_and_copy_similar_to_vllm(self, config):
+    def _test_slice_and_copy_similar_to_vllm(self, config: AOBaseConfig):
         # making sure https://github.com/vllm-project/vllm/blob/90bd2ab6e3eb7e83d3f40d99fc23e6e43834743a/vllm/model_executor/layers/linear.py#L483-L495 works properly
         # the test is similar to the linked code, but with some hardcoded arguments
         # and does not use tensor parallelism
@@ -606,6 +607,23 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         moe_combined.load_state_dict(new_state_dict, assign=True)
         # make sure it runs
         moe_combined(input)
+
+    def _test_narrow_similar_to_vllm(self, config: AOBaseConfig):
+        # this happens various times in vllm when slicing weights around
+
+        dtype = torch.bfloat16
+        l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
+        quantize_(l, config)
+
+        orig = l.weight
+        new = orig.narrow(1, 0, 1024)
+
+        for data_attr_name in new.tensor_data_names:
+            orig_attr = getattr(orig, data_attr_name)
+            new_attr = getattr(new, data_attr_name)
+            assert len(orig_attr.shape) == len(new_attr.shape), (
+                f"shape mismatch: {orig_attr.shape} vs {new_attr.shape}"
+            )
 
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
