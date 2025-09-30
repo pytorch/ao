@@ -444,12 +444,16 @@ def _infer_fake_quantize_configs(
     elif isinstance(base_config, NVFP4InferenceConfig):
         if NVFP4MMConfig.DYNAMIC:
             act_config = NVFP4FakeQuantizeConfig(
-                use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale
+                use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
+                use_swizzled_scales=False,
+                use_triton_kernel=False,
             )
         else:
             act_config = None
         weight_config = NVFP4FakeQuantizeConfig(
-            use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale
+            use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
+            use_swizzled_scales=True,
+            use_triton_kernel=base_config.use_triton_kernel,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"
