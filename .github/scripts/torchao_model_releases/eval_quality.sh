@@ -11,6 +11,7 @@ check_lm_eval
 
 MODEL_ID_ARRAY=()
 TASK_ARRAY=("mmlu")  # default can be overwritten by user input
+USE_CACHE=false      # default: do not use cache
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,9 +30,13 @@ while [[ $# -gt 0 ]]; do
         shift
       done
       ;;
+    --use_cache)
+      USE_CACHE=true
+      shift
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 --model_id <model_id> [--tasks <tasks> (comma-separated, e.g. mmlu,arc_challenge, default mmlu)]"
+      echo "Usage: $0 --model_id <model_id> [--tasks <tasks> (comma-separated, e.g. mmlu,arc_challenge, default mmlu)] [--use_cache]"
       exit 1
       ;;
   esac
@@ -51,16 +56,19 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
         EVAL_CACHE_DB_PREFIX="/tmp/${SAFE_MODEL_ID}_quality_${TASK}"
         mkdir -p "${EVAL_CACHE_DB_PREFIX}"
         echo "Running model quality (accuracy) evaluation for model $MODEL_ID on task $TASK"
-
-        lm_eval \
+        LM_EVAL_CMD="lm_eval \
             --model hf \
-            --model_args pretrained="$MODEL_ID" \
-            --tasks "$TASK" \
+            --model_args pretrained=\"$MODEL_ID\" \
+            --tasks \"$TASK\" \
             --device cuda:0 \
-            --use_cache "$EVAL_CACHE_DB_PREFIX" \
             --batch_size auto \
-            --output_path "$RESULTS_DIR" > "$OUTPUT_FILE" 2>&1
+            --output_path \"$RESULTS_DIR\""
 
+        if $USE_CACHE; then
+            LM_EVAL_CMD="$LM_EVAL_CMD --use_cache \"$EVAL_CACHE_DB_PREFIX\""
+        fi
+
+        eval "$LM_EVAL_CMD" > "$OUTPUT_FILE" 2>&1
         echo "Quality eval output for task '$TASK' saved to $OUTPUT_FILE"
     done
     echo "======================== Eval Model Quality $MODEL_ID End =================="

@@ -16,7 +16,10 @@ from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4MMConfig,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
+    per_tensor_amax_to_scale,
+    unpack_uint4,
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
@@ -45,11 +48,6 @@ if not torch_version_at_least("2.8.0"):
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
-    from torchao.prototype.mx_formats.nvfp4_tensor import (
-        NVFP4Tensor,
-        per_tensor_amax_to_scale,
-    )
-
     x = torch.randn(shape, dtype=dtype, device="cuda")
     if use_per_tensor_scale:
         tensor_amax = torch.max(torch.abs(x))
@@ -115,7 +113,6 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     Test that NVFP4Tensor can be constructed with swizzled scales and
     that the _is_swizzled_scales flag is set correctly.
     """
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = shape
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -153,7 +150,6 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     Test that slicing works correctly with swizzled scales and maintains
     the swizzled state in the output tensor.
     """
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     # Use larger tensor sizes that align with swizzled requirements
     if slice_dim == 0:
@@ -247,7 +243,6 @@ def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_er
     """
     Test that slicing raises appropriate errors for misaligned boundaries.
     """
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 256, 4096
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -268,7 +263,6 @@ def test_nvfp4_swizzled_scales_view_semantics():
     """
     Test that slicing maintains proper view semantics where possible.
     """
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 256, 4096
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -295,7 +289,6 @@ def test_nvfp4_swizzled_scales_serialization():
     """
     Test that tensor flatten/unflatten preserves the swizzled scales state.
     """
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 32, 64
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -337,7 +330,6 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     """
     Test that the get_scales() method correctly unswizzles scales when needed.
     """
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 
     M, K = 32, 64
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -372,11 +364,6 @@ def test_nvfp4_swizzled_scales_get_scales_method():
 @torch.no_grad()
 def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     """Test that Triton and PyTorch NVFP4 quantization produce equivalent results."""
-    from torchao.prototype.mx_formats.nvfp4_tensor import (
-        NVFP4Tensor,
-        per_tensor_amax_to_scale,
-        unpack_uint4,
-    )
 
     torch.manual_seed(42)
     x = torch.randn(M, N, dtype=dtype, device="cuda")
@@ -462,11 +449,6 @@ def test_nvfp4_matmul_with_amax(
     use_triton_kernel: bool,
     shapes: tuple,
 ):
-    from torchao.prototype.mx_formats.nvfp4_tensor import (
-        NVFP4Tensor,
-        per_tensor_amax_to_scale,
-    )
-
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
     if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
@@ -530,8 +512,6 @@ def test_nvfp4_matmul_with_amax(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 def test_nvfp4_to_copy():
-    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
-
     x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
     assert torch.equal(x.qdata, y.qdata)
