@@ -874,12 +874,16 @@
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">NVFP4InferenceConfig</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">NVFP4MMConfig</span><span class="o">.</span><span class="n">DYNAMIC</span><span class="p">:</span>
             <span class="n">act_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span>
-                <span class="n">use_per_tensor_scale</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_dynamic_per_tensor_scale</span>
+                <span class="n">use_per_tensor_scale</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_dynamic_per_tensor_scale</span><span class="p">,</span>
+                <span class="n">use_swizzled_scales</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">use_triton_kernel</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">weight_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span>
-            <span class="n">use_per_tensor_scale</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_dynamic_per_tensor_scale</span>
+            <span class="n">use_per_tensor_scale</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_dynamic_per_tensor_scale</span><span class="p">,</span>
+            <span class="n">use_swizzled_scales</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">use_triton_kernel</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_triton_kernel</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only version 2+ is supported&quot;</span>
