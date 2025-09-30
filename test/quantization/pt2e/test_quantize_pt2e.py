@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
+# Copyright 2025 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
@@ -1214,6 +1215,108 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         self.assertIsNot(observers[0], observers[1])
         self.assertIsNot(observers[0], observers[2])
         self.assertIsNot(observers[1], observers[2])
+
+    def test_allow_implicit_sharing_with_shared_input_edge(self):
+        """This tests implicit sharing when an input edge x is shared between
+        two ops in the following manner:
+
+          /-----------------> eq(a, x) -> b
+         /                   /
+        x -> clone(x) -> a -/
+
+        Clone is annotated such that (x, clone) uses a QuantizationSpec and
+        its output (clone) a SharedQuantizationSpec pointing to its input
+        (x, clone).
+
+        Eq is annotated such that (clone, eq) uses a QuantizationSpec and
+        (x, eq) uses a SharedQuantizationSpec to the former.
+        The output (eq) is not quantized (bool output).
+
+        Verify that the input to clone and its output share the same observer;
+        inputs to eq should also share that same observer due to implicit
+        sharing.
+
+        Context: This test used to trigger a cyclic recursion bug in the
+        following manner:
+        1) Processing edge (x, clone): implicit sharing sees that eq is
+           another user of x with an identical qspec, so (x, clone) starts
+           sharing with (x, eq) by pointing to it.
+        2) Processing edge (clone, eq): implicit sharing tries to share this
+           input edge with the producer output clone. But clone's output
+           uses SharedQuantizationSpec((x, clone)), and from step (1),
+           (x, clone) already points to (x, eq). Therefore unwrapping leads to
+           (x, eq) and (clone, eq) is set to share with (x, eq) by pointing to
+           it.
+        3) Processing edge (x, eq): when resolving its qspec, the algorithm
+           follows the shared reference to (clone, eq), which immediately
+           points back to (x, eq) from step (2). This created a cycle and the
+           unwrap logic recursed endlessly.
+        """
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.nodes:
+                    if node.target in [
+                        torch.ops.aten.clone.default,
+                        torch.ops.aten.eq.Tensor,
+                    ]:
+                        input_qspec_map = {}
+                        qspec = QuantizationSpec(
+                            dtype=torch.uint8,
+                            quant_min=0,
+                            quant_max=255,
+                            qscheme=torch.per_tensor_affine,
+                            is_dynamic=False,
+                            observer_or_fake_quant_ctr=observer.default_observer,
+                        )
+                        shared_qspec = SharedQuantizationSpec((node.args[0], node))
+
+                        if node.target is torch.ops.aten.clone.default:
+                            input_qspec_map[node.args[0]] = qspec
+                            output_qspec = shared_qspec
+                        elif node.target is torch.ops.aten.eq.Tensor:
+                            input_qspec_map[node.args[0]] = qspec
+                            input_qspec_map[node.args[1]] = shared_qspec
+                            # Output is bool, quantization not applicable
+                            output_qspec = None
+                        else:
+                            assert False
+
+                        node.meta["quantization_annotation"] = QuantizationAnnotation(
+                            input_qspec_map=input_qspec_map,
+                            output_qspec=output_qspec,
+                            allow_implicit_sharing=True,
+                            _annotated=True,
+                        )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def forward(self, x):
+                a = x.clone()
+                b = torch.eq(a, x)
+                return b
+
+        m = M().eval()
+        example_inputs = (torch.randn(1, 5),)
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        prepare_pt2e(m, BackendAQuantizer())
+        m(*example_inputs)
+        observers = []
+        for n in m.graph.nodes:
+            if n.target == torch.ops.aten.clone.default:
+                input_obs1 = getattr(m, n.args[0].target)
+                output_obs = getattr(m, next(iter(n.users)).target)
+                self.assertIs(input_obs1, output_obs)
+                observers.append(input_obs1)
+            if n.target == torch.ops.aten.eq.Tensor:
+                input_obs1 = getattr(m, n.args[0].target)
+                input_obs2 = getattr(m, n.args[1].target)
+                self.assertIs(input_obs1, input_obs2)
+                observers.append(input_obs1)
+        assert len(observers) == 2
+        self.assertIs(observers[0], observers[1])
 
     @parametrize("dtype", (torch.float32, torch.bfloat16))
     @parametrize("quant_dtype", (torch.int16, torch.float8_e5m2, torch.float8_e4m3fn))
@@ -2948,11 +3051,10 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
-        from torchao.quantization import PerGroup, PerToken
         from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
         )
-        from torchao.quantization.pt2e.observer import MappingType
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
@@ -3032,13 +3134,13 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_affine_act_per_channel_weights(self):
         import operator
 
-        from torchao.quantization import PerToken
         from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMovingAverageMinMaxObserver,
         )
         from torchao.quantization.pt2e.observer import (
             MappingType,
             PerChannelMinMaxObserver,
+            PerToken,
         )
 
         class BackendAQuantizer(Quantizer):
@@ -3123,14 +3225,12 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_per_tok_act_per_group_weights(self):
         import operator
 
-        from torchao.quantization import PerGroup, PerToken
-
         # TODO: merge into torchao observer
         from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
             AffineQuantizedPlaceholderObserver,
         )
-        from torchao.quantization.pt2e.observer import MappingType
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:

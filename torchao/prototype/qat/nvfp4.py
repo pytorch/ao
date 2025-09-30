@@ -31,6 +31,7 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     use_triton_kernel: bool = False
 
 
+# TODO: support emulation on non-Blackwell GPUs
 class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
     Autograd function for NVFP4 quantization + addmm in low precision during forward,
@@ -104,6 +105,9 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
     The forward pass follows quantization and addmm numerics in `NVFP4Tensor`
     in lower precision exactly, while the backward pass uses dequantize
     (fake quantized) values in high precision.
+
+    Currently this is only applicable on Blackwell and future generations.
+    See https://github.com/pytorch/ao/issues/3102 for more details.
 
     Example usage::
 
