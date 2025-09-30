@@ -56,6 +56,7 @@ class QuantOptimizer(Optimizer):
         quant_per_channel: bool = False,
         quant_shrink: bool = False,
         anneal_wd_frac: float = 0.0,
+        group_quantizer_map: Optional[dict[int, Quantizer]] = None,
     ) -> None:
         if not 0 <= anneal_wd_frac <= 1:
             raise ValueError(f"Invalid {anneal_wd_frac=} outside range [0.0, 1.0]")
@@ -63,6 +64,7 @@ class QuantOptimizer(Optimizer):
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
         self.quantizer = quantizer
+        self.group_quantizer_map = group_quantizer_map
         self.prox_map = prox_map
 
         # need to store these attributes in state_dict for checkpoint
@@ -153,6 +155,11 @@ class QuantOptimizer(Optimizer):
         for param_set in self._param_sets():
             yield partial(_filter_fn, param_set=param_set)
 
+    def _get_quantizer(self, group_idx: int) -> Optional[Quantizer]:
+        if self.group_quantizer_map and group_idx in self.group_quantizer_map:
+            return self.group_quantizer_map[group_idx]
+        return self.quantizer
+
     def torchao_convert(self, model: nn.Module, weight_only: bool = False) -> None:
         """Converts model parameters to torchao quantized tensor subclasses."""
         model.eval()
@@ -175,7 +182,7 @@ class QuantOptimizer(Optimizer):
             zip(self.regularized_param_groups(), self.get_filter_fns(model))
         ):
             filter_fns.append(filter_fn)
-            quantizer = group.get("quantizer", self.quantizer)
+            quantizer = self._get_quantizer(i)
             if not isinstance(quantizer, UnifTorchaoQuantizer) or not group["params"]:
                 configs.append(None)
                 continue
@@ -255,10 +262,9 @@ class QuantOptimizer(Optimizer):
         else:
             quant_update = False
 
-        for group in self.regularized_param_groups():
+        for i, group in enumerate(self.regularized_param_groups()):
             # Override quantizer if specified in the group
-            quantizer = group.get("quantizer", self.quantizer)
-            assert isinstance(quantizer, Quantizer), f"Invalid {quantizer=}"
+            quantizer = self._get_quantizer(i)
 
             # AProx in practice: ensure shrinkage coefficient >= 1
             group["cumu_lr"] += group["lr"]
