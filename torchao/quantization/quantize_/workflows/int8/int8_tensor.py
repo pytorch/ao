@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
+    quantize_affine,
+)
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
@@ -32,7 +38,6 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     kernel_preference: Optional[str] = None
 
 
-# TODO: Implement block-wise quantization using block_size
 class Int8Tensor(TorchAOBaseTensor):
     """
     int8 quantized tensor with plain layout
@@ -108,16 +113,29 @@ class Int8Tensor(TorchAOBaseTensor):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
 
-        # Rounding function from high precision dtype
-        scale = w.abs().max(dim=-1, keepdim=True)[0] / 127.0
-        scale = scale.clamp(min=1e-6)
+        scale, zero_point = choose_qparams_affine(
+            input=w,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=tuple(block_size),
+            target_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            scale_dtype=w.dtype,
+            zero_point_dtype=torch.int8,
+        )
 
-        int_data = torch.round(w / scale).clamp(-128, 127).to(torch.int8)
+        int_data = quantize_affine(
+            w,
+            block_size=tuple(block_size),
+            scale=scale,
+            zero_point=zero_point,
+            output_dtype=torch.int8,
+        )
 
         return cls(
             int_data,
-            scale.squeeze(-1),
-            torch.zeros_like(scale.squeeze(-1), dtype=torch.int8),
+            scale,
+            zero_point,
             block_size,
             w.shape,
             act_quant_kwargs=act_quant_kwargs,
@@ -127,9 +145,18 @@ class Int8Tensor(TorchAOBaseTensor):
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
         dtype = output_dtype or self.dtype or self.scale.dtype
-        return (
-            self.qdata.to(dtype) - self.zero_point.to(dtype).unsqueeze(1)
-        ) * self.scale.to(dtype).unsqueeze(1)
+
+        qdata_fp = self.qdata.to(dtype)
+        scale = self.scale.to(dtype)
+        zero_point = self.zero_point.to(dtype)
+
+        # Reshape 1D scale/zero_point to [N, 1] for broadcasting with [N, K] qdata
+        if scale.ndim == 1:
+            scale = scale.unsqueeze(1)
+        if zero_point.ndim == 1:
+            zero_point = zero_point.unsqueeze(1)
+
+        return (qdata_fp - zero_point) * scale
 
 
 implements = Int8Tensor.implements
@@ -138,11 +165,7 @@ implements = Int8Tensor.implements
 @implements([aten.dequantize.self])
 def _(func, types, args, kwargs):
     """dequantization: int8 -> float"""
-    tensor = args[0]
-    dtype = tensor.dtype or tensor.scale.dtype
-    return (
-        tensor.qdata.to(dtype) - tensor.zero_point.to(dtype).unsqueeze(1)
-    ) * tensor.scale.to(dtype).unsqueeze(1)
+    return args[0].dequantize()
 
 
 @implements([torch.nn.functional.linear, aten.linear.default])
@@ -158,8 +181,14 @@ def _(func, types, args, kwargs):
         f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
     )
 
-    if isinstance(input_tensor, Int8Tensor):
-        # INT8 × INT8 (static)
+    if weight_tensor.act_quant_kwargs is not None:
+        # INT8 × INT8 (dynamic)
+        # Quantize input if it's not already quantized
+        if not isinstance(input_tensor, Int8Tensor):
+            input_tensor = _choose_quant_func_and_quantize_tensor(
+                input_tensor, weight_tensor.act_quant_kwargs
+            )
+
         x_vals_int8 = input_tensor.qdata
         x_scales = input_tensor.scale
         w_vals_int8_t = weight_tensor.qdata.contiguous().t()
@@ -168,60 +197,63 @@ def _(func, types, args, kwargs):
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
         x_scales_dtype = x_scales.dtype
 
-        # Cast fp16 scale to float to avoid overflow in y_dot_int32
+        # Cast fp16 scale to float
         intermediate_dtype = (
             torch.float if x_scales_dtype == torch.half else x_scales_dtype
         )
-
-        # First apply input scaling to avoid overflow
-        y_dot_int32 = torch.mm(tmp.to(torch.int32), w_vals_int8_t.to(torch.int32))
-        y_dot_scaled = y_dot_int32.to(intermediate_dtype) * x_scales.reshape(-1, 1).to(
+        y_dot_int64 = torch.mm(tmp.to(torch.int64), w_vals_int8_t.to(torch.int64))
+        y_dot_scaled = y_dot_int64.to(intermediate_dtype) * x_scales.reshape(-1, 1).to(
             intermediate_dtype
         )
         y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
 
-        # Then apply weight scaling
         result = (y_dot_scaled * w_scales).reshape(
             *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
         )
         result = result.to(input_tensor.dtype)
-
     else:
-        if weight_tensor.act_quant_kwargs is not None:
-            # INT8 × INT8 (dynamic)
-            input_tensor = _choose_quant_func_and_quantize_tensor(
-                input_tensor, weight_tensor.act_quant_kwargs
-            )
+        # FP × INT8 (weight-only)
+        input_tensor = input_tensor.dequantize()
 
-            x_vals_int8 = input_tensor.qdata
-            x_scales = input_tensor.scale
-            w_vals_int8_t = weight_tensor.qdata.contiguous().t()
-            w_scales = weight_tensor.scale
-
-            tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-            x_scales_dtype = x_scales.dtype
-
-            # Cast fp16 scale to float to avoid overflow in y_dot_int32
-            intermediate_dtype = (
-                torch.float if x_scales_dtype == torch.half else x_scales_dtype
-            )
-            y_dot_int32 = torch.mm(tmp.to(torch.int32), w_vals_int8_t.to(torch.int32))
-            y_dot_scaled = y_dot_int32.to(intermediate_dtype) * x_scales.reshape(
-                -1, 1
-            ).to(intermediate_dtype)
-            y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
-
-            result = (y_dot_scaled * w_scales).reshape(
-                *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-            )
-            result = result.to(input_tensor.dtype)
-        else:
-            # FP × INT8 (weight-only)
-            result = torch.nn.functional.linear(
-                input_tensor, weight_tensor.dequantize(), None
-            )
+        result = func(input_tensor, weight_tensor.dequantize(), None)
 
     return result + bias if bias is not None else result
+
+
+@implements([aten.slice.Tensor])
+def _(func, types, args, kwargs):
+    """Slice operation for Int8Tensor"""
+    tensor, dim, start, end, step = (
+        args[0],
+        args[1],
+        args[2],
+        args[3],
+        args[4] if len(args) > 4 else 1,
+    )
+
+    # Slice scale and zero_point along dimension 0 if slicing rows
+    sliced_scale = tensor.scale
+    sliced_zero_point = tensor.zero_point
+
+    if dim == 0 and tensor.scale.ndim >= 1:
+        sliced_scale = aten.slice.Tensor(tensor.scale, 0, start, end, step)
+        sliced_zero_point = aten.slice.Tensor(tensor.zero_point, 0, start, end, step)
+
+    sliced_shape = list(
+        aten.slice.Tensor(torch.empty(tensor.shape), dim, start, end, step).shape
+    )
+
+    new = Int8Tensor(
+        aten.slice.Tensor(tensor.qdata, dim, start, end, step),
+        sliced_scale,
+        sliced_zero_point,
+        tensor.block_size,
+        sliced_shape,
+        tensor.act_quant_kwargs,
+        tensor.dtype,
+    )
+
+    return return_and_correct_aliasing(func, args, kwargs, new)
 
 
 Int8Tensor.__module__ = "torchao.quantization"

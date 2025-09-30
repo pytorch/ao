@@ -1353,7 +1353,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
             Otherwise, applies per-group quantization with the specified group size.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
-        version: int = 2 - Version of the config to use. Version 1 uses AffineQuantization for quantization,
+        version - Version of the config to use. Version 1 uses AffineQuantization for quantization,
     """
 
     group_size: Optional[int] = None
@@ -1371,7 +1371,7 @@ int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyC
 def _int8_weight_only_quantize_tensor(weight, config):
     if config.version == 1:
         warnings.warn(
-            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
+            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
         )
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.int8
@@ -1576,6 +1576,9 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             input_quant_func = _int8_asymm_per_token_quant
 
     if config.version == 1:
+        warnings.warn(
+            "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         block_size = get_weight_block_size(weight)
         quantized_weight = to_affine_quantized_intx(
             weight,
