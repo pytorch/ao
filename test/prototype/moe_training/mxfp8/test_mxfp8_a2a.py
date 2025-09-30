@@ -29,7 +29,7 @@ from ..testing_utils import generate_split_sizes
 
 
 @instantiate_parametrized_tests
-class TritonAllReduceTest(MultiProcessTestCase):
+class MXFP8AllToAllVTest(MultiProcessTestCase):
     def setUp(self) -> None:
         super().setUp()
         self._spawn_processes()
