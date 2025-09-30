@@ -202,7 +202,8 @@ def single_param_adam(
     else:
         denom = (exp_avg_sq_f32.sqrt() / bias_correction2.sqrt()) + eps
 
-    p_f32 = p_f32 - lr * (exp_avg_f32 / bias_correction1) / denom
+    step_size = lr / bias_correction1
+    p_f32.addcdiv_(exp_avg_f32, denom, value=-step_size.to(p_f32.device))
 
     if BF16_STOCHASTIC_ROUND:
         p.copy_(_fp32_to_bf16_sr(p_f32))
