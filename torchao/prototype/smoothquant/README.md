@@ -50,6 +50,7 @@ for data in calibration_dataset:
 quant_config.step = SmoothQuantStep.CONVERT
 quantize_(model, quant_config)
 ```
+For static quantization of activation, use `Int8StaticActivationInt8WeightConfig` instead of `Int8DynamicActivationInt8WeightConfig`. Generally, static quantization produces better througput at the cost of accuracy (higher perplexity).
 
 ## Benchmarks
 
