@@ -179,10 +179,11 @@ def single_param_adam(
     p_f32 = p.float()
     grad_f32 = grad.float()
 
-    if IS_ADAMW:
-        p_f32 = p_f32 - lr * weight_decay * p_f32
-    else:
-        grad_f32 = grad_f32 + weight_decay * p_f32
+    if weight_decay != 0:
+        if IS_ADAMW:
+            p_f32.mul_(1 - lr * weight_decay)
+        else:
+            grad_f32 = grad_f32.add(p_f32, alpha=weight_decay)
 
     bias_correction1 = 1 - beta1**step
     bias_correction2 = 1 - beta2**step
