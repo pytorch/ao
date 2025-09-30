@@ -208,7 +208,24 @@ def _qat_config_transform(
             act_config = config.activation_config
             weight_config = config.weight_config
         if isinstance(module, torch.nn.Linear):
-            return FakeQuantizedLinear.from_linear(module, act_config, weight_config)
+            # TODO: rewrite this using a registration API so
+            # specific quantization schemes do not leak here
+            from torchao.prototype.qat import (
+                NVFP4FakeQuantizeConfig,
+                NVFP4FakeQuantizedLinear,
+            )
+
+            if isinstance(weight_config, NVFP4FakeQuantizeConfig):
+                assert act_config is None or isinstance(
+                    act_config, NVFP4FakeQuantizeConfig
+                )
+                return NVFP4FakeQuantizedLinear.from_linear(
+                    module, act_config, weight_config
+                )
+            else:
+                return FakeQuantizedLinear.from_linear(
+                    module, act_config, weight_config
+                )
         elif isinstance(module, torch.nn.Embedding):
             if act_config is not None:
                 raise ValueError(
