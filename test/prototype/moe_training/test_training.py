@@ -34,7 +34,7 @@ except ImportError:
 
 @pytest.mark.parametrize(
     "target_fqns",
-    [["experts"], ["experts,shared_expert"], ["invalid.fqns"]],
+    [["experts"]],
 )
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(

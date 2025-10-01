@@ -47,6 +47,7 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     block_size: int = 16
     is_swizzled_scales: bool = False
     use_triton_kernel: bool = False
+    use_dynamic_per_tensor_scale: bool = False
 
 
 # TODO(future PR): move over to TorchAOBaseTensor's dispatch
@@ -131,6 +132,9 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return f"NVFP4Tensor: blockwise_scales: {self._scale_e4m3}, per_tensor_scale: {self._per_tensor_scale}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"
+
+    def _quantization_type(self):
+        return f"{self._is_swizzled_scales=}, {self.use_triton_kernel=}, {self.act_quant_kwargs=}"
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -245,7 +249,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         return (
             scale_e4m3.to(self._orig_dtype)
-            if not self._per_tensor_scale
+            if self._per_tensor_scale is None
             else self._per_tensor_scale * scale_e4m3.to(self._orig_dtype)
         )
 
@@ -645,10 +649,15 @@ def nvfp4_linear(func, types, args, kwargs):
     else:
         # dynamic quant
         k = weight_tensor.act_quant_kwargs
+        if k.use_dynamic_per_tensor_scale:
+            tensor_amax = torch.max(torch.abs(input_tensor))
+            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+        else:
+            per_tensor_scale = weight_tensor._act_per_tensor_scale
         input_tensor = NVFP4Tensor.to_nvfp4(
             input_tensor,
             block_size=k.block_size,
-            per_tensor_scale=weight_tensor._act_per_tensor_scale,
+            per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
         )
@@ -672,10 +681,15 @@ def nvfp4_mm(func, types, args, kwargs):
     else:
         if not isinstance(input_tensor, NVFP4Tensor):
             k = weight_tensor.act_quant_kwargs
+            if k.use_dynamic_per_tensor_scale:
+                tensor_amax = torch.max(torch.abs(input_tensor))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            else:
+                per_tensor_scale = weight_tensor._act_per_tensor_scale
             input_tensor = NVFP4Tensor.to_nvfp4(
                 input_tensor,
                 block_size=k.block_size,
-                per_tensor_scale=weight_tensor._act_per_tensor_scale,
+                per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
             )
@@ -697,12 +711,18 @@ def nvfp4_addmm(func, types, args, kwargs):
         else:
             return torch.addmm(bias, input_tensor, weight_dequant)
     else:
+        # TODO: refactor duplicate code
         if not isinstance(input_tensor, NVFP4Tensor):
             k = weight_tensor.act_quant_kwargs
+            if k.use_dynamic_per_tensor_scale:
+                tensor_amax = torch.max(torch.abs(input_tensor))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            else:
+                per_tensor_scale = weight_tensor._act_per_tensor_scale
             input_tensor = NVFP4Tensor.to_nvfp4(
                 input_tensor,
                 block_size=k.block_size,
-                per_tensor_scale=weight_tensor._act_per_tensor_scale,
+                per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
             )
@@ -751,29 +771,6 @@ def nvfp4_quantize(
         AssertionError: If input dtype is not supported, tensor size is not
             divisible by block_size, tensor is not contiguous, or block_size != 16
     """
-    return _nvfp4_quantize(data_hp, block_size, per_tensor_scale)
-
-
-class _Float8Round(torch.autograd.Function):
-    """
-    Cast a tensor to float8 and back to float32 with backward STE.
-    """
-
-    @staticmethod
-    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
-        return x.to(torch.float8_e4m3fn).to(torch.float32)
-
-    @staticmethod
-    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
-        return gy
-
-
-def _nvfp4_quantize(
-    data_hp: torch.Tensor,
-    block_size: int = 16,
-    per_tensor_scale: Optional[torch.Tensor] = None,
-    skip_dtype_cast_and_packing: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
     assert data_hp.dtype in (torch.bfloat16, torch.float), (
         f"{data_hp.dtype} not supported"
     )
@@ -781,7 +778,6 @@ def _nvfp4_quantize(
     assert data_hp.is_contiguous(), "Only support contiguous data for now"
     assert block_size == 16, "NVFP4 requires block_size=16"
 
-    orig_dtype = data_hp.dtype
     orig_shape = data_hp.shape
     # Convert to float32 early for consistent precision with Triton implementation
     data_hp = data_hp.float().reshape(orig_shape[0], -1, block_size)
@@ -793,8 +789,10 @@ def _nvfp4_quantize(
     out_scales = None
     if per_tensor_scale is None:
         # We are doing single level scaling
-        block_scale_fp8 = torch.clamp(block_scale, min=E4M3_EPS, max=F8E4M3_MAX)
-        block_scale_fp32 = _Float8Round.apply(block_scale_fp8)
+        block_scale_fp8 = torch.clamp(block_scale, min=E4M3_EPS, max=F8E4M3_MAX).to(
+            torch.float8_e4m3fn
+        )
+        block_scale_fp32 = block_scale_fp8.to(torch.float32)
         data_scaled = data_hp / block_scale_fp32.unsqueeze(-1)
         out_scales = block_scale_fp8
     else:
@@ -806,8 +804,8 @@ def _nvfp4_quantize(
         scaled_block_scales = block_scale_fp32 / per_tensor_scale
         scaled_block_scales_fp8 = torch.clamp(
             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
-        )
-        scaled_block_scales_fp32 = _Float8Round.apply(scaled_block_scales_fp8)
+        ).to(torch.float8_e4m3fn)
+        scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
         # We "temporarily" dequant the scaled_block_scales_fp32 to get the per_tensor_scale
         # To apply to data
         total_scale = per_tensor_scale * scaled_block_scales_fp32
@@ -816,11 +814,8 @@ def _nvfp4_quantize(
 
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
-    if skip_dtype_cast_and_packing:
-        return out_scales.to(torch.float32), data_scaled.to(orig_dtype)
-    else:
-        data_lp = f32_to_f4_unpacked(data_scaled)
-        # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
-        # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
-        data_lp = pack_uint4(data_lp)
-        return out_scales.to(torch.float8_e4m3fn), data_lp
+    data_lp = f32_to_f4_unpacked(data_scaled)
+    # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
+    # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
+    data_lp = pack_uint4(data_lp)
+    return out_scales, data_lp

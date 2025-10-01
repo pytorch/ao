@@ -88,7 +88,7 @@ quantization_config = TorchAoConfig(
 # Load and automatically quantize the model
 model = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Llama-3.2-1B",
-    torch_dtype="auto",
+    dtype="auto",
     device_map="auto",
     quantization_config=quantization_config
 )
@@ -171,7 +171,7 @@ class MyNewQuantConfig(AOBaseConfig):
     VERSION: ClassVar[int] = 1
 
 class MyQuantizedTensor(TorchAOBaseTensor):
-    """Example based on FbgemmFp8Tensor - stores quantized data + scale"""
+    """Example based on Float8Tensor - stores quantized data + scale"""
 
     tensor_data_attrs = ["quantized_data", "scale"]
     tensor_attributes = ["dtype"]

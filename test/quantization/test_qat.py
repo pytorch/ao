@@ -10,7 +10,7 @@
 import copy
 import unittest
 import warnings
-from typing import List
+from typing import List, Type
 
 import torch
 import torch.nn.functional as F
@@ -1910,7 +1910,6 @@ class TestQAT(TestCase):
         quantize_(m, QATConfig(base_config, step="prepare"), filter_fn)
         out_prepared = m(*example_inputs)
         prepare_sqnr = compute_error(out_prepared, out_baseline)
-
         self.assertGreaterEqual(prepare_sqnr, target_prepare_sqnr)
 
         # compare convert
@@ -2077,7 +2076,8 @@ class TestQAT(TestCase):
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
-    def test_quantize_api_nvfp4(self):
+    @parametrize("use_per_tensor_scale", [True, False])
+    def test_quantize_api_nvfp4(self, use_per_tensor_scale: bool):
         """
         Test the following:
             quantize_(model, QATConfig(NVFP4InferenceConfig(), step="prepare"))
@@ -2086,22 +2086,28 @@ class TestQAT(TestCase):
         from torchao.prototype.mx_formats import NVFP4InferenceConfig
 
         self._test_quantize_api_against_ptq(
-            NVFP4InferenceConfig(),
-            target_prepare_sqnr=8,
+            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+            target_prepare_sqnr=float("inf"),
             target_convert_sqnr=float("inf"),
         )
 
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("use_per_tensor_scale", [True, False])
     def test_qat_nvfp4(self, use_per_tensor_scale: bool):
         """
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
+        from torchao.prototype.mx_formats import NVFP4InferenceConfig
         from torchao.prototype.qat import NVFP4FakeQuantizeConfig
 
         torch.manual_seed(self.SEED)
         m = M().cuda()
         baseline_model = copy.deepcopy(m)
+        quantize_(
+            baseline_model,
+            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+        )
         qat_config = QATConfig(
             activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
@@ -2115,7 +2121,7 @@ class TestQAT(TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
-        self.assertGreater(sqnr, 24)
+        self.assertGreaterEqual(sqnr, float("inf"))
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
@@ -2303,6 +2309,57 @@ class TestQAT(TestCase):
             atol=0,
             rtol=0,
         )
+
+    @parametrize(
+        "base_config_cls",
+        [
+            IntxWeightOnlyConfig,
+            Int8DynamicActivationInt4WeightConfig,
+            Int8DynamicActivationIntxWeightConfig,
+        ],
+    )
+    def test_range_learning_convert_pass_qparams(
+        self, base_config_cls: Type[AOBaseConfig]
+    ):
+        """
+        Verify that range learning QAT can pass qparams from the prepared
+        model to the convert model.
+        """
+        group_size = 32
+        config = IntxFakeQuantizeConfig(
+            torch.int4,
+            group_size=group_size,
+            is_symmetric=True,
+            is_dynamic=False,
+            range_learning=True,
+        )
+        m = M()
+        example_inputs = m.example_inputs()
+        quantize_(m, QATConfig(weight_config=config, step="prepare"))
+        initialize_fake_quantizers(m, example_inputs)
+
+        # convert and verify scales are what we expect
+        scale1 = m.linear1.weight_fake_quantizer.scale
+        scale2 = m.linear2.weight_fake_quantizer.scale
+        sub_scale = m.sub.linear.weight_fake_quantizer.scale
+        if base_config_cls == Int8DynamicActivationInt4WeightConfig:
+            base_config = base_config_cls()
+            quantize_(m, QATConfig(base_config, step="convert"))
+            torch.testing.assert_close(
+                m.linear1.weight.original_weight_tensor.tensor_impl.scale, scale1
+            )
+            torch.testing.assert_close(
+                m.linear2.weight.original_weight_tensor.tensor_impl.scale, scale2
+            )
+            torch.testing.assert_close(
+                m.sub.linear.weight.original_weight_tensor.tensor_impl.scale, sub_scale
+            )
+        else:
+            base_config = base_config_cls(torch.int4, PerGroup(group_size))
+            quantize_(m, QATConfig(base_config, step="convert"))
+            torch.testing.assert_close(m.linear1.weight.scale, scale1)
+            torch.testing.assert_close(m.linear2.weight.scale, scale2)
+            torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
 
 
 instantiate_parametrized_tests(TestQAT)
