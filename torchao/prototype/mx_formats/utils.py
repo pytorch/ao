@@ -26,7 +26,7 @@ def ceil_div(a, b):
 
 def to_blocked(input_matrix, use_triton_kernel: bool = False) -> Tensor:
     """
-    Rearrange a large matrix by breaking it into blocks and applying the rearrangement pattern.
+    Rearrange a large matrix by breaking it into blocks, padding, and applying the rearrangement pattern.
 
     See:
         https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
@@ -37,7 +37,7 @@ def to_blocked(input_matrix, use_triton_kernel: bool = False) -> Tensor:
             torch.compile
 
     Returns:
-        Rearranged tensor of shape (32*ceil_div(H,128), 16*ceil_div(W,4))
+        Rearranged tensor of shape (32*ceil_div(H,128) * 16*ceil_div(W,4))
     """
     if use_triton_kernel:
         return triton_mx_block_rearrange(input_matrix).flatten()
@@ -83,6 +83,7 @@ def from_blocked(
     """
     n_row_blocks = ceil_div(original_rows, 128)
     n_col_blocks = ceil_div(original_cols, 4)
+    # import pdb; pdb.set_trace()
 
     rearranged = blocked_tensor.view(n_row_blocks * n_col_blocks, 32, 16)
 

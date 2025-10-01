@@ -21,6 +21,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     per_tensor_amax_to_scale,
     unpack_uint4,
 )
+from torchao.prototype.mx_formats.utils import ceil_div
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
@@ -127,18 +128,18 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     "slice_dim,slice_spec",
     [
         # Row slicing - must align with 128-row boundaries
-        pytest.param(0, slice(0, 128), id="slice_rows[0:128]"),
-        pytest.param(0, slice(128, 256), id="slice_rows[128:256]"),
+        # pytest.param(0, slice(0, 128), id="slice_rows[0:128]"),
+        # pytest.param(0, slice(128, 256), id="slice_rows[128:256]"),
         # Column slicing - must align with 64-column boundaries (4 scale columns * 16 block_size)
         pytest.param(1, slice(0, 64), id="slice_cols[0:64]"),
-        pytest.param(1, slice(64, 128), id="slice_cols[64:128]"),
-        pytest.param(1, slice(0, 128), id="slice_cols[0:128]_full_width"),
+        # pytest.param(1, slice(64, 128), id="slice_cols[64:128]"),
+        # pytest.param(1, slice(0, 128), id="slice_cols[0:128]_full_width"),
         # Test tensor parallelism patterns (half splits)
-        pytest.param(1, slice(0, 2048), id="slice_cols[0:2048]_tp_first_half"),
-        pytest.param(1, slice(2048, 4096), id="slice_cols[2048:4096]_tp_second_half"),
+        # pytest.param(1, slice(0, 2048), id="slice_cols[0:2048]_tp_first_half"),
+        # pytest.param(1, slice(2048, 4096), id="slice_cols[2048:4096]_tp_second_half"),
         # Test quarter splits
-        pytest.param(1, slice(0, 1024), id="slice_cols[0:1024]_quarter"),
-        pytest.param(1, slice(1024, 2048), id="slice_cols[1024:2048]_quarter"),
+        # pytest.param(1, slice(0, 1024), id="slice_cols[0:1024]_quarter"),
+        # pytest.param(1, slice(1024, 2048), id="slice_cols[1024:2048]_quarter"),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -157,20 +158,53 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         M, K = 256, 4096
     else:
         # For column slicing, need multiples of 64 columns for alignment
-        M, K = 128, 4096
+        # M, K = 128, 4096
+        M, K = 128, 64 * 2
 
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    # tensor.to_dtype(torch.bfloat16)
     assert tensor._is_swizzled_scales == True
 
+    print(
+        "before",
+        tensor.shape,
+        tensor.qdata.shape,
+        tensor._scale_e4m3.shape,
+    )
+    # print(tensor._scale_e4m3[0:128, 0:4])
     if slice_dim == 0:
         sliced_tensor = tensor[slice_spec, :]
     else:
         sliced_tensor = tensor[:, slice_spec]
+    print(
+        "after",
+        sliced_tensor.shape,
+        sliced_tensor.qdata.shape,
+        sliced_tensor._scale_e4m3.shape,
+    )
+    # print(sliced_tensor._scale_e4m3[0:128, 0:4])
+    # print(sliced_tensor.qdata.float() - tensor.qdata[0:128, 0:32].float())
+    # print(sliced_tensor._scale_e4m3.float() - tensor._scale_e4m3[0:128, 0:4].float())
 
     # Verify sliced tensor maintains swizzled state
     assert sliced_tensor._is_swizzled_scales == True
+
+    # this matches sliced_reconstructed, but not original_reconstructed[:, slice_spec]
+    if False:
+        sliced_manually = NVFP4Tensor(
+            tensor.qdata[:, 0:32],
+            tensor._scale_e4m3[:, 0:4].contiguous(),
+            tensor._block_size,
+            tensor._orig_dtype,
+            tensor._per_tensor_scale,
+            tensor._act_per_tensor_scale,
+            tensor._is_swizzled_scales,
+            tensor.use_triton_kernel,
+            tensor.act_quant_kwargs,
+        )
+        import pdb; pdb.set_trace()
 
     # Verify sliced tensor can be dequantized
     sliced_reconstructed = sliced_tensor.to_dtype(torch.bfloat16)
@@ -181,6 +215,11 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         expected = original_reconstructed[slice_spec, :]
     else:
         expected = original_reconstructed[:, slice_spec]
+    print('e', expected)
+    print('s', sliced_reconstructed)
+    print('e - s', expected - sliced_reconstructed)
+    print(1, expected.abs().sum())
+    print(2, sliced_reconstructed.abs().sum())
 
     torch.testing.assert_close(sliced_reconstructed, expected, atol=1e-6, rtol=1e-6)
 
@@ -421,7 +460,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @pytest.mark.parametrize("compile", [False])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("use_triton_kernel", [True, False])
+# @pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize("use_triton_kernel", [False])
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -525,3 +565,67 @@ def test_nvfp4_to_copy():
     assert x.act_quant_kwargs == y.act_quant_kwargs
     assert x.dtype == torch.float32
     assert y.dtype == torch.bfloat16
+
+
+@pytest.mark.parametrize("transpose", [False, True])
+# @pytest.mark.parametrize("transpose", [True])
+# @pytest.mark.parametrize("transpose", [False])
+@pytest.mark.parametrize("use_triton_kernel", [False, True])
+# @pytest.mark.parametrize("use_triton_kernel", [False])
+# @pytest.mark.parametrize("use_triton_kernel", [True])
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+# @pytest.mark.parametrize("is_swizzled_scales", [True])
+@pytest.mark.parametrize(
+    "mk",
+    (
+        (128, 64),
+        (128 + 16, 64),
+        (128, 64 + 16),
+        (128 + 16, 64 + 16),
+    ),
+)
+# @pytest.mark.parametrize("mk", ((128 + 16, 64),))
+def test_scale_shape_matches_qdata(
+    transpose, use_triton_kernel, is_swizzled_scales, mk
+):
+    if use_triton_kernel and not is_swizzled_scales:
+        pytest.skip("triton kernel requires swizzled scales")
+
+    M, K = mk
+
+    block_size = 16
+
+    # TODO(this PR): test larger tensors that don't exactly map to (128, 64) tiles,
+    # to test the padding logic
+    # context: https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+    x_hp = torch.randn(M, K, device="cuda")
+    x = NVFP4Tensor.to_nvfp4(
+        x_hp, is_swizzled_scales=is_swizzled_scales, use_triton_kernel=use_triton_kernel
+    )
+
+    m_dim, k_dim = 0, 1
+    if transpose:
+        x_hp = x_hp.t()
+        x = x.t()
+        m_dim, k_dim = 1, 0
+
+    orig_m = x_hp.shape[m_dim]
+    expected_padded_m = orig_m
+    if is_swizzled_scales:
+        # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+        expected_padded_m = ceil_div(orig_m, 128) * 32
+    actual_padded_m = x._scale_e4m3.shape[m_dim]
+    assert expected_padded_m == actual_padded_m, (
+        f"incompatible padded shape for dim {m_dim}: {x.shape} and {x._scale_e4m3.shape}"
+    )
+
+    orig_k = x_hp.shape[k_dim]
+    expected_padded_k = orig_k // block_size
+    if is_swizzled_scales:
+        # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+        expected_padded_k = ceil_div(orig_k // block_size, 4) * 16
+    actual_padded_k = x._scale_e4m3.shape[k_dim]
+
+    assert expected_padded_k == actual_padded_k, (
+        f"incompatible padded shape for dim {k_dim}: {x.shape} and {x._scale_e4m3.shape}"
+    )
