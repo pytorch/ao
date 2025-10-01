@@ -24,7 +24,11 @@ from torchao.prototype.mx_formats.mx_tensor import (
     tensor_size_fp4x2_to_hp,
     tensor_size_hp_to_fp4x2,
 )
-from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.prototype.mx_formats.utils import (
+    from_blocked,
+    hp_data_dims_to_swizzled_scale_dims_nvfp4,
+    to_blocked,
+)
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
@@ -190,15 +194,11 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 ).flatten()
 
         if is_swizzled_scales:
-            # a 128x64 unpacked or 128x64 packed qdata tile corresponds
-            # to a swizzled 32x16 scale tile
-            scale_M = ceil_div(M, 128) * 32
-            scale_K = ceil_div(K, 64) * 16
+            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(M, K)
         else:
             # a 1x16 unpacked or 1x8 packed qdata tile corresponds to 1
             # scale element
-            scale_M = M
-            scale_K = K // block_size
+            scale_M, scale_K = M, K // block_size
         blockwise_scales = blockwise_scales.view(scale_M, scale_K)
 
         return NVFP4Tensor(
@@ -383,6 +383,9 @@ def nvfp4_slice(func, types, args, kwargs):
 
     M, K = x.shape[0], x.shape[1]
 
+    # the scale manipulations below assume a flattened scale
+    # TODO(future or this PR): update this
+
     if x._is_swizzled_scales:
         scale_rows = M
         scale_cols = K // x._block_size
@@ -421,7 +424,9 @@ def nvfp4_slice(func, types, args, kwargs):
                 else None
             )
 
-            sliced_scale = aten.slice.Tensor(x._scale_e4m3, 0, start_idx, end_idx, 1)
+            sliced_scale = aten.slice.Tensor(
+                x._scale_e4m3.flatten(), 0, start_idx, end_idx, 1
+            )
             sliced_data = aten.slice.Tensor(x.qdata, 0, start, end, step)
 
         elif dim == 1:
@@ -476,7 +481,7 @@ def nvfp4_slice(func, types, args, kwargs):
                     row_start = row_block * elements_per_row_block
                     col_start = row_start + start_col_block * elements_per_block
                     col_end = row_start + end_col_block * elements_per_block
-                    slices_to_extract.append(x._scale_e4m3[col_start:col_end])
+                    slices_to_extract.append(x._scale_e4m3.flatten()[col_start:col_end])
 
                 # Concatenate all the slices
                 sliced_scale = torch.cat(slices_to_extract, dim=0)
@@ -528,6 +533,19 @@ def nvfp4_slice(func, types, args, kwargs):
             )
 
         sliced_scale = sliced_scale.flatten()
+
+    # reshape at the end
+    sliced_M = sliced_data.shape[0]
+    # multiply by 2 to convert from bytes to num_elements
+    sliced_K = sliced_data.shape[1] * 2
+    if x._is_swizzled_scales:
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(sliced_M, sliced_K)
+    else:
+        # a 1x16 unpacked or 1x8 packed qdata tile corresponds to 1
+        # scale element
+        scale_M = sliced_M
+        scale_K = sliced_K // x._block_size
+    sliced_scale = sliced_scale.view(scale_M, scale_K)
 
     # Create result tensor
     result = NVFP4Tensor(
