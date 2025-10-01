@@ -529,14 +529,8 @@ def test_nvfp4_to_copy():
 
 
 @pytest.mark.parametrize("transpose", [False, True])
-# @pytest.mark.parametrize("transpose", [True])
-# @pytest.mark.parametrize("transpose", [False])
 @pytest.mark.parametrize("use_triton_kernel", [False, True])
-# @pytest.mark.parametrize("use_triton_kernel", [False])
-# @pytest.mark.parametrize("use_triton_kernel", [True])
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
-# @pytest.mark.parametrize("is_swizzled_scales", [False])
-# @pytest.mark.parametrize("is_swizzled_scales", [True])
 @pytest.mark.parametrize(
     "mk",
     (
@@ -546,7 +540,6 @@ def test_nvfp4_to_copy():
         (128 + 16, 64 + 16),
     ),
 )
-# @pytest.mark.parametrize("mk", ((128 + 16, 64),))
 def test_scale_shape_matches_qdata(
     transpose, use_triton_kernel, is_swizzled_scales, mk
 ):
@@ -557,9 +550,6 @@ def test_scale_shape_matches_qdata(
 
     block_size = 16
 
-    # TODO(this PR): test larger tensors that don't exactly map to (128, 64) tiles,
-    # to test the padding logic
-    # context: https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
     x_hp = torch.randn(M, K, device="cuda")
     x = NVFP4Tensor.to_nvfp4(
         x_hp, is_swizzled_scales=is_swizzled_scales, use_triton_kernel=use_triton_kernel
