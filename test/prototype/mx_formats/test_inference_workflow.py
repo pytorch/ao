@@ -218,3 +218,13 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
             gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
         )
         self._test_narrow_similar_to_vllm(config)
+
+    # TODO(next): make this test pass by enabling 3d NVFP4Tensor, currently a lot
+    # of places hardcode 2d
+    def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
+        config = NVFP4InferenceConfig(
+            mm_config=NVFP4MMConfig.WEIGHT_ONLY,
+            use_triton_kernel=False,
+            use_dynamic_per_tensor_scale=False,
+        )
+        self._test_quantize_3d_param_similar_to_vllm(config)
