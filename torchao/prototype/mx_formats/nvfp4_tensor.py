@@ -383,8 +383,10 @@ def nvfp4_slice(func, types, args, kwargs):
 
     M, K = x.shape[0], x.shape[1]
 
-    # the scale manipulations below assume a flattened scale
-    # TODO(future or this PR): update this
+    # The scale manipulations below assume a flattened scale. For now, we
+    # flatten the scale, go through the calculations below, and then reshape
+    # it back to the format which matches the shape of `qdata`.
+    # TODO(future PR): update this
 
     if x._is_swizzled_scales:
         scale_rows = M
