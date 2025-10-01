@@ -50,10 +50,10 @@ if bool(os.getenv("TORCHAO_SKIP_LOADING_SO_FILES", False)):
     # users can set env var TORCH_INCOMPATIBLE=1 to skip loading .so files
     # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
     skip_loading_so_files = True
-    # if torchao version has "+git", assume it's locally built and we don't know
-    #   anything about the PyTorch version used to build it unless user provides override flag
-    # otherwise, assume it's prebuilt by torchao's build scripts and we can make
-    #   assumptions about the PyTorch version used to build it.
+# if torchao version has "+git", assume it's locally built and we don't know
+#   anything about the PyTorch version used to build it unless user provides override flag
+# otherwise, assume it's prebuilt by torchao's build scripts and we can make
+#   assumptions about the PyTorch version used to build it.
 elif not ("+git" in __version__) and not ("unknown" in __version__):
     # We know that torchao .so files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+. (see #2919)
     # The following code skips importing the .so files if incompatible torch version is detected,
