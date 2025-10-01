@@ -16,7 +16,8 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.utils import _is_fbgemm_genai_gpu_available, torch_version_at_least
+from torchao.testing.model_architectures import ToyTokenizer
+from torchao.utils import _is_fbgemm_genai_gpu_available
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -37,9 +38,25 @@ class ToyLinearModel(torch.nn.Module):
         ]
 
     def forward(self, x):
+        if x.dtype in [torch.long, torch.int]:
+            batch_size, seq_len = x.shape
+            x = (
+                torch.nn.functional.one_hot(
+                    x.long().clamp(0, self.linear1.in_features - 1),
+                    self.linear1.in_features,
+                )
+                .float()
+                .view(-1, self.linear1.in_features)
+            )
+
         x = self.linear1(x)
         x = self.linear2(x)
         x = self.linear3(x)
+
+        if x.dtype in [torch.long, torch.int] or "batch_size" in locals():
+            self.lm_head = torch.nn.Linear(64, 1000).to(x.device)
+            return self.lm_head(x).view(batch_size, seq_len, 1000)
+
         return x
 
 
@@ -83,7 +100,9 @@ class TestAWQ(TestCase):
 
     @parametrize("device", devices)
     def test_awq_functionality(self, device):
-        dataset_size = 10
+        from torchao._models._eval import TransformerEvalWrapper
+
+        dataset_size = 100
         l1, l2, l3 = 512, 256, 128
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
         sequence_length = 5
@@ -110,15 +129,14 @@ class TestAWQ(TestCase):
             input_cat = torch.cat(calibration_data, dim=-2)
             ref_out = m(input_cat)
 
-            # baseline quantization
-            quantize_(m_baseline, base_config)
+        quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+        quantize_(m, quant_config)
 
-            # awq quantization
-            quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
-            quantize_(m, quant_config)
-
-            for example in calibration_data:
-                m(example)
+        # Calibration via evaluation
+        results = TransformerEvalWrapper(model=m, tokenizer=ToyTokenizer()).run_eval(
+            tasks=["hellaswag"], limit=n_calibration_examples
+        )
+        self.assertIsNotNone(results)
 
             quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
             quantize_(m, quant_config)
