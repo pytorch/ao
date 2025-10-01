@@ -110,7 +110,7 @@ def hp_data_dims_to_swizzled_scale_dims_nvfp4(
     returns a 2d tuple of the dims of the swizzled nvfp4 scale corresponding to
     that tensor.
     """
-    # a 128x64 unpacked or 128x64 packed qdata tile corresponds
+    # a 128x64 unpacked or 128x32 packed qdata tile corresponds
     # to a swizzled 32x16 scale tile
     scale_M = ceil_div(hp_data_M, 128) * 32
     scale_K = ceil_div(hp_data_K, 64) * 16
