@@ -265,21 +265,15 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
 
     def dequantize(self):
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.target_dtype]
-        qdata = self.qdata  # .to(torch.int32)
-        scale = self.scale  # .to(torch.float32)
-        zero_point = self.zero_point  # .to(torch.int32)
-        output_dtype = self.dtype  # torch.float32 # self.dtype
-        dtype = torch.int8  # torch.int8
-
         return dequantize_affine(
-            qdata,
+            self.qdata,
             self.block_size,
-            scale,
-            zero_point,
-            dtype,
+            self.scale,
+            self.zero_point,
+            torch.int8,
             qmin,
             qmax,
-            output_dtype=output_dtype,
+            output_dtype=self.dtype,
         )
 
 
