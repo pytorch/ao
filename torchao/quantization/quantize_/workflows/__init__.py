@@ -20,6 +20,8 @@ from .int4.int4_tensor import (
     Int4Tensor,
 )
 from .int4.int4_tile_packed_to_4d_tensor import Int4TilePackedTo4dTensor
+from .int8.int8_csr_sparse_tensor import Int8CsrSparseTensor
+from .int8.int8_packing_format import Int8PackingFormat
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
 )
@@ -44,4 +46,6 @@ __all__ = [
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
     "IntxOpaqueTensor",
+    "Int8CsrSparseTensor",
+    "Int8PackingFormat",
 ]
