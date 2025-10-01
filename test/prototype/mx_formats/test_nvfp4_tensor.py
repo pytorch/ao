@@ -528,6 +528,10 @@ def test_nvfp4_to_copy():
     assert y.dtype == torch.bfloat16
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize("use_triton_kernel", [False, True])
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
@@ -543,6 +547,8 @@ def test_nvfp4_to_copy():
 def test_scale_shape_matches_qdata(
     transpose, use_triton_kernel, is_swizzled_scales, mk
 ):
+    if use_triton_kernel and not is_sm_at_least_100():
+        pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     if use_triton_kernel and not is_swizzled_scales:
         pytest.skip("triton kernel requires swizzled scales")
 
