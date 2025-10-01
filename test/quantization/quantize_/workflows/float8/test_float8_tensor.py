@@ -13,9 +13,7 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
-from torch.testing._internal.common_utils import (
-    run_tests,
-)
+from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -462,6 +460,250 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         x_fp8_1 = x_fp8[1]
         torch.testing.assert_close(
             x_fp8.dequantize()[1], x_fp8_1.dequantize(), atol=0, rtol=0
+        )
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    def test_unsqueeze_operation(self, granularity, sizes):
+        """Test aten.unsqueeze.default operation on Float8Tensor"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+        M, N, K = sizes
+
+        # Create a linear layer and quantize it
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+
+        original_weight = linear.weight
+        original_shape = original_weight.shape
+
+        # Test unsqueeze operation at dim=0 (only supported dimension)
+        unsqueezed_weight = original_weight.unsqueeze(0)
+
+        # Verify the unsqueezed tensor has correct shape
+        expected_shape = [1] + list(original_shape)
+        self.assertEqual(unsqueezed_weight.shape, torch.Size(expected_shape))
+
+        # Verify qdata and scale shapes
+        expected_qdata_shape = [1] + list(original_weight.qdata.shape)
+        expected_scale_shape = [1] + list(original_weight.scale.shape)
+
+        self.assertEqual(
+            unsqueezed_weight.qdata.shape, torch.Size(expected_qdata_shape)
+        )
+        self.assertEqual(
+            unsqueezed_weight.scale.shape, torch.Size(expected_scale_shape)
+        )
+
+        # Verify block_size is correctly updated
+        expected_block_size = []
+        for i in range(len(expected_shape)):
+            expected_block_size.append(expected_shape[i] // expected_scale_shape[i])
+
+        self.assertEqual(unsqueezed_weight.block_size, expected_block_size)
+
+        # Test that metadata is preserved
+        self.assertEqual(unsqueezed_weight.mm_config, original_weight.mm_config)
+        self.assertEqual(
+            unsqueezed_weight.act_quant_kwargs, original_weight.act_quant_kwargs
+        )
+        self.assertEqual(
+            unsqueezed_weight.kernel_preference, original_weight.kernel_preference
+        )
+        self.assertEqual(unsqueezed_weight.dtype, original_weight.dtype)
+
+        # Test numerical correctness
+        original_dequant = original_weight.dequantize()
+        unsqueezed_dequant = unsqueezed_weight.dequantize()
+        expected_dequant = original_dequant.unsqueeze(0)
+
+        torch.testing.assert_close(
+            unsqueezed_dequant, expected_dequant, atol=1e-3, rtol=1e-3
+        )
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_unsqueeze_error_cases(self, granularity):
+        """Test error cases for aten.unsqueeze.default operation"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        # Create a linear layer and quantize it
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+
+        weight = linear.weight
+
+        # Test that unsqueezing on unsupported dimensions raises an error
+        with self.assertRaisesRegex(AssertionError, "Only dim == 0 is supported"):
+            weight.unsqueeze(1)  # dim=1 should not be supported
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    def test_add_tensor_operation(self, granularity, sizes):
+        """Test aten.add.Tensor operation with Float8Tensor"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+        M, N, K = sizes
+
+        # Create a linear layer and quantize it
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+
+        weight = linear.weight
+
+        # Test addition of regular tensor + Float8Tensor
+        regular_tensor = torch.randn_like(weight.dequantize())
+        result = regular_tensor + weight
+
+        # The result should be a regular tensor (not Float8Tensor)
+        self.assertFalse(hasattr(result, "qdata"))
+        self.assertFalse(hasattr(result, "scale"))
+
+        # Verify the result shape matches the input shapes
+        self.assertEqual(result.shape, weight.shape)
+        self.assertEqual(result.dtype, dtype)
+        self.assertEqual(result.device, weight.device)
+
+        # Test numerical correctness
+        expected_result = regular_tensor + weight.dequantize()
+
+        # Allow for some numerical difference due to quantization
+        torch.testing.assert_close(result, expected_result, atol=1e-2, rtol=1e-2)
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_add_tensor_error_cases(self, granularity):
+        """Test error cases for aten.add.Tensor operation"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        # Create a linear layer and quantize it
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+
+        weight = linear.weight
+
+        # Test that incorrect argument types raise errors
+        with self.assertRaisesRegex(
+            AssertionError,
+            "Expected args\\[0\\]==torch.Tensor and args\\[1\\]==Float8Tensor",
+        ):
+            # This should fail because the implementation expects (torch.Tensor, Float8Tensor)
+            _ = weight + weight  # This would be (Float8Tensor, Float8Tensor)
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize("slice_dim", [0, 1, 2])
+    @common_utils.parametrize(
+        "tensor_shape",
+        [
+            (8, 128, 256),  # 3D tensor: batch, seq_len, hidden_dim
+            (4, 64, 128),  # smaller 3D tensor
+        ],
+    )
+    def test_slice_3d_operation(self, granularity, slice_dim, tensor_shape):
+        """Test slicing operations on 3D Float8Tensor across all dimensions"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        B, S, H = tensor_shape
+
+        # Create a 3D tensor and quantize it (simulating a batched weight tensor)
+        original_tensor = torch.randn(B, S, H, dtype=dtype, device=device)
+
+        # Create Float8Tensor from the 3D high-precision tensor
+        float8_tensor = Float8Tensor.from_hp(
+            original_tensor,
+            granularity=granularity,
+            mm_config=config.mm_config,
+        )
+
+        slice_size = tensor_shape[slice_dim]
+        start_idx = 1
+        end_idx = slice_size - 1
+
+        # Perform slicing on the specified dimension
+        if slice_dim == 0:
+            sliced_tensor = float8_tensor[start_idx:end_idx, :, :]
+        elif slice_dim == 1:
+            sliced_tensor = float8_tensor[:, start_idx:end_idx, :]
+        elif slice_dim == 2:
+            sliced_tensor = float8_tensor[:, :, start_idx:end_idx]
+
+        # Verify the sliced tensor shape
+        expected_shape = list(tensor_shape)
+        expected_shape[slice_dim] = end_idx - start_idx
+        self.assertEqual(sliced_tensor.shape, torch.Size(expected_shape))
+
+        # Verify qdata shape matches
+        self.assertEqual(sliced_tensor.qdata.shape, torch.Size(expected_shape))
+
+        # Verify scale shape is correct based on granularity and slice dimension
+        if isinstance(granularity, PerTensor):
+            # Per-tensor quantization: scale should remain scalar
+            self.assertEqual(sliced_tensor.scale.numel(), 1)
+        else:
+            # Per-row quantization: scale shape depends on which dimension we sliced
+            if slice_dim == 0:
+                # Slicing batch dimension affects scale
+                expected_scale_shape = list(float8_tensor.scale.shape)
+                expected_scale_shape[0] = end_idx - start_idx
+                self.assertEqual(
+                    sliced_tensor.scale.shape, torch.Size(expected_scale_shape)
+                )
+            elif slice_dim == 1:
+                # Slicing sequence dimension affects scale
+                expected_scale_shape = list(float8_tensor.scale.shape)
+                expected_scale_shape[1] = end_idx - start_idx
+                self.assertEqual(
+                    sliced_tensor.scale.shape, torch.Size(expected_scale_shape)
+                )
+            else:
+                # Slicing hidden dimension (dim=2) typically doesn't affect scale in per-row quantization
+                self.assertEqual(sliced_tensor.scale.shape, float8_tensor.scale.shape)
+
+        # Verify block_size is correctly updated
+        self.assertEqual(len(sliced_tensor.block_size), len(expected_shape))
+        for i in range(len(expected_shape)):
+            expected_block_dim = min(float8_tensor.block_size[i], expected_shape[i])
+            self.assertEqual(sliced_tensor.block_size[i], expected_block_dim)
+
+        # Test that metadata is preserved
+        self.assertEqual(sliced_tensor.mm_config, float8_tensor.mm_config)
+        self.assertEqual(sliced_tensor.act_quant_kwargs, float8_tensor.act_quant_kwargs)
+        self.assertEqual(
+            sliced_tensor.kernel_preference, float8_tensor.kernel_preference
+        )
+        self.assertEqual(sliced_tensor.dtype, float8_tensor.dtype)
+
+        # Test numerical correctness by comparing dequantized results
+        original_dequantized = float8_tensor.dequantize()
+        if slice_dim == 0:
+            sliced_original = original_dequantized[start_idx:end_idx, :, :]
+        elif slice_dim == 1:
+            sliced_original = original_dequantized[:, start_idx:end_idx, :]
+        elif slice_dim == 2:
+            sliced_original = original_dequantized[:, :, start_idx:end_idx]
+        sliced_dequantized = sliced_tensor.dequantize()
+
+        # Allow for small numerical differences due to quantization
+        torch.testing.assert_close(
+            sliced_dequantized, sliced_original, atol=1e-1, rtol=1e-1
         )
 
 
