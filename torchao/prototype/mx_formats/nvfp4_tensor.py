@@ -176,6 +176,12 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 f"Triton kernel requires K (dim 1) to be divisible by 16, got {data_hp.shape[1]}"
             )
             blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
+
+            # TODO(before land): share code for scale shape manipulation in the two
+            # if branches
+            scale_M = ceil_div(data_hp.shape[0], 128) * 32
+            scale_K = ceil_div(data_hp.shape[1] // 16, 4) * 16
+            blockwise_scales = blockwise_scales.view(scale_M, scale_K)
         else:
             blockwise_scales, data_lp = nvfp4_quantize(
                 data_hp, block_size, per_tensor_scale
@@ -187,13 +193,14 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 blockwise_scales = blockwise_scales.view(scale_shape)
                 # print(2, blockwise_scales.shape, blockwise_scales)
                 blockwise_scales = to_blocked(blockwise_scales)
-                # print(3, blockwise_scales.shape, blockwise_scales)
+                print(3, blockwise_scales.shape, blockwise_scales)
 
                 # match shape of data_hp
-                scale_M = ceil_div(data_hp.shape[0], 128) * 128
-                scale_K = ceil_div(data_hp.shape[1] // 16, 4) * 4
+                # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+                scale_M = ceil_div(data_hp.shape[0], 128) * 32
+                scale_K = ceil_div(data_hp.shape[1] // 16, 4) * 16
                 blockwise_scales = blockwise_scales.view(scale_M, scale_K)
-                # print(4, blockwise_scales.shape, blockwise_scales)
+                print(4, blockwise_scales.shape, blockwise_scales)
 
         return NVFP4Tensor(
             data_lp,
@@ -220,6 +227,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             torch.Tensor: Dequantized tensor in the target dtype
         """
         is_transposed = self.qdata.stride(0) < self.qdata.stride(1)
+        print('is_transposed', is_transposed)
         if is_transposed:
             M, K = self.shape[1], self.shape[0]
         else:
@@ -230,7 +238,10 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         # next: debug scale shape here
         data_f32 = data_f32.view(M, K // self._block_size, self._block_size)
-        scale_e4m3_reshaped = self.get_hp_scales().view(M, K // self._block_size, 1)
+        scales = self.get_hp_scales()
+        scales_tmp = scales.reshape(32, -1)
+        print('scales', scales_tmp.shape, scales_tmp[0:8])
+        scale_e4m3_reshaped = scales.view(M, K // self._block_size, 1)
         data_scaled = data_f32 * scale_e4m3_reshaped.to(torch.float32)
         result = data_scaled.view(M, K).to(target_dtype)
 
@@ -388,6 +399,22 @@ def nvfp4_slice(func, types, args, kwargs):
         n_col_blocks = ceil_div(scale_cols, 4)
         elements_per_block = 32 * 16  # 512 elements
 
+        # 
+        # See https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+        # for qdata vs scale layout. Here is a summary specific to nvfp4:
+        #
+        # 1. qdata tile shape is (128, 32) packed fp4, which is (128, 64) unpacked fp4
+        # 2. scale tile shape is (32, 16)
+        # 3. correspondence of qdata vs scale tiles is as follows, in a 2 by 2 tile example
+        #
+        # | tile_idx | qdata_rows | qdata_cols | scale_rows | scale_cols |
+        # ----------------------------------------------------------------
+        # | 0        | 0:127      | 0:31       | 0:31       | 0:15       |
+        # | 1        | 128:255    | 0:31       | 32:63      | 0:15       |
+        # | 2        | 0:127      | 32:63      | 0:31       | 16:31      |
+        # | 3        | 128:255    | 32:63      | 32:63      | 16:31      |
+        #
+
         if dim == 0:
             # Row slicing
             # Handle sys.maxsize (default slice end)
@@ -419,6 +446,8 @@ def nvfp4_slice(func, types, args, kwargs):
                 else None
             )
 
+            # TODO(before land): this is wrong, it works but need to express in terms of
+            # properly laid out scale as in the comment block above
             sliced_scale = aten.slice.Tensor(x._scale_e4m3, 0, start, end, 1)
             sliced_data = aten.slice.Tensor(x.qdata, 0, start, end, step)
 
@@ -464,6 +493,22 @@ def nvfp4_slice(func, types, args, kwargs):
                 # Full width - no slicing needed
                 sliced_scale = x._scale_e4m3
             else:
+                
+                scale = x._scale_e4m3
+
+                # reshape to expected shape
+                # TODO(before land): do this when swizzling so we don't have to do it here
+
+                # TODO(before land): comment the mul by 2 here
+                scale_rows = n_row_blocks * 16 * 2
+                scale_cols = n_col_blocks * 16
+                scale = scale.view(scale_rows, scale_cols)
+
+                # convert from hp_tensor row to scale row
+                start_scale_col = 0 if start is None else (start // 128 * 16)
+                end_scale_col = scale_cols if end is None or end >= K else (end // 16 * 4)
+                # import pdb; pdb.set_trace()
+
                 if False:
                     # Extract specific column blocks from each row block
                     # Each row block in swizzled format contains n_col_blocks chunks of (32, 16)
@@ -479,9 +524,12 @@ def nvfp4_slice(func, types, args, kwargs):
 
                     # Concatenate all the slices
                     sliced_scale = torch.cat(slices_to_extract, dim=0)
+                # import pdb; pdb.set_trace()
                 sliced_scale = aten.slice.Tensor(
-                    x._scale_e4m3, dim, start_scale_col, end_scale_col, step
+                    # x._scale_e4m3, dim, start_scale_col, end_scale_col, step
+                    scale, dim, start_scale_col, end_scale_col, step
                 ).contiguous()
+                # import pdb; pdb.set_trace()
 
             # Slice the data tensor
             packed_start = None if start is None else start // 2

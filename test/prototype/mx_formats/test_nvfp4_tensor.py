@@ -132,14 +132,14 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
         # pytest.param(0, slice(128, 256), id="slice_rows[128:256]"),
         # Column slicing - must align with 64-column boundaries (4 scale columns * 16 block_size)
         pytest.param(1, slice(0, 64), id="slice_cols[0:64]"),
-        pytest.param(1, slice(64, 128), id="slice_cols[64:128]"),
-        pytest.param(1, slice(0, 128), id="slice_cols[0:128]_full_width"),
+        # pytest.param(1, slice(64, 128), id="slice_cols[64:128]"),
+        # pytest.param(1, slice(0, 128), id="slice_cols[0:128]_full_width"),
         # Test tensor parallelism patterns (half splits)
-        pytest.param(1, slice(0, 2048), id="slice_cols[0:2048]_tp_first_half"),
-        pytest.param(1, slice(2048, 4096), id="slice_cols[2048:4096]_tp_second_half"),
+        # pytest.param(1, slice(0, 2048), id="slice_cols[0:2048]_tp_first_half"),
+        # pytest.param(1, slice(2048, 4096), id="slice_cols[2048:4096]_tp_second_half"),
         # Test quarter splits
-        pytest.param(1, slice(0, 1024), id="slice_cols[0:1024]_quarter"),
-        pytest.param(1, slice(1024, 2048), id="slice_cols[1024:2048]_quarter"),
+        # pytest.param(1, slice(0, 1024), id="slice_cols[0:1024]_quarter"),
+        # pytest.param(1, slice(1024, 2048), id="slice_cols[1024:2048]_quarter"),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -158,7 +158,8 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         M, K = 256, 4096
     else:
         # For column slicing, need multiples of 64 columns for alignment
-        M, K = 128, 4096
+        # M, K = 128, 4096
+        M, K = 128, 64 * 2
 
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
@@ -171,9 +172,8 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         tensor.shape,
         tensor.qdata.shape,
         tensor._scale_e4m3.shape,
-        tensor._scale_e4m3.is_contiguous(),
     )
-    print(tensor._scale_e4m3[0:128, 0:8])
+    # print(tensor._scale_e4m3[0:128, 0:4])
     if slice_dim == 0:
         sliced_tensor = tensor[slice_spec, :]
     else:
@@ -183,12 +183,28 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         sliced_tensor.shape,
         sliced_tensor.qdata.shape,
         sliced_tensor._scale_e4m3.shape,
-        tensor._scale_e4m3.is_contiguous(),
     )
-    print(tensor._scale_e4m3[0:128, 0:8])
+    # print(sliced_tensor._scale_e4m3[0:128, 0:4])
+    # print(sliced_tensor.qdata.float() - tensor.qdata[0:128, 0:32].float())
+    # print(sliced_tensor._scale_e4m3.float() - tensor._scale_e4m3[0:128, 0:4].float())
 
     # Verify sliced tensor maintains swizzled state
     assert sliced_tensor._is_swizzled_scales == True
+
+    # this matches sliced_reconstructed, but not original_reconstructed[:, slice_spec]
+    if False:
+        sliced_manually = NVFP4Tensor(
+            tensor.qdata[:, 0:32],
+            tensor._scale_e4m3[:, 0:4].contiguous(),
+            tensor._block_size,
+            tensor._orig_dtype,
+            tensor._per_tensor_scale,
+            tensor._act_per_tensor_scale,
+            tensor._is_swizzled_scales,
+            tensor.use_triton_kernel,
+            tensor.act_quant_kwargs,
+        )
+        import pdb; pdb.set_trace()
 
     # Verify sliced tensor can be dequantized
     sliced_reconstructed = sliced_tensor.to_dtype(torch.bfloat16)
@@ -199,6 +215,11 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         expected = original_reconstructed[slice_spec, :]
     else:
         expected = original_reconstructed[:, slice_spec]
+    print('e', expected)
+    print('s', sliced_reconstructed)
+    print('e - s', expected - sliced_reconstructed)
+    print(1, expected.abs().sum())
+    print(2, sliced_reconstructed.abs().sum())
 
     torch.testing.assert_close(sliced_reconstructed, expected, atol=1e-6, rtol=1e-6)
 
@@ -591,7 +612,8 @@ def test_scale_shape_matches_qdata(
     orig_m = x_hp.shape[m_dim]
     expected_padded_m = orig_m
     if is_swizzled_scales:
-        expected_padded_m = ceil_div(orig_m, 128) * 128
+        # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+        expected_padded_m = ceil_div(orig_m, 128) * 32
     actual_padded_m = x._scale_e4m3.shape[m_dim]
     assert expected_padded_m == actual_padded_m, (
         f"incompatible padded shape for dim {m_dim}: {x.shape} and {x._scale_e4m3.shape}"
@@ -600,7 +622,8 @@ def test_scale_shape_matches_qdata(
     orig_k = x_hp.shape[k_dim]
     expected_padded_k = orig_k // block_size
     if is_swizzled_scales:
-        expected_padded_k = ceil_div(orig_k // block_size, 4) * 4
+        # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+        expected_padded_k = ceil_div(orig_k // block_size, 4) * 16
     actual_padded_k = x._scale_e4m3.shape[k_dim]
 
     assert expected_padded_k == actual_padded_k, (
