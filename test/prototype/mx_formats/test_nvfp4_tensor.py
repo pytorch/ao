@@ -21,6 +21,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     per_tensor_amax_to_scale,
     unpack_uint4,
 )
+from torchao.prototype.mx_formats.utils import ceil_div
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
@@ -525,3 +526,68 @@ def test_nvfp4_to_copy():
     assert x.act_quant_kwargs == y.act_quant_kwargs
     assert x.dtype == torch.float32
     assert y.dtype == torch.bfloat16
+
+
+@pytest.mark.parametrize("transpose", [False, True])
+# @pytest.mark.parametrize("transpose", [True])
+# @pytest.mark.parametrize("transpose", [False])
+@pytest.mark.parametrize("use_triton_kernel", [False, True])
+# @pytest.mark.parametrize("use_triton_kernel", [False])
+# @pytest.mark.parametrize("use_triton_kernel", [True])
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+# @pytest.mark.parametrize("is_swizzled_scales", [False])
+# @pytest.mark.parametrize("is_swizzled_scales", [True])
+@pytest.mark.parametrize(
+    "mk",
+    (
+        (128, 64),
+        (128 + 16, 64),
+        (128, 64 + 16),
+        (128 + 16, 64 + 16),
+    ),
+)
+# @pytest.mark.parametrize("mk", ((128 + 16, 64),))
+def test_scale_shape_matches_qdata(
+    transpose, use_triton_kernel, is_swizzled_scales, mk
+):
+    if use_triton_kernel and not is_swizzled_scales:
+        pytest.skip("triton kernel requires swizzled scales")
+
+    M, K = mk
+
+    block_size = 16
+
+    # TODO(this PR): test larger tensors that don't exactly map to (128, 64) tiles,
+    # to test the padding logic
+    # context: https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+    x_hp = torch.randn(M, K, device="cuda")
+    x = NVFP4Tensor.to_nvfp4(
+        x_hp, is_swizzled_scales=is_swizzled_scales, use_triton_kernel=use_triton_kernel
+    )
+
+    m_dim, k_dim = 0, 1
+    if transpose:
+        x_hp = x_hp.t()
+        x = x.t()
+        m_dim, k_dim = 1, 0
+
+    orig_m = x_hp.shape[m_dim]
+    expected_padded_m = orig_m
+    if is_swizzled_scales:
+        # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+        expected_padded_m = ceil_div(orig_m, 128) * 32
+    actual_padded_m = x._scale_e4m3.shape[m_dim]
+    assert expected_padded_m == actual_padded_m, (
+        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x._scale_e4m3.shape}"
+    )
+
+    orig_k = x_hp.shape[k_dim]
+    expected_padded_k = orig_k // block_size
+    if is_swizzled_scales:
+        # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
+        expected_padded_k = ceil_div(orig_k // block_size, 4) * 16
+    actual_padded_k = x._scale_e4m3.shape[k_dim]
+
+    assert expected_padded_k == actual_padded_k, (
+        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x._scale_e4m3.shape}"
+    )
