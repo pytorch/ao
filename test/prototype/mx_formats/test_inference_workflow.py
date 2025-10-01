@@ -70,7 +70,7 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
     elif elem_dtype == torch.float4_e2m1fn_x2:
         if not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
-        elif not is_sm_at_least_100() and emulate and compile:
+        elif emulate and compile:
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + emulate + compile currently does not work, low SQNR")
 
