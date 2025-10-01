@@ -23,7 +23,7 @@ def main(args: Namespace):
     print(" Calculating training performance metrics")
     print("=====================================================")
 
-    log_pattern = re.compile(r"step: (\d+).*?memory: ([\d.]+)GiB.*?tps: ([\d,]+)")
+    log_pattern = re.compile(r"step:.*?(\d+).*?memory:.*?([\d.]+)GiB.*?tps:.*?([\d,]+)")
 
     assert os.path.exists(args.log_file), f"{args.log_file} does not exist"
 
