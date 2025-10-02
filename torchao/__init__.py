@@ -1,4 +1,6 @@
 import logging
+import os
+import re
 
 # torch/nested/_internal/nested_tensor.py:417: UserWarning: Failed to initialize NumPy: No module named 'numpy'
 import warnings
@@ -20,28 +22,67 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"  # In case this logic breaks don't break the build
 
+
 logger = logging.getLogger(__name__)
 
+
+def _parse_version(version_string):
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
+    """
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
+    if match:
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
+    else:
+        raise ValueError(f"Invalid version string format: {version_string}")
+
+
 skip_loading_so_files = False
+if bool(os.getenv("TORCHAO_SKIP_LOADING_SO_FILES", False)):
+    # user override
+    # users can set env var TORCH_INCOMPATIBLE=1 to skip loading .so files
+    # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
+    skip_loading_so_files = True
 # if torchao version has "+git", assume it's locally built and we don't know
-#   anything about the PyTorch version used to build it
+#   anything about the PyTorch version used to build it unless user provides override flag
 # otherwise, assume it's prebuilt by torchao's build scripts and we can make
 #   assumptions about the PyTorch version used to build it.
-if (not "+git" in __version__) and not ("unknown" in __version__):
-    # torchao v0.13.0 is built with PyTorch 2.8.0. We know that torchao .so
-    # files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+.
-    # The following code skips importing the .so files if PyTorch 2.9+ is
-    # detected, to avoid crashing the Python process with "Aborted (core
+elif not ("+git" in __version__) and not ("unknown" in __version__):
+    # We know that torchao .so files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+. (see #2919)
+    # The following code skips importing the .so files if incompatible torch version is detected,
+    # to avoid crashing the Python process with "Aborted (core
     # dumped)".
-    # TODO(#2901, and before next torchao release): make this generic for
-    # future torchao and torch versions
-    if __version__.startswith("0.13.0") and str(torch.__version__) >= "2.9":
-        logger.warning(
-            f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__}"
-        )
+    torch_version = _parse_version(torch.__version__)
+    torchao_version = _parse_version(__version__)
+
+    v2_8_0 = _parse_version("2.8.0")
+    v0_13_0 = _parse_version("0.13.0")
+    v2_9_0_dev = _parse_version("2.9.0.dev")
+    v0_14_0_dev = _parse_version("0.14.0.dev")
+
+    if torch_version == v2_8_0 and torchao_version == v0_13_0:
+        # current torchao version and torch version, check here for clarity
+        skip_loading_so_files = False
+    elif torch_version == v2_9_0_dev and torchao_version == v0_14_0_dev:
+        # .dev for nightlies since 2.9.0 and 0.14.0 has not been released
+        skip_loading_so_files = False
+    else:
         skip_loading_so_files = True
 
-if not skip_loading_so_files:
+
+if skip_loading_so_files:
+    logger.warning(
+        f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__} \
+        Please see GitHub issue #2919 for more info"
+    )
+else:
     try:
         from pathlib import Path
 
