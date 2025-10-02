@@ -163,16 +163,23 @@ class QuantOptimizer(Optimizer):
     def torchao_convert(self, model: nn.Module, weight_only: bool = False) -> None:
         """Converts model parameters to torchao quantized tensor subclasses."""
         model.eval()
-        self.restore_latent_params()
 
         # TODO(lvj): find more robust way to identify embedding layers
         embed_data_ptrs = set()
         linear_data_ptrs = set()
+        embed_modules = []
         for module in model.modules():
             if isinstance(module, nn.Embedding):
+                embed_modules.append(module)
                 embed_data_ptrs.add(module.weight.data_ptr())
             elif _is_linear(module) and module.weight.data_ptr() not in embed_data_ptrs:
                 linear_data_ptrs.add(module.weight.data_ptr())
+
+        tied_embeddings = getattr(model, "_tied_weights_keys", None) is not None
+        if tied_embeddings:
+            # Workaround for dynamic activations on tied embeddings
+            for module in embed_modules:
+                setattr(module, "bias", None)
 
         filter_fns = []
         configs = []
@@ -194,7 +201,7 @@ class QuantOptimizer(Optimizer):
             any_embed = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
             config = _get_config_from_quantizer(
                 quantizer,
-                weight_only or any_embed,
+                weight_only or (any_embed and not tied_embeddings),
                 device,
                 group["quant_bits"],
                 group.get("quant_block_size"),
