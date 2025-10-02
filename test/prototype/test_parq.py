@@ -46,7 +46,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     check_cpu_version,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -319,7 +319,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
@@ -356,7 +356,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     def test_int4_weight_only_e2e(self, group_size: int = 32):
         model = M(m=512, n=512, embedding=False).to(torch.bfloat16).to(_DEVICE)
