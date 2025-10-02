@@ -16,10 +16,6 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     quantize_,
 )
-from torchao.quantization.subclass import (
-    Int4WeightOnlyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-)
 
 
 def _int8wo_api(mod, **kwargs):
@@ -117,14 +113,6 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
     return _ref_change_linear_weights_to_woqtensors
 
 
-_ref_change_linear_weights_to_int8_woqtensors = (
-    _get_ref_change_linear_weights_to_woqtensors(Int8WeightOnlyQuantizedLinearWeight)
-)
-_ref_change_linear_weights_to_int4_woqtensors = (
-    _get_ref_change_linear_weights_to_woqtensors(Int4WeightOnlyQuantizedLinearWeight)
-)
-
-
 torch._dynamo.config.cache_size_limit = 50000
 
 
@@ -186,20 +174,16 @@ if __name__ == "__main__" and torch.cuda.is_available():
 
     for M, N, K in all_shapes:
         _bench_quantized_tensor_subclass_perf(
-            _int8da_int8w_api, _ref_change_linear_weights_to_int8_dqtensors, M, N, K
+            _int8da_int8w_api, _int8da_int8w_api, M, N, K
         )
 
     print("_int8wo_api")
 
     for M, N, K in all_shapes:
-        _bench_quantized_tensor_subclass_perf(
-            _int8wo_api, _ref_change_linear_weights_to_int8_woqtensors, M, N, K
-        )
+        _bench_quantized_tensor_subclass_perf(_int8wo_api, _int8wo_api, M, N, K)
 
     print("_int4wo_api")
     kwargs = {"groupsize": 32, "version": 1}
 
     for M, N, K in all_shapes:
-        _bench_quantized_tensor_subclass_perf(
-            _int4wo_api, _ref_change_linear_weights_to_int4_woqtensors, M, N, K, kwargs
-        )
+        _bench_quantized_tensor_subclass_perf(_int4wo_api, _int4wo_api, M, N, K, kwargs)
