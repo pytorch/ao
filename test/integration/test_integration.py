@@ -42,12 +42,14 @@ from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     _replace_with_custom_fn_if_matches_filter,
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    choose_qparams_affine,
     dequantize_affine,
 )
 from torchao.quantization.smoothquant import (
@@ -1121,6 +1123,27 @@ class TestDynamicQuant(unittest.TestCase):
         sqnr = compute_error(y_ref, y_test)
         self.assertGreater(sqnr, 40.0)
         # self.assertTrue(isinstance(m[0], DynamicallyPerAxisQuantizedLinear))
+
+
+class TestStaticQuant(unittest.TestCase):
+    def test_static_quant(self):
+        M, K, N = 8, 16, 8
+        x = torch.randn(M, K)
+        m = nn.Sequential(nn.Linear(K, N))
+        block_size = [M, K]  # per-tensor quantization
+        scale, _ = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=torch.int8,
+        )
+
+        y_ref = m(x)
+        quantize_(m, Int8StaticActivationInt8WeightConfig(scale))
+        y_test = m(x)
+
+        sqnr = compute_error(y_ref, y_test)
+        self.assertGreater(sqnr, 40.0)
 
 
 class TestWeightOnlyInt8Quant(unittest.TestCase):

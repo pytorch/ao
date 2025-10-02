@@ -16,7 +16,10 @@ from torchao.prototype.smoothquant import (
 )
 from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
-from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
+)
 
 
 # TODO: Build benchmark within vLLM ecosystem with more quantization APIs
@@ -82,13 +85,15 @@ def quantize_and_eval(
     device: str,
     model_save_path: str,
     model_save_hf_hub_path: str,
+    static_quant_act: bool,
+    compile: bool,
 ):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
@@ -96,9 +101,14 @@ def quantize_and_eval(
 
     # Step 1: Prepare - insert observers
     print("running SmoothQuant prepare and calibrate")
+    base_config = (
+        Int8StaticActivationInt8WeightConfig()
+        if static_quant_act
+        else Int8DynamicActivationInt8WeightConfig()
+    )
     t0 = time.time()
     quant_config = SmoothQuantConfig(
-        base_config=Int8DynamicActivationInt8WeightConfig(),
+        base_config=base_config,
         step=SmoothQuantStep.PREPARE,
         alpha=alpha,
     )
@@ -134,6 +144,9 @@ def quantize_and_eval(
         model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
         tokenizer.push_to_hub(model_save_hf_hub_path)
 
+    if compile:
+        model.forward = torch.compile(model.forward, dynamic=True)
+
     print("Benchmarking SmoothQuant model...")
     return benchmark(model, tokenizer, max_seq_length, tasks=tasks, device=device)
 
@@ -147,6 +160,8 @@ def compare_models(
     device: str,
     model_save_path: str,
     model_save_hf_hub_path: str,
+    static_quant_act: bool,
+    compile: bool,
 ):
     """Compare perplexity and speed for behchmarking SmoothQuant"""
 
@@ -155,10 +170,12 @@ def compare_models(
     torch.manual_seed(34)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = (
-        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
+    if compile:
+        model.forward = torch.compile(model.forward, dynamic=True)
     base_results = benchmark(
         model, tokenizer, max_seq_length, tasks=tasks, device=device
     )
@@ -167,11 +184,13 @@ def compare_models(
     print("Benchmarking W8A8-dynamic without SmoothQuant...")
     torch.manual_seed(34)
     w8a8_model = (
-        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+        AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
         .eval()
         .to(device)
     )
     quantize_(w8a8_model, Int8DynamicActivationInt8WeightConfig())
+    if compile:
+        w8a8_model.forward = torch.compile(w8a8_model.forward, dynamic=True)
     w8a8_results = benchmark(
         w8a8_model, tokenizer, max_seq_length, tasks=tasks, device=device
     )
@@ -187,6 +206,8 @@ def compare_models(
         device,
         model_save_path,
         model_save_hf_hub_path,
+        static_quant_act,
+        compile,
     )
 
     # Calculate changes and display results
@@ -289,6 +310,16 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Huggingface hub path to store the quantized model and tokenizer.",
     )
+    parser.add_argument(
+        "--static-quant-act",
+        action="store_true",
+        help="Use static quantization of activation instead of dynamic quantization.",
+    )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Use torch.compile to compile the model for potentially better performance.",
+    )
 
     return parser
 
@@ -306,4 +337,6 @@ if __name__ == "__main__":
         args.device,
         args.model_save_path,
         args.model_save_hf_hub_path,
+        args.static_quant_act,
+        args.compile,
     )
