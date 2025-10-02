@@ -161,6 +161,7 @@ def build_param_groups(
     model,
     b: int = 2,
     group_size: Optional[int] = None,
+    embed_b: int = 4,
 ):
     params_quant, params_embed, params_no_quant = split_param_groups(model)
     quant_kwargs = {}
@@ -171,14 +172,27 @@ def build_param_groups(
         {"params": params_no_quant},
     ]
     if params_embed:
-        param_groups.append({"params": params_embed, "quant_bits": 4})
+        param_groups.append({"params": params_embed, "quant_bits": embed_b})
     return param_groups
 
 
-def get_optim_kwargs(base_optimizer, embedding=True, quant_cls=UnifTorchaoQuantizer):
+def get_optim_kwargs(
+    model, base_optimizer, embedding=True, quant_cls=UnifTorchaoQuantizer
+):
     optim_kwargs = {}
     if embedding:
-        group_idx = len(base_optimizer.param_groups) - 2
+        embed_data_ptrs = set(
+            (
+                m.weight.data_ptr()
+                for m in model.modules()
+                if isinstance(m, nn.Embedding)
+            )
+        )
+        group_idx = -1
+        for i, group in enumerate(base_optimizer.param_groups):
+            if all(p.data_ptr() in embed_data_ptrs for p in group["params"]):
+                group_idx = i
+                break
         assert group_idx > -1
         optim_kwargs["group_quantizer_map"] = {group_idx: quant_cls()}
     return optim_kwargs
@@ -221,7 +235,7 @@ def compare_parq_convert(
     orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
 
     # equivalent to torchao's convert step
-    optimizer.torchao_convert(model, weight_only=weight_only)
+    optimizer.torchao_convert(model, weight_only=weight_only, embed_weight_only=True)
 
     inputs = model.example_inputs(device=_DEVICE)
     torch.testing.assert_close(model(inputs), orig_model(inputs))
@@ -289,13 +303,15 @@ class TestPARQuantization(common_utils.TestCase):
             quantizer = TernaryUnifQuantizer() if b == 0 else UnifQuantizer()
         else:
             quantizer = LSBQuantizer()
-        param_groups = build_param_groups(model, b)
+        param_groups = build_param_groups(model, b, embed_b=b)
         base_optimizer = torch.optim.AdamW(param_groups)
 
         prox_map = (
             ProxHardQuant() if hard_prox else ProxPARQ(anneal_start=0, anneal_end=2)
         )
-        optim_kwargs = get_optim_kwargs(base_optimizer)
+        optim_kwargs = get_optim_kwargs(
+            model, base_optimizer, quant_cls=type(quantizer), embedding=False
+        )
         optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map, **optim_kwargs)
         for _ in range(3):
             x = model.example_inputs(device=_DEVICE)
@@ -365,7 +381,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
         b = 4
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
-        optim_kwargs = get_optim_kwargs(base_optimizer, embedding=False)
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             Int4UnifTorchaoQuantizer(),
@@ -387,7 +403,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantize_(m_ref, config)
 
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
-        optim_kwargs = get_optim_kwargs(base_optimizer, embedding=False)
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             UnifTorchaoQuantizer(),
@@ -464,7 +480,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         quantize_(m_ref, config, filter_fn=_is_linear)
 
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
-        optim_kwargs = get_optim_kwargs(base_optimizer, embedding=False)
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             quantizer,
@@ -486,7 +502,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
 
         quantizer = StretchedUnifTorchaoQuantizer(b)
         base_optimizer = torch.optim.SGD(build_param_groups(model, b))
-        optim_kwargs = get_optim_kwargs(base_optimizer)
+        optim_kwargs = get_optim_kwargs(model, base_optimizer)
         optimizer = QuantOptimizer(
             base_optimizer,
             quantizer,
@@ -498,7 +514,7 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         optimizer.step()
 
         apply_activation_quantization(model, optimizer, model_dtype)
-        optimizer.torchao_convert(model)
+        optimizer.torchao_convert(model, embed_weight_only=True)
         check_torchao_tensor_subclass(self, model)
         self.assertTrue(
             torch.equal(model.embed_tokens.weight.qdata, model.linear2.weight.qdata)
@@ -540,7 +556,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         # quantize weights with PARQ
         base_optimizer = torch.optim.SGD(build_param_groups(model, b, group_size))
-        optim_kwargs = get_optim_kwargs(base_optimizer, embedding=False)
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             quantizer,

@@ -160,9 +160,15 @@ class QuantOptimizer(Optimizer):
             return self.group_quantizer_map[group_idx]
         return self.quantizer
 
-    def torchao_convert(self, model: nn.Module, weight_only: bool = False) -> None:
+    def torchao_convert(
+        self,
+        model: nn.Module,
+        weight_only: bool = False,
+        embed_weight_only: bool = False,
+    ) -> None:
         """Converts model parameters to torchao quantized tensor subclasses."""
         model.eval()
+        self.restore_latent_params()
 
         # TODO(lvj): find more robust way to identify embedding layers
         embed_data_ptrs = set()
@@ -175,9 +181,10 @@ class QuantOptimizer(Optimizer):
             elif _is_linear(module) and module.weight.data_ptr() not in embed_data_ptrs:
                 linear_data_ptrs.add(module.weight.data_ptr())
 
-        tied_embeddings = getattr(model, "_tied_weights_keys", None) is not None
-        if tied_embeddings:
+        tied_embeddings = False
+        if not embed_weight_only and getattr(model, "_tied_weights_keys", None):
             # Workaround for dynamic activations on tied embeddings
+            tied_embeddings = True
             for module in embed_modules:
                 setattr(module, "bias", None)
 
