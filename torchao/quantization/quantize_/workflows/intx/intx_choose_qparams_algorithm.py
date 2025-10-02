@@ -20,4 +20,4 @@ class IntxChooseQParamsAlgorithm(str, Enum):
     """
     Uses `torchao.quantization.quant_primitives._choose_qparams_and_quantize_scale_only_hqq`
     """
-    HQQ = "hqq"
+    HQQ_SCALE_ONLY = "hqq_scale_only"

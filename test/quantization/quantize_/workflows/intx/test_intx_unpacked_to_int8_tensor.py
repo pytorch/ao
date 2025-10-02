@@ -61,13 +61,29 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         error = compute_error(original, quantized)
         self.assertTrue(error > 20)
 
-    def test_hqq(self):
+    def test_hqq_intx_weight_only_config(self):
         dtype = torch.bfloat16
         device = "cpu"
         config = IntxWeightOnlyConfig(
             weight_dtype=torch.int4,
             granularity=PerGroup(32),
-            intx_choose_qparams_algorithm="hqq",
+            intx_choose_qparams_algorithm="hqq_scale_only",
+        )
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, config)
+        quantized = linear(input)
+        error = compute_error(original, quantized)
+        self.assertTrue(error > 20, f"Got error {error}")
+
+    def test_hqq_int8_dyn_act_intx_weight_config(self):
+        dtype = torch.bfloat16
+        device = "cpu"
+        config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=torch.int4,
+            weight_granularity=PerGroup(32),
+            intx_choose_qparams_algorithm="hqq_scale_only",
         )
         input = torch.randn(1, 128, dtype=dtype, device=device)
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)

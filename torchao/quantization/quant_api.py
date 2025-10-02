@@ -2218,7 +2218,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
             MappingType.SYMMETRIC,
             MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         ], (
-            f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
+            f"mapping_type must be MappingType.ASYMMETRIC, MappingType.SYMMETRIC, or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.mapping_type}"
         )
 
 

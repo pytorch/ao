@@ -214,7 +214,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 quant_min=qmin,
                 quant_max=qmax,
             )
-        elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.HQQ:
+        elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.HQQ_SCALE_ONLY:
             qdata, scale = _choose_qparams_and_quantize_scale_only_hqq(
                 hp_tensor, block_size, qmin, qmax
             )

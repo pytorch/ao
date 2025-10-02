@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, List, Optional, Tuple
@@ -260,6 +261,7 @@ def _qat_config_transform(
             if has_custom_scale_and_zero_point and hasattr(
                 base_config, "intx_choose_qparams_algorithm"
             ):
+                logging.debug("Disabling intx_choose_qparams_algorithm")
                 base_config = copy.deepcopy(base_config)
                 base_config.intx_choose_qparams_algorithm = None
             return _QUANTIZE_CONFIG_HANDLER[type(base_config)](
