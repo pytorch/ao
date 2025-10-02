@@ -602,3 +602,17 @@ def test_scale_shape_matches_qdata(
     assert expected_padded_k == actual_padded_k, (
         f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x._scale_e4m3.shape}"
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("dims", ((1, 2), (2, 1), (-1, -2), (-2, -1)))
+@pytest.mark.parametrize("is_swizzled_scales", [True, False])
+def test_3d_transpose(dims, is_swizzled_scales):
+    x_hp = torch.randn(2, 128, 256, device="cuda")
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(x_hp, is_swizzled_scales=is_swizzled_scales)
+    x_hp_t = x_hp.transpose(dims[0], dims[1])
+    x_nvfp4_t = x_nvfp4.transpose(dims[0], dims[1])
+    assert x_hp_t.shape == x_nvfp4_t.shape

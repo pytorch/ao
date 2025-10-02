@@ -596,7 +596,9 @@ def nvfp4_t(func, types, args, kwargs):
 @implements([aten.transpose.int])
 def nvfp4_transpose(func, types, args, kwargs):
     old, dim0, dim1 = args
-    assert dim0 == -2 and dim1 == -1, f"transpose unsupported for {dim0=} {dim1=}"
+    assert len(old.shape) == 3, f"unsupported rank {len(old.shape)}"
+    valid_3d_dims = ((1, 2), (2, 1), (-1, -2), (-2, -1))
+    assert (dim0, dim1) in valid_3d_dims, f"transpose unsupported for {dim0=} {dim1=}"
     new_qdata = func(old.qdata, dim0, dim1, **kwargs)
     new_scale = func(old._scale_e4m3, dim0, dim1, **kwargs)
     new = NVFP4Tensor(
