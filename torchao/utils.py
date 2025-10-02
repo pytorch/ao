@@ -1139,7 +1139,7 @@ def is_package_at_least(package_name: str, min_version: str):
     return version(package_name) >= min_version
 
 
-def _is_fbgemm_genai_gpu_available():
+def _is_fbgemm_gpu_genai_available():
     # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
     # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
     if importlib.util.find_spec("fbgemm_gpu") is None:
