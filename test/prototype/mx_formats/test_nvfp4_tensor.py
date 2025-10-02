@@ -42,6 +42,7 @@ if not torch_version_at_least("2.8.0"):
         (torch.float32, (64, 128), False),
         (torch.bfloat16, (128, 256), False),
         (torch.bfloat16, (64, 128), True),
+        (torch.bfloat16, (1, 32, 64), False),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -57,6 +58,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         scale = None
 
     x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
+    # import pdb; pdb.set_trace()
     x_reconstructed = x_nvfp4.to_dtype(dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
@@ -83,14 +85,21 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         f"Dtype mismatch: {x.dtype} vs {x_reconstructed.dtype}"
     )
 
-    x_nvfp4_t = x_nvfp4.t()
-    x_reconstructed_t = x_nvfp4_t.to_dtype(dtype)
-    assert_sqnr_gt_threshold(x.t(), x_reconstructed_t, 8.0)
+    if len(x.shape) == 2:
+        x_nvfp4_t = x_nvfp4.t()
+        x_t = x.t()
+    else:
+        # TODO(before land): also test transpose dims (1, 2), (2, 1), (-1, -2)
+        x_nvfp4_t = x_nvfp4.transpose(-2, -1)
+        x_t = x.transpose(-2, -1)
 
-    assert x.t().shape == x_reconstructed_t.shape, (
+    x_reconstructed_t = x_nvfp4_t.to_dtype(dtype)
+    assert_sqnr_gt_threshold(x_t, x_reconstructed_t, 8.0)
+
+    assert x_t.shape == x_reconstructed_t.shape, (
         f"Transpose shape mismatch: {x.t().shape} vs {x_reconstructed_t.shape}"
     )
-    assert x.t().dtype == x_reconstructed_t.dtype, (
+    assert x_t.dtype == x_reconstructed_t.dtype, (
         f"Transpose dtype mismatch: {x.t().dtype} vs {x_reconstructed_t.dtype}"
     )
 
@@ -103,6 +112,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         (16, 32),
         (64, 128),
         (384, 128),
+        (1, 32, 64),
     ],
 )
 @pytest.mark.skipif(
@@ -115,8 +125,7 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     that the _is_swizzled_scales flag is set correctly.
     """
 
-    M, K = shape
-    data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    data = torch.randn(*shape, device="cuda", dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
     assert tensor._is_swizzled_scales == is_swizzled_scales
