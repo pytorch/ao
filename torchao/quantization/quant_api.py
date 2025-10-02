@@ -126,9 +126,6 @@ from .quant_primitives import (
     ZeroPointDomain,
     quantize_affine,
 )
-from .subclass import (
-    QuantizedLinearWeightBase,
-)
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
@@ -285,7 +282,6 @@ def _is_linear(mod, *args):
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
