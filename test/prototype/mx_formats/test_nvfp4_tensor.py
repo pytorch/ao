@@ -58,7 +58,6 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         scale = None
 
     x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
-    # import pdb; pdb.set_trace()
     x_reconstructed = x_nvfp4.to_dtype(dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
