@@ -2198,15 +2198,20 @@ def _choose_qparams_and_quantize_scale_only_hqq(
         num = (Wg * Qg).sum(dim=2, dtype=torch.float32)  # [n, n_groups]
         den = (Qg * Qg).sum(dim=2, dtype=torch.float32)  # [n, n_groups]
         scale = torch.where(den > 0, num / den, prev_scale)
-        scale = scale.abs().clamp_min(compute_eps)
+        scale = scale.clamp_min(
+            compute_eps
+        ).abs()  # project LS solution onto [eps, inf]
 
         rel = ((scale - prev_scale).abs() / prev_scale.clamp_min(compute_eps)).max()
         if rel < early_stop_tol:
             break
         prev_scale = scale
 
+    # Quantize using final scale
+    Qg = _r(Wg / scale.unsqueeze(-1)).clamp(qmin, qmax)
+
     # Restore shapes
-    qdata = Qg.view(n, k).contiguous()
+    qdata = Qg.view(n, k).contiguous().to(torch.int32)
 
     out_dtype = hp_tensor.dtype
     scale = scale.to(out_dtype)
