@@ -244,6 +244,7 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
 
 
 implements = IntxOpaqueTensor.implements
+implements_torch_function = IntxOpaqueTensor.implements_torch_function
 
 
 def _linear_impl_2d_aten(input_tensor, weight_tensor):
@@ -295,7 +296,8 @@ def _linear_impl_2d_torchao(input_tensor, weight_tensor):
     return res
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -335,7 +337,8 @@ def _(func, types, args, kwargs):
     return res
 
 
-@implements([torch.nn.functional.embedding, aten.embedding.default])
+@implements(aten.embedding.default)
+@implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
     assert len(args) == 2
     indices, weight_tensor = (

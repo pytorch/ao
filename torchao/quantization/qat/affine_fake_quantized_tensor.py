@@ -264,9 +264,10 @@ class _AffineFakeQuantizedTensor(TorchAOBaseTensor):
 
 
 implements = _AffineFakeQuantizedTensor.implements
+implements_torch_function = _AffineFakeQuantizedTensor.implements_torch_function
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],

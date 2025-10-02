@@ -146,9 +146,11 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
 
 
 implements = Int4PlainInt32Tensor.implements
+implements_torch_function = Int4PlainInt32Tensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],

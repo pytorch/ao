@@ -847,7 +847,8 @@ class Float32Tensor(TorchAOBaseTensor):
         return cls(weight)
 
 
-@Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
+@Float32Tensor.implements(aten.linear.default)
+@Float32Tensor.implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
