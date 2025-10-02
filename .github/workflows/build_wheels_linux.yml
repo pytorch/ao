@@ -31,7 +31,7 @@ jobs:
       with-rocm: enable
       with-xpu: enable
       # Note: if free-threaded python is required add py3.13t here
-      python-versions: '["3.9"]'
+      python-versions: '["3.10"]'
 
   build:
     needs: generate-matrix
