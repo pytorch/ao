@@ -25,11 +25,12 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -95,7 +96,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             )
 
         if kernel_preference == KernelPreference.FBGEMM and (
-            (not _is_fbgemm_genai_gpu_available()) or (not is_sm_at_least_90())
+            (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_90())
         ):
             return unittest.skip(
                 "Requires fbgemm_gpu_genai to run fbgemm kernel preference test"
@@ -237,7 +238,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             KernelPreference.AUTO,
         ]
         if (
-            _is_fbgemm_genai_gpu_available()
+            _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and not isinstance(granularity, PerTensor)
         ):
@@ -434,6 +435,23 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         ).check_count("torch.ops.fbgemm.f8f8bf16_rowwise.default(", 1).check_not(
             ".run("
         ).run(code[0])
+
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    def test_index_select(self):
+        """
+        test that `x_0 = x[0]` works when `x` is a 3D `Float8Tensor`. This is
+        useful when stitching checkpoints of `num_experts` 2D parameters into
+        a single 3D parameter when converting between model definitions that
+        use 2D and 3D parameters for their expert weights.
+        """
+
+        E, K, N = 128, 256, 512
+        x = torch.randn(E, N, K, device="cuda", dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        x_fp8_1 = x_fp8[1]
+        torch.testing.assert_close(
+            x_fp8.dequantize()[1], x_fp8_1.dequantize(), atol=0, rtol=0
+        )
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

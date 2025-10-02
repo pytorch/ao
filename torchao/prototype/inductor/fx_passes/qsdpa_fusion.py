@@ -28,7 +28,7 @@ __all__ = [
 ]
 
 aten = torch.ops.aten
-quantize_dtypes = [torch.uint8, torch.float8_e4m3fn]
+quantize_dtypes = [torch.uint8]
 
 
 def _is_valid_qsdpa_pattern():
@@ -121,53 +121,31 @@ def _register_qsdpa_pattern(pattern, custom_pass_dict):
 def _generate_dequant_pattern(
     input_pattern, qtype, is_reduced_type, scale: str, zp: str = None
 ):
-    if qtype == torch.uint8:
-        assert zp is not None, "Zero point must be provided for uint8 dequantization"
-        return CallFunction(
-            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-            input_pattern,
-            KeywordArg(scale),
-            KeywordArg(zp),
-            Arg(),
-            Arg(),
-            Arg(),
-        )
-    else:
-        assert zp is None, "Fp8 dequantization does not support zero point"
-        if is_reduced_type:
-            return CallFunction(
-                torch.ops.torchao.dequantize_affine_float8.default,
-                input_pattern,
-                KeywordArg(scale),
-                Arg(),
-            )
-        else:
-            return CallFunction(
-                torch.ops.torchao.dequantize_affine_float8.default,
-                input_pattern,
-                KeywordArg(scale),
-            )
+    assert qtype is torch.uint8, "QSDPA expects type to be uint8"
+    assert zp is not None, "Zero point must be provided for uint8 dequantization"
+    return CallFunction(
+        torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+        input_pattern,
+        KeywordArg(scale),
+        KeywordArg(zp),
+        Arg(),
+        Arg(),
+        Arg(),
+    )
 
 
 def _generate_quant_pattern(input_pattern, qtype, scale: str, zp: str = None):
-    if qtype == torch.uint8:
-        assert zp is not None, "Zero point must be provided for uint8 quantization"
-        return CallFunction(
-            torch.ops.quantized_decomposed.quantize_per_tensor.default,
-            input_pattern,
-            KeywordArg(scale),
-            KeywordArg(zp),
-            Arg(),
-            Arg(),
-            Arg(),
-        )
-    else:
-        assert zp is None, "Fp8 quantization does not support zero point"
-        return CallFunction(
-            torch.ops.torchao.quantize_affine_float8.default,
-            input_pattern,
-            KeywordArg(scale),
-        )
+    assert qtype is torch.uint8, "QSDPA expects type to be uint8"
+    assert zp is not None, "Zero point must be provided for uint8 quantization"
+    return CallFunction(
+        torch.ops.quantized_decomposed.quantize_per_tensor.default,
+        input_pattern,
+        KeywordArg(scale),
+        KeywordArg(zp),
+        Arg(),
+        Arg(),
+        Arg(),
+    )
 
 
 def _get_qsdpa_qkv_pattern(

@@ -16,9 +16,10 @@ from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
-from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+from torchao.prototype.moe_training.kernels.mxfp8 import (
     compute_blocked_scale_offsets_for_K_groups,
     compute_blocked_scale_offsets_for_M_groups,
+    mxfp8_quantize_cuda_3d,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
@@ -354,18 +355,14 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             grad_out, elem_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
-        # B_data shape: (E, K, N)
-        # B_scale shape: (E, K, N//block_size)
-        B_scales_ref, B_data_ref = to_mx(
-            # TODO: can we support non-contiguous input tensor in to_mx to eliminate this inefficiency?
-            B_t.contiguous(),
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-        )
-
-        # Experiment with cuda kernel
+        # Quantize 3d expert weights along N (contraction dimension for next grouped gemm)
+        # (E, K, N) -> (E, N, K)
         B = B_t.transpose(-2, -1)
-        B_scales, B_data = _to_mxfp8_dim1_3d(B, block_size=block_size)
+        B_data, B_scales = mxfp8_quantize_cuda_3d(
+            B._data if hasattr(B, "_data") else B, block_size=block_size
+        )
+        # (E, N//block_size, K) -> (E, K, N//block_size)
+        B_scales = B_scales.transpose(-2, -1)
 
         # Convert scales to blocked format for 2d-3d grouped mm
         grad_out_scales_blocked = triton_mx_block_rearrange_2d_M_groups(
@@ -400,6 +397,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         grad_out_t_scales = grad_out_t_mx._scale_e8m0
 
         # Transpose A so we can scale along the M dimension, then un-transpose.
+        # A shape: (M, K)
         # A_t_data shape: (K, M)
         # A_t_scales shape: (K, M//block_size)
         A_t_mx = _to_mxfp8_dim1_kernel_wrapper(
@@ -447,6 +445,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 def _to_mxfp8_dim1_3d(
     B: torch.Tensor,
     block_size: int = 32,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Convert a 3D tensor to MXFP8 format with (block_size, 1) scaling granularity.
@@ -460,7 +459,7 @@ def _to_mxfp8_dim1_3d(
         hp_dtype=B_reshaped.dtype,
         gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,  # Not used
         cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
-        scale_calculation_mode=ScaleCalculationMode.FLOOR,
+        scale_calculation_mode=scaling_mode,
     )
     B_data = B_t_mx.qdata.t()  # (K, E*N) -> (E*N, K)
     B_data = B_data.reshape(E, N, K)  # (E*N, K) -> (E, N, K)

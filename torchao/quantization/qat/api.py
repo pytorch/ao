@@ -21,6 +21,7 @@ from .embedding import FakeQuantizedEmbedding
 from .fake_quantize_config import (
     FakeQuantizeConfig,  # noqa: F401, for BC
     FakeQuantizeConfigBase,
+    IntxFakeQuantizeConfig,
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
@@ -207,7 +208,24 @@ def _qat_config_transform(
             act_config = config.activation_config
             weight_config = config.weight_config
         if isinstance(module, torch.nn.Linear):
-            return FakeQuantizedLinear.from_linear(module, act_config, weight_config)
+            # TODO: rewrite this using a registration API so
+            # specific quantization schemes do not leak here
+            from torchao.prototype.qat import (
+                NVFP4FakeQuantizeConfig,
+                NVFP4FakeQuantizedLinear,
+            )
+
+            if isinstance(weight_config, NVFP4FakeQuantizeConfig):
+                assert act_config is None or isinstance(
+                    act_config, NVFP4FakeQuantizeConfig
+                )
+                return NVFP4FakeQuantizedLinear.from_linear(
+                    module, act_config, weight_config
+                )
+            else:
+                return FakeQuantizedLinear.from_linear(
+                    module, act_config, weight_config
+                )
         elif isinstance(module, torch.nn.Embedding):
             if act_config is not None:
                 raise ValueError(
@@ -220,22 +238,41 @@ def _qat_config_transform(
             )
     else:
         # Convert step
+        assert step == QATStep.CONVERT, "unexpected step '%s' in QATConfig" % step
+        assert config.activation_config is None, "unexpected `activation_config`"
+        assert config.weight_config is None, "unexpected `weight_config`"
+
+        # Ignore unrelated modules
+        if not isinstance(module, (FakeQuantizedLinear, FakeQuantizedEmbedding)):
+            return module
+
+        # Optionally pass custom scales and zero points to base config handler
+        # This is only for range learning and only applies to weights
+        kwargs = {}
+        weight_config = module.weight_fake_quantizer.config
+        if (
+            isinstance(weight_config, IntxFakeQuantizeConfig)
+            and weight_config.range_learning
+        ):
+            kwargs["custom_scale"] = module.weight_fake_quantizer.scale
+            kwargs["custom_zero_point"] = module.weight_fake_quantizer.zero_point
+
         # Swap FakeQuantizedLinear -> nn.Linear
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
         # If there is no base config, then simply perform the module swap
-        assert step == QATStep.CONVERT, "unexpected step '%s' in QATConfig" % step
-        assert config.activation_config is None, "unexpected `activation_config`"
-        assert config.weight_config is None, "unexpected `weight_config`"
         if isinstance(module, FakeQuantizedLinear):
             module = module.to_linear()
         elif isinstance(module, FakeQuantizedEmbedding):
             module = module.to_embedding()
         else:
-            # Unrelated module, ignore
-            return module
+            raise ValueError(
+                f"Encountered unexpected module {module}, should never happen"
+            )
         if base_config is not None:
-            return _QUANTIZE_CONFIG_HANDLER[type(base_config)](module, base_config)
+            return _QUANTIZE_CONFIG_HANDLER[type(base_config)](
+                module, base_config, **kwargs
+            )
         else:
             return module
 

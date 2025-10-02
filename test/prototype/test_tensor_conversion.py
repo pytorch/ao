@@ -13,10 +13,18 @@ from torchao.prototype.parq.quant import (
     StretchedUnifTorchaoQuantizer,
 )
 from torchao.prototype.quantization.int8_lut_tensor.int8_lut_tensor import Int8LutTensor
-from torchao.prototype.tensor_conversion.api import _convert_model_for_aarch64
-from torchao.quantization import MappingType
+from torchao.prototype.tensor_conversion.api import (
+    _convert_model_for_aarch64,
+    convert_to_packed_tensor_based_on_current_hardware,
+)
+from torchao.quantization import (
+    Int4PreshuffledTensor,
+    Int4Tensor,
+    MappingType,
+)
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
+    Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     quantize_,
@@ -26,6 +34,7 @@ from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
     _is_kernel_library_loaded,
 )
 from torchao.quantization.utils import compute_error
+from torchao.utils import _is_fbgemm_gpu_genai_available
 
 
 class ToyLinearModelWithTiedEmbedding(torch.nn.Module):
@@ -178,3 +187,24 @@ def test_aarch64_conversion(dtype, granularity, bit_width, lead_dim):
         assert ep.graph_module.code.count(line) == cnt, (
             f"expected {cnt} {line} in {ep.graph_module.code}"
         )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA")
+@pytest.mark.skipif(
+    not _is_fbgemm_gpu_genai_available(), reason="Requires fbgemm-gpu-genai >= 1.2.0"
+)
+def test_int4_tensor_conversion():
+    m = torch.nn.Sequential(
+        torch.nn.Linear(256, 512, dtype=torch.bfloat16, device="cuda")
+    )
+    quantize_(m, Int4WeightOnlyConfig(group_size=128))
+    weight = m[0].weight
+    assert isinstance(weight, Int4Tensor)
+    example_inputs = (torch.randn(32, 256, dtype=torch.bfloat16, device="cuda"),)
+    before_conversion = m(*example_inputs)
+    m[0].weight = torch.nn.Parameter(
+        convert_to_packed_tensor_based_on_current_hardware(weight), requires_grad=False
+    )
+    after_conversion = m(*example_inputs)
+    assert isinstance(m[0].weight, Int4PreshuffledTensor)
+    assert torch.equal(before_conversion, after_conversion)

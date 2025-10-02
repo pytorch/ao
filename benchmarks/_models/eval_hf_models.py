@@ -25,7 +25,7 @@ def quantize_model_and_save(model_id, quant_config, output_dir="results"):
     quantized_model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         quantization_config=quantization_config,
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)

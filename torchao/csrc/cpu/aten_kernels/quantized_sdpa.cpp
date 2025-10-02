@@ -1775,6 +1775,7 @@ int8_sdpa_fused_kernel_impl(
   at::native::cpublas::brgemm_release();
 }
 
+#if defined(CPUBLAS_BRGEMM_F8F8F32)
 // FP8 - kernel with f8f8f8 GEMM
 template <typename scalar_t, typename mask_t,
           int64_t q_split_size, int64_t kv_split_size>
@@ -2136,6 +2137,7 @@ fp8_sdpa_fused_kernel_impl(
     at::native::cpublas::brgemm_release();
   });
 }
+#endif // CPUBLAS_BRGEMM_F8F8F32
 
 template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_split_size>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
@@ -2304,6 +2306,7 @@ void int8_sdpa_fused_kernel(
   }
 }
 
+#if defined(CPUBLAS_BRGEMM_F8F8F32)
 void fp8_sdpa_fused_kernel(
     const at::Tensor& output,
     const at::Tensor& query,
@@ -2380,6 +2383,7 @@ void fp8_sdpa_fused_kernel(
     });
   }
 }
+#endif // CPUBLAS_BRGEMM_F8F8F32
 #endif // CPU_CAPABILITY_AVX512
 
 at::Tensor int8_sdpa_math_kernel(

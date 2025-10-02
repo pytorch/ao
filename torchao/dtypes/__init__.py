@@ -8,7 +8,6 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
-from .fbgemm_fp8_tensor import FbgemmFp8Tensor, to_fbgemm_fp8
 from .floatx import (
     CutlassSemiSparseLayout,
     Float8Layout,
