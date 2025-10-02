@@ -545,36 +545,43 @@ def test_nvfp4_to_copy():
 @pytest.mark.parametrize("use_triton_kernel", [False, True])
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
 @pytest.mark.parametrize(
-    "mk",
+    "shape",
     (
         (128, 64),
         (128 + 16, 64),
         (128, 64 + 16),
         (128 + 16, 64 + 16),
+        (1, 128, 64),
     ),
 )
 def test_scale_shape_matches_qdata(
-    transpose, use_triton_kernel, is_swizzled_scales, mk
+    transpose, use_triton_kernel, is_swizzled_scales, shape
 ):
     if use_triton_kernel and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     if use_triton_kernel and not is_swizzled_scales:
         pytest.skip("triton kernel requires swizzled scales")
 
-    M, K = mk
-
     block_size = 16
 
-    x_hp = torch.randn(M, K, device="cuda")
+    x_hp = torch.randn(*shape, device="cuda")
     x = NVFP4Tensor.to_nvfp4(
         x_hp, is_swizzled_scales=is_swizzled_scales, use_triton_kernel=use_triton_kernel
     )
 
-    m_dim, k_dim = 0, 1
-    if transpose:
-        x_hp = x_hp.t()
-        x = x.t()
-        m_dim, k_dim = 1, 0
+    if len(shape) == 2:
+        m_dim, k_dim = 0, 1
+        if transpose:
+            x_hp = x_hp.t()
+            x = x.t()
+            m_dim, k_dim = 1, 0
+    else:
+        assert len(shape) == 3, "unsupported"
+        m_dim, k_dim = 1, 2
+        if transpose:
+            x_hp = x_hp.transpose(-2, -1)
+            x = x.transpose(-2, -1)
+            m_dim, k_dim = 2, 1
 
     orig_m = x_hp.shape[m_dim]
     expected_padded_m = orig_m
