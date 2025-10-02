@@ -65,11 +65,9 @@ def quantize_stretched_affine(
 ) -> torch.Tensor:
     if target_dtype in _SUB_BYTE_UINT_BOUNDS:
         target_dtype = torch.uint8
-    assert input_float.dtype in (
-        torch.float32,
-        torch.float16,
-        torch.bfloat16,
-    ), f"Unsupported input_float dtype: {input_float.dtype}"
+    assert input_float.dtype in (torch.float32, torch.float16, torch.bfloat16), (
+        f"Unsupported input_float dtype: {input_float.dtype}"
+    )
     assert len(block_size) == input_float.dim(), (
         f"Got {input_float.dim()=}, {block_size=}"
     )
