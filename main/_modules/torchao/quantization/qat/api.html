@@ -434,6 +434,8 @@
 <span class="c1"># This source code is licensed under the license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
@@ -679,6 +681,7 @@
         <span class="c1"># Optionally pass custom scales and zero points to base config handler</span>
         <span class="c1"># This is only for range learning and only applies to weights</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">has_custom_scale_and_zero_point</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="n">weight_config</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">config</span>
         <span class="k">if</span> <span class="p">(</span>
             <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_config</span><span class="p">,</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">)</span>
@@ -686,6 +689,7 @@
         <span class="p">):</span>
             <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;custom_scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">scale</span>
             <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;custom_zero_point&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">zero_point</span>
+            <span class="n">has_custom_scale_and_zero_point</span> <span class="o">=</span> <span class="kc">True</span>
 
         <span class="c1"># Swap FakeQuantizedLinear -&gt; nn.Linear</span>
         <span class="c1"># Swap FakeQuantizedEmbedding -&gt; nn.Embedding</span>
@@ -700,6 +704,13 @@
                 <span class="sa">f</span><span class="s2">&quot;Encountered unexpected module </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2">, should never happen&quot;</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># If passing custom scales and zero points, we need to disable the choose_qparam_algorithm on the config</span>
+            <span class="k">if</span> <span class="n">has_custom_scale_and_zero_point</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+                <span class="n">base_config</span><span class="p">,</span> <span class="s2">&quot;intx_choose_qparams_algorithm&quot;</span>
+            <span class="p">):</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Disabling intx_choose_qparams_algorithm&quot;</span><span class="p">)</span>
+                <span class="n">base_config</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span>
+                <span class="n">base_config</span><span class="o">.</span><span class="n">intx_choose_qparams_algorithm</span> <span class="o">=</span> <span class="kc">None</span>
             <span class="k">return</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)](</span>
                 <span class="n">module</span><span class="p">,</span> <span class="n">base_config</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
             <span class="p">)</span>

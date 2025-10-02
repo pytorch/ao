@@ -462,6 +462,7 @@
     <span class="s2">&quot;_choose_qparams_affine_dont_preserve_zero&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_affine_floatx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_and_quantize_affine_hqq&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;_choose_qparams_and_quantize_scale_only_hqq&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_and_quantize_affine_qqq&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_scale_float8&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_choose_qparams_gguf&quot;</span><span class="p">,</span>
@@ -2553,6 +2554,99 @@
     <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
 
     <span class="k">return</span> <span class="n">W_q</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero</span><span class="p">,</span> <span class="n">shape</span>
+
+
+<span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_choose_qparams_and_quantize_scale_only_hqq</span><span class="p">(</span>
+    <span class="n">hp_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="n">qmin</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">qmax</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">iters</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="n">stochastic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">early_stop_tol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-5</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Half-Quadratic Quantization (scale-only, symmetric) for 2D weights with row-wise blocks.</span>
+<span class="sd">    - hp_tensor: [out, in] (bf16/fp16/fp32 accepted; promoted to fp32 internally)</span>
+<span class="sd">    - block_size: must be [1, group_size]; groups along the last dim</span>
+<span class="sd">    - qmin, qmax: integer range (e.g., -8, 7 for signed 4-bit)</span>
+<span class="sd">    Returns:</span>
+<span class="sd">      qdata: int32, same shape as hp_tensor</span>
+<span class="sd">      scale: hp_tensor.dtype, shape [out, in // group_size] (one scale per row-wise block)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># --- strict interface guarantees ---</span>
+    <span class="k">assert</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;hp_tensor must be 2D [out, in]&quot;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block_size</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">))</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;block_size must be a 2-element list/tuple&quot;</span>
+    <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">block_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">block_size</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;block_size must be [1, group_size] with group_size &gt;= 1&quot;</span>
+    <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">qmin</span> <span class="o">&lt;</span> <span class="n">qmax</span><span class="p">,</span> <span class="s2">&quot;qmin must be &lt; qmax&quot;</span>
+
+    <span class="c1"># Promote to fp32 for stable math</span>
+    <span class="n">compute_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+    <span class="n">compute_eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">compute_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
+
+    <span class="n">n</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">group_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">block_size</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">assert</span> <span class="n">k</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;in_features=</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2"> must be divisible by group_size=</span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">round_det</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># ties-to-even; fine for PTQ</span>
+        <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">round</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">round_stoch</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># unbiased stochastic rounding</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand_like</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+
+    <span class="n">_r</span> <span class="o">=</span> <span class="n">round_stoch</span> <span class="k">if</span> <span class="n">stochastic</span> <span class="k">else</span> <span class="n">round_det</span>
+
+    <span class="c1"># Reshape Wg into [n, n_groups, group_size]</span>
+    <span class="n">W</span> <span class="o">=</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">compute_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+    <span class="n">n_groups</span> <span class="o">=</span> <span class="n">k</span> <span class="o">//</span> <span class="n">group_size</span>
+    <span class="n">Wg</span> <span class="o">=</span> <span class="n">W</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">n_groups</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
+
+    <span class="c1"># Initialize per-block scales as max-abs / qabs</span>
+    <span class="c1"># scale.shape = [n, n_groups]</span>
+    <span class="n">qabs</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">qmin</span><span class="p">),</span> <span class="nb">abs</span><span class="p">(</span><span class="n">qmax</span><span class="p">))</span> <span class="ow">or</span> <span class="mi">1</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">Wg</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="n">qabs</span><span class="p">)</span><span class="o">.</span><span class="n">clamp_min</span><span class="p">(</span><span class="n">compute_eps</span><span class="p">)</span>
+    <span class="n">prev_scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+
+    <span class="c1"># Iterate HQQ updates</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">iters</span><span class="p">)):</span>
+        <span class="c1"># Quantize using current scale</span>
+        <span class="c1"># Qg.shape = [n, n_groups, group_size]</span>
+        <span class="n">Qg</span> <span class="o">=</span> <span class="n">_r</span><span class="p">(</span><span class="n">Wg</span> <span class="o">/</span> <span class="n">scale</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span><span class="p">)</span>
+
+        <span class="c1"># Solve least-square problem min_{s} ||Wg - s * Qg||^2 and project</span>
+        <span class="c1"># solution onto positive space, or take previous value</span>
+        <span class="n">num</span> <span class="o">=</span> <span class="p">(</span><span class="n">Wg</span> <span class="o">*</span> <span class="n">Qg</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>  <span class="c1"># [n, n_groups]</span>
+        <span class="n">den</span> <span class="o">=</span> <span class="p">(</span><span class="n">Qg</span> <span class="o">*</span> <span class="n">Qg</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>  <span class="c1"># [n, n_groups]</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">den</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">num</span> <span class="o">/</span> <span class="n">den</span><span class="p">,</span> <span class="n">prev_scale</span><span class="p">)</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">clamp_min</span><span class="p">(</span>
+            <span class="n">compute_eps</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span>  <span class="c1"># project LS solution onto [eps, inf]</span>
+
+        <span class="n">rel</span> <span class="o">=</span> <span class="p">((</span><span class="n">scale</span> <span class="o">-</span> <span class="n">prev_scale</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">/</span> <span class="n">prev_scale</span><span class="o">.</span><span class="n">clamp_min</span><span class="p">(</span><span class="n">compute_eps</span><span class="p">))</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">rel</span> <span class="o">&lt;</span> <span class="n">early_stop_tol</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">prev_scale</span> <span class="o">=</span> <span class="n">scale</span>
+
+    <span class="c1"># Quantize using final scale</span>
+    <span class="n">Qg</span> <span class="o">=</span> <span class="n">_r</span><span class="p">(</span><span class="n">Wg</span> <span class="o">/</span> <span class="n">scale</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span><span class="p">)</span>
+
+    <span class="c1"># Restore shapes</span>
+    <span class="n">qdata</span> <span class="o">=</span> <span class="n">Qg</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+
+    <span class="n">out_dtype</span> <span class="o">=</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">out_dtype</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">qdata</span><span class="p">,</span> <span class="n">scale</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_choose_qparams_affine_floatx</span><span class="p">(</span>

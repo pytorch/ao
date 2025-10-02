@@ -508,6 +508,7 @@
     <span class="n">Int4PreshuffledTensor</span><span class="p">,</span>
     <span class="n">Int4Tensor</span><span class="p">,</span>
     <span class="n">Int4TilePackedTo4dTensor</span><span class="p">,</span>
+    <span class="n">IntxChooseQParamsAlgorithm</span><span class="p">,</span>
     <span class="n">IntxOpaqueTensor</span><span class="p">,</span>
     <span class="n">IntxPackingFormat</span><span class="p">,</span>
     <span class="n">IntxUnpackedToInt8Tensor</span><span class="p">,</span>
@@ -1178,6 +1179,7 @@
 <span class="sd">        `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).</span>
 <span class="sd">            - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.</span>
 <span class="sd">            - opaque_torchao_auto: this format is optimized for CPU performance.</span>
+<span class="sd">        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.</span>
 <span class="sd">        `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.</span>
 
 <span class="sd">        Note:</span>
@@ -1196,6 +1198,9 @@
     <span class="n">act_mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
     <span class="n">intx_packing_format</span><span class="p">:</span> <span class="n">IntxPackingFormat</span> <span class="o">=</span> <span class="n">IntxPackingFormat</span><span class="o">.</span><span class="n">UNPACKED_TO_INT8</span>
+    <span class="n">intx_choose_qparams_algorithm</span><span class="p">:</span> <span class="n">IntxChooseQParamsAlgorithm</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">IntxChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">AFFINE</span>
+    <span class="p">)</span>
 
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
 
@@ -1260,6 +1265,7 @@
     <span class="n">act_mapping_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">act_mapping_type</span>
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
     <span class="n">intx_packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">intx_packing_format</span>
+    <span class="n">intx_choose_qparams_algorithm</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">intx_choose_qparams_algorithm</span>
 
     <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -1298,6 +1304,7 @@
             <span class="n">weight_dtype</span><span class="p">,</span>
             <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
             <span class="n">activation_quantization</span><span class="o">=</span><span class="s2">&quot;int8_asym_per_token&quot;</span><span class="p">,</span>
+            <span class="n">intx_choose_qparams_algorithm</span><span class="o">=</span><span class="n">intx_choose_qparams_algorithm</span><span class="p">,</span>
             <span class="n">custom_scale</span><span class="o">=</span><span class="n">custom_scale</span><span class="p">,</span>
             <span class="n">custom_zero_point</span><span class="o">=</span><span class="n">custom_zero_point</span><span class="p">,</span>
         <span class="p">)</span>
@@ -1319,6 +1326,9 @@
 
     <span class="c1"># Version 1</span>
     <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span>
+    <span class="k">assert</span> <span class="n">intx_choose_qparams_algorithm</span> <span class="o">==</span> <span class="n">IntxChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">AFFINE</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;IntxChooseQParamsAlgorithm.AFFINE is the only supported algorithm for version 1&quot;</span>
+    <span class="p">)</span>
     <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
         <span class="s2">&quot;Config Deprecation: version 1 of Int8DynamicActivationIntxWeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details&quot;</span>
     <span class="p">)</span>
@@ -2599,6 +2609,7 @@
 <span class="sd">            - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,</span>
 <span class="sd">                and is intended for export applications like ExecuTorch.</span>
 <span class="sd">        `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).</span>
+<span class="sd">        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.</span>
 <span class="sd">        `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.</span>
 
 <span class="sd">        Note:</span>
@@ -2615,6 +2626,9 @@
     <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
     <span class="n">intx_packing_format</span><span class="p">:</span> <span class="n">IntxPackingFormat</span> <span class="o">=</span> <span class="n">IntxPackingFormat</span><span class="o">.</span><span class="n">UNPACKED_TO_INT8</span>
+    <span class="n">intx_choose_qparams_algorithm</span><span class="p">:</span> <span class="n">IntxChooseQParamsAlgorithm</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">IntxChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">AFFINE</span>
+    <span class="p">)</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -2632,8 +2646,9 @@
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+            <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC_NO_CLIPPING_ERR</span><span class="p">,</span>
         <span class="p">],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;mapping_type must be MappingType.ASYMMETRIC, MappingType.SYMMETRIC, or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
 
 
@@ -2650,6 +2665,7 @@
     <span class="n">scale_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">scale_dtype</span>
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
     <span class="n">intx_packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">intx_packing_format</span>
+    <span class="n">intx_choose_qparams_algorithm</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">intx_choose_qparams_algorithm</span>
 
     <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;IntxWeightOnlyConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -2677,6 +2693,7 @@
                 <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">,</span>
                 <span class="n">custom_scale</span><span class="o">=</span><span class="n">custom_scale</span><span class="p">,</span>
                 <span class="n">custom_zero_point</span><span class="o">=</span><span class="n">custom_zero_point</span><span class="p">,</span>
+                <span class="n">intx_choose_qparams_algorithm</span><span class="o">=</span><span class="n">intx_choose_qparams_algorithm</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">scale_dtype</span> <span class="o">!=</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">:</span>
                 <span class="n">_adjust_scale_dtype_in_intx_unpacked_tensor</span><span class="p">(</span>
@@ -2688,6 +2705,9 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported packing format: </span><span class="si">{</span><span class="n">intx_packing_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="c1"># Version 1</span>
+    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">intx_choose_qparams_algorithm</span> <span class="o">==</span> <span class="n">IntxChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">AFFINE</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;version 1 only supports affine algorithm&quot;</span>
+    <span class="p">)</span>
     <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span>
     <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
         <span class="s2">&quot;Config Deprecation: version 1 of IntxWeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details&quot;</span>
