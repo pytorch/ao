@@ -219,6 +219,11 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         )
         self._test_narrow_similar_to_vllm(config)
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
     def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
         config = NVFP4InferenceConfig(
             mm_config=NVFP4MMConfig.WEIGHT_ONLY,
