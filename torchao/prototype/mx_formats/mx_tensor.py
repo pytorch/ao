@@ -426,7 +426,12 @@ def tensor_size_hp_to_fp4x2(orig_size, is_contiguous):
     if is_contiguous:
         new_size = [*list(new_size[:-1]), new_size[-1] // 2]
     else:
-        new_size = [new_size[0] // 2, *list(new_size[1:])]
+        if len(orig_size) == 2:
+            new_size = [new_size[0] // 2, *list(new_size[1:])]
+        else:
+            assert len(orig_size) == 3, "unsupported"
+            # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
+            new_size = [new_size[0], new_size[2] // 2, new_size[1]]
     return new_size
 
 
@@ -435,10 +440,16 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
     if is_contiguous:
         new_size = [*list(new_size[:-1]), new_size[-1] * 2]
     else:
-        new_size = [new_size[0] * 2, *list(new_size[1:])]
+        if len(orig_size) == 2:
+            new_size = [new_size[0] * 2, *list(new_size[1:])]
+        else:
+            assert len(orig_size) == 3, "unsupported"
+            # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
+            new_size = [new_size[0], new_size[2] * 2, new_size[1]]
     return new_size
 
 
+# TODO(future PR): fix this function for rank 3 and add tests
 def tensor_size_hpx3_to_fp6x4(orig_size, is_contiguous):
     new_size = orig_size
     if is_contiguous:
@@ -448,6 +459,7 @@ def tensor_size_hpx3_to_fp6x4(orig_size, is_contiguous):
     return new_size
 
 
+# TODO(future PR): fix this function for rank 3 and add tests
 def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
     new_size = orig_size
     if is_contiguous:

@@ -168,9 +168,9 @@ def _nvfp4_inference_linear_transform(
 
     weight = module.weight
 
-    if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+    if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
-            f"NVFP4 only supports weight shape divisible by 16, got {weight.shape}"
+            f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
     if module.bias is not None and weight.dtype == torch.float32:
