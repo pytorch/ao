@@ -88,7 +88,6 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         x_nvfp4_t = x_nvfp4.t()
         x_t = x.t()
     else:
-        # TODO(before land): also test transpose dims (1, 2), (2, 1), (-1, -2)
         x_nvfp4_t = x_nvfp4.transpose(-2, -1)
         x_t = x.transpose(-2, -1)
 
