@@ -19,9 +19,19 @@ import logging
 import re
 import types
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    OrderedDict as OrderedDictType,
+    Tuple,
+    Union,
+)
 
 import torch
 import torch.nn as nn
@@ -44,32 +54,30 @@ from torchao.dtypes import (
     QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
-    UintxLayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
+    UintxLayout,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    Target,
     make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
+    Target,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype, e5m2_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
-    Float8MMConfig,
-    FP8Granularity,
     _check_hardware_support,
     _normalize_granularity,
+    Float8MMConfig,
+    FP8Granularity,
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
-from torchao.quantization.quantize_.common import (
-    KernelPreference,
-)
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
@@ -95,44 +103,29 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    TorchAOBaseTensor,
     _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    TorchAOBaseTensor,
 )
 
-from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
-from .granularity import (
-    Granularity,
-    PerAxis,
-    PerGroup,
-    PerRow,
-    PerTensor,
-)
+from .autoquant import autoquant, AutoQuantizableLinearWeight
+from .GPTQ import Int4WeightOnlyGPTQQuantizer
+from .granularity import Granularity, PerAxis, PerGroup, PerRow, PerTensor
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .linear_quant_modules import (
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightQuantizer,
-)
-from .qat import (
-    intx_quantization_aware_training,
-)
+from .linear_quant_modules import Int4WeightOnlyQuantizer, Int8DynActInt4WeightQuantizer
+from .qat import intx_quantization_aware_training
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
-    ZeroPointDomain,
     quantize_affine,
+    ZeroPointDomain,
 )
-from .subclass import (
-    QuantizedLinearWeightBase,
-)
+from .subclass import QuantizedLinearWeightBase
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
@@ -783,34 +776,28 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationIntxWeightConfig"
         )
-        assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
-            f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
-        )
-        assert isinstance(self.weight_granularity, (PerAxis, PerGroup)), (
-            f"weight_granularity must be PerAxis or PerGroup, but got {self.weight_granularity}"
-        )
+        assert self.weight_dtype in [
+            getattr(torch, f"int{b}") for b in range(1, 9)
+        ], f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
+        assert isinstance(
+            self.weight_granularity, (PerAxis, PerGroup)
+        ), f"weight_granularity must be PerAxis or PerGroup, but got {self.weight_granularity}"
         if isinstance(self.weight_granularity, PerAxis):
-            assert self.weight_granularity.axis == 0, (
-                f"axis must be 0, but got {self.weight_granularity.axis}"
-            )
+            assert (
+                self.weight_granularity.axis == 0
+            ), f"axis must be 0, but got {self.weight_granularity.axis}"
         assert self.weight_mapping_type in [
             MappingType.ASYMMETRIC,
             MappingType.SYMMETRIC,
             MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-        ], (
-            f"weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.weight_mapping_type}"
-        )
+        ], f"weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.weight_mapping_type}"
         assert self.act_mapping_type in [
             MappingType.ASYMMETRIC,
             MappingType.SYMMETRIC,
-        ], (
-            f"act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.act_mapping_type}"
-        )
+        ], f"act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.act_mapping_type}"
         assert isinstance(
             self.layout, (PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout)
-        ), (
-            f"layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got {self.layout}"
-        )
+        ), f"layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got {self.layout}"
 
         if isinstance(self.layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
             if self.layout.target in [Target.AUTO, Target.KLEIDIAI, Target.ATEN]:
@@ -834,15 +821,15 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     layout = config.layout
     intx_packing_format = config.intx_packing_format
 
-    assert weight.dim() == 2, (
-        f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
-    )
+    assert (
+        weight.dim() == 2
+    ), f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
     if isinstance(weight_granularity, PerGroup):
         group_size = weight_granularity.group_size
     elif isinstance(weight_granularity, PerAxis):
-        assert weight_granularity.axis == 0, (
-            f"axis must be 0 with PerAxis, but got {weight_granularity.axis}"
-        )
+        assert (
+            weight_granularity.axis == 0
+        ), f"axis must be 0 with PerAxis, but got {weight_granularity.axis}"
         group_size = weight.shape[-1]
     else:
         raise ValueError(
@@ -928,9 +915,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(weight, bias, config):
     elif isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
         # PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization
         # fused with the kernel and it should not be applied separately
-        assert act_mapping_type == MappingType.ASYMMETRIC, (
-            "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-        )
+        assert (
+            act_mapping_type == MappingType.ASYMMETRIC
+        ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
         data, scale, zero_point = weight.tensor_impl.get_plain()
         groups_per_row = weight.shape[-1] // group_size
         scale = scale.reshape(-1, groups_per_row)
@@ -1231,16 +1218,16 @@ def _int4_weight_only_quantize_tensor(weight, config):
     )
 
     # nonlocal zero_point_domain
-    assert type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys(), (
-        f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
-    )
+    assert (
+        type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
+    ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
     if zero_point_domain == ZeroPointDomain.NONE:
         # the first value is the default one
         zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
     else:
-        assert zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)], (
-            f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
-        )
+        assert (
+            zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
+        ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
     if zero_point_domain == ZeroPointDomain.INT and isinstance(layout, Int4XPULayout):
         zero_point_dtype = torch.int32
@@ -1255,9 +1242,9 @@ def _int4_weight_only_quantize_tensor(weight, config):
     # we should consider moving this logic somewhere else.
     if isinstance(layout, MarlinSparseLayout):
         mapping_type = MappingType.SYMMETRIC
-        assert group_size == 128 or group_size == weight.shape[-1], (
-            f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
-        )
+        assert (
+            group_size == 128 or group_size == weight.shape[-1]
+        ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
 
     new_weight = to_affine_quantized_intx(
         weight,
@@ -1317,9 +1304,9 @@ def _float8_dynamic_activation_int4_weight_transform(
     )
     int4_packing_format = config.int4_packing_format
 
-    assert int4_packing_format == "preshuffled", (
-        f"only preshuffled int4_packing_format supported right now, got: {int4_packing_format}"
-    )
+    assert (
+        int4_packing_format == "preshuffled"
+    ), f"only preshuffled int4_packing_format supported right now, got: {int4_packing_format}"
     weight = module.weight
     group_size = 128
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
@@ -1682,13 +1669,13 @@ def _input_activation_quant_func_fp8(
     """This function is used to quantize the input activation tensor for an aqt_float variant. If scale
     is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.
     """
-    assert zero_point is None, (
-        "Zero point is not supported for dynamic FP8 quantization"
-    )
+    assert (
+        zero_point is None
+    ), "Zero point is not supported for dynamic FP8 quantization"
     if isinstance(activation_granularity, PerRow):
-        assert x.dtype == torch.bfloat16, (
-            "PerRow quantization only works for bfloat16 precision input activation"
-        )
+        assert (
+            x.dtype == torch.bfloat16
+        ), "PerRow quantization only works for bfloat16 precision input activation"
 
     block_size = get_block_size(x.shape, activation_granularity)
     if scale is None:
@@ -1700,9 +1687,9 @@ def _input_activation_quant_func_fp8(
             _layout=Float8Layout(mm_config=None),  # Config is stored on weight
         )
     else:
-        assert isinstance(activation_granularity, PerTensor), (
-            "Static quantization only supports PerTensor granularity"
-        )
+        assert isinstance(
+            activation_granularity, PerTensor
+        ), "Static quantization only supports PerTensor granularity"
         activation = to_affine_quantized_floatx_static(
             input_float=x,
             block_size=block_size,
@@ -1810,9 +1797,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         return weight
 
     if isinstance(weight_granularity, PerRow):
-        assert weight.dtype == torch.bfloat16, (
-            "PerRow quantization only works for bfloat16 precision input weight"
-        )
+        assert (
+            weight.dtype == torch.bfloat16
+        ), "PerRow quantization only works for bfloat16 precision input weight"
 
     if config.version == 1:
         warnings.warn(
@@ -1865,9 +1852,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
+    assert (
+        is_sm_at_least_89() or is_MI300()
+    ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1970,9 +1957,9 @@ float8_static_activation_float8_weight = _ConfigDeprecationWrapper(
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8StaticActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 static activation quantization is only supported on CUDA 8.9 and above"
-    )
+    assert (
+        is_sm_at_least_89() or is_MI300()
+    ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
 
     scale = config.scale
     activation_dtype = config.activation_dtype
@@ -1984,9 +1971,9 @@ def _float8_static_activation_float8_weight_transform(
 
     weight = module.weight
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
-    assert isinstance(activation_granularity, PerTensor), (
-        "Static quantization only supports PerTensor granularity"
-    )
+    assert isinstance(
+        activation_granularity, PerTensor
+    ), "Static quantization only supports PerTensor granularity"
 
     if not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
@@ -2181,22 +2168,20 @@ class IntxWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.IntxWeightOnlyConfig")
-        assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
-            f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
-        )
-        assert isinstance(self.granularity, (PerAxis, PerGroup)), (
-            f"granularity must be PerAxis or PerGroup, but got {self.granularity}"
-        )
+        assert self.weight_dtype in [
+            getattr(torch, f"int{b}") for b in range(1, 9)
+        ], f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
+        assert isinstance(
+            self.granularity, (PerAxis, PerGroup)
+        ), f"granularity must be PerAxis or PerGroup, but got {self.granularity}"
         if isinstance(self.granularity, PerAxis):
-            assert self.granularity.axis == 0, (
-                f"axis must be 0 with PerAxis, but got {self.granularity.axis}"
-            )
+            assert (
+                self.granularity.axis == 0
+            ), f"axis must be 0 with PerAxis, but got {self.granularity.axis}"
         assert self.mapping_type in [
             MappingType.ASYMMETRIC,
             MappingType.SYMMETRIC,
-        ], (
-            f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
-        )
+        ], f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
 
 
 def _intx_weight_only_quantize_tensor(weight, config):
@@ -2207,15 +2192,15 @@ def _intx_weight_only_quantize_tensor(weight, config):
     layout = config.layout
     intx_packing_format = config.intx_packing_format
 
-    assert weight.dim() == 2, (
-        f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
-    )
+    assert (
+        weight.dim() == 2
+    ), f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
     elif isinstance(granularity, PerAxis):
-        assert granularity.axis == 0, (
-            f"axis must be 0 with PerAxis, but got {granularity.axis}"
-        )
+        assert (
+            granularity.axis == 0
+        ), f"axis must be 0 with PerAxis, but got {granularity.axis}"
         group_size = weight.shape[-1]
     else:
         raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
@@ -2374,8 +2359,51 @@ def _module_fqn_to_config_handler(
 
 @dataclass
 class ModuleOrParamFqnToConfig(AOBaseConfig):
-    module_or_param_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
+    """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
+
+    This extends the functionality of ModuleFqnToConfig to support parameter-level quantization configurations
+    in addition to module-level configurations. It allows for fine-grained control over quantization by
+    specifying configurations for individual parameters or modules using regex pattern matching on their FQNs.
+
+    Args:
+        module_or_param_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
+            regex patterns (as strings) to quantization configurations. The patterns are matched against the
+            fully qualified names of modules and parameters. If a pattern matches multiple items, the
+            configuration is applied to all matches. Use None as the config value to skip quantization for
+            matching items.
+
+    Example::
+
+        import torch.nn as nn
+        from collections import OrderedDict
+        from torchao.quantization.quant_api import ModuleOrParamFqnToConfig, Int4WeightOnlyConfig, Int8WeightOnlyConfig
+
+        # Create a model
+        model = nn.Sequential(
+            nn.Linear(10, 20, bias=True),  # Will be "0.weight" and "0.bias"
+            nn.Linear(20, 5, bias=True),   # Will be "1.weight" and "1.bias"
+        )
+
+        # Configure different quantization for different parameters
+        config = ModuleOrParamFqnToConfig(
+            module_or_param_fqn_to_config=OrderedDict([
+                (r"0\.weight", Int4WeightOnlyConfig()),     # 4-bit for first layer weight
+                (r"1\.weight", Int8WeightOnlyConfig()),     # 8-bit for second layer weight
+                (r".*\.bias", None),                        # Skip bias quantization
+            ])
+        )
+
+        # Apply quantization
+        quantize_(model, config)
+
+    Note:
+        - The order of patterns in the OrderedDict matters as the first matching pattern is applied
+        - Regex patterns allow for flexible matching (e.g., r".*\.weight" matches all weight parameters)
+        - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
+    """
+
+    module_or_param_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+        default_factory=OrderedDict
     )
 
     def __post_init__(self):
@@ -2383,33 +2411,89 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
 
     @property
     def module_fqn_to_config(self):
+        """Compatibility property to maintain interface consistency with ModuleFqnToConfig."""
         return self.module_or_param_fqn_to_config
 
 
 def _param_fqn_to_config_handler(
     mod_containing_param: torch.nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
 ):
+    """Apply parameter-specific quantization configurations based on fully qualified name pattern matching.
+
+    This function processes parameters within a module and applies quantization configurations
+    when the parameter's fully qualified name matches patterns defined in the config.
+
+    Args:
+        mod_containing_param (torch.nn.Module): The module containing parameters to be processed.
+        fqn (str): The fully qualified name of the module containing the parameters.
+        config (ModuleOrParamFqnToConfig): Configuration object containing regex patterns mapped
+            to quantization configurations.
+
+    Returns:
+        torch.nn.Module: The modified module with quantized parameters.
+
+    Note:
+        - Only processes top-level parameters (those directly accessible as module attributes)
+        - Skips parameters that are already TorchAOBaseTensor instances to avoid double quantization
+        - Uses the first matching pattern for each parameter
+        - Sets quantized parameters as non-differentiable (requires_grad=False)
+
+    Raises:
+        NotImplementedError: If a configuration type doesn't have a registered parameter handler.
+    """
     for name, param in list(mod_containing_param.named_parameters()):
         # check to see if top level param
         if name in dir(mod_containing_param):
             for pattern, param_config in config.module_or_param_fqn_to_config.items():
-                if pattern == f"{fqn}.{name}" and not isinstance(param, TorchAOBaseTensor):
+                if re.search(pattern, f"{fqn}.{name}") and not isinstance(
+                    param, TorchAOBaseTensor
+                ):
                     param_config_type = type(param_config)
                     if param_config_type in _QUANTIZE_CONFIG_PARAM_HANDLER:
                         handler = _QUANTIZE_CONFIG_PARAM_HANDLER[param_config_type]
                         new_param = handler(param, param_config)
                         setattr(mod_containing_param, name, new_param)
                     else:
-                        raise NotImplementedError(f"Parameter quantization for {param_config_type} not supported currently!")
+                        raise NotImplementedError(
+                            f"Parameter quantization for {param_config_type} not supported currently!"
+                        )
 
     return mod_containing_param
 
 
 def select_module_if_fqn_in_pattern(mod, fqn, config):
+    """Check if a module should be selected for quantization based on parameter FQN pattern matching.
+
+    This function determines whether a module should be processed for parameter-level quantization
+    by checking if any of its top-level parameters match the patterns defined in the configuration.
+
+    Args:
+        mod (torch.nn.Module): The module to check for parameter pattern matches.
+        fqn (str): The fully qualified name of the module.
+        config (ModuleOrParamFqnToConfig): Configuration object containing regex patterns for
+            parameter quantization.
+
+    Returns:
+        bool: True if any of the module's parameters match patterns in the configuration,
+            False otherwise.
+
+    Note:
+        - Only checks top-level parameters (those directly accessible as module attributes)
+        - Uses the first pattern match found to determine selection
+        - The function returns immediately upon finding the first match
+
+    Example::
+
+        # Given a module with parameters "weight" and "bias" and FQN "layer1"
+        # and config patterns [".*\.weight", ".*\.bias"]
+        # This would return True because "layer1.weight" matches ".*\.weight"
+    """
     for name, _ in mod.named_parameters():
-        if "." not in name:  # only want attribute parameters
-            if f"{fqn}.{name}" in config.module_or_param_fqn_to_config:
-                return True
+        if name in dir(mod):
+            for pattern in config.module_or_param_fqn_to_config:
+                if re.search(pattern, f"{fqn}.{name}"):
+                    return True
+    return False
 
 
 torch.serialization.add_safe_globals(
