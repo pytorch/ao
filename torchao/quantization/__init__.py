@@ -61,6 +61,7 @@ from .quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
+    ModuleOrParamFqnToConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
@@ -162,6 +163,7 @@ __all__ = [
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
     "ModuleFqnToConfig",
+    "ModuleOrParamFqnToConfig",
     # tensor subclasses
     "Int4Tensor",
     "Int4PlainInt32Tensor",
