@@ -25,7 +25,6 @@ from functools import partial
 from typing import (
     Any,
     Callable,
-    Dict,
     List,
     Optional,
     Tuple,
@@ -539,15 +538,6 @@ def quantize_(
             model,
             _param_fqn_to_config_handler,
             partial(select_module_if_top_level_params_match_pattern, config=config),
-            device=device,
-            extra_args=(config,),
-        )
-        return
-    if isinstance(config, ModuleFqnToConfig):
-        _replace_with_custom_fn_if_matches_filter_with_name(
-            model,
-            _module_fqn_to_config_handler,
-            filter_fn,
             device=device,
             extra_args=(config,),
         )
@@ -2525,30 +2515,14 @@ def select_module_if_top_level_params_match_pattern(
     return False
 
 
-@dataclass
-class ModuleFqnToConfig(AOBaseConfig):
-    """Per module configurations for torchao quantize_ API
-
-    Args:
-        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
-         Also has a special key: "_default", if "_default" is present in the dictionary,
-         the config for "_default" will be applied to all the remaining modules that does not have
-         per module configuration specified.
-    """
-
-    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
-    )
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.quantization.ModuleFqnToConfig")
+# to maintain BC
+ModuleFqnToConfig = ModuleOrParamFqnToConfig
 
 
 def _module_fqn_to_config_handler(
     module: torch.nn.Module,
     module_fqn: str,
-    config: Union[ModuleFqnToConfig, ModuleOrParamFqnToConfig],
+    config: ModuleOrParamFqnToConfig,
 ):
     c = None
     if module_fqn in config.module_fqn_to_config:
