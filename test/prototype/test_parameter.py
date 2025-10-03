@@ -10,6 +10,7 @@ import torch
 from torch import nn
 from torch.testing._internal.common_utils import TestCase
 
+from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
@@ -18,7 +19,6 @@ from torchao.quantization.quant_api import (
     PerRow,
     quantize_,
 )
-from torchao.core.config import AOBaseConfig
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.utils import is_fbcode, is_sm_at_least_90
 
@@ -65,6 +65,7 @@ class TestQuantizeFQNParam(TestCase):
     def test_quantize_param_and_module_fqn(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
         from torchao.quantization import PerTensor
 
         config = AutoConfig.from_pretrained(
@@ -91,6 +92,7 @@ class TestQuantizeFQNParam(TestCase):
     def test_quantize_param_and_module_fqn_regex(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
         from torchao.quantization import PerTensor
 
         config = AutoConfig.from_pretrained(
@@ -100,7 +102,7 @@ class TestQuantizeFQNParam(TestCase):
         torch.randn(16, 128, config.hidden_size).cuda().bfloat16()
         quant_config = ModuleOrParamFqnToConfig(
             {
-                ".*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
                 ),
                 "shared_expert.gate_proj": Float8DynamicActivationFloat8WeightConfig(
@@ -116,30 +118,67 @@ class TestQuantizeFQNParam(TestCase):
 
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
         assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
+        assert model.shared_expert.gate_proj.weight.scale.numel() == 1
+
+    def test_quantize_modle_param_double_specified(self):
+        from transformers import AutoConfig
+
+        from torchao.quantization import PerTensor
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = (
+            nn.Sequential(
+                nn.Linear(128, 128),
+            )
+            .to(torch.bfloat16)
+            .cuda()
+        )
+        input_tensor = torch.randn(16, 128).cuda().bfloat16()
+        quant_config = ModuleOrParamFqnToConfig(
+            {
+                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+                "0": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+        model(input_tensor)
+
+        assert isinstance(model[0].weight, Float8Tensor)
+        assert model[0].weight.scale.numel() == 1
 
     def test_unsupported_param_config_raises_not_implemented_error(self):
         """Test that using an unsupported parameter config raises NotImplementedError."""
         from dataclasses import dataclass
-        
+
         # Create a custom config that doesn't have a registered parameter handler
         @dataclass
         class UnsupportedParamConfig(AOBaseConfig):
             some_value: int = 42
-        
+
         # Create a simple model
         model = nn.Linear(10, 5).cuda().bfloat16()
-        
+
         # Create config with unsupported parameter handler
         quant_config = ModuleOrParamFqnToConfig(
             {
                 "weight": UnsupportedParamConfig(),
             }
         )
-        
+
         # This should raise NotImplementedError
         with self.assertRaises(NotImplementedError) as context:
             quantize_(model, quant_config)
-        
+
         # Check that the error message contains the expected text
         self.assertIn("Parameter quantization for", str(context.exception))
         self.assertIn("not supported currently", str(context.exception))
