@@ -29,7 +29,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
         input = torch.rand((128, 128)).half().cuda()
         grad = torch.rand((128, 128)).half().cuda()
         model = ToyTwoLinearModel(
-            128, 256, 128, device="cuda", dtype=torch.half
+            128, 256, 128, device="cuda", dtype=torch.float16
         ).half()
         model_c = copy.deepcopy(model)
 
@@ -78,7 +78,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
         input = torch.rand((128, 128)).half().cuda()
         grad = torch.rand((128, 128)).half().cuda()
         model = ToyTwoLinearModel(
-            128, 256, 128, device="cuda", dtype=torch.half
+            128, 256, 128, device="cuda", dtype=torch.float16
         )
         model_c = copy.deepcopy(model)
 

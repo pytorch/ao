@@ -238,7 +238,7 @@ def create_model_and_input_data(
         m, k, n (int): dimensions of the model and input data
     """
     if model_type == "linear":
-        model = ToyTwoLinearModel(k, m, n, device="cuda", dtype=torch.bfloat16)
+        model = ToyTwoLinearModel(k, m, n, device="cuda", dtype=high_precision_dtype)
         input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string
