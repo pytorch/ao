@@ -538,7 +538,7 @@ def quantize_(
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
             _param_fqn_to_config_handler,
-            partial(select_module_if_fqn_in_pattern, config=config),
+            partial(select_module_if_top_level_params_match_pattern, config=config),
             device=device,
             extra_args=(config,),
         )
@@ -2494,7 +2494,7 @@ def _param_fqn_to_config_handler(
     return mod_containing_param
 
 
-def select_module_if_fqn_in_pattern(
+def select_module_if_top_level_params_match_pattern(
     mod: nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
 ):
     """Check if a module should be selected for quantization.
