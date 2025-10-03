@@ -524,9 +524,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         unsqueezed_dequant = unsqueezed_weight.dequantize()
         expected_dequant = original_dequant.unsqueeze(0)
 
-        torch.testing.assert_close(
-            unsqueezed_dequant, expected_dequant, atol=1e-3, rtol=1e-3
-        )
+        self.assertEqual(unsqueezed_dequant, expected_dequant)
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_unsqueeze_error_cases(self, granularity):
@@ -579,10 +577,20 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         # Perform slicing on the specified dimension
         if slice_dim == 0:
             sliced_tensor = float8_tensor[start_idx:end_idx, :, :]
+            expected_qdata = float8_tensor.qdata[start_idx:end_idx, :, :]
+            expected_scale = float8_tensor.scale[start_idx:end_idx, :]
         elif slice_dim == 1:
             sliced_tensor = float8_tensor[:, start_idx:end_idx, :]
+            expected_qdata = float8_tensor.qdata[:, start_idx:end_idx, :]
+            expected_scale = float8_tensor.scale[:, start_idx:end_idx]
         elif slice_dim == 2:
             sliced_tensor = float8_tensor[:, :, start_idx:end_idx]
+            expected_qdata = float8_tensor.qdata[:, :, start_idx:end_idx]
+            expected_scale = float8_tensor.scale[:, :]
+
+        if isinstance(granularity, PerTensor):
+            # Per-tensor quantization: scale should remain scalar
+            expected_scale = float8_tensor.scale
 
         # Verify the sliced tensor shape
         expected_shape = list(tensor_shape)
@@ -591,6 +599,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         # Verify qdata shape matches
         self.assertEqual(sliced_tensor.qdata.shape, torch.Size(expected_shape))
+        self.assertEqual(sliced_tensor.qdata, expected_qdata)
 
         # Verify scale shape is correct based on granularity and slice dimension
         if isinstance(granularity, PerTensor):
@@ -616,6 +625,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 # Slicing hidden dimension (dim=2) typically doesn't affect scale in per-row quantization
                 self.assertEqual(sliced_tensor.scale.shape, float8_tensor.scale.shape)
 
+        self.assertEqual(sliced_tensor.scale, expected_scale)
+
         # Verify block_size is correctly updated
         self.assertEqual(len(sliced_tensor.block_size), len(expected_shape))
         for i in range(len(expected_shape)):
@@ -640,10 +651,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             sliced_original = original_dequantized[:, :, start_idx:end_idx]
         sliced_dequantized = sliced_tensor.dequantize()
 
-        # Allow for small numerical differences due to quantization
-        torch.testing.assert_close(
-            sliced_dequantized, sliced_original, atol=1e-1, rtol=1e-1
-        )
+        self.assertEqual(sliced_dequantized, sliced_original)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
