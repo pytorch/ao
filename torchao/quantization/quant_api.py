@@ -2458,9 +2458,7 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
 def _param_fqn_to_config_handler(
     mod_containing_param: torch.nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
 ):
-    """Apply parameter-specific quantization configurations based on fully qualified name pattern matching.
-
-    This function processes parameters within a module and applies quantization configurations
+    """This function processes parameters within a module and applies quantization configurations
     when the parameter's fully qualified name matches patterns defined in the config.
 
     Args:
@@ -2481,27 +2479,34 @@ def _param_fqn_to_config_handler(
     Raises:
         NotImplementedError: If a configuration type doesn't have a registered parameter handler.
     """
-    for name, param in list(mod_containing_param.named_parameters()):
-        # check to see if top level param and hasn't been modified previously by module flow
-        if name in dir(mod_containing_param) and not isinstance(
-            param, TorchAOBaseTensor
-        ):
-            for pattern, param_config in config.module_or_param_fqn_to_config.items():
-                full_param_fqn = f"{fqn}.{name}"
-                if (pattern == full_param_fqn) or (
-                    pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
-                ):
-                    param_config_type = type(param_config)
-                    if param_config_type in _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER:
-                        handler = _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[
-                            param_config_type
-                        ]
-                        new_param = handler(param, param_config)
-                        setattr(mod_containing_param, name, new_param)
-                    else:
-                        raise NotImplementedError(
-                            f"Parameter quantization for {param_config_type} not supported currently!"
-                        )
+    top_level_named_parameters_list = [
+        (name, param)
+        for name, param in mod_containing_param.named_parameters()
+        if name in dir(mod_containing_param)
+    ]
+
+    # return if modified previously by module flow
+    if any(
+        isinstance(param, TorchAOBaseTensor)
+        for _, param in top_level_named_parameters_list
+    ):
+        return mod_containing_param
+
+    for name, param in top_level_named_parameters_list:
+        for pattern, param_config in config.module_or_param_fqn_to_config.items():
+            full_param_fqn = f"{fqn}.{name}"
+            if (pattern == full_param_fqn) or (
+                pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
+            ):
+                param_config_type = type(param_config)
+                if param_config_type in _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER:
+                    handler = _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[param_config_type]
+                    new_param = handler(param, param_config)
+                    setattr(mod_containing_param, name, new_param)
+                else:
+                    raise NotImplementedError(
+                        f"Parameter quantization for {param_config_type} not supported currently!"
+                    )
 
     return mod_containing_param
 

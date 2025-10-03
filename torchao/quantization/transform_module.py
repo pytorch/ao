@@ -70,7 +70,9 @@ def register_quantize_tensor_handler(config_type):
     def decorator(func):
         def func_supporting_param(tensor_or_param, config):
             if type(tensor_or_param) is torch.nn.Parameter:
-                return torch.nn.Parameter(func(tensor_or_param, config))
+                return torch.nn.Parameter(
+                    func(tensor_or_param, config), requires_grad=False
+                )
             return func(tensor_or_param, config)
 
         _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[config_type] = func_supporting_param

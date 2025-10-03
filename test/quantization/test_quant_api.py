@@ -903,6 +903,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
         model = (
             torch.nn.Sequential(
                 torch.nn.Linear(128, 128),
+                torch.nn.Linear(128, 128),
             )
             .to(torch.bfloat16)
             .cuda()
@@ -913,7 +914,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
                 "0": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
                 ),
-                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                "re:.*weight": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerTensor(),
                 ),
             }
