@@ -419,9 +419,9 @@ def _(func, types, args, kwargs):
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     """Supports slicing for 1d, 2d, and 3d tensors
-    original tensor shape has dimension (N, K), or (B, N, K)
-    qdata has dimension (N, K) or (B, N, K)
-    scale (per row quantization) has dimension: (N,) or (B, N)
+    original tensor shape has dimension (N, K), or (E, N, K)
+    qdata has dimension (N, K) or (E, N, K)
+    scale (per row quantization) has dimension: (N,) or (E, N)
 
     since qdata has the same dimension as original tensor, we can directly slice that
     for scale, we'll do a slice when dim is 0, and don't need to do anything for dim 1
