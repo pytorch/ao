@@ -97,7 +97,7 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
-    _QUANTIZE_CONFIG_PARAM_HANDLER,
+    _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER,
     register_quantize_module_handler,
     register_quantize_param_handler,
 )
@@ -524,13 +524,13 @@ def quantize_(
 
     filter_fn = _is_linear if filter_fn is None else filter_fn
     if isinstance(config, ModuleOrParamFqnToConfig):
-        _replace_with_custom_fn_if_matches_filter_with_name(
-            model,
-            _module_fqn_to_config_handler,
-            filter_fn,
-            device=device,
-            extra_args=(config,),
-        )
+        # _replace_with_custom_fn_if_matches_filter_with_name(
+        #     model,
+        #     _module_fqn_to_config_handler,
+        #     filter_fn,
+        #     device=device,
+        #     extra_args=(config,),
+        # )
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
             _param_fqn_to_config_handler,
@@ -2398,8 +2398,7 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         config = ModuleOrParamFqnToConfig(
             module_or_param_fqn_to_config=OrderedDict([
                 (r"0\.weight", Int4WeightOnlyConfig()),     # 4-bit for first layer weight
-                (r"1\.weight", Int8WeightOnlyConfig()),     # 8-bit for second layer weight
-                (r".*\.bias", None),                        # Skip bias quantization
+                (r"re:1\.weight", Int8WeightOnlyConfig()),  # 8-bit for second layer weight, matching using regex
             ])
         )
 
@@ -2452,15 +2451,20 @@ def _param_fqn_to_config_handler(
         NotImplementedError: If a configuration type doesn't have a registered parameter handler.
     """
     for name, param in list(mod_containing_param.named_parameters()):
-        # check to see if top level param
-        if name in dir(mod_containing_param):
+        # check to see if top level param and hasn't been modified previously by module flow
+        if name in dir(mod_containing_param) and not isinstance(
+            param, TorchAOBaseTensor
+        ):
             for pattern, param_config in config.module_or_param_fqn_to_config.items():
-                if re.search(pattern, f"{fqn}.{name}") and not isinstance(
-                    param, TorchAOBaseTensor
+                full_param_fqn = f"{fqn}.{name}"
+                if (pattern == full_param_fqn) or (
+                    pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
                 ):
                     param_config_type = type(param_config)
-                    if param_config_type in _QUANTIZE_CONFIG_PARAM_HANDLER:
-                        handler = _QUANTIZE_CONFIG_PARAM_HANDLER[param_config_type]
+                    if param_config_type in _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER:
+                        handler = _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[
+                            param_config_type
+                        ]
                         new_param = handler(param, param_config)
                         setattr(mod_containing_param, name, new_param)
                     else:
@@ -2471,37 +2475,33 @@ def _param_fqn_to_config_handler(
     return mod_containing_param
 
 
-def select_module_if_fqn_in_pattern(mod, fqn, config):
-    """Check if a module should be selected for quantization based on parameter FQN pattern matching.
+def select_module_if_fqn_in_pattern(
+    mod: nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
+):
+    """Check if a module should be selected for quantization.
 
     This function determines whether a module should be processed for parameter-level quantization
-    by checking if any of its top-level parameters match the patterns defined in the configuration.
+    by checking if any of its top-level parameters match the patterns defined in ModuleOrParamFqnToConfig.
+
+    We only check top-level parameters (those directly accessible as module attributes).
 
     Args:
         mod (torch.nn.Module): The module to check for parameter pattern matches.
         fqn (str): The fully qualified name of the module.
-        config (ModuleOrParamFqnToConfig): Configuration object containing regex patterns for
+        config (ModuleOrParamFqnToConfig): Configuration object containing regex patterns or raw FQNs for
             parameter quantization.
 
     Returns:
         bool: True if any of the module's parameters match patterns in the configuration,
             False otherwise.
-
-    Note:
-        - Only checks top-level parameters (those directly accessible as module attributes)
-        - Uses the first pattern match found to determine selection
-        - The function returns immediately upon finding the first match
-
-    Example::
-
-        # Given a module with parameters "weight" and "bias" and FQN "layer1"
-        # and config patterns [".*\.weight", ".*\.bias"]
-        # This would return True because "layer1.weight" matches ".*\.weight"
     """
-    for name, _ in mod.named_parameters():
-        if name in dir(mod):
+    for name, param in mod.named_parameters():
+        if name in dir(mod) and not isinstance(param, TorchAOBaseTensor):
             for pattern in config.module_or_param_fqn_to_config:
-                if re.search(pattern, f"{fqn}.{name}"):
+                full_param_fqn = f"{fqn}.{name}"
+                if (pattern == full_param_fqn) or (
+                    pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
+                ):
                     return True
     return False
 

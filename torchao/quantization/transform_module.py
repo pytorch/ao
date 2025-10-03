@@ -15,10 +15,11 @@ _QUANTIZE_CONFIG_HANDLER: Dict[
     Callable[[torch.nn.Module, AOBaseConfig], torch.nn.Module],
 ] = {}
 
-_QUANTIZE_CONFIG_PARAM_HANDLER: Dict[
+_QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER: Dict[
     Type[AOBaseConfig],
     Callable[[torch.nn.Parameter, AOBaseConfig], torch.nn.Parameter],
 ] = {}
+
 
 def register_quantize_module_handler(config_type):
     """
@@ -55,31 +56,24 @@ def register_quantize_module_handler(config_type):
 
     return decorator
 
-def register_quantize_param_handler(config_type):
+
+def register_quantize_tensor_handler(config_type):
     """
     A decorator to register a transform function to map from a workflow
     configuration (child of `AOBaseConfig`) to a function that transforms
-    a `torch.nn.Parameter` according to the specified configuration.
+    a `torch.Tensor` according to the specified configuration.
 
-    For example::
-
-        # user facing code
-        class WorkflowFooConfig(AOBaseConfig): ...
-            # configuration for workflow `Foo` is defined here
-            bar = 'baz'
-
-        # non user facing code
-        @resgister_quantize
+    The wrapped function will be extended to support `torch.nn.Parameter` as well.
     """
+
     @functools.wraps(config_type)
     def decorator(func):
-
         def func_supporting_param(tensor_or_param, config):
             if type(tensor_or_param) is torch.nn.Parameter:
                 return torch.nn.Parameter(func(tensor_or_param, config))
             return func(tensor_or_param, config)
 
-        _QUANTIZE_CONFIG_PARAM_HANDLER[config_type] = func_supporting_param
+        _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[config_type] = func_supporting_param
         return func  # needed to make the functions usable externally
 
     return decorator
