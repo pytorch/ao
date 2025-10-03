@@ -99,7 +99,7 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER,
     register_quantize_module_handler,
-    register_quantize_param_handler,
+    register_quantize_tensor_handler,
 )
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
@@ -524,13 +524,13 @@ def quantize_(
 
     filter_fn = _is_linear if filter_fn is None else filter_fn
     if isinstance(config, ModuleOrParamFqnToConfig):
-        # _replace_with_custom_fn_if_matches_filter_with_name(
-        #     model,
-        #     _module_fqn_to_config_handler,
-        #     filter_fn,
-        #     device=device,
-        #     extra_args=(config,),
-        # )
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _module_fqn_to_config_handler,
+            filter_fn,
+            device=device,
+            extra_args=(config,),
+        )
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
             _param_fqn_to_config_handler,
@@ -1785,7 +1785,7 @@ float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
 )
 
 
-@register_quantize_param_handler(Float8DynamicActivationFloat8WeightConfig)
+@register_quantize_tensor_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype

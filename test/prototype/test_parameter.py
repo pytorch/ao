@@ -13,6 +13,7 @@ from torch.testing._internal.common_utils import TestCase
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    PerTensor,
 )
 from torchao.quantization.quant_api import (
     ModuleOrParamFqnToConfig,
@@ -45,7 +46,6 @@ class TestQuantizeFQNParam(TestCase):
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
-        torch.randn(16, 128, config.hidden_size).cuda().bfloat16()
 
         quant_config = ModuleOrParamFqnToConfig(
             {
@@ -66,13 +66,10 @@ class TestQuantizeFQNParam(TestCase):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
-        from torchao.quantization import PerTensor
-
         config = AutoConfig.from_pretrained(
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
-        torch.randn(16, 128, config.hidden_size).cuda().bfloat16()
         quant_config = ModuleOrParamFqnToConfig(
             {
                 "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
@@ -93,13 +90,10 @@ class TestQuantizeFQNParam(TestCase):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
-        from torchao.quantization import PerTensor
-
         config = AutoConfig.from_pretrained(
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
-        torch.randn(16, 128, config.hidden_size).cuda().bfloat16()
         quant_config = ModuleOrParamFqnToConfig(
             {
                 "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
@@ -121,13 +115,6 @@ class TestQuantizeFQNParam(TestCase):
         assert model.shared_expert.gate_proj.weight.scale.numel() == 1
 
     def test_quantize_modle_param_double_specified(self):
-        from transformers import AutoConfig
-
-        from torchao.quantization import PerTensor
-
-        config = AutoConfig.from_pretrained(
-            "unsloth/Llama-4-Scout-17B-16E-Instruct"
-        ).text_config
         model = (
             nn.Sequential(
                 nn.Linear(128, 128),
@@ -135,14 +122,14 @@ class TestQuantizeFQNParam(TestCase):
             .to(torch.bfloat16)
             .cuda()
         )
-        input_tensor = torch.randn(16, 128).cuda().bfloat16()
         quant_config = ModuleOrParamFqnToConfig(
             {
-                "0.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor(),
-                ),
+                # only this config should be applied, as module fqn takes precedence
                 "0": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
+                ),
+                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
                 ),
             }
         )
@@ -151,10 +138,9 @@ class TestQuantizeFQNParam(TestCase):
             model,
             quant_config,
         )
-        model(input_tensor)
 
         assert isinstance(model[0].weight, Float8Tensor)
-        assert model[0].weight.scale.numel() == 1
+        assert model[0].weight.scale.numel() == 128
 
     def test_unsupported_param_config_raises_not_implemented_error(self):
         """Test that using an unsupported parameter config raises NotImplementedError."""
@@ -166,12 +152,12 @@ class TestQuantizeFQNParam(TestCase):
             some_value: int = 42
 
         # Create a simple model
-        model = nn.Linear(10, 5).cuda().bfloat16()
+        model = nn.Sequential(nn.Linear(10, 5).cuda().bfloat16())
 
         # Create config with unsupported parameter handler
         quant_config = ModuleOrParamFqnToConfig(
             {
-                "weight": UnsupportedParamConfig(),
+                "0.weight": UnsupportedParamConfig(),
             }
         )
 
