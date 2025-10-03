@@ -16,10 +16,23 @@ and mixed GEMM kernels
 """
 
 import logging
+import re
 import types
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from functools import partial
+from typing import (
+    Any,
+    Callable,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
+from typing import (
+    OrderedDict as OrderedDictType,
+)
 
 import torch
 import torch.nn as nn
@@ -86,13 +99,16 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
+    _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER,
     register_quantize_module_handler,
+    register_quantize_tensor_handler,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
+    TorchAOBaseTensor,
     _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
@@ -100,36 +116,21 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
-from .granularity import (
-    Granularity,
-    PerAxis,
-    PerGroup,
-    PerRow,
-    PerTensor,
-)
+from .GPTQ import Int4WeightOnlyGPTQQuantizer
+from .granularity import Granularity, PerAxis, PerGroup, PerRow, PerTensor
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .linear_quant_modules import (
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightQuantizer,
-)
-from .qat import (
-    intx_quantization_aware_training,
-)
+from .linear_quant_modules import Int4WeightOnlyQuantizer, Int8DynActInt4WeightQuantizer
+from .qat import intx_quantization_aware_training
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
     quantize_affine,
 )
-from .subclass import (
-    QuantizedLinearWeightBase,
-)
+from .subclass import QuantizedLinearWeightBase
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
@@ -525,7 +526,7 @@ def quantize_(
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
     filter_fn = _is_linear if filter_fn is None else filter_fn
-    if isinstance(config, ModuleFqnToConfig):
+    if isinstance(config, ModuleOrParamFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
             _module_fqn_to_config_handler,
@@ -533,8 +534,14 @@ def quantize_(
             device=device,
             extra_args=(config,),
         )
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _param_fqn_to_config_handler,
+            partial(select_module_if_top_level_params_match_pattern, config=config),
+            device=device,
+            extra_args=(config,),
+        )
         return
-
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
@@ -545,7 +552,6 @@ def quantize_(
             device=device,
             extra_args=(config,),
         )
-
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
@@ -1809,6 +1815,7 @@ float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
 )
 
 
+@register_quantize_tensor_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -2382,27 +2389,140 @@ def _fpx_weight_only_transform(
 
 
 @dataclass
-class ModuleFqnToConfig(AOBaseConfig):
-    """Per module configurations for torchao quantize_ API
+class ModuleOrParamFqnToConfig(AOBaseConfig):
+    """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
+
+    This extends the functionality of ModuleFqnToConfig to support parameter-level quantization configurations
+    in addition to module-level configurations. It allows for fine-grained control over quantization by
+    specifying configurations for individual parameters or modules using regex pattern matching on their FQNs.
 
     Args:
-        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
-         Also has a special key: "_default", if "_default" is present in the dictionary,
-         the config for "_default" will be applied to all the remaining modules that does not have
-         per module configuration specified.
+        module_or_param_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
+            regex patterns (as strings) to quantization configurations.
+
+            The patterns can be one of the follows:
+             (1). fully qualified name (fqn) of module or param
+             (2). regex of fully qualified name (in python `re` module regex format) or
+             (3). "_default"
+
+    When passed this config, `quantize_` will first try to replace all modules in the model, matching the logic of ModuleFqnToConfig.
+    Then, quantize_ will attempt to replace any parameters specified by the fqn or that match regexs, ignoring modules that have already been transformed by the previous flow (Modules with an existing AOBaseTensor attached)
+
+    "_default" is ignored for parameter replacement.
+
+    Note:
+        - The order of patterns in the OrderedDict matters as the first matching pattern is applied
+        - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
     """
 
-    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
+    module_or_param_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+        default_factory=OrderedDict
     )
 
     def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.quantization.ModuleFqnToConfig")
+        torch._C._log_api_usage_once("torchao.quantization.ModuleOrParamFqnToConfig")
+
+    @property
+    def module_fqn_to_config(self):
+        """Compatibility property to maintain interface consistency with ModuleFqnToConfig."""
+        return self.module_or_param_fqn_to_config
+
+
+# maintain BC
+ModuleFqnToConfig = ModuleOrParamFqnToConfig
+
+
+def _param_fqn_to_config_handler(
+    mod_containing_param: torch.nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
+):
+    """This function processes parameters within a module and applies quantization configurations
+    when the parameter's fully qualified name matches patterns defined in the config.
+
+    Args:
+        mod_containing_param (torch.nn.Module): The module containing parameters to be processed.
+        fqn (str): The fully qualified name of the module containing the parameters.
+        config (ModuleOrParamFqnToConfig): Configuration object containing regex patterns mapped
+            to quantization configurations.
+
+    Returns:
+        torch.nn.Module: The modified module with quantized parameters.
+
+    Note:
+        - Only processes top-level parameters (those directly accessible as module attributes)
+        - Skips parameters that are already TorchAOBaseTensor instances to avoid double quantization
+        - Uses the first matching pattern for each parameter
+        - Sets quantized parameters as non-differentiable (requires_grad=False)
+
+    Raises:
+        NotImplementedError: If a configuration type doesn't have a registered parameter handler.
+    """
+    top_level_named_parameters_list = [
+        (name, param)
+        for name, param in mod_containing_param.named_parameters()
+        if name in dir(mod_containing_param)
+    ]
+
+    # return if modified previously by module flow
+    if any(
+        isinstance(param, TorchAOBaseTensor)
+        for _, param in top_level_named_parameters_list
+    ):
+        return mod_containing_param
+
+    for name, param in top_level_named_parameters_list:
+        for pattern, param_config in config.module_or_param_fqn_to_config.items():
+            full_param_fqn = f"{fqn}.{name}"
+            if (pattern == full_param_fqn) or (
+                pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
+            ):
+                param_config_type = type(param_config)
+                if param_config_type in _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER:
+                    handler = _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[param_config_type]
+                    new_param = handler(param, param_config)
+                    setattr(mod_containing_param, name, new_param)
+                else:
+                    raise NotImplementedError(
+                        f"Parameter quantization for {param_config_type} not supported currently!"
+                    )
+
+    return mod_containing_param
+
+
+def select_module_if_top_level_params_match_pattern(
+    mod: nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
+):
+    """Check if a module should be selected for quantization.
+
+    This function determines whether a module should be processed for parameter-level quantization
+    by checking if any of its top-level parameters match the patterns defined in ModuleOrParamFqnToConfig.
+
+    We only check top-level parameters (those directly accessible as module attributes).
+
+    Args:
+        mod (torch.nn.Module): The module to check for parameter pattern matches.
+        fqn (str): The fully qualified name of the module.
+        config (ModuleOrParamFqnToConfig): Configuration object containing regex patterns or raw FQNs for
+            parameter quantization.
+
+    Returns:
+        bool: True if any of the module's parameters match patterns in the configuration,
+            False otherwise.
+    """
+    for name, param in mod.named_parameters():
+        if name in dir(mod) and not isinstance(param, TorchAOBaseTensor):
+            for pattern in config.module_or_param_fqn_to_config:
+                full_param_fqn = f"{fqn}.{name}"
+                if (pattern == full_param_fqn) or (
+                    pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
+                ):
+                    return True
+    return False
 
 
 def _module_fqn_to_config_handler(
-    module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
+    module: torch.nn.Module,
+    module_fqn: str,
+    config: ModuleOrParamFqnToConfig,
 ):
     c = None
     if module_fqn in config.module_fqn_to_config:
