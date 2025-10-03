@@ -663,16 +663,6 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
-@implements(aten.add.Tensor)
-def _(func, types, args, kwargs):
-    assert len(args) == 2, f"Expected 2 args, got {len(args)}"
-    assert isinstance(args[0], torch.Tensor) and isinstance(args[1], Float8Tensor), (
-        f"Expected args[0]==torch.Tensor and args[1]==Float8Tensor, got {type(args[0]), type(args[1])}"
-    )
-    sum_tensor = args[0] + args[1].dequantize()
-    return return_and_correct_aliasing(func, args, kwargs, sum_tensor)
-
-
 Float8Tensor.__module__ = "torchao.quantization"
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`

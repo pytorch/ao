@@ -546,67 +546,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             weight.unsqueeze(1)  # dim=1 should not be supported
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    @common_utils.parametrize(
-        "sizes",
-        [
-            ((128,), 256, 128),
-            ((32, 128), 64, 256),
-        ],
-    )
-    def test_add_tensor_operation(self, granularity, sizes):
-        """Test aten.add.Tensor operation with Float8Tensor"""
-        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
-        dtype = torch.bfloat16
-        device = "cuda"
-        M, N, K = sizes
-
-        # Create a linear layer and quantize it
-        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
-        quantize_(linear, config)
-
-        weight = linear.weight
-
-        # Test addition of regular tensor + Float8Tensor
-        regular_tensor = torch.randn_like(weight.dequantize())
-        result = regular_tensor + weight
-
-        # The result should be a regular tensor (not Float8Tensor)
-        self.assertFalse(hasattr(result, "qdata"))
-        self.assertFalse(hasattr(result, "scale"))
-
-        # Verify the result shape matches the input shapes
-        self.assertEqual(result.shape, weight.shape)
-        self.assertEqual(result.dtype, dtype)
-        self.assertEqual(result.device, weight.device)
-
-        # Test numerical correctness
-        expected_result = regular_tensor + weight.dequantize()
-
-        # Allow for some numerical difference due to quantization
-        torch.testing.assert_close(result, expected_result, atol=1e-2, rtol=1e-2)
-
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    def test_add_tensor_error_cases(self, granularity):
-        """Test error cases for aten.add.Tensor operation"""
-        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
-        dtype = torch.bfloat16
-        device = "cuda"
-
-        # Create a linear layer and quantize it
-        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
-        quantize_(linear, config)
-
-        weight = linear.weight
-
-        # Test that incorrect argument types raise errors
-        with self.assertRaisesRegex(
-            AssertionError,
-            "Expected args\\[0\\]==torch.Tensor and args\\[1\\]==Float8Tensor",
-        ):
-            # This should fail because the implementation expects (torch.Tensor, Float8Tensor)
-            _ = weight + weight  # This would be (Float8Tensor, Float8Tensor)
-
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize("slice_dim", [0, 1, 2])
     @common_utils.parametrize(
         "tensor_shape",
