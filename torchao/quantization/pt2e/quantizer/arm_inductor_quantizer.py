@@ -45,14 +45,33 @@ from torchao.quantization.pt2e.quantizer.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
+
+def _chain_pregrad_pass(new_pass):
+    """
+    Chain `new_pass` after any existing torch._inductor.config.pre_grad_custom_pass.
+    If none exists or it's already the same callable, return `new_pass` as-is.
+    """
+    prev = getattr(torch._inductor.config, "pre_grad_custom_pass", None)
+    if prev is None or prev is new_pass:
+        return new_pass
+
+    def _chained(graph_module):
+        # Run previous pass first, then ours (order chosen to be conservative).
+        prev(graph_module)
+        new_pass(graph_module)
+
+    return _chained
+
+
+from torchao.utils import torch_version_at_least
 
 from .x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
 
-if TORCH_VERSION_AT_LEAST_2_7:
-    torch._inductor.config.pre_grad_custom_pass = quant_lift_up
+if torch_version_at_least("2.8.0"):
+    torch._inductor.config.pre_grad_custom_pass = _chain_pregrad_pass(quant_lift_up)
     _register_quantization_weight_pack_pass()
 
 FilterFn: TypeAlias = Callable[[List[Node]], bool]
