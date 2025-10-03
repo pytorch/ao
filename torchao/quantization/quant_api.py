@@ -20,6 +20,7 @@ import re
 import types
 import warnings
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -94,6 +95,7 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
+    TorchAOBaseTensor,
     _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
@@ -526,19 +528,18 @@ def quantize_(
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
     filter_fn = _is_linear if filter_fn is None else filter_fn
-    if isinstance(model, nn.Parameter):
-        handler = _QUANTIZE_CONFIG_PARAM_HANDLER[type(config)]
-        return nn.Parameter(handler(model, config))
-    if isinstance(config, ParamFqnToConfig):
+    if isinstance(config, ModuleOrParamFqnToConfig):
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _module_fqn_to_config_handler,
+            filter_fn,
+            device=device,
+            extra_args=(config,),
+        )
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
             _param_fqn_to_config_handler,
-            lambda mod, fqn: any(
-                re.match(pattern, f"{fqn}.{name}")
-                for pattern in config.param_fqn_to_config
-                for name, _ in mod.named_parameters()
-                if "." not in name
-            ),
+            partial(select_module_if_fqn_in_pattern, config=config),
             device=device,
             extra_args=(config,),
         )
@@ -2372,33 +2373,43 @@ def _module_fqn_to_config_handler(
 
 
 @dataclass
-class ParamFqnToConfig(AOBaseConfig):
-    """Per param configurations for torchao quantize_ API
-
-    Args:
-        `param_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of the parameter to the AOBaseConfig that we want to apply to that parameter.
-    """
-
-    param_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(default_factory=dict)
+class ModuleOrParamFqnToConfig(AOBaseConfig):
+    module_or_param_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.quantization.ParamFqnToConfig")
+        torch._C._log_api_usage_once("torchao.quantization.ModuleOrParamFqnToConfig")
+
+    @property
+    def module_fqn_to_config(self):
+        return self.module_or_param_fqn_to_config
 
 
 def _param_fqn_to_config_handler(
-    mod_containing_param: torch.nn.Module, fqn: str, config: ParamFqnToConfig
+    mod_containing_param: torch.nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
 ):
     for name, param in list(mod_containing_param.named_parameters()):
-        # skip if not direct child
-        if "." not in name:
-            for pattern in config.param_fqn_to_config:
-                if re.match(pattern, f"{fqn}.{name}"):
-                    param_config = config.param_fqn_to_config.get(pattern)
-                    assert param_config is not None
-                    setattr(mod_containing_param, name, quantize_(param, param_config))
+        # check to see if top level param
+        if name in dir(mod_containing_param):
+            for pattern, param_config in config.module_or_param_fqn_to_config.items():
+                if pattern == f"{fqn}.{name}" and not isinstance(param, TorchAOBaseTensor):
+                    param_config_type = type(param_config)
+                    if param_config_type in _QUANTIZE_CONFIG_PARAM_HANDLER:
+                        handler = _QUANTIZE_CONFIG_PARAM_HANDLER[param_config_type]
+                        new_param = handler(param, param_config)
+                        setattr(mod_containing_param, name, new_param)
+                    else:
+                        raise NotImplementedError(f"Parameter quantization for {param_config_type} not supported currently!")
 
     return mod_containing_param
+
+
+def select_module_if_fqn_in_pattern(mod, fqn, config):
+    for name, _ in mod.named_parameters():
+        if "." not in name:  # only want attribute parameters
+            if f"{fqn}.{name}" in config.module_or_param_fqn_to_config:
+                return True
 
 
 torch.serialization.add_safe_globals(
