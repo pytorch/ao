@@ -2408,37 +2408,20 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
 
     Args:
         module_or_param_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
-            regex patterns (as strings) to quantization configurations. The patterns are matched against the
-            fully qualified names of modules and parameters. If a pattern matches multiple items, the
-            configuration is applied to all matches. Use None as the config value to skip quantization for
-            matching items.
+            regex patterns (as strings) to quantization configurations.
 
-    Example::
+            The patterns can be one of the follows:
+             (1). fully qualified name (fqn) of module or param
+             (2). regex of fully qualified name (in python `re` module regex format) or
+             (3). "_default"
 
-        import torch.nn as nn
-        from collections import OrderedDict
-        from torchao.quantization.quant_api import ModuleOrParamFqnToConfig, Int4WeightOnlyConfig, Int8WeightOnlyConfig
+    When passed this config, `quantize_` will first try to replace all modules in the model, matching the logic of ModuleFqnToConfig.
+    Then, quantize_ will attempt to replace any parameters specified by the fqn or that match regexs, ignoring modules that have already been transformed by the previous flow (Modules with an existing AOBaseTensor attached)
 
-        # Create a model
-        model = nn.Sequential(
-            nn.Linear(10, 20, bias=True),  # Will be "0.weight" and "0.bias"
-            nn.Linear(20, 5, bias=True),   # Will be "1.weight" and "1.bias"
-        )
-
-        # Configure different quantization for different parameters
-        config = ModuleOrParamFqnToConfig(
-            module_or_param_fqn_to_config=OrderedDict([
-                (r"0\.weight", Int4WeightOnlyConfig()),     # 4-bit for first layer weight
-                (r"re:1\.weight", Int8WeightOnlyConfig()),  # 8-bit for second layer weight, matching using regex
-            ])
-        )
-
-        # Apply quantization
-        quantize_(model, config)
+    "_default" is ignored for parameter replacement.
 
     Note:
         - The order of patterns in the OrderedDict matters as the first matching pattern is applied
-        - Regex patterns allow for flexible matching (e.g., r".*\.weight" matches all weight parameters)
         - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
     """
 
