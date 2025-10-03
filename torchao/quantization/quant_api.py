@@ -2428,6 +2428,10 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         return self.module_or_param_fqn_to_config
 
 
+# maintain BC
+ModuleFqnToConfig = ModuleOrParamFqnToConfig
+
+
 def _param_fqn_to_config_handler(
     mod_containing_param: torch.nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
 ):
@@ -2513,10 +2517,6 @@ def select_module_if_top_level_params_match_pattern(
                 ):
                     return True
     return False
-
-
-# to maintain BC
-ModuleFqnToConfig = ModuleOrParamFqnToConfig
 
 
 def _module_fqn_to_config_handler(
