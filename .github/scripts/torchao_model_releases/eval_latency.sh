@@ -10,7 +10,7 @@ source eval_env_checks.sh
 check_vllm
 
 MODEL_ID_ARRAY=()
-BATCH_SIZE_ARRAY=(1 256)  # default can be overwritten by user input
+BATCH_SIZE_ARRAY=(1)  # default can be overwritten by user input
 INPUT_LEN="256"      # default input length
 OUTPUT_LEN="256"     # default output length
 # Parse arguments

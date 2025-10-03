@@ -736,9 +736,7 @@ def _get_tensor_impl_constructor(
 
 def _get_to_kwargs(self, *args, **kwargs):
     # `torch._C._nn._parse_to` can't handle `layout` argument
-    for arg in args:
-        if isinstance(arg, torch.layout):
-            args.remove(arg)
+    args = tuple(arg for arg in args if not isinstance(arg, torch.layout))
     if "layout" in kwargs:
         kwargs.pop("layout")
     # ignoring `non_blocking` and `memory_format` args since these are not
@@ -1141,7 +1139,7 @@ def is_package_at_least(package_name: str, min_version: str):
     return version(package_name) >= min_version
 
 
-def _is_fbgemm_genai_gpu_available():
+def _is_fbgemm_gpu_genai_available():
     # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
     # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
     if importlib.util.find_spec("fbgemm_gpu") is None:

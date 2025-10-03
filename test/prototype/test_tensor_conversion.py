@@ -34,7 +34,7 @@ from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
     _is_kernel_library_loaded,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import _is_fbgemm_genai_gpu_available
+from torchao.utils import _is_fbgemm_gpu_genai_available
 
 
 class ToyLinearModelWithTiedEmbedding(torch.nn.Module):
@@ -191,7 +191,7 @@ def test_aarch64_conversion(dtype, granularity, bit_width, lead_dim):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA")
 @pytest.mark.skipif(
-    not _is_fbgemm_genai_gpu_available(), reason="Requires fbgemm-gpu-genai >= 1.2.0"
+    not _is_fbgemm_gpu_genai_available(), reason="Requires fbgemm-gpu-genai >= 1.2.0"
 )
 def test_int4_tensor_conversion():
     m = torch.nn.Sequential(
