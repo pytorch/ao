@@ -2399,44 +2399,6 @@ def _fpx_weight_only_transform(
 
 
 @dataclass
-class ModuleFqnToConfig(AOBaseConfig):
-    """Per module configurations for torchao quantize_ API
-
-    Args:
-        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
-         Also has a special key: "_default", if "_default" is present in the dictionary,
-         the config for "_default" will be applied to all the remaining modules that does not have
-         per module configuration specified.
-    """
-
-    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
-    )
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.quantization.ModuleFqnToConfig")
-
-
-def _module_fqn_to_config_handler(
-    module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
-):
-    c = None
-    if module_fqn in config.module_fqn_to_config:
-        # Maybe: we can add module type specific config in the future, in needed
-        c = config.module_fqn_to_config[module_fqn]
-    else:
-        # fallback to use default if no module specific config is provided
-        c = config.module_fqn_to_config.get("_default", None)
-
-    if c is not None:
-        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-        return handler(module, c)
-
-    return module
-
-
-@dataclass
 class ModuleOrParamFqnToConfig(AOBaseConfig):
     """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
@@ -2573,6 +2535,46 @@ def select_module_if_fqn_in_pattern(
                 ):
                     return True
     return False
+
+
+@dataclass
+class ModuleFqnToConfig(AOBaseConfig):
+    """Per module configurations for torchao quantize_ API
+
+    Args:
+        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
+         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
+         Also has a special key: "_default", if "_default" is present in the dictionary,
+         the config for "_default" will be applied to all the remaining modules that does not have
+         per module configuration specified.
+    """
+
+    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.ModuleFqnToConfig")
+
+
+def _module_fqn_to_config_handler(
+    module: torch.nn.Module,
+    module_fqn: str,
+    config: Union[ModuleFqnToConfig, ModuleOrParamFqnToConfig],
+):
+    c = None
+    if module_fqn in config.module_fqn_to_config:
+        # Maybe: we can add module type specific config in the future, in needed
+        c = config.module_fqn_to_config[module_fqn]
+    else:
+        # fallback to use default if no module specific config is provided
+        c = config.module_fqn_to_config.get("_default", None)
+
+    if c is not None:
+        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+        return handler(module, c)
+
+    return module
 
 
 torch.serialization.add_safe_globals(
