@@ -726,7 +726,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int4wo_cuda_serialization(self):
-        config = Int4WeightOnlyConfig(group_size=32)
+        config = Int4WeightOnlyConfig(group_size=32, version=1)
         model = ToyTwoLinearModel(64, 32, 64, device="cuda", dtype=torch.bfloat16)
         # quantize in cuda
         quantize_(model, config)
