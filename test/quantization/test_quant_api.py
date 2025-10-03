@@ -51,6 +51,9 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
+    ModuleOrParamFqnToConfig,
+    PerRow,
+    PerTensor,
     Quantizer,
     TwoStepQuantizer,
     UIntXWeightOnlyConfig,
@@ -806,6 +809,157 @@ class TestQuantFlow(TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
+class TestModuleOrParamFqnToConfig(TestCase):
+    def test_quantize_param_fqn_exact(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+
+        quant_config = ModuleOrParamFqnToConfig(
+            {
+                "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        # Note: Need to import Float8Tensor from the correct location
+        from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+            Float8Tensor,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+
+    def test_quantize_param_and_module_fqn(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        quant_config = ModuleOrParamFqnToConfig(
+            {
+                "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "shared_expert.gate_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+    def test_quantize_param_and_module_fqn_regex(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        quant_config = ModuleOrParamFqnToConfig(
+            {
+                "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "shared_expert.gate_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+            Float8Tensor,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+        assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
+        assert model.shared_expert.gate_proj.weight.scale.numel() == 1
+
+    def test_quantize_modle_param_double_specified(self):
+        model = (
+            torch.nn.Sequential(
+                torch.nn.Linear(128, 128),
+            )
+            .to(torch.bfloat16)
+            .cuda()
+        )
+        quant_config = ModuleOrParamFqnToConfig(
+            {
+                # only this config should be applied, as module fqn takes precedence
+                "0": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+            Float8Tensor,
+        )
+
+        assert isinstance(model[0].weight, Float8Tensor)
+        assert model[0].weight.scale.numel() == 128
+
+    def test_unsupported_param_config_raises_not_implemented_error(self):
+        """Test that using an unsupported parameter config raises NotImplementedError."""
+        from dataclasses import dataclass
+
+        from torchao.core.config import AOBaseConfig
+
+        # Create a custom config that doesn't have a registered parameter handler
+        @dataclass
+        class UnsupportedParamConfig(AOBaseConfig):
+            some_value: int = 42
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = ModuleOrParamFqnToConfig(
+            {
+                "0.weight": UnsupportedParamConfig(),
+            }
+        )
+
+        # This should raise NotImplementedError
+        with self.assertRaises(NotImplementedError) as context:
+            quantize_(model, quant_config)
+
+        # Check that the error message contains the expected text
+        self.assertIn("Parameter quantization for", str(context.exception))
+        self.assertIn("not supported currently", str(context.exception))
+        self.assertIn("UnsupportedParamConfig", str(context.exception))
 
 
 if __name__ == "__main__":
