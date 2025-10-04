@@ -1391,6 +1391,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             Since VLLM does not use dyanmo guards we need to make this a custom op
             to avoid the triton kernel being invoked w/ the wrong use of `MASK_SCALES`
         """
+        # reshape to 2d
+        orig_leading_dims, _orig_M, orig_N = x.shape[:-2], x.shape[-2], x.shape[-1]
+        x = x.reshape(-1, orig_N)
+
         M, N = x.shape
         # assert M % 128 == 0 and N % 64 == 0
         assert N % 16 == 0, "N must be divisible by 16 for NVFP4 quantization"
@@ -1430,6 +1434,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             USE_TENSOR_SCALE=use_tensor_scale,
             MASK_SCALES=MASK_SCALES,
         )
+
+        # reshape back to original shape
+        scales = scales.view(*orig_leading_dims, -1, padded_cols)
+        xq = xq.view(*orig_leading_dims, -1, N // 2)
 
         return scales, xq.view(torch.uint8)
 
