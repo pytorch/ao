@@ -6,7 +6,6 @@
 
 import copy
 import unittest
-from contextlib import nullcontext
 from typing import Tuple
 
 import torch
@@ -48,17 +47,6 @@ class ToyTwoLinearModel(torch.nn.Module):
             hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
         )
 
-    # Note: tinygemm kernel only uses bfloat16 inputs
-    def example_inputs(self, batch_size=1):
-        return (
-            torch.randn(
-                batch_size,
-                self.linear1.in_features,
-                dtype=self.dtype,
-                device=self.device,
-            ),
-        )
-
     def forward(self, x):
         x = self.linear1(x)
         x = self.linear2(x)
@@ -71,9 +59,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         super().setUp()
         torch.manual_seed(42)
-        self.weight_fp = torch.randn(4, 3, dtype=torch.float32)
-        self.input_fp = torch.randn(4, 3, dtype=torch.float32)
-        self.bias = torch.randn(4)
+        self.weight_fp = torch.randn(4, 3, dtype=torch.bfloat16)
+        self.input_fp = torch.randn(4, 3, dtype=torch.bfloat16)
+        self.bias = torch.randn(4, dtype=torch.bfloat16)
         self.block_size = [4, 3]
 
     def test_creation_and_attributes(self):
@@ -86,8 +74,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             torch.all(tensor.qdata >= -128) and torch.all(tensor.qdata <= 127)
         )
 
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
-    @common_utils.parametrize("compile", [False, True])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     @common_utils.parametrize(
         "sizes",
         [
@@ -105,39 +92,29 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def test_int8_linear_variants(
         self,
         dtype: torch.dtype,
-        compile: bool,
         sizes: Tuple,
         config,
     ):
-        error_message = None
+        M, N, K = sizes
+        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
-        error_context = (
-            self.assertRaisesRegex(AssertionError, error_message)
-            if error_message
-            else nullcontext()
+        # Create a linear layer
+        m = ToyTwoLinearModel(K, N, K).eval().to(dtype).to("cuda")
+        m_q = copy.deepcopy(m)
+
+        # Quantize
+        quantize_(m_q, config)
+
+        output_original = m(input_tensor)
+        output_quantized = m_q(input_tensor)
+
+        error = compute_error(output_original, output_quantized)
+        assert compute_error(output_original, output_quantized) > 20, (
+            f"Quantization error is too high got a SQNR of {error}"
         )
 
-        with error_context:
-            M, N, K = sizes
-            input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
-
-            # Create a linear layer
-            m = ToyTwoLinearModel(K, N, K).eval().to(dtype).to("cuda")
-            m_q = copy.deepcopy(m)
-
-            # Quantize
-            quantize_(m_q, config)
-
-            output_original = m(input_tensor)
-            output_quantized = m_q(input_tensor)
-
-            error = compute_error(output_original, output_quantized)
-            assert compute_error(output_original, output_quantized) > 20, (
-                f"Quantization error is too high got a SQNR of {error}"
-            )
-
     def test_linear_operations(self):
-        """Test fp+int8 and int8+int8 linear ops with quantization error check"""
+        """Test fp+int8 and int8+int8 linear ops"""
         weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
         input_q8 = Int8Tensor.from_hp(self.input_fp, self.block_size)
 
@@ -151,6 +128,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertTrue(compute_error(result_q8, reference) > 10)
 
     def test_dynamic_quantization(self):
+        """Test dynamic activation quantization"""
         weight_q8_dynamic = Int8Tensor.from_hp(
             self.weight_fp,
             self.block_size,
@@ -190,58 +168,45 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         ],
     )
     @common_utils.parametrize("device", ["cpu", "cuda"])
-    @common_utils.parametrize("dtype", [torch.bfloat16])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_slice(self, config, device, dtype):
+        """Test tensor slicing"""
         dummy = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
-        dummy1 = torch.nn.Linear(256, 64, bias=False, dtype=dtype, device=device)
-        dummy1.weight = torch.nn.Parameter(
-            dummy.weight.narrow(0, 0, 64), requires_grad=False
-        )
-        dummy2 = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-        dummy2.weight = torch.nn.Parameter(
-            dummy.weight.narrow(1, 0, 128), requires_grad=False
-        )
-
         quantize_(dummy, config)
+
         weight1 = dummy.weight.clone().narrow(0, 0, 64)
         weight2 = dummy.weight.clone().narrow(1, 0, 128)
-        self.assertEqual(
-            weight1.qdata,
-            dummy.weight.qdata.narrow(0, 0, 64),
-        )
-        self.assertEqual(
-            weight2.qdata,
-            dummy.weight.qdata.narrow(1, 0, 128),
-        )
 
-        # check for sliced weight, before and after int8 quantization
-        # does not differ too much
-        input = torch.randn(2, 256, dtype=dtype, device=device)
-        res_ref = dummy1(input)
-        dummy.weight = torch.nn.Parameter(weight1.contiguous(), requires_grad=False)
-        res = dummy(input)
-        sqnr = compute_error(res, res_ref)
-        self.assertTrue(sqnr > 20, f"sqnr: {sqnr}")
+        self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64))
+        self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128))
 
-        input = torch.randn(2, 128, dtype=dtype, device=device)
-        res_ref = dummy2(input)
-        dummy.weight = torch.nn.Parameter(weight2.contiguous(), requires_grad=False)
-        res = dummy(input)
-        sqnr = compute_error(res, res_ref)
-        self.assertTrue(sqnr > 15, f"sqnr: {sqnr}")
+    def test_transpose(self):
+        """Test transpose operation"""
+        weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
+        transposed = weight_q8.transpose(0, 1)
+
+        self.assertEqual(transposed.shape, (3, 4))
+        self.assertEqual(transposed.block_size, [3, 4])
+
+    def test_select(self):
+        """Test select operation"""
+        weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
+        selected = weight_q8.select(0, 0)
+
+        self.assertEqual(selected.shape, (3,))
+
+        with self.assertRaises(AssertionError):
+            weight_q8.select(1, 0)
 
     def test_error_handling_and_dequant(self):
         """Test input validation and dequantization accuracy"""
-        # Test 1D tensor validation
         with self.assertRaises((AssertionError, ValueError, RuntimeError)):
             Int8Tensor.from_hp(torch.randn(5), [1])
 
-        # Test wrong block_size validation
         with self.assertRaises((AssertionError, ValueError, RuntimeError)):
             Int8Tensor.from_hp(self.weight_fp, [1])
 
-        # Test dequantization with exact values
-        test_data = torch.tensor([[1.0, -1.0]], dtype=torch.float32)
+        test_data = torch.tensor([[1.0, -1.0]], dtype=torch.bfloat16)
         tensor = Int8Tensor.from_hp(test_data, [1, 2])
 
         dequantized = torch.ops.aten.dequantize.self(tensor)

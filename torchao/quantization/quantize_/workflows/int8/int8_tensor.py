@@ -35,7 +35,6 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """
 
     block_size: Optional[list[int]] = None
-    kernel_preference: Optional[str] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -108,7 +107,6 @@ class Int8Tensor(TorchAOBaseTensor):
         w: torch.Tensor,
         block_size: list[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        kernel_preference: Optional[str] = None,
     ):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
@@ -215,7 +213,7 @@ def _(func, types, args, kwargs):
         # FP × INT8 (weight-only)
         input_tensor = input_tensor.dequantize()
 
-        result = func(input_tensor, weight_tensor.dequantize(), None)
+        result = func(input_tensor, weight_tensor.dequantize(input_tensor.dtype), None)
 
     return result + bias if bias is not None else result
 
@@ -243,17 +241,70 @@ def _(func, types, args, kwargs):
         aten.slice.Tensor(torch.empty(tensor.shape), dim, start, end, step).shape
     )
 
-    new = Int8Tensor(
-        aten.slice.Tensor(tensor.qdata, dim, start, end, step),
-        sliced_scale,
-        sliced_zero_point,
-        tensor.block_size,
-        sliced_shape,
-        tensor.act_quant_kwargs,
-        tensor.dtype,
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        Int8Tensor(
+            aten.slice.Tensor(tensor.qdata, dim, start, end, step),
+            sliced_scale,
+            sliced_zero_point,
+            tensor.block_size,
+            sliced_shape,
+            tensor.act_quant_kwargs,
+            tensor.dtype,
+        ),
     )
 
-    return return_and_correct_aliasing(func, args, kwargs, new)
+
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    """Dimension transposer for Int8Tensor"""
+    self, dim0, dim1 = args
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        Int8Tensor(
+            self.qdata.transpose(dim0, dim1),
+            self.scale,
+            self.zero_point,
+            [self.block_size[dim1], self.block_size[dim0]],
+            [self._shape[dim1], self._shape[dim0]],
+            self.act_quant_kwargs,
+            self.dtype,
+        ),
+    )
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    """Index selector for Int8Tensor"""
+    self, dim, index = args
+    assert dim == 0, f"Only dim=0 supported, got {dim}"
+
+    # Handle 0-dim scale/zero_point (per-tensor quantization)
+    if self.scale.ndim == 0:
+        selected_scale = self.scale
+        selected_zero_point = self.zero_point
+    else:
+        selected_scale = self.scale[index]
+        selected_zero_point = self.zero_point[index]
+
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        Int8Tensor(
+            self.qdata[index],
+            selected_scale,
+            selected_zero_point,
+            self.block_size,
+            list(self.qdata[index].shape),
+            self.act_quant_kwargs,
+            self.dtype,
+        ),
+    )
 
 
 Int8Tensor.__module__ = "torchao.quantization"

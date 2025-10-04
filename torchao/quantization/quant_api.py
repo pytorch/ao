@@ -769,8 +769,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
-    intx_choose_qparams_algorithm: 
-      = (
+    intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
         IntxChooseQParamsAlgorithm.AFFINE
     )
 
