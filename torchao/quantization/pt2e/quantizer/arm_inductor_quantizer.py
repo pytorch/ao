@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import torch
+
+# Register Inductor fusion passes
+import torch._inductor.config
 import torch.nn.functional as F
 from torch.fx import Node
 from typing_extensions import TypeAlias
@@ -20,10 +23,18 @@ from torchao.quantization.pt2e.fake_quantize import (
     FakeQuantize,
     FusedMovingAvgObsFakeQuantize,
 )
+from torchao.quantization.pt2e.inductor_passes.arm import (
+    _register_quantization_weight_pack_pass,
+)
+from torchao.quantization.pt2e.inductor_passes.x86 import (
+    quant_lift_up,
+)
 from torchao.quantization.pt2e.observer import (
     HistogramObserver,
     MinMaxObserver,
     MovingAverageMinMaxObserver,
+    MovingAveragePerChannelMinMaxObserver,
+    PerChannelMinMaxObserver,
     PlaceholderObserver,
 )
 from torchao.quantization.pt2e.quantizer import (
@@ -35,9 +46,33 @@ from torchao.quantization.pt2e.quantizer.quantizer import (
     QuantizationSpec,
 )
 
+
+def _chain_pregrad_pass(new_pass):
+    """
+    Chain `new_pass` after any existing torch._inductor.config.pre_grad_custom_pass.
+    If none exists or it's already the same callable, return `new_pass` as-is.
+    """
+    prev = getattr(torch._inductor.config, "pre_grad_custom_pass", None)
+    if prev is None or prev is new_pass:
+        return new_pass
+
+    def _chained(graph_module):
+        # Run previous pass first, then ours (order chosen to be conservative).
+        prev(graph_module)
+        new_pass(graph_module)
+
+    return _chained
+
+
+from torchao.utils import torch_version_at_least
+
 from .x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
+
+if torch_version_at_least("2.8.0"):
+    torch._inductor.config.pre_grad_custom_pass = _chain_pregrad_pass(quant_lift_up)
+    _register_quantization_weight_pack_pass()
 
 FilterFn: TypeAlias = Callable[[List[Node]], bool]
 
@@ -166,8 +201,10 @@ def _map_module_function_to_aten_operator_type():
 def get_default_arm_inductor_quantization_config(
     is_qat: bool = False,
     is_dynamic: bool = False,
+    is_per_channel: bool = False,
 ):
     extra_args: Dict[str, Any] = {"eps": 2**-12}
+    _register_quantization_weight_pack_pass(per_channel=is_per_channel)
     if is_qat:
         if is_dynamic:
             act_observer_or_fake_quant_ctr = FakeQuantize
@@ -195,22 +232,42 @@ def get_default_arm_inductor_quantization_config(
     )
 
     weight_observer_or_fake_quant_ctr: _ObserverOrFakeQuantizeConstructor = (
-        FusedMovingAvgObsFakeQuantize if is_qat else MinMaxObserver
+        FusedMovingAvgObsFakeQuantize
+        if is_qat
+        else PerChannelMinMaxObserver
+        if is_per_channel
+        else MinMaxObserver
     )
 
     if is_qat:
-        # Only support per tensor quant for now
-        extra_args["observer"] = MovingAverageMinMaxObserver  # type: ignore[dict-item]
-    weight_quantization_spec = QuantizationSpec(
+        extra_args["observer"] = (
+            MovingAveragePerChannelMinMaxObserver
+            if is_per_channel
+            else MovingAverageMinMaxObserver
+        )  # type: ignore[dict-item]
+
+    weight_quant_dict = dict(
         dtype=torch.int8,
         quant_min=-128,
         quant_max=127,
-        qscheme=torch.per_tensor_symmetric,
         is_dynamic=False,
         observer_or_fake_quant_ctr=weight_observer_or_fake_quant_ctr.with_args(
             **extra_args
         ),
     )
+
+    if is_per_channel:
+        weight_quantization_spec = QuantizationSpec(
+            qscheme=torch.per_channel_symmetric,
+            ch_axis=0,
+            **weight_quant_dict,
+        )
+    else:
+        weight_quantization_spec = QuantizationSpec(
+            qscheme=torch.per_tensor_symmetric,
+            **weight_quant_dict,
+        )
+
     bias_quantization_spec = None  # will use placeholder observer by default
     quantization_config = QuantizationConfig(
         act_quantization_spec,
