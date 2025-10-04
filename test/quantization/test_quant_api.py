@@ -60,10 +60,6 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
 )
-from torchao.quantization.subclass import (
-    Int4WeightOnlyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-)
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
@@ -166,14 +162,6 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
         )
 
     return _ref_change_linear_weights_to_woqtensors
-
-
-_ref_change_linear_weights_to_int8_woqtensors = (
-    _get_ref_change_linear_weights_to_woqtensors(Int8WeightOnlyQuantizedLinearWeight)
-)
-_ref_change_linear_weights_to_int4_woqtensors = (
-    _get_ref_change_linear_weights_to_woqtensors(Int4WeightOnlyQuantizedLinearWeight)
-)
 
 
 class TestQuantFlow(TestCase):
@@ -445,54 +433,6 @@ class TestQuantFlow(TestCase):
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)
-        self.assertTrue(torch.equal(res, ref))
-
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
-    def test_quantized_tensor_subclass_int4(self):
-        for device in self.GPU_DEVICES:
-            # use 1024 so that we don't need padding
-            m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
-            m_copy = copy.deepcopy(m)
-            example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
-
-            group_size = 32
-            if device == "xpu":
-                quantize_(
-                    m,
-                    Int4WeightOnlyConfig(
-                        group_size=group_size, layout=Int4XPULayout(), version=1
-                    ),
-                )
-            else:
-                quantize_(m, Int4WeightOnlyConfig(group_size=group_size, version=1))
-            assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-            assert isinstance(m.linear2.weight, AffineQuantizedTensor)
-
-            # reference
-            _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
-
-            res = m(*example_inputs)
-            ref = m_copy(*example_inputs)
-
-            self.assertTrue(torch.equal(res, ref))
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_quantized_tensor_subclass_int8_wo(self):
-        m = ToyLinearModel().eval().to(torch.bfloat16)
-        m_copy = copy.deepcopy(m)
-        example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
-
-        quantize_(m, Int8WeightOnlyConfig())
-
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, AffineQuantizedTensor)
-
-        # reference
-        _ref_change_linear_weights_to_int8_woqtensors(m_copy)
-
-        res = m(*example_inputs)
-        ref = m_copy(*example_inputs)
-
         self.assertTrue(torch.equal(res, ref))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
