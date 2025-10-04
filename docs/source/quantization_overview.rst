@@ -5,7 +5,7 @@ First we want to lay out the torchao stack::
 
   Quantization Algorithms/Flows: weight only/dynamic/static quantization, hqq, awq, gptq etc.
   ---------------------------------------------------------------------------------------------
-      Quantized Tensors (derived dtypes): Int4Tensor, Int4PreshuffledTensor, Float8Tensor
+      Quantized Tensors (derived dtypes): Int4Tensor, Int4PreshuffledTensor, Int8Tensor, Float8Tensor
   ---------------------------------------------------------------------------------------------
     Quantization Primitive Ops/Efficient Kernels: matmul, quantize, dequantize
   ---------------------------------------------------------------------------------------------
@@ -88,6 +88,8 @@ So in general we structure Tensor subclasses by dervied dtpype and packing forma
      - scaled int4
      - preshuffled (special format to optimize for loading)
      - float8 act + int4 weight dynamic quantization and int4 weight only quantization
+   * - Int8Tensor
+     - plain
 
 .. note::
    We don't have granularity specific tensor subclasses, i.e. no Float8RowwiseTensor or Float8BlockwiseTensor, all granularities are implemented in the same Tensor, we typically use a general `block_size` attribute to distinguish between different granularities, and each Tensor is allowed to support only a subset of all possible granularity options.
