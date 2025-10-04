@@ -44,7 +44,6 @@ class Int8Tensor(TorchAOBaseTensor):
     Tensor Attributes:
         qdata: (N, K) int8 quantized weight data
         scale: scale factors for dequantization
-        zero_point: zero points for dequantization
 
     Non-Tensor Attributes:
         block_size: block size for quantization granularity
@@ -52,7 +51,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: flags for static/dynamic activation quantization
     """
 
-    tensor_data_names = ["qdata", "scale", "zero_point"]
+    tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = ["block_size", "_shape"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
@@ -63,7 +62,6 @@ class Int8Tensor(TorchAOBaseTensor):
         cls,
         qdata,
         scale,
-        zero_point,
         block_size,
         shape,
         act_quant_kwargs=None,
@@ -80,7 +78,6 @@ class Int8Tensor(TorchAOBaseTensor):
         self,
         qdata,
         scale,
-        zero_point,
         block_size,
         shape,
         act_quant_kwargs=None,
@@ -89,7 +86,6 @@ class Int8Tensor(TorchAOBaseTensor):
         super().__init__()
         self.qdata = qdata
         self.scale = scale
-        self.zero_point = zero_point
         self.block_size = block_size
         self._shape = shape
         self.act_quant_kwargs = act_quant_kwargs
@@ -97,8 +93,7 @@ class Int8Tensor(TorchAOBaseTensor):
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.zero_point=}, {self.block_size=}, "
-            f"{self.shape=}, {self.device=}, {self.dtype=})"
+            f"{self.block_size=}, {self.shape=}, {self.device=}, {self.dtype=})"
         )
 
     @classmethod
@@ -133,7 +128,6 @@ class Int8Tensor(TorchAOBaseTensor):
         return cls(
             int_data,
             scale,
-            zero_point,
             block_size,
             w.shape,
             act_quant_kwargs=act_quant_kwargs,
@@ -146,15 +140,12 @@ class Int8Tensor(TorchAOBaseTensor):
 
         qdata_fp = self.qdata.to(dtype)
         scale = self.scale.to(dtype)
-        zero_point = self.zero_point.to(dtype)
 
-        # Reshape 1D scale/zero_point to [N, 1] for broadcasting with [N, K] qdata
+        # Reshape 1D scale to [N, 1] for broadcasting with [N, K] qdata
         if scale.ndim == 1:
             scale = scale.unsqueeze(1)
-        if zero_point.ndim == 1:
-            zero_point = zero_point.unsqueeze(1)
 
-        return (qdata_fp - zero_point) * scale
+        return (qdata_fp) * scale
 
 
 implements = Int8Tensor.implements
@@ -229,13 +220,9 @@ def _(func, types, args, kwargs):
         args[4] if len(args) > 4 else 1,
     )
 
-    # Slice scale and zero_point along dimension 0 if slicing rows
     sliced_scale = tensor.scale
-    sliced_zero_point = tensor.zero_point
-
     if dim == 0 and tensor.scale.ndim >= 1:
         sliced_scale = aten.slice.Tensor(tensor.scale, 0, start, end, step)
-        sliced_zero_point = aten.slice.Tensor(tensor.zero_point, 0, start, end, step)
 
     sliced_shape = list(
         aten.slice.Tensor(torch.empty(tensor.shape), dim, start, end, step).shape
@@ -248,7 +235,6 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             aten.slice.Tensor(tensor.qdata, dim, start, end, step),
             sliced_scale,
-            sliced_zero_point,
             tensor.block_size,
             sliced_shape,
             tensor.act_quant_kwargs,
@@ -259,7 +245,6 @@ def _(func, types, args, kwargs):
 
 @implements(aten.transpose.int)
 def _(func, types, args, kwargs):
-    """Dimension transposer for Int8Tensor"""
     self, dim0, dim1 = args
     return return_and_correct_aliasing(
         func,
@@ -268,7 +253,6 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             self.qdata.transpose(dim0, dim1),
             self.scale,
-            self.zero_point,
             [self.block_size[dim1], self.block_size[dim0]],
             [self._shape[dim1], self._shape[dim0]],
             self.act_quant_kwargs,
@@ -279,17 +263,10 @@ def _(func, types, args, kwargs):
 
 @implements(aten.select.int)
 def _(func, types, args, kwargs):
-    """Index selector for Int8Tensor"""
     self, dim, index = args
     assert dim == 0, f"Only dim=0 supported, got {dim}"
 
-    # Handle 0-dim scale/zero_point (per-tensor quantization)
-    if self.scale.ndim == 0:
-        selected_scale = self.scale
-        selected_zero_point = self.zero_point
-    else:
-        selected_scale = self.scale[index]
-        selected_zero_point = self.zero_point[index]
+    selected_scale = self.scale if self.scale.ndim == 0 else self.scale[index]
 
     return return_and_correct_aliasing(
         func,
@@ -298,7 +275,6 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             self.qdata[index],
             selected_scale,
-            selected_zero_point,
             self.block_size,
             list(self.qdata[index].shape),
             self.act_quant_kwargs,
