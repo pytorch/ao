@@ -24,6 +24,7 @@ from .int8.int8_tensor import (
     Int8Tensor,
     QuantizeTensorToInt8Kwargs,
 )
+from .intx.intx_choose_qparams_algorithm import IntxChooseQParamsAlgorithm
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "Int4OpaqueTensor",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
+    "IntxChooseQParamsAlgorithm",
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
     "IntxOpaqueTensor",

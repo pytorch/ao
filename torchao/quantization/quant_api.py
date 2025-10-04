@@ -79,6 +79,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4Tensor,
     Int4TilePackedTo4dTensor,
     Int8Tensor,
+    IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
@@ -749,6 +750,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
             - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
             - opaque_torchao_auto: this format is optimized for CPU performance.
+        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
         Note:
@@ -767,6 +769,10 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_choose_qparams_algorithm: 
+      = (
+        IntxChooseQParamsAlgorithm.AFFINE
+    )
 
     version: int = 2
 
@@ -831,6 +837,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
     act_mapping_type = config.act_mapping_type
     layout = config.layout
     intx_packing_format = config.intx_packing_format
+    intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
     assert weight.dim() == 2, (
         f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -869,6 +876,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
             weight_dtype,
             mapping_type=weight_mapping_type,
             activation_quantization="int8_asym_per_token",
+            intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
             custom_scale=custom_scale,
             custom_zero_point=custom_zero_point,
         )
@@ -890,6 +898,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
 
     # Version 1
     assert config.version == 1
+    assert intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
+        "IntxChooseQParamsAlgorithm.AFFINE is the only supported algorithm for version 1"
+    )
     warnings.warn(
         "Config Deprecation: version 1 of Int8DynamicActivationIntxWeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
     )
@@ -2194,6 +2205,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
             - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,
                 and is intended for export applications like ExecuTorch.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
         Note:
@@ -2210,6 +2222,9 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
+        IntxChooseQParamsAlgorithm.AFFINE
+    )
     version: int = 2
 
     def __post_init__(self):
@@ -2227,8 +2242,9 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         assert self.mapping_type in [
             MappingType.ASYMMETRIC,
             MappingType.SYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         ], (
-            f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
+            f"mapping_type must be MappingType.ASYMMETRIC, MappingType.SYMMETRIC, or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.mapping_type}"
         )
 
 
@@ -2245,6 +2261,7 @@ def _intx_weight_only_quantize_tensor(
     scale_dtype = config.scale_dtype
     layout = config.layout
     intx_packing_format = config.intx_packing_format
+    intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
     assert weight.dim() == 2, (
         f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -2272,6 +2289,7 @@ def _intx_weight_only_quantize_tensor(
                 mapping_type=mapping_type,
                 custom_scale=custom_scale,
                 custom_zero_point=custom_zero_point,
+                intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
             )
             if scale_dtype is not None and scale_dtype != weight.dtype:
                 _adjust_scale_dtype_in_intx_unpacked_tensor(
@@ -2283,6 +2301,9 @@ def _intx_weight_only_quantize_tensor(
             raise ValueError(f"Unsupported packing format: {intx_packing_format}")
 
     # Version 1
+    assert config.intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
+        "version 1 only supports affine algorithm"
+    )
     assert config.version == 1
     warnings.warn(
         "Config Deprecation: version 1 of IntxWeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"

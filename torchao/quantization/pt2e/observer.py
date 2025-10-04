@@ -27,7 +27,15 @@ import torch.nn as nn
 from torch.fx import Node
 
 import torchao
-from torchao.quantization import Granularity
+from torchao.quantization import (
+    Granularity,
+    PerAxis,
+    PerBlock,
+    PerGroup,
+    PerRow,
+    PerTensor,
+    PerToken,
+)
 from torchao.quantization.pt2e.utils import (
     calculate_qmin_qmax,
     check_min_max_valid,
@@ -35,6 +43,7 @@ from torchao.quantization.pt2e.utils import (
     is_per_tensor,
     validate_qmin_qmax,
 )
+from torchao.quantization.utils import get_block_size
 
 __all__ = [
     "default_affine_fixed_qparams_observer",
@@ -68,9 +77,17 @@ __all__ = [
     "ReuseInputObserver",
     "UniformQuantizationObserverBase",
     "AffineQuantizedObserverBase",
+    "Granularity",
     "MappingType",
+    "PerAxis",
+    "PerBlock",
+    "PerGroup",
+    "PerRow",
+    "PerTensor",
+    "PerToken",
     "TorchAODType",
     "ZeroPointDomain",
+    "get_block_size",
 ]
 
 

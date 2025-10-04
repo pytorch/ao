@@ -56,6 +56,7 @@ class QuantOptimizer(Optimizer):
         quant_per_channel: bool = False,
         quant_shrink: bool = False,
         anneal_wd_frac: float = 0.0,
+        group_quantizer_map: Optional[dict[int, Quantizer]] = None,
     ) -> None:
         if not 0 <= anneal_wd_frac <= 1:
             raise ValueError(f"Invalid {anneal_wd_frac=} outside range [0.0, 1.0]")
@@ -63,6 +64,7 @@ class QuantOptimizer(Optimizer):
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
         self.quantizer = quantizer
+        self.group_quantizer_map = group_quantizer_map
         self.prox_map = prox_map
 
         # need to store these attributes in state_dict for checkpoint
@@ -153,7 +155,17 @@ class QuantOptimizer(Optimizer):
         for param_set in self._param_sets():
             yield partial(_filter_fn, param_set=param_set)
 
-    def torchao_convert(self, model: nn.Module, weight_only: bool = False) -> None:
+    def _get_quantizer(self, group_idx: int) -> Optional[Quantizer]:
+        if self.group_quantizer_map and group_idx in self.group_quantizer_map:
+            return self.group_quantizer_map[group_idx]
+        return self.quantizer
+
+    def torchao_convert(
+        self,
+        model: nn.Module,
+        weight_only: bool = False,
+        embed_weight_only: bool = False,
+    ) -> None:
         """Converts model parameters to torchao quantized tensor subclasses."""
         model.eval()
         self.restore_latent_params()
@@ -161,11 +173,20 @@ class QuantOptimizer(Optimizer):
         # TODO(lvj): find more robust way to identify embedding layers
         embed_data_ptrs = set()
         linear_data_ptrs = set()
+        embed_modules = []
         for module in model.modules():
             if isinstance(module, nn.Embedding):
+                embed_modules.append(module)
                 embed_data_ptrs.add(module.weight.data_ptr())
             elif _is_linear(module) and module.weight.data_ptr() not in embed_data_ptrs:
                 linear_data_ptrs.add(module.weight.data_ptr())
+
+        tied_embeddings = False
+        if not embed_weight_only and getattr(model, "_tied_weights_keys", None):
+            # Workaround for dynamic activations on tied embeddings
+            tied_embeddings = True
+            for module in embed_modules:
+                setattr(module, "bias", None)
 
         filter_fns = []
         configs = []
@@ -175,7 +196,7 @@ class QuantOptimizer(Optimizer):
             zip(self.regularized_param_groups(), self.get_filter_fns(model))
         ):
             filter_fns.append(filter_fn)
-            quantizer = group.get("quantizer", self.quantizer)
+            quantizer = self._get_quantizer(i)
             if not isinstance(quantizer, UnifTorchaoQuantizer) or not group["params"]:
                 configs.append(None)
                 continue
@@ -187,7 +208,7 @@ class QuantOptimizer(Optimizer):
             any_embed = any(p.data_ptr() in embed_data_ptrs for p in group["params"])
             config = _get_config_from_quantizer(
                 quantizer,
-                weight_only or any_embed,
+                weight_only or (any_embed and not tied_embeddings),
                 device,
                 group["quant_bits"],
                 group.get("quant_block_size"),
@@ -255,10 +276,9 @@ class QuantOptimizer(Optimizer):
         else:
             quant_update = False
 
-        for group in self.regularized_param_groups():
+        for i, group in enumerate(self.regularized_param_groups()):
             # Override quantizer if specified in the group
-            quantizer = group.get("quantizer", self.quantizer)
-            assert isinstance(quantizer, Quantizer), f"Invalid {quantizer=}"
+            quantizer = self._get_quantizer(i)
 
             # AProx in practice: ensure shrinkage coefficient >= 1
             group["cumu_lr"] += group["lr"]

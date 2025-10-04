@@ -14,7 +14,7 @@ from torchao.quantization import (
     Int4Tensor,
     IntxUnpackedToInt8Tensor,
 )
-from torchao.utils import TorchAOBaseTensor, _is_fbgemm_genai_gpu_available
+from torchao.utils import TorchAOBaseTensor, _is_fbgemm_gpu_genai_available
 
 
 def _convert_linear_weight_to_int8_lut_tensor(module):
@@ -124,9 +124,16 @@ def _find_tied_params(model):
 
 
 def _convert_model_for_aarch64(
-    model, *, tensor_type="auto", intx_packing_format="opaque_torchao_auto"
+    model,
+    *,
+    tensor_type="auto",
+    intx_packing_format="opaque_torchao_auto",
+    convert_tied_embedding=True,
+    convert_linear=True,
 ):
-    module_name_to_tied_param = _find_tied_params(model)
+    module_name_to_tied_param = (
+        _find_tied_params(model) if convert_tied_embedding else {}
+    )
 
     # Iterate through modules in model and convert IntxUnpackedToInt8Tensor tensors to Int8LutTensor
     for name, module in model.named_modules():
@@ -138,7 +145,7 @@ def _convert_model_for_aarch64(
             print("Skipping converting nn.Embedding {name} because it is not tied")
             continue
 
-        if not isinstance(module, nn.Linear):
+        if not (convert_linear and isinstance(module, nn.Linear)):
             continue
 
         weight = module.weight
@@ -179,7 +186,7 @@ def convert_to_packed_tensor_based_on_current_hardware(tensor: TorchAOBaseTensor
     if (
         isinstance(tensor, Int4Tensor)
         and is_device("cuda", tensor.device)
-        and _is_fbgemm_genai_gpu_available()
+        and _is_fbgemm_gpu_genai_available()
     ):
         return Int4PreshuffledTensor.from_int4_tensor(tensor)
     return tensor

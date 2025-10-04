@@ -21,6 +21,7 @@ from .GPTQ import (
 from .granularity import (
     Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -203,6 +204,7 @@ __all__ = [
     "Granularity",
     "PerTensor",
     "PerAxis",
+    "PerBlock",
     "PerGroup",
     "PerRow",
     "PerToken",

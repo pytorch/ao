@@ -32,6 +32,7 @@ from torchao.utils import (
 from .granularity import (
     Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -693,7 +694,6 @@ def get_block_size(
     input_shape: Tuple[int, ...], granularity: Granularity
 ) -> Tuple[int, ...]:
     """Get the block size based on the input shape and granularity type.
-
     Args:
         input_shape: The input tensor shape possibly more than 2 dimensions
         granularity: The granularity type of the quantization
@@ -704,11 +704,21 @@ def get_block_size(
         block_size = list(input_shape)
         block_size[granularity.axis] = 1
         return tuple(block_size)
+    elif isinstance(granularity, PerBlock):
+        block_size = granularity.block_size
+        assert len(block_size) == len(input_shape), (
+            f"Block size {block_size} must have the same number of dimensions as input shape {input_shape}"
+        )
+        for i in range(len(block_size)):
+            assert input_shape[i] % block_size[i] == 0, (
+                f"Not all shapes in input shape {input_shape} are divisible by block size {block_size}"
+            )
+        return block_size
     elif isinstance(granularity, (PerRow, PerToken)):
         return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
     elif isinstance(granularity, PerGroup):
         assert input_shape[-1] % granularity.group_size == 0, (
-            f"Group size {granularity.group_size} does not divide input shape {input_shape}"
+            f"Last dimension of input {input_shape[-1]} is not divisible by group size {granularity.group_size}"
         )
         return (1,) * (len(input_shape) - 1) + (granularity.group_size,)
     raise ValueError(f"Unsupported Granularity: {granularity}")
