@@ -20,6 +20,7 @@ from .int4.int4_tensor import (
     Int4Tensor,
 )
 from .int4.int4_tile_packed_to_4d_tensor import Int4TilePackedTo4dTensor
+from .intx.intx_choose_qparams_algorithm import IntxChooseQParamsAlgorithm
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "Int4OpaqueTensor",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
+    "IntxChooseQParamsAlgorithm",
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
     "IntxOpaqueTensor",
