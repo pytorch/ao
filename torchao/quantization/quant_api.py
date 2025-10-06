@@ -54,6 +54,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype, e5m2_dtype
+from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
@@ -1660,6 +1661,15 @@ def _float8_weight_only_transform(
         "applying int8 weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
+    # If model we're quantizing for inference was trained with torchao float8 training
+    # and checkpointed with the Float8Linears, we need to convert them back to
+    # regular nn.Linears so we can apply inference quantization techniques to them.
+    if isinstance(module, Float8Linear):
+        with torch.device("meta"):
+            new_module = nn.Linear(module.in_features, module.out_features)
+        new_module.weight = module.weight
+        new_module.bias = module.bias
+        module = new_module
     new_weight = _float8_weight_only_quant_tensor(module.weight, config)
 
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
