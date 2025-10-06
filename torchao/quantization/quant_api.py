@@ -21,18 +21,8 @@ import types
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import partial
-from typing import (
-    Any,
-    Callable,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
-from typing import (
-    OrderedDict as OrderedDictType,
-)
+from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import OrderedDict as OrderedDictType
 
 import torch
 import torch.nn as nn
@@ -2401,9 +2391,21 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
             regex patterns (as strings) to quantization configurations.
 
             The patterns can be one of the follows:
-             (1). fully qualified name (fqn) of module or param
-             (2). regex of fully qualified name (in python `re` module regex format) or
+             (1). fully qualified name (fqn) of module or
+             (2). regex of fully qualified name (in python `re` module regex format), should
+                  start with prefix "re:" or
              (3). "_default"
+
+    Config key ordered by precedence:
+    * fully qualified module name, e.g. `language.layers.0.q_proj`
+    * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+        whiever regex fully matches the module fqn first will be applied
+        (order of keys for dictionary are kept consistent since we are using OrderedDict)
+    * "_default", fallback for **all modules** if no match for all previous keys
+        (Note, when using `_default`, the config is applied to all modules, to apply
+        it to only a subset of modules, e.g. with some types, it's better to filter
+        the modules that we don't want to quantize before hand and configure them to
+        None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
 
     When passed this config, `quantize_` will first try to replace all modules in the model, matching the logic of ModuleFqnToConfig.
     Then, quantize_ will attempt to replace any parameters specified by the fqn or that match regexs, ignoring modules that have already been transformed by the previous flow (Modules with an existing AOBaseTensor attached)
@@ -2415,7 +2417,7 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
     """
 
-    module_or_param_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+    module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
 
@@ -2529,8 +2531,16 @@ def _module_fqn_to_config_handler(
         # Maybe: we can add module type specific config in the future, in needed
         c = config.module_fqn_to_config[module_fqn]
     else:
-        # fallback to use default if no module specific config is provided
-        c = config.module_fqn_to_config.get("_default", None)
+        for maybe_module_fqn_pattern in config.module_fqn_to_config:
+            if not maybe_module_fqn_pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
+                # we'll apply the config for first fully matched pattern
+                c = config.module_fqn_to_config[maybe_module_fqn_pattern]
+                break
+        else:
+            # fallback to use default if no module specific config is provided
+            c = config.module_fqn_to_config.get("_default", None)
 
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
