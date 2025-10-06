@@ -634,6 +634,25 @@ def nvfp4_view_op(func, types, args, kwargs):
     )
 
 
+@implements([aten.select.int])
+def nvfp4_select(func, types, args, kwargs):
+    old, dim, index = args
+    assert dim == 0, f"NVFP4Tensor aten.select.int with {dim=} is not yet supported"
+    assert len(old.qdata.shape) == len(old._scale_e4m3.shape), "unsupported"
+    new = old.__class__(
+        old.qdata[index],
+        old._scale_e4m3[index],
+        old._block_size,
+        old._orig_dtype,
+        old._per_tensor_scale,
+        old._act_per_tensor_scale,
+        old._is_swizzled_scales,
+        old.use_triton_kernel,
+        old.act_quant_kwargs,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
 def _addmm_nvfp4_dispatch(
     a: NVFP4Tensor, b: NVFP4Tensor, aten_op, bias: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
