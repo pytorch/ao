@@ -446,10 +446,13 @@
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">types</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">OrderedDict</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">OrderedDict</span> <span class="k">as</span> <span class="n">OrderedDictType</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -2816,15 +2819,28 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Per module configurations for torchao quantize_ API</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from</span>
-<span class="sd">         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.</span>
-<span class="sd">         Also has a special key: &quot;_default&quot;, if &quot;_default&quot; is present in the dictionary,</span>
-<span class="sd">         the config for &quot;_default&quot; will be applied to all the remaining modules that does not have</span>
-<span class="sd">         per module configuration specified.</span>
+<span class="sd">        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an</span>
+<span class="sd">         ordered dictionary from</span>
+<span class="sd">             (1). fully qualified name (fqn) of module or</span>
+<span class="sd">             (2). regex of fully qualified name (in python `re` module regex format), should</span>
+<span class="sd">                  start with prefix &quot;re:&quot; or</span>
+<span class="sd">             (3). &quot;_default&quot;</span>
+<span class="sd">         to the config that we want to apply to the module or None</span>
+
+<span class="sd">         Config key ordered by precedence:</span>
+<span class="sd">           * fully qualified module name, e.g. `language.layers.0.q_proj`</span>
+<span class="sd">           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,</span>
+<span class="sd">             whiever regex fully matches the module fqn first will be applied</span>
+<span class="sd">             (order of keys for dictionary are kept consistent since we are using OrderedDict)</span>
+<span class="sd">           * &quot;_default&quot;, fallback for **all modules** if no match for all previous keys</span>
+<span class="sd">             (Note, when using `_default`, the config is applied to all modules, to apply</span>
+<span class="sd">              it to only a subset of modules, e.g. with some types, it&#39;s better to filter</span>
+<span class="sd">              the modules that we don&#39;t want to quantize before hand and configure them to</span>
+<span class="sd">              None, e.g. `{&quot;re:.+norm.+&quot;: None, &quot;_default&quot;: linear_config}`)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">module_fqn_to_config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
-        <span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span>
+    <span class="n">module_fqn_to_config</span><span class="p">:</span> <span class="n">OrderedDictType</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="n">OrderedDict</span>
     <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -2839,8 +2855,16 @@
         <span class="c1"># Maybe: we can add module type specific config in the future, in needed</span>
         <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">[</span><span class="n">module_fqn</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="c1"># fallback to use default if no module specific config is provided</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">maybe_module_fqn_pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">maybe_module_fqn_pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">):</span>
+                <span class="k">continue</span>
+            <span class="k">elif</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">maybe_module_fqn_pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">module_fqn</span><span class="p">):</span>
+                <span class="c1"># we&#39;ll apply the config for first fully matched pattern</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">[</span><span class="n">maybe_module_fqn_pattern</span><span class="p">]</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># fallback to use default if no module specific config is provided</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
