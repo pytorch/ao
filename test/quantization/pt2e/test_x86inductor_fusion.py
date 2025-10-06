@@ -2465,6 +2465,8 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
         mod = M().eval()
         v = torch.randn((2, 3, 8, 8), dtype=torch.float32, requires_grad=False).add(1)
+        # Mark the batch dimension (dimension 0) as dynamic for proper dynamic shape testing
+        torch._dynamo.mark_dynamic(v, 0)
         if include_ops is None:
             include_ops = [
                 "torch.ops.onednn.qconv_pointwise",
