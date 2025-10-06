@@ -2387,8 +2387,14 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
     in addition to module-level configurations. It allows for fine-grained control over quantization by
     specifying configurations for individual parameters or modules using regex pattern matching on their FQNs.
 
+    When passed this config, `quantize_` will first try to replace all modules in the model, matching the logic of ModuleFqnToConfig.
+    Then, quantize_ will attempt to replace any parameters specified by the fqn or that match regexs, ignoring modules that have already been transformed by the previous flow (Modules with an existing AOBaseTensor attached)
+
+    "_default" is ignored for parameter replacement.
+
+
     Args:
-        module_or_param_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
+        module_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
             regex patterns (as strings) to quantization configurations.
 
             The patterns can be one of the follows:
@@ -2408,17 +2414,12 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         the modules that we don't want to quantize before hand and configure them to
         None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
 
-    When passed this config, `quantize_` will first try to replace all modules in the model, matching the logic of ModuleFqnToConfig.
-    Then, quantize_ will attempt to replace any parameters specified by the fqn or that match regexs, ignoring modules that have already been transformed by the previous flow (Modules with an existing AOBaseTensor attached)
-
-    "_default" is ignored for parameter replacement.
-
     Note:
         - The order of patterns in the OrderedDict matters as the first matching pattern is applied
         - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
     """
 
-    module_or_param_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+    module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
 
@@ -2426,9 +2427,9 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.ModuleOrParamFqnToConfig")
 
     @property
-    def module_fqn_to_config(self):
+    def module_or_param_fqn_to_config(self):
         """Compatibility property to maintain interface consistency with ModuleFqnToConfig."""
-        return self.module_or_param_fqn_to_config
+        return self.module_fqn_to_config
 
 
 # maintain BC
