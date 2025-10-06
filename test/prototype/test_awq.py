@@ -16,7 +16,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.utils import _is_fbgemm_genai_gpu_available, torch_version_at_least
+from torchao.utils import _is_fbgemm_gpu_genai_available, torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -46,7 +46,7 @@ class ToyLinearModel(torch.nn.Module):
 devices = ["cpu"]
 if (
     torch.cuda.is_available()
-    and _is_fbgemm_genai_gpu_available()
+    and _is_fbgemm_gpu_genai_available()
     and torch_version_at_least("2.6.0")
 ):
     devices.append("cuda")
