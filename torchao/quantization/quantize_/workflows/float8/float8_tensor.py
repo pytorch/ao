@@ -36,7 +36,7 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     fill_defaults,
     is_sm_at_least_90,
 )
@@ -171,7 +171,7 @@ class Float8Tensor(TorchAOBaseTensor):
         kernel_choice = None
         if (
             kernel_preference == KernelPreference.AUTO
-            and _is_fbgemm_genai_gpu_available()
+            and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
             and float8_dtype == torch.float8_e4m3fn
@@ -182,7 +182,7 @@ class Float8Tensor(TorchAOBaseTensor):
             kernel_choice = "fbgemm"
         elif kernel_preference == KernelPreference.FBGEMM:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
-            assert _is_fbgemm_genai_gpu_available() and is_sm_at_least_90(), (
+            assert _is_fbgemm_gpu_genai_available() and is_sm_at_least_90(), (
                 "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
             )
             assert hp_value_lb is None, (
@@ -270,7 +270,7 @@ def _(func, types, args, kwargs):
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
-            if _is_fbgemm_genai_gpu_available() and is_sm_at_least_90():
+            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
                 kernel_choice = "fbgemm"
         elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
             kernel_choice = "fbgemm"
@@ -281,7 +281,7 @@ def _(func, types, args, kwargs):
             kernel_choice = "torch"
 
         if kernel_choice == "fbgemm":
-            assert _is_fbgemm_genai_gpu_available(), (
+            assert _is_fbgemm_gpu_genai_available(), (
                 "Expected fbgemm_gpu_genai package to be installed"
             )
             assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
@@ -371,7 +371,7 @@ def _(func, types, args, kwargs):
 
     kernel_preference = weight_tensor.kernel_preference
     assert kernel_preference != KernelPreference.TORCH, "bmm is not supported for TORCH"
-    assert _is_fbgemm_genai_gpu_available(), (
+    assert _is_fbgemm_gpu_genai_available(), (
         "bmm is not supported when fbgemm_gpu_genai is not installed"
     )
 

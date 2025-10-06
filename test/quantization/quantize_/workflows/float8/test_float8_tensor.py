@@ -27,7 +27,7 @@ from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -105,7 +105,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             )
 
         if kernel_preference == KernelPreference.FBGEMM and (
-            (not _is_fbgemm_genai_gpu_available()) or (not is_sm_at_least_90())
+            (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_90())
         ):
             return unittest.skip(
                 "Requires fbgemm_gpu_genai to run fbgemm kernel preference test"
@@ -247,7 +247,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             KernelPreference.AUTO,
         ]
         if (
-            _is_fbgemm_genai_gpu_available()
+            _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and not isinstance(granularity, PerTensor)
         ):
