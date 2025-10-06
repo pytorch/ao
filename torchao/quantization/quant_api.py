@@ -2475,7 +2475,7 @@ def _param_fqn_to_config_handler(
         for pattern, param_config in config.module_or_param_fqn_to_config.items():
             full_param_fqn = f"{fqn}.{name}"
             if (pattern == full_param_fqn) or (
-                pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
+                pattern.startswith("re:") and re.fullmatch(pattern[3:], f"{fqn}.{name}")
             ):
                 param_config_type = type(param_config)
                 if param_config_type in _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER:
@@ -2515,7 +2515,7 @@ def select_module_if_top_level_params_match_pattern(
             for pattern in config.module_or_param_fqn_to_config:
                 full_param_fqn = f"{fqn}.{name}"
                 if (pattern == full_param_fqn) or (
-                    pattern[:3] == "re:" and re.search(pattern[3:], f"{fqn}.{name}")
+                    pattern.startswith("re:") and re.fullmatch(pattern[3:], f"{fqn}.{name}")
                 ):
                     return True
     return False
@@ -2527,7 +2527,7 @@ def _module_fqn_to_config_handler(
     config: ModuleOrParamFqnToConfig,
 ):
     c = None
-    if module_fqn in config.module_fqn_to_config:
+    if module_fqn in config.module_fqn_to_config and not maybe_module_fqn_pattern.startswith("re:"):
         # Maybe: we can add module type specific config in the future, in needed
         c = config.module_fqn_to_config[module_fqn]
     else:
