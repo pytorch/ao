@@ -150,6 +150,14 @@ class PT2ENumericDebuggerTestCase(TestCase):
         def _assert_node_has_from_node_source(node):
             if node.op == "placeholder" or node.op == "output":
                 return
+
+            # Skip guard nodes that don't have from_node metadata in newer PyTorch versions
+            # These are internal nodes created by export_for_training and are not part of the original user graph
+            if node.target and (
+                str(node.target).startswith("_guards") or "_guard" in str(node.target)
+            ):
+                return
+
             self.assertIn(
                 FROM_NODE_KEY,
                 node.meta,

@@ -118,10 +118,14 @@ def _extract_node_source_debug_info(node: Node) -> Optional[NodeSourceDebugInfo]
         return node_source
 
     def _is_node_in_original_graph(node: Node) -> bool:
+        # Handle guard nodes that don't have from_node metadata in newer PyTorch versions
+        if FROM_NODE_KEY not in node.meta or node.meta[FROM_NODE_KEY] is None:
+            # Guard nodes (like _guards_fn) created by newer PyTorch versions might not have from_node metadata
+            # Skip these nodes as they are not part of the original user graph
+            return False
+
         if (
-            FROM_NODE_KEY not in node.meta
-            or node.meta[FROM_NODE_KEY] is None
-            or node.meta[FROM_NODE_KEY][-1].pass_name
+            node.meta[FROM_NODE_KEY][-1].pass_name
             == "ExportedProgram.module().unlift()"
         ):
             # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
