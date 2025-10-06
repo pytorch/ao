@@ -625,6 +625,18 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
                 f"shape mismatch: {orig_attr.shape} vs {new_attr.shape}"
             )
 
+    def _test_quantize_3d_param_similar_to_vllm(self, config: AOBaseConfig):
+        # this happens when vLLM loads empty MoE weights and quantizes
+        # them
+
+        dtype = torch.bfloat16
+        with torch.device("meta"):
+            l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
+        l.weight = torch.nn.Parameter(
+            torch.randn(60, 2816, 2048, device="cuda", dtype=dtype)
+        )
+        quantize_(l, config)
+
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
 common_utils.instantiate_parametrized_tests(TorchAOCompileTestCase)
