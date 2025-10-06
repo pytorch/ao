@@ -320,6 +320,26 @@ def test_fp4_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 0.5, 4.0, -0.0], [-0.0, 1.0, -6.0, 3.0]])
     orig_vals_f4_unpacked = f32_to_f4_unpacked(orig_vals)
     orig_vals_f4_packed = pack_uint4(orig_vals_f4_unpacked)
+
+    # ensure packing is
+    #
+    #   7654:3210
+    #   val1:val0
+    expected_f4_packed = torch.tensor(
+        [
+            [
+                0b00010000,
+                0b10000110,
+            ],
+            [
+                0b00101000,
+                0b01011111,
+            ],
+        ],
+        dtype=torch.uint8,
+    )
+
+    assert torch.all(orig_vals_f4_packed == expected_f4_packed)
     assert orig_vals_f4_packed.numel() == (orig_vals.numel() / 2)
     orig_vals_f4_packed_unpacked = unpack_uint4(orig_vals_f4_packed)
     orig_vals_dq = f4_unpacked_to_f32(orig_vals_f4_packed_unpacked)
