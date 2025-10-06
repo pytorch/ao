@@ -21,6 +21,7 @@ import types
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, List, Optional, Tuple, Union
 from typing import OrderedDict as OrderedDictType
 
@@ -2417,7 +2418,7 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
     """
 
-    module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+    module_or_param_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
 
@@ -2515,7 +2516,8 @@ def select_module_if_top_level_params_match_pattern(
             for pattern in config.module_or_param_fqn_to_config:
                 full_param_fqn = f"{fqn}.{name}"
                 if (pattern == full_param_fqn) or (
-                    pattern.startswith("re:") and re.fullmatch(pattern[3:], f"{fqn}.{name}")
+                    pattern.startswith("re:")
+                    and re.fullmatch(pattern[3:], f"{fqn}.{name}")
                 ):
                     return True
     return False
@@ -2527,7 +2529,8 @@ def _module_fqn_to_config_handler(
     config: ModuleOrParamFqnToConfig,
 ):
     c = None
-    if module_fqn in config.module_fqn_to_config and not maybe_module_fqn_pattern.startswith("re:"):
+    # check to see if module_fqn is exact match
+    if module_fqn in config.module_fqn_to_config:
         # Maybe: we can add module type specific config in the future, in needed
         c = config.module_fqn_to_config[module_fqn]
     else:
