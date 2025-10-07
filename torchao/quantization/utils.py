@@ -42,6 +42,8 @@ from .granularity import (
 __all__ = [
     "compute_error",
     "_quantize_activation_per_token_absmax",
+    "_quant_int8_dynamic_per_token_linear",
+    "dynamically_quantize_per_channel",
     "dequantize_per_tensor",
     "dequantize_per_channel",
     "get_groupwise_affine_qparams",
@@ -190,6 +192,26 @@ def _quantize_activation_per_token_absmax(t):
     return quantized, scale
 
 
+def _quant_int8_dynamic_per_token_linear(
+    x,
+    w_vals_int8_t,
+    w_scales,
+    bias,
+    out_dtype,
+):
+    """
+    like F.linear, but with int8 dynamic quantization of activation,
+    and a quantized weight
+    """
+    x_vals_int8, x_scales = _quantize_activation_per_token_absmax(x)
+    mm_out = _quant_int8_per_token_matmul(
+        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
+    )
+    if bias is not None:
+        mm_out = mm_out + bias
+    return mm_out
+
+
 def _quant_int8_per_token_matmul(
     x_vals_int8,
     x_scales,
@@ -248,6 +270,37 @@ def _quant_int8_per_token_matmul(
     # can downcast only at the very end
     y = y.to(output_dtype)
     return y
+
+
+def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
+    """
+    assumes symmetric quantization
+    assumes axis == 0
+    assumes dense memory format
+    TODO(future): relax ^ as needed
+    """
+
+    assert x.dim() == 2, "only support 2d Tensors"
+
+    eps = torch.finfo(torch.float32).eps
+    block_size = (1, x.shape[1])
+    zero_point_dtype = torch.int64
+
+    mapping_type = MappingType.SYMMETRIC
+    scale, zero_point = choose_qparams_affine(
+        x,
+        mapping_type,
+        block_size,
+        target_dtype=target_dtype,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=eps,
+        zero_point_dtype=zero_point_dtype,
+    )
+    quant = quantize_affine(
+        x, block_size, scale, zero_point, target_dtype, quant_min, quant_max
+    )
+    return quant, scale, zero_point
 
 
 # reference: https://fburl.com/code/vfsygwd0

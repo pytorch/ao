@@ -40,9 +40,6 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
-from torchao.quantization.subclass import (
-    QuantizedLinearWeightBase,
-)
 from torchao.quantization.utils import _quantize_activation_per_token_absmax
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -78,7 +75,6 @@ def _is_linear(mod, *args):
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeightV1)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
