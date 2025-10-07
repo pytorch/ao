@@ -59,12 +59,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA 2.5.1
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
           - name: CUDA 2.6
             runs-on: linux.g5.12xlarge.nvidia.gpu
             torch-spec: 'torch==2.6.0'
@@ -77,13 +71,13 @@ jobs:
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
+          - name: CUDA 2.8
+            runs-on: linux.g5.12xlarge.nvidia.gpu
+            torch-spec: 'torch==2.8.0'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
+            dev-requirements-overrides: ""
 
-          - name: CPU 2.5.1
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
           - name: CPU 2.6
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu'
@@ -93,6 +87,12 @@ jobs:
           - name: CPU 2.7
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu'
+            gpu-arch-type: "cpu"
+            gpu-arch-version: ""
+            dev-requirements-overrides: ""
+          - name: CPU 2.8
+            runs-on: linux.4xlarge
+            torch-spec: 'torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""

@@ -29,11 +29,11 @@ from torchao.prototype.custom_fp_utils import (
     _floatx_unpacked_to_f32,
 )
 from torchao.quantization import (
-    fpx_weight_only,
+    FPXWeightOnlyConfig,
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
+from torchao.utils import is_fbcode
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
@@ -107,10 +107,6 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         assert floatx_tensor_impl.device.type == "cpu"
 
     @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_5,
-        reason="quantization only works with torch.compile for 2.5+",
-    )
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
@@ -122,7 +118,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=dtype)
         fpx_linear = copy.deepcopy(linear)
-        quantize_(fpx_linear, fpx_weight_only(ebits, mbits))
+        quantize_(fpx_linear, FPXWeightOnlyConfig(ebits, mbits))
 
         x = torch.randn(N, IC, device=device, dtype=dtype)
         expected = fpx_linear(x)

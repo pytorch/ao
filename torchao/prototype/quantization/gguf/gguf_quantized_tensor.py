@@ -14,10 +14,7 @@ from torchao.quantization.quant_primitives import (
     _dequantize_gguf,
     _quantize_gguf,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 _QK_K = 256
 aten = torch.ops.aten
@@ -221,6 +218,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 
 
 implements = GGUFQuantizedTensor.implements
+implements_torch_function = GGUFQuantizedTensor.implements_torch_function
 
 
 @implements([aten.detach.default, aten.alias.default])
@@ -247,7 +245,8 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -267,6 +266,5 @@ def _(func, types, args, kwargs):
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with GGUFQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([GGUFQuantizedTensor])
+# Allow a model with GGUFQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([GGUFQuantizedTensor])

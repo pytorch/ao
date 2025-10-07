@@ -9,8 +9,6 @@ from typing import Optional
 import torch
 from torch import Tensor
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define(
     "quant_llm_linear(int EXPONENT, int MANTISSA, Tensor _in_feats, Tensor _weights, Tensor _scales, int splitK) -> Tensor"
@@ -70,24 +68,21 @@ lib.define(
 lib.define(
     "da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor"
 )
+lib.define(
+    "_scaled_embedding_bag(Tensor qweight, Tensor indices, Tensor offsets, Tensor weight_scale, float o_scale, int mode, bool include_last_offset) -> Tensor"
+)
 
 
 def register_custom_op(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.register_fake(f"{name}")(func)
-        else:
-            return torch.library.impl_abstract(f"{name}")(func)
+        return torch.library.register_fake(f"{name}")(func)
 
     return decorator
 
 
 def register_custom_op_impl(name):
     def decorator(func):
-        if TORCH_VERSION_AT_LEAST_2_4:
-            return torch.library.custom_op(f"{name}", mutates_args=())(func)
-        else:
-            return torch.library.impl(f"{name}", "CUDA")(func)
+        return torch.library.custom_op(f"{name}", mutates_args=())(func)
 
     return decorator
 
@@ -1106,3 +1101,19 @@ def _(
     assert weight.dim() == 4
     N = weight.size(0) * weight.size(3) * 2
     return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)
+
+
+@register_custom_op("torchao::_scaled_embedding_bag")
+def _(
+    qweight: Tensor,
+    indices: Tensor,
+    offsets: Tensor,
+    w_scales: Tensor,
+    o_scale: float,
+    mode: int,
+    include_last_offset: bool,
+) -> Tensor:
+    # Only support include_last_offset == True
+    assert include_last_offset == True
+    batch_size = offsets.shape[0] - 1
+    return qweight.new_empty(batch_size, qweight.shape[1], dtype=qweight.dtype)

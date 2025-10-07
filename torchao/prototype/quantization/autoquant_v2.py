@@ -47,8 +47,6 @@ from torchao.quantization.subclass import (  # noqa
 )
 from torchao.quantization.utils import _quantize_activation_per_token_absmax
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -469,6 +467,8 @@ def do_autoquant_bench(op, *args, **kwargs):
     """
     runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
     """
+    from torch._inductor.runtime.benchmarking import benchmarker
+
     rep = kwargs.pop("rep", 100)
     warmup = kwargs.pop("warmup", 25)
     with torch.no_grad():
@@ -483,24 +483,9 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._inductor.runtime.benchmarking import benchmarker
-
-            res = benchmarker.benchmark_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-        elif TORCH_VERSION_AT_LEAST_2_3:
-            from torch._inductor.runtime.runtime_utils import do_bench_gpu
-
-            res = do_bench_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-        else:
-            from torch._inductor.utils import do_bench
-
-            res = do_bench(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
+        res = benchmarker.benchmark_gpu(
+            lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+        )
     return res
 
 
@@ -862,7 +847,8 @@ class Float32Tensor(TorchAOBaseTensor):
         return cls(weight)
 
 
-@Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
+@Float32Tensor.implements(aten.linear.default)
+@Float32Tensor.implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],

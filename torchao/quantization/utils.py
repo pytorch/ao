@@ -3,7 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -25,9 +25,18 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     check_cpu_version,
     check_xpu_version,
+)
+
+from .granularity import (
+    Granularity,
+    PerAxis,
+    PerBlock,
+    PerGroup,
+    PerRow,
+    PerTensor,
+    PerToken,
 )
 
 __all__ = [
@@ -449,7 +458,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
         quant_min,
         quant_max,
     )
-    if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
+    if w.shape[-1] > 1:
         if (not (check_cpu_version(int_data.device))) and (
             not (check_xpu_version(int_data.device))
         ):
@@ -470,10 +479,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert groupsize > 1
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
-    if (
-        TORCH_VERSION_AT_LEAST_2_5
-        and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
-        and not (check_cpu_version(w_int4x8.device))
+    if (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1) and not (
+        check_cpu_version(w_int4x8.device)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -681,3 +688,37 @@ def recommended_inductor_config_setter():
     torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
     torch.set_float32_matmul_precision("high")
+
+
+def get_block_size(
+    input_shape: Tuple[int, ...], granularity: Granularity
+) -> Tuple[int, ...]:
+    """Get the block size based on the input shape and granularity type.
+    Args:
+        input_shape: The input tensor shape possibly more than 2 dimensions
+        granularity: The granularity type of the quantization
+    """
+    if isinstance(granularity, PerTensor):
+        return input_shape
+    elif isinstance(granularity, PerAxis):
+        block_size = list(input_shape)
+        block_size[granularity.axis] = 1
+        return tuple(block_size)
+    elif isinstance(granularity, PerBlock):
+        block_size = granularity.block_size
+        assert len(block_size) == len(input_shape), (
+            f"Block size {block_size} must have the same number of dimensions as input shape {input_shape}"
+        )
+        for i in range(len(block_size)):
+            assert input_shape[i] % block_size[i] == 0, (
+                f"Not all shapes in input shape {input_shape} are divisible by block size {block_size}"
+            )
+        return block_size
+    elif isinstance(granularity, (PerRow, PerToken)):
+        return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
+    elif isinstance(granularity, PerGroup):
+        assert input_shape[-1] % granularity.group_size == 0, (
+            f"Last dimension of input {input_shape[-1]} is not divisible by group size {granularity.group_size}"
+        )
+        return (1,) * (len(input_shape) - 1) + (granularity.group_size,)
+    raise ValueError(f"Unsupported Granularity: {granularity}")

@@ -16,7 +16,7 @@ from torchao.quantization.marlin_qqq import (
     unpack_from_marlin_qqq,
 )
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int4_weight,
+    Int8DynamicActivationInt4WeightConfig,
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
@@ -24,7 +24,6 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_and_quantize_affine_qqq,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 @skip_if_rocm("ROCm enablement in progress")
@@ -54,7 +53,7 @@ class TestMarlinQQQ(TestCase):
             modelq = copy.deepcopy(self.model)
             quantize_(
                 modelq,
-                int8_dynamic_activation_int4_weight(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=group_size,
                     mapping_type=MappingType.SYMMETRIC,
                     act_mapping_type=MappingType.SYMMETRIC,
@@ -67,7 +66,6 @@ class TestMarlinQQQ(TestCase):
                 "Results are not close"
             )
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @skip_if_rocm("ROCm development in progress")
     def test_marlin_qqq_compile(self):
@@ -79,7 +77,7 @@ class TestMarlinQQQ(TestCase):
             modelq = copy.deepcopy(self.model)
             quantize_(
                 modelq,
-                int8_dynamic_activation_int4_weight(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=group_size,
                     mapping_type=MappingType.SYMMETRIC,
                     act_mapping_type=MappingType.SYMMETRIC,

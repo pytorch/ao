@@ -6,7 +6,6 @@
 
 import types
 from dataclasses import dataclass
-from typing import Optional
 
 import torch
 
@@ -18,16 +17,24 @@ from torchao.prototype.mx_formats.config import (
     _validate_elem_dtype,
     _validate_gemm_kernel_choice,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4MMConfig, NVFP4Tensor
-from torchao.quantization.quant_api import to_linear_activation_quantized
+from torchao.prototype.mx_formats.mx_tensor import (
+    MXTensor,
+    QuantizeTensorToMXKwargs,
+    ScaleCalculationMode,
+)
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4MMConfig,
+    NVFP4Tensor,
+    QuantizeTensorToNVFP4Kwargs,
+    per_tensor_amax_to_scale,
+)
+from torchao.quantization.quant_api import _quantization_type
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_100,
+    torch_version_at_least,
 )
 
 
@@ -87,63 +94,33 @@ class MXFPInferenceConfig(AOBaseConfig):
 
 
 def _linear_extra_repr(self):
-    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={repr(self.weight)}"
-
-
-def _input_activation_quant_func_mxfp(
-    x: torch.Tensor,
-    activation_dtype: torch.dtype,
-    block_size: int,
-    scale: Optional[torch.Tensor] = None,
-):
-    """ """
-
-    # TODO scale for static quant
-
-    activation = MXTensor.to_mx(
-        x,
-        activation_dtype,
-        block_size=block_size,
-        gemm_kernel_choice=None,  # Get from weight
-        pack_fp6=False,  # TODO
-    )
-    return activation
+    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
 @register_quantize_module_handler(MXFPInferenceConfig)
 def _mx_inference_linear_transform(
     module: torch.nn.Module, config: MXFPInferenceConfig
 ):
-    # TODO Sm120 has slightly more restrictive reqs
-    # TODO handle AMD
-    assert is_sm_at_least_100(), "MXFP is only supported on sm100 machiens for now"
-
-    activation_dtype = config.activation_dtype
-    weight_dtype = config.weight_dtype
     weight = module.weight
 
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
     )
+    act_quant_kwargs = QuantizeTensorToMXKwargs(
+        elem_dtype=config.activation_dtype,
+        block_size=config.block_size,
+        gemm_kernel_choice=config.gemm_kernel_choice,
+        pack_fp6=False,
+    )
 
     # Convert weight to MX Tensor
     quantized_weight = MXTensor.to_mx(
         weight,
-        weight_dtype,
+        config.weight_dtype,
         block_size=config.block_size,
         gemm_kernel_choice=config.gemm_kernel_choice,
         pack_fp6=False,  # TODO
-    )
-
-    input_quant_func = _input_activation_quant_func_mxfp
-    input_quant_kwargs = {
-        "block_size": config.block_size,
-        "activation_dtype": activation_dtype,
-        "scale": None,
-    }
-
-    quantized_weight = to_linear_activation_quantized(
-        quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
+        act_quant_kwargs=act_quant_kwargs,
     )
 
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
@@ -159,7 +136,8 @@ class NVFP4InferenceConfig(AOBaseConfig):
     This is a specialized configuration for NVIDIA's FP4 format.
     Configuration parameters:
     - mm_config: NVFP4MMConfig, which can be set to DYNAMIC or WEIGHT_ONLY (emulated mm in high precision)
-    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: False)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
+    - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - Data: float4_e2m1fn_x2
     - Scales: float8_e4m3fn
     - Block size: 16 along the reduction dim
@@ -170,10 +148,11 @@ class NVFP4InferenceConfig(AOBaseConfig):
 
     mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC
     use_triton_kernel: bool = True
+    use_dynamic_per_tensor_scale: bool = True
 
     def __post_init__(self):
         # Validate PyTorch version
-        if not TORCH_VERSION_AT_LEAST_2_8:
+        if not torch_version_at_least("2.8.0"):
             raise RuntimeError("NVFP4InferenceConfig requires PyTorch 2.8 or later")
 
 
@@ -189,9 +168,9 @@ def _nvfp4_inference_linear_transform(
 
     weight = module.weight
 
-    if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+    if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
-            f"NVFP4 only supports weight shape divisible by 16, got {weight.shape}"
+            f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
     if module.bias is not None and weight.dtype == torch.float32:
@@ -200,11 +179,23 @@ def _nvfp4_inference_linear_transform(
             "Please use bfloat16 or float16 weights, or remove the bias from the linear layer."
         )
 
+    per_tensor_scale = None
+    if config.use_dynamic_per_tensor_scale:
+        tensor_amax = torch.max(torch.abs(weight))
+        per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+
+    act_quant_kwargs = None
+    if config.mm_config == NVFP4MMConfig.DYNAMIC:
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+        )
+
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
-        mm_config=config.mm_config,
+        per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=True,
         use_triton_kernel=False,  # Always use traditional construction for weights
+        act_quant_kwargs=act_quant_kwargs,
     )
     # Set triton preference after construction
     quantized_weight.use_triton_kernel = config.use_triton_kernel
@@ -213,16 +204,16 @@ def _nvfp4_inference_linear_transform(
     return module
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals(
-        [
-            MXTensor,
-            NVFP4Tensor,
-            NVFP4MMConfig,
-            MXGemmKernelChoice,
-            _input_activation_quant_func_mxfp,
-        ]
-    )
+torch.serialization.add_safe_globals(
+    [
+        MXTensor,
+        NVFP4Tensor,
+        NVFP4MMConfig,
+        MXGemmKernelChoice,
+        QuantizeTensorToMXKwargs,
+        ScaleCalculationMode,
+    ]
+)
 
 
 import torch.nn as nn

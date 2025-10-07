@@ -19,7 +19,9 @@ from .GPTQ import (
     MultiTensorInputRecorder,
 )
 from .granularity import (
+    Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -43,9 +45,9 @@ from .observer import (
 )
 from .quant_api import (
     CutlassInt4PackedLayout,
-    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -88,7 +90,15 @@ from .quant_primitives import (
     quantize_affine,
 )
 from .quantize_.workflows import (
+    Float8Tensor,
+    Int4MarlinSparseTensor,
+    Int4OpaqueTensor,
+    Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
+    Int4Tensor,
+    Int4TilePackedTo4dTensor,
+    IntxOpaqueTensor,
+    IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -140,6 +150,7 @@ __all__ = [
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
     "Int4WeightOnlyConfig",
+    "Float8DynamicActivationInt4WeightConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
@@ -151,9 +162,16 @@ __all__ = [
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
     "ModuleFqnToConfig",
-    "FbgemmConfig",
     # tensor subclasses
+    "Int4Tensor",
+    "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
+    "Int4MarlinSparseTensor",
+    "IntxOpaqueTensor",
+    "IntxUnpackedToInt8Tensor",
+    "Int4TilePackedTo4dTensor",
+    "Float8Tensor",
+    "Int4OpaqueTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -181,8 +199,10 @@ __all__ = [
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "Granularity",
     "PerTensor",
     "PerAxis",
+    "PerBlock",
     "PerGroup",
     "PerRow",
     "PerToken",

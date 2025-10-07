@@ -51,10 +51,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
-
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
+from torchao.utils import torch_version_at_least
 
 
 class PT2EQATTestCase(QuantizationTestCase):
@@ -151,7 +148,7 @@ class PT2EQATTestCase(QuantizationTestCase):
                 is_per_channel=is_per_channel, is_qat=True
             )
         )
-        model_pt2e = export_for_training(
+        model_pt2e = torch.export.export(
             model_pt2e, example_inputs, strict=True
         ).module()
         model_pt2e = prepare_qat_pt2e(model_pt2e, quantizer)
@@ -250,7 +247,7 @@ class PT2EQATTestCase(QuantizationTestCase):
         quantizer.set_global(
             get_symmetric_quantization_config(is_per_channel, is_qat=True)
         )
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
 
@@ -426,7 +423,7 @@ class PT2EQATTestCase(QuantizationTestCase):
             )
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     """
     Base TestCase to be used for all conv-bn[-relu] fusion patterns.
@@ -640,7 +637,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         m = M(self.conv_class, self.bn_class, backbone)
         quantizer = XNNPACKQuantizer()
         quantizer.set_global(get_symmetric_quantization_config(is_qat=True))
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
         m = convert_pt2e(m)
@@ -698,7 +695,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     def test_qat_conv_bn_bias_derived_qspec(self):
         m = self._get_conv_bn_model()
         example_inputs = self.example_inputs
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         quantizer = ConvBnDerivedBiasQuantizer()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
@@ -745,7 +742,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     def test_qat_per_channel_weight_custom_dtype(self):
         m = self._get_conv_bn_model()
         example_inputs = self.example_inputs
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         quantizer = ConvBnInt32WeightQuantizer()
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
@@ -799,7 +796,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
     def test_qat_conv_bn_per_channel_weight_bias(self):
         m = self._get_conv_bn_model()
         example_inputs = self.example_inputs
-        m = export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         quantizer = ConvBnDerivedBiasQuantizer(is_per_channel=True)
         m = prepare_qat_pt2e(m, quantizer)
         m(*example_inputs)
@@ -856,7 +853,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         it into conv in `convert_pt2e` even in train mode.
         """
         m = self._get_conv_bn_model(has_conv_bias=False, has_bn=True, has_relu=False)
-        m = export_for_training(m, self.example_inputs, strict=True).module()
+        m = torch.export.export(m, self.example_inputs, strict=True).module()
         quantizer = XNNPACKQuantizer()
         quantizer.set_global(
             get_symmetric_quantization_config(is_per_channel=False, is_qat=True),
@@ -869,7 +866,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EQAT_ConvBn1d(TestQuantizePT2EQAT_ConvBn_Base):
     dim = 1
     example_inputs = (torch.randn(1, 3, 5),)
@@ -879,7 +876,7 @@ class TestQuantizePT2EQAT_ConvBn1d(TestQuantizePT2EQAT_ConvBn_Base):
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EQAT_ConvBn2d(TestQuantizePT2EQAT_ConvBn_Base):
     dim = 2
     example_inputs = (torch.randn(1, 3, 5, 5),)
@@ -1048,7 +1045,7 @@ class ConvBnDerivedBiasQuantizer(Quantizer):
 
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EQATModels(PT2EQATTestCase):
     @skip_if_no_torchvision
     @skipIfNoQNNPACK
@@ -1071,7 +1068,7 @@ class TestQuantizePT2EQATModels(PT2EQATTestCase):
             self._verify_symmetric_xnnpack_qat_numerics(m, example_inputs)
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
     class TwoLinear(torch.nn.Module):
         def __init__(self) -> None:
@@ -1107,16 +1104,9 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
                 else:
                     in_channels = child.linear1.weight.size(1)
 
-                # Create example input that matches the actual tensor shape passed to linear modules
-                # For TwoLinear, input comes from permuted conv output: (batch, 2, 2, 16)
-                # For my_linear, input comes from TwoLinear output: (batch, 2, 2, 8)
-                if isinstance(child, TestQuantizeMixQATAndPTQ.TwoLinear):
-                    example_input = (torch.rand((2, 2, 2, in_channels)),)
-                else:
-                    # Regular Linear layer (my_linear) gets input from TwoLinear: (batch, 2, 2, 8)
-                    example_input = (torch.rand((2, 2, 2, in_channels)),)
-                traced_child = export_for_training(
-                    child, example_input, strict=False
+                example_input = (torch.rand((2, 2, 2, in_channels)),)
+                traced_child = torch.export.export(
+                    child, example_input, strict=True
                 ).module()
                 quantizer = XNNPACKQuantizer()
                 quantization_config = get_symmetric_quantization_config(
@@ -1139,8 +1129,6 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
 
     def test_mixing_qat_ptq(self):
         example_inputs = (torch.randn(2, 3, 4, 4),)
-        for dim in range(example_inputs[0].ndim):
-            torch._dynamo.maybe_mark_dynamic(example_inputs[0], dim)
         model = TestQuantizeMixQATAndPTQ.QATPTQTestModule()
 
         self._prepare_qat_linears(model)
@@ -1150,7 +1138,7 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
         self._convert_qat_linears(model)
         model(*example_inputs)
 
-        model_pt2e = export_for_training(model, example_inputs, strict=False).module()
+        model_pt2e = torch.export.export(model, example_inputs, strict=True).module()
 
         quantizer = XNNPACKQuantizer()
         quantizer.set_module_type(torch.nn.Linear, None)
@@ -1166,13 +1154,12 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
         node_occurrence = {
             # conv2d: 1 for act, 1 for weight, 1 for output
             # 3 x linear: 1 for act, 1 for output
-            # Updated counts based on actual quantization with correct tensor shapes
             ns.call_function(
                 torch.ops.quantized_decomposed.quantize_per_tensor.default
-            ): 17,
+            ): 8,
             ns.call_function(
                 torch.ops.quantized_decomposed.dequantize_per_tensor.default
-            ): 18,
+            ): 9,
             ns.call_function(
                 torch.ops.quantized_decomposed.dequantize_per_channel.default
             ): 3,

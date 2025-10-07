@@ -6,10 +6,7 @@
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "WeightTensorWithLinearActivationScaleMetadata",
@@ -33,8 +30,8 @@ class WeightTensorWithLinearActivationScaleMetadata(TorchAOBaseTensor):
         scale (torch.Tensor): The scale tensor to be applied to activation.
     """
 
-    original_weight_tensor: torch.Tensor
-    scale: torch.Tensor
+    tensor_data_names = ["original_weight_tensor", "scale"]
+    tensor_attribute_names = []
 
     def __new__(
         cls,
@@ -57,21 +54,8 @@ class WeightTensorWithLinearActivationScaleMetadata(TorchAOBaseTensor):
         self.original_weight_tensor = original_weight_tensor
         self.scale = scale
 
-    def __repr__(self):
-        return f"WeightTensorWithLinearActivationScaleMetadata({self.original_weight_tensor}, scale={self.scale}"
-
-    def __tensor_flatten__(self):
-        tensor_data = ["original_weight_tensor", "scale"]
-        return tensor_data, []
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        return cls(
-            tensor_data_dict["original_weight_tensor"],
-            tensor_data_dict["scale"],
-        )
+    def _quantization_type(self):
+        return f"{self.__class__}"
 
     @staticmethod
     def _quantized_linear_op(
@@ -93,25 +77,14 @@ class WeightTensorWithLinearActivationScaleMetadata(TorchAOBaseTensor):
     ):
         return cls(input_float, scale)
 
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            fn(self.original_weight_tensor),
-            fn(self.scale),
-        )
-
-    def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        device = kwargs.pop("device")
-        return self.__class__(
-            self.original_weight_tensor.to(device),
-            self.scale.to(device),
-        )
-
 
 implements = WeightTensorWithLinearActivationScaleMetadata.implements
+implements_torch_function = (
+    WeightTensorWithLinearActivationScaleMetadata.implements_torch_function
+)
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -126,28 +99,13 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements(aten.detach.default)
+@implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+    self = args[0]
+    new = self.__class__(
+        func(self.original_weight_tensor, *args[1:], **kwargs), self.scale
     )
-
-
-@implements(aten.clone.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
-    )
-
-
-@implements(aten._to_copy.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func,
-        args,
-        kwargs,
-        args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
-    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
 
 
 @implements(aten.t.default)
@@ -161,8 +119,5 @@ to_weight_tensor_with_linear_activation_scale_metadata = (
     WeightTensorWithLinearActivationScaleMetadata.from_float
 )
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals(
-        [WeightTensorWithLinearActivationScaleMetadata]
-    )
+# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([WeightTensorWithLinearActivationScaleMetadata])

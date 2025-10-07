@@ -3,21 +3,20 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import os
-from copy import deepcopy
+import copy
+import tempfile
 
-import pytest
 import torch
-
-from torchao.quantization import quantize_
-from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_5,
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
 )
 
-if TORCH_VERSION_AT_LEAST_2_3:
-    from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
+from torchao.prototype.awq import AWQConfig, AWQStep
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
+from torchao.utils import _is_fbgemm_gpu_genai_available, torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -25,7 +24,7 @@ class ToyLinearModel(torch.nn.Module):
         super().__init__()
         self.linear1 = torch.nn.Linear(m, n, bias=False)
         self.linear2 = torch.nn.Linear(n, k, bias=False)
-        self.linear3 = torch.nn.Linear(k, 1, bias=False)
+        self.linear3 = torch.nn.Linear(k, 64, bias=False)
 
     def example_inputs(
         self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
@@ -44,137 +43,216 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-devices = ["cpu", "cuda"]
-# torch.uintx dtypes are introduced in 2.3
-if TORCH_VERSION_AT_LEAST_2_3:
-    qdtypes = (torch.uint4, torch.uint7)
-else:
-    qdtypes = ()
+devices = ["cpu"]
+if (
+    torch.cuda.is_available()
+    and _is_fbgemm_gpu_genai_available()
+    and torch_version_at_least("2.6.0")
+):
+    devices.append("cuda")
 
 
-@pytest.fixture(autouse=True)
-def run_before_and_after_tests():
-    yield
-    torch._dynamo.reset()  # reset cache between tests
+if torch.xpu.is_available():
+    devices.append("xpu")
 
 
-@pytest.mark.parametrize("device", devices)
-@pytest.mark.parametrize("qdtype", qdtypes)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires nightly pytorch")
-@pytest.mark.skip("Temporarily skipping to unpin nightiles")
-def test_awq_loading(device, qdtype):
-    if qdtype == torch.uint4 and device == "cpu":
-        pytest.skip("uint4 not supported on cpu")
-
-    dataset_size = 100
-    l1, l2, l3 = 512, 256, 128
-    original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
-    quant_dtype = qdtype
-    group_size = 128
-    n_calibration_examples = 10
-    n_validation_examples = 10
-    sequence_length = 5
-
-    m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
-    dataset = m.example_inputs(
-        dataset_size,
-        sequence_length=sequence_length,
-        dtype=original_dtype,
-        device=device,
-    )
-    calibration_data = dataset[:n_calibration_examples]
-
-    # calibrate
-    insert_awq_observer_(
-        m,
-        n_validation_examples,
-        sequence_length,
-        quant_dtype=quant_dtype,
-        group_size=group_size,
-    )
-
-    for example in calibration_data:
-        m(example.to(device))
-
-    # quantize
-    is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
-    quantize_(
-        m, awq_uintx(quant_dtype=quant_dtype, group_size=group_size), is_observed_linear
-    )
-
-    model_save_path = "awq_model.pth"
-    torch.save(m, model_save_path)
-    loaded_model = torch.load(model_save_path)
-    os.remove(model_save_path)
-
-    if torch.cuda.is_available():
-        m = torch.compile(m, fullgraph=True)
-        loaded_model = torch.compile(loaded_model, fullgraph=True)
-
-    awq_out = torch.cat([m(i.squeeze(0)) for i in dataset])
-    awq_save_load_out = torch.cat([loaded_model(i.squeeze(0)) for i in dataset])
-
-    assert awq_out is not None
-    assert awq_save_load_out is not None
-    assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
+device_to_base_configs = {
+    "cuda": [
+        Int4WeightOnlyConfig(group_size=128),
+        # Note: the functionality unit test doesn't work for hqq
+        Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d"),
+    ],
+    "cpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="opaque")],
+    "xpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="plain_int32")],
+}
 
 
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires nightly pytorch")
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@skip_if_rocm("ROCm enablement in progress")
-def test_save_weights_only():
-    dataset_size = 100
-    l1, l2, l3 = 512, 256, 128
-    original_dtype = torch.bfloat16
-    quant_dtype = torch.uint4
-    device = "cuda"
-    group_size = 128
-    n_calibration_examples = 10
-    n_validation_examples = 10
-    sequence_length = 5
+class TestAWQ(TestCase):
+    def test_awq_config(self):
+        base_config = Int4WeightOnlyConfig()
+        AWQConfig(base_config, step=AWQStep.PREPARE)
+        AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
+        AWQConfig(base_config, step=AWQStep.CONVERT)
 
-    m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
-    m2 = deepcopy(m)
-    dataset = m.example_inputs(
-        dataset_size,
-        sequence_length=sequence_length,
-        dtype=original_dtype,
-        device=device,
-    )
-    calibration_data = dataset[:n_calibration_examples]
+        AWQConfig(base_config, step="prepare")
+        AWQConfig(base_config, step="prepare_for_loading")
+        AWQConfig(base_config, step="convert")
 
-    # calibrate
-    insert_awq_observer_(
-        m,
-        n_validation_examples,
-        sequence_length,
-        quant_dtype=quant_dtype,
-        group_size=group_size,
-    )
+        with self.assertRaisesRegex(ValueError, "is not one of"):
+            AWQConfig(base_config, step="not_supported")
 
-    for example in calibration_data:
-        m(example.to(device))
+    @parametrize("device", devices)
+    def test_awq_functionality(self, device):
+        dataset_size = 10
+        l1, l2, l3 = 512, 256, 128
+        original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
+        sequence_length = 5
 
-    # quantize
-    is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
-    quantize_(
-        m, awq_uintx(quant_dtype=quant_dtype, group_size=group_size), is_observed_linear
-    )
+        assert device in device_to_base_configs, "Unsupported device: {}".format(device)
+        base_configs = device_to_base_configs[device]
 
-    model_save_path = "awq_model.pth"
-    torch.save(m.state_dict(), model_save_path)
-    m2.load_state_dict(
-        torch.load(model_save_path), assign=True
-    )  # load weights only.torch.load(model_save_path)
-    os.remove(model_save_path)
+        for base_config in base_configs:
+            m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            m_baseline = copy.deepcopy(m)
 
-    m = torch.compile(m, fullgraph=True)
-    m2 = torch.compile(m2, fullgraph=True)
+            dataset = m.example_inputs(
+                dataset_size,
+                sequence_length=sequence_length,
+                dtype=original_dtype,
+                device=device,
+            )
+            # for test, we use calibration_data = dataset so that awq is
+            # guranteed to be better than baseline
+            # in reality, calibration_data will be a small subset or a different
+            # dataset
+            calibration_data = dataset
+            # concatenatd inputs
+            input_cat = torch.cat(calibration_data, dim=-2)
+            ref_out = m(input_cat)
 
-    awq_out = torch.cat([m(i.squeeze(0)) for i in dataset])
-    awq_save_load_out = torch.cat([m2(i.squeeze(0)) for i in dataset])
+            # baseline quantization
+            quantize_(m_baseline, base_config)
 
-    assert awq_out is not None
-    assert awq_save_load_out is not None
-    assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
+            # awq quantization
+            quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+            quantize_(m, quant_config)
+
+            for example in calibration_data:
+                m(example)
+
+            quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+            quantize_(m, quant_config)
+
+            # evaluating on calibration data set to remove any uncertainty
+            awq_out = m(input_cat)
+            baseline_out = m_baseline(input_cat)
+
+            loss_awq = (ref_out - awq_out).pow(2).mean().item()
+            loss_base = (ref_out - baseline_out).pow(2).mean().item()
+            assert loss_awq <= loss_base
+
+    @parametrize("device", devices)
+    def test_awq_loading(self, device):
+        dataset_size = 10
+        l1, l2, l3 = 512, 256, 128
+        original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
+        sequence_length = 5
+
+        assert device in device_to_base_configs, "Unsupported device: {}".format(device)
+        base_configs = device_to_base_configs[device]
+
+        for base_config in base_configs:
+            m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            dataset = m.example_inputs(
+                dataset_size,
+                sequence_length=sequence_length,
+                dtype=original_dtype,
+                device=device,
+            )
+            # for test purpose, we don't need to get a subset
+            calibration_data = dataset
+            # concatenatd inputs
+            input_cat = torch.cat(calibration_data, dim=-2)
+
+            # calibrate
+
+            quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+            quantize_(m, quant_config)
+
+            for example in calibration_data:
+                m(example)
+
+            # quantize
+            quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+            quantize_(m, quant_config)
+
+            with tempfile.NamedTemporaryFile() as f:
+                torch.save(m.state_dict(), f)
+                f.seek(0)
+                state_dict = torch.load(f)
+
+            loaded_model = (
+                ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            )
+            loaded_model.load_state_dict(state_dict, assign=True)
+
+            m = torch.compile(m, fullgraph=True)
+            loaded_model = torch.compile(loaded_model, fullgraph=True)
+
+            awq_out = m(input_cat)
+            awq_save_load_out = loaded_model(input_cat)
+
+            assert awq_out is not None
+            assert awq_save_load_out is not None
+            assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
+
+    @parametrize("device", devices)
+    def test_awq_loading_vllm(self, device):
+        """Simulate weight loading in vllm:
+        * prepare model weight to the same format (awq weight)
+        * use weight.copy_(state_dict["weight"]) to copy over the quantized weights from checkpoint
+
+        There is also a slicing op that is ommitted here, overall e2e is tested in tests in vllm repo
+        """
+        dataset_size = 10
+        l1, l2, l3 = 512, 256, 128
+        original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
+        sequence_length = 5
+
+        assert device in device_to_base_configs, "Unsupported device: {}".format(device)
+        base_configs = device_to_base_configs[device]
+
+        for base_config in base_configs:
+            m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            dataset = m.example_inputs(
+                dataset_size,
+                sequence_length=sequence_length,
+                dtype=original_dtype,
+                device=device,
+            )
+            # for test purpose, we don't need to get a subset
+            calibration_data = dataset
+            # concatenatd inputs
+            input_cat = torch.cat(calibration_data, dim=-2)
+
+            # calibrate
+            quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+            quantize_(m, quant_config)
+
+            for example in calibration_data:
+                m(example)
+
+            # quantize
+            quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+            quantize_(m, quant_config)
+
+            with tempfile.NamedTemporaryFile() as f:
+                torch.save(m.state_dict(), f)
+                f.seek(0)
+                state_dict = torch.load(f)
+
+            loaded_model = (
+                ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            )
+            quant_config = AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
+            quantize_(loaded_model, quant_config)
+
+            loaded_model.linear1.weight.copy_(state_dict["linear1.weight"])
+            loaded_model.linear2.weight.copy_(state_dict["linear2.weight"])
+            loaded_model.linear3.weight.copy_(state_dict["linear3.weight"])
+
+            m = torch.compile(m, fullgraph=True)
+            loaded_model = torch.compile(loaded_model, fullgraph=True)
+
+            awq_out = m(input_cat)
+            awq_save_load_out = loaded_model(input_cat)
+
+            assert awq_out is not None
+            assert awq_save_load_out is not None
+            assert torch.allclose(awq_out, awq_save_load_out, atol=1e-2)
+
+
+instantiate_parametrized_tests(TestAWQ)
+
+if __name__ == "__main__":
+    run_tests()

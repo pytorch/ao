@@ -8,10 +8,7 @@ from typing import Any, Callable, Dict, Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "LinearActivationQuantizedTensor",
@@ -132,15 +129,19 @@ def _same_metadata(
 
 
 implements = LinearActivationQuantizedTensor.implements
+implements_torch_function = LinearActivationQuantizedTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
-    input_tensor, weight_tensor, bias = (
-        args[0],
-        args[1],
-        args[2] if len(args) > 2 else None,
-    )
+    input_tensor = kwargs.get("input", args[0] if len(args) > 0 else None)
+    weight_tensor = kwargs.get("weight", args[1] if len(args) > 1 else None)
+    bias = kwargs.get("bias", args[2] if len(args) > 2 else None)
+
+    assert input_tensor is not None, "input tensor must not be None"
+    assert weight_tensor is not None, "weight tensor must not be None"
+
     if isinstance(weight_tensor, LinearActivationQuantizedTensor):
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
 
@@ -219,6 +220,11 @@ def _(func, types, args, kwargs):
         for tensor_name in self_tensors:
             getattr(self, tensor_name).copy_(getattr(src, tensor_name))
         return
+    elif type(self) is torch.Tensor and type(src) is LinearActivationQuantizedTensor:
+        new_src = src.to(dtype=self.dtype, device=self.device)
+        self.copy_(new_src)
+        return
+
     raise ValueError(
         f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
     )
@@ -290,6 +296,5 @@ def _(func, types, args, kwargs):
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float  # Converts a float tensor to LinearActivationQuantizedTensor for dynamic activation quantization
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([LinearActivationQuantizedTensor])
+# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([LinearActivationQuantizedTensor])

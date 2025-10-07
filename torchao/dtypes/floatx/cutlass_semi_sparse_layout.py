@@ -100,6 +100,18 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
             raise ValueError(
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
+        elif func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+        elif func is aten.to.dtype_layout:
+            dense, scale, _ = args[0].get_plain()
+            product = dense.to(scale.dtype) * scale
+            return product.to(
+                *args[1:],
+                dtype=kwargs.get("dtype", dense.dtype),
+                device=kwargs.get("device", dense.device),
+            )
 
         raise NotImplementedError(
             f"CutlassSemiSparseTensorImpl dispatch: attempting to run {func}, this is not supported"
@@ -123,11 +135,12 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         # semi-structured format, so multiplying with identity matrix,
         # and using identity scale factors, for the conversion.
         cols = self.shape[1]
-        input = torch.eye(cols, dtype=self.sparse.dtype, device=self.sparse.device)
-        input_scale = torch.ones(
-            (cols,), dtype=self.scale.dtype, device=self.sparse.device
-        )
+        plain_input = torch.eye(cols, device=self.sparse.device)
+        input = plain_input.to(dtype=self.sparse.dtype)
+        plain_input_scale = torch.ones((cols,), device=self.sparse.device)
+        input_scale = plain_input_scale.to(dtype=self.scale.dtype)
         sparse_scale = torch.ones_like(self.scale)
+
         out_dtype = torch.bfloat16
         dense = (
             rowwise_scaled_linear_sparse_cutlass_f8f8(
@@ -177,22 +190,63 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
 def _linear_fp8_act_fp8_weight_sparse_cutlass_check(input_tensor, weight_tensor, bias):
     from torchao.dtypes.floatx import Float8Layout
 
-    return (
+    base_check = (
         isinstance(input_tensor, AffineQuantizedTensor)
         and isinstance(input_tensor._layout, Float8Layout)
         and input_tensor.dtype in (torch.float16, torch.bfloat16)
         and len(input_tensor.shape) >= 2
         and input_tensor.tensor_impl.scale.dtype == torch.float32
-        and len(input_tensor.tensor_impl.scale.shape) == len(input_tensor.shape) - 1
         and isinstance(weight_tensor, AffineQuantizedTensor)
         and isinstance(weight_tensor._layout, CutlassSemiSparseLayout)
         and weight_tensor.dtype == input_tensor.dtype
         and len(weight_tensor.shape) == 2
         and weight_tensor.tensor_impl.scale.dtype == torch.float32
-        and len(weight_tensor.tensor_impl.scale.shape) == 1
         and (bias is None or bias.dtype == input_tensor.dtype)
         and (bias is None or len(bias.shape) == 1)
     )
+
+    if base_check:
+        # do extra check and reshape if needed
+        input_tensor_squeezed = False
+        if (
+            len(input_tensor.tensor_impl.scale.shape) == len(input_tensor.shape)
+            and len(input_tensor.tensor_impl.scale.shape) > 1
+            and input_tensor.tensor_impl.scale.shape[-1] == 1
+        ):
+            input_tensor.tensor_impl.scale = torch.squeeze(
+                input_tensor.tensor_impl.scale, dim=-1
+            )
+            input_tensor_squeezed = True
+
+        weight_tensor_squeezed = False
+        if (
+            len(weight_tensor.tensor_impl.scale.shape) == 2
+            and weight_tensor.tensor_impl.scale.shape[-1] == 1
+        ):
+            weight_tensor.tensor_impl.scale = torch.squeeze(
+                weight_tensor.tensor_impl.scale, dim=-1
+            )
+            weight_tensor_squeezed = True
+
+        extra_check = (
+            len(input_tensor.tensor_impl.scale.shape) == len(input_tensor.shape) - 1
+            and len(weight_tensor.tensor_impl.scale.shape) == 1
+        )
+
+        if not extra_check:  # revert if extra check failed
+            if input_tensor_squeezed:
+                input_tensor.tensor_impl.scale = torch.unsqueeze(
+                    input_tensor.tensor_impl.scale, dim=-1
+                )
+            if weight_tensor_squeezed:
+                weight_tensor.tensor_impl.scale = torch.unsqueeze(
+                    weight_tensor.tensor_impl.scale, dim=-1
+                )
+
+        return extra_check
+
+    else:
+        return False
 
 
 def _linear_fp8_act_fp8_weight_sparse_cutlass_impl(input_tensor, weight_tensor, bias):

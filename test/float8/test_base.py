@@ -8,22 +8,10 @@ import itertools
 import random
 import re
 import unittest
-import warnings
 
 import pytest
 import torch
 import torch.nn as nn
-
-from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 
 from torchao.float8.config import (
     Float8LinearConfig,
@@ -54,7 +42,13 @@ from torchao.float8.float8_utils import (
     tensor_to_scale,
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
-from torchao.utils import is_MI300, is_ROCM
+from torchao.testing.utils import skip_if_rocm
+from torchao.utils import (
+    is_MI300,
+    is_ROCM,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 random.seed(0)
 torch.manual_seed(0)
@@ -381,6 +375,9 @@ class TestFloat8Linear:
         "linear_dtype", [torch.bfloat16, torch.float16, torch.float32]
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
+    )
     @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
@@ -389,12 +386,6 @@ class TestFloat8Linear:
         linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
-        if torch.cuda.get_device_capability() < (9, 0):
-            warnings.warn(
-                f"CUDA capability {torch.cuda.get_device_capability()} < (9.0)"
-            )
-            pytest.skip()
-
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
         config = Float8LinearConfig.from_recipe_name(recipe_name)
@@ -477,10 +468,10 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
-        from torchao.quantization.quant_api import float8_weight_only, quantize_
+        from torchao.quantization import Float8WeightOnlyConfig, quantize_
 
-        quantize_(m, float8_weight_only())
-        assert m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn, (
+        quantize_(m, Float8WeightOnlyConfig())
+        assert m[0].weight.qdata.dtype == torch.float8_e4m3fn, (
             "Post quantization dtype should be torch.float8_e4m3fn"
         )
         with torch.no_grad():

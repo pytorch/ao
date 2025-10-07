@@ -125,18 +125,13 @@ be applied individually. While there are a large variety of quantization apis, t
 #### A16W4 WeightOnly Quantization
 
 ```python
-# for torch 2.4+
 from torchao.quantization import quantize_, Int4WeightOnlyConfig
 group_size = 32
 
 # you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
-# use_hqq flag for `Int4WeightOnlyConfig` quantization
+# by setting int4_choose_qparams_algorithm to "hqq" for `Int4WeightOnlyConfig` quantization
 use_hqq = False
-quantize_(model, Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq))
-
-# for torch 2.2.2 and 2.3
-from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
-change_linear_weights_to_int4_woqtensors(model)
+quantize_(model, Int4WeightOnlyConfig(group_size=group_size, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
 ```
 
 Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
@@ -144,28 +139,18 @@ Note: The quantization error incurred by applying int4 quantization to your mode
 #### A16W8 Int8 WeightOnly Quantization
 
 ```python
-# for torch 2.4+
 from torchao.quantization import quantize_, Int8WeightOnlyConfig
 quantize_(model, Int8WeightOnlyConfig())
-
-# for torch 2.2.2 and 2.3
-from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
-change_linear_weights_to_int8_woqtensors(model)
 ```
 
 #### A8W8 Int8 Dynamic Quantization
 
 ```python
-# for torch 2.4+
 from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig
 quantize_(model, Int8DynamicActivationInt8WeightConfig())
-
-# for torch 2.2.2 and 2.3
-from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
-change_linear_weights_to_int8_dqtensors(model)
 ```
 
-### A16W8 Float8 WeightOnly Quantization
+#### A16W8 Float8 WeightOnly Quantization
 
 ```python
 # for torch 2.5+
@@ -214,27 +199,21 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     quantize_,
 )
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-    Target,
-)
 from torchao.quantization.granularity import PerGroup, PerAxis
 from torchao.quantization.quant_primitives import MappingType
 from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
 
 my_model = Model()
 
-# Set quantization layout
-layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.ATEN)
-
 quantize_(
     my_model,
     Int8DynamicActivationIntxWeightConfig(
         weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  #PerAxis is also supported
+        weight_granularity=PerGroup(32),  # PerAxis is also supported
         weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
         layout=layout,
         weight_dtype=torch.int4,
+        intx_packing_format="opaque_aten_kleidiai",
     ),
 )
 ```
@@ -300,16 +279,10 @@ m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
 group_size = 32
 # only works for torch 2.4+
-quantize_(m, Int4WeightOnlyConfig(group_size=group_size))
-## If different zero_point_domain needed
-# quantize_(m, Int4WeightOnlyConfig(group_size=group_size, zero_point_domain=ZeroPointDomain.FLOAT))
+quantize_(m, Int4WeightOnlyConfig(group_size=group_size, int4_packing_format="tile_packed_to_4d"))
+# can also specify different packing format
+# quantize_(m, Int4WeightOnlyConfig(group_size=group_size, int4_packing_format="plain"))
 
-# temporary workaround for tensor subclass + torch.compile
-# NOTE: this is only need for torch version < 2.5+
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torchao.utils import unwrap_tensor_subclass
-if not TORCH_VERSION_AT_LEAST_2_5:
-    unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
 
@@ -397,7 +370,7 @@ Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. F
 |             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
 
 ### Gemlite Triton
-Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `gemlite_uintx_weight_only`.  An example can be found in `torchao/_models/llama/generate.py`.
+Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
 
 Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
 

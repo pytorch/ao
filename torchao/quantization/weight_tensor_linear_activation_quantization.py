@@ -8,10 +8,7 @@ from typing import Any, Callable, Dict, Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "WeightTensorWithLinearActivationQuantizationMetadata",
@@ -149,9 +146,12 @@ class WeightTensorWithLinearActivationQuantizationMetadata(TorchAOBaseTensor):
 
 
 implements = WeightTensorWithLinearActivationQuantizationMetadata.implements
+implements_torch_function = (
+    WeightTensorWithLinearActivationQuantizationMetadata.implements_torch_function
+)
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -201,8 +201,7 @@ to_weight_tensor_with_linear_activation_quantization_metadata = (
     WeightTensorWithLinearActivationQuantizationMetadata.from_float
 )
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals(
-        [WeightTensorWithLinearActivationQuantizationMetadata]
-    )
+# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals(
+    [WeightTensorWithLinearActivationQuantizationMetadata]
+)

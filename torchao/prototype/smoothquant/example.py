@@ -4,185 +4,263 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import argparse
-import os
 import time
-from typing import Optional
 
 import torch
 from datasets import load_dataset
-from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
+from torchao.prototype.awq.example import get_calib_dataset
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
-    SmoothQuantObservedLinear,
-    insert_smooth_quant_observer_,
 )
+from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
+from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
 
-def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
-    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
-    samples = []
-    n_tokens = n_samples * block_size
-    n_run = n_tokens
-    for data in dataset:
-        line = data["text"]
-        line = line.strip()
-        line_encoded = tokenizer.encode(line)
-        if len(line_encoded) > 512:
-            continue
-        sample = torch.tensor([line_encoded])
-        if sample.numel() == 0:
-            continue
-        samples.append(sample)
-        n_run -= len(line_encoded)
-        if n_run <= n_samples:
-            break
-
-    cat_samples = torch.cat(samples, dim=1)
-    return [
-        cat_samples[:, i * block_size : (i + 1) * block_size] for i in range(n_samples)
-    ]
-
-
-def wiki2_eval(
-    model, tokenizer, sequence_length, stride=512, verbose=True, device="cuda"
-):
-    model.eval()
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "right"
-    tokenizer.add_eos_token = False
-
-    print("Loading dataset")
-    t0 = time.time()
+# TODO: Build benchmark within vLLM ecosystem with more quantization APIs
+# See https://github.com/pytorch/ao/issues/2815 for more details
+def benchmark(model, tokenizer, max_seq_length=512, tasks=["PPL"], device="cuda"):
+    """Benchmark model with perplexity calculation on WikiText-2"""
+    # Load WikiText-2 test set
     dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-    encodings = tokenizer("\n\n".join(dataset["text"]), return_tensors="pt")
-    print(f"Time to load dataset: {time.time() - t0:.02f} seconds")
 
-    encodings["input_ids"] = encodings["input_ids"].to(device)
+    # Prepare text data and truncate if necessary
+    text = "\n\n".join(dataset["text"])
+    # Get model's maximum sequence length
+    model_max_length = getattr(tokenizer, "model_max_length", max_seq_length)
+    if model_max_length > 1000000:  # Default large value, use our max_seq_length
+        model_max_length = max_seq_length
 
-    print("Running evaluation")
-    lls, t = [], []
-    for i in tqdm(
-        range(0, encodings["input_ids"].size(1), stride), disable=not verbose
-    ):
-        begin_loc = max(i + stride - sequence_length, 0)
-        end_loc = min(i + stride, encodings["input_ids"].size(1))
-        trg_len = end_loc - i
-        input_ids = encodings["input_ids"][:, begin_loc:end_loc]
-        target_ids = input_ids.clone()
-        target_ids[:, :-trg_len] = -100  # ignore context
+    encodings = tokenizer(
+        text, return_tensors="pt", truncation=True, max_length=model_max_length
+    )
 
-        t1 = time.time()
-        with torch.no_grad():
-            log_likelihood = model(input_ids, labels=target_ids).loss * trg_len
-        if device == "cuda":
-            torch.cuda.synchronize()
-        t2 = time.time()
-        t.append((t2 - t1))
-        lls.append(log_likelihood)
-
-        del input_ids, target_ids
-
-    ppl = float(torch.exp(torch.stack(lls).sum() / end_loc))
-    pred_time = sum(t) / len(t)
-    if verbose:
-        print("perplexity", ppl)
-        print("time", str(pred_time) + " sec/it")
-
-    return {"perplexity": ppl, "prediction_time": pred_time}
-
-
-def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
+    # Calculate perplexity
     model.eval()
-    model.config.use_cache = False
-    if tasks is None:
-        tasks = ["PPL"]
-    results = {}
-    if "PPL" in tasks:
-        results["perplexity"] = wiki2_eval(
-            model, tokenizer, 512, verbose=True, device=device
-        )
-    return results
+    nlls = []
+
+    with torch.no_grad():
+        seq_len = encodings.input_ids.size(1)
+        prev_end_loc = 0
+
+        for begin_loc in range(0, seq_len, max_seq_length):
+            end_loc = min(begin_loc + max_seq_length, seq_len)
+            trg_len = end_loc - prev_end_loc
+
+            input_ids = encodings.input_ids[:, begin_loc:end_loc].to(device)
+            target_ids = input_ids.clone()
+            target_ids[:, :-trg_len] = -100
+
+            # Measure inference time
+            start_time = time.time()
+            outputs = model(input_ids, labels=target_ids)
+            inference_time = time.time() - start_time
+
+            neg_log_likelihood = outputs.loss * trg_len
+            nlls.append(neg_log_likelihood)
+
+            prev_end_loc = end_loc
+            if end_loc == seq_len:
+                break
+
+    ppl = torch.exp(torch.stack(nlls).sum() / end_loc)
+
+    return {
+        "perplexity": ppl.item(),
+        "tokens_per_sec": input_ids.size(1) / inference_time,
+    }
 
 
-def wikitext2_ppl(
+def quantize_and_eval(
     model_id: str,
-    alpha: Optional[float],
-    quant_mode: str,
-    calibration_size: int,
+    alpha: float,
+    tasks: list[str],
+    max_seq_length: int,
+    calibration_limit: int,
     device: str,
-    precision: torch.dtype,
-    sequence_length: int,
-    compile: bool,
-    model_load_path: str,
     model_save_path: str,
+    model_save_hf_hub_path: str,
 ):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    if model_load_path is not None and os.path.exists(model_load_path):
-        print(f"Loading quantized model from {model_load_path}")
-        t0 = time.time()
-        model = torch.load(model_load_path, weights_only=False).to(device)
-        print(f"Time to load quantized model: {time.time() - t0:.02f} seconds")
-    else:
-        model = (
-            AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision)
-            .eval()
-            .to(device)
-        )
-        print(f"Time to load model: {time.time() - t0:.02f} seconds")
-        print("running calibration")
-        t0 = time.time()
-        # insert observers to find average magnitude and calculate scales
-        insert_smooth_quant_observer_(model, alpha, quant_mode)
-        calibration_data = get_calib_dataset(
-            tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length
-        )
-        for batch in calibration_data:
-            model(batch.to(device))
-            batch.to("cpu")
-        print(f"time for calibration: {time.time() - t0:.02f} seconds")
+    model = (
+        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+        .eval()
+        .to(device)
+    )
+    print(f"Time to load model: {time.time() - t0:.02f} seconds")
 
-        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-        print(f"running SmoothQuant with {quant_mode} quantization")
-        t0 = time.time()
-        quantize_(model, SmoothQuantConfig(), is_observed_linear)
-        print(f"time for quantization: {time.time() - t0:.02f} seconds")
-        if model_save_path is not None:
-            print(f"Saving quantized model to {model_save_path}")
-            t0 = time.time()
-            torch.save(model, model_save_path)
-            print(f"Time to save quantized model: {time.time() - t0:.02f} seconds")
-    if compile:
-        model = torch.compile(model, dynamic=True)
+    # Step 1: Prepare - insert observers
+    print("running SmoothQuant prepare and calibrate")
+    t0 = time.time()
+    quant_config = SmoothQuantConfig(
+        base_config=Int8DynamicActivationInt8WeightConfig(),
+        step=SmoothQuantStep.PREPARE,
+        alpha=alpha,
+    )
+    quantize_(model, quant_config)
 
-    return benchmark(model, tokenizer, sequence_length, tasks=["PPL"], device=device)
+    # Step 2: Calibration
+    calibration_data = get_calib_dataset(
+        tokenizer=tokenizer, n_samples=calibration_limit, block_size=max_seq_length
+    )
+    for batch in calibration_data:
+        model(batch.to(device))
+        batch.to("cpu")
+
+    print(f"time for prepare and calibration: {time.time() - t0:.02f} seconds")
+
+    # Step 3: Convert to quantized model
+    print("running SmoothQuant convert")
+    t0 = time.time()
+    quant_config.step = SmoothQuantStep.CONVERT
+    quantize_(model, quant_config)
+    print(f"time for convert: {time.time() - t0:.02f} seconds")
+
+    # Set up config for loading
+    quant_config.step = SmoothQuantStep.PREPARE_FOR_LOADING
+    model.config.quantization_config = TorchAoConfig(quant_config)
+
+    if model_save_path is not None:
+        print(f"Saving model to {model_save_path}")
+        torch.save(model, model_save_path)
+
+    if model_save_hf_hub_path is not None:
+        print("pushing model to hub:", model_save_hf_hub_path)
+        model.push_to_hub(model_save_hf_hub_path, safe_serialization=False)
+        tokenizer.push_to_hub(model_save_hf_hub_path)
+
+    print("Benchmarking SmoothQuant model...")
+    return benchmark(model, tokenizer, max_seq_length, tasks=tasks, device=device)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Evaluate a model with the specified parameters."
+def compare_models(
+    model_id: str,
+    alpha: float,
+    tasks: list[str],
+    max_seq_length: int,
+    calibration_limit: int,
+    device: str,
+    model_save_path: str,
+    model_save_hf_hub_path: str,
+):
+    """Compare perplexity and speed for behchmarking SmoothQuant"""
+
+    # Case 1: Base model without quantization
+    print("Benchmarking base model...")
+    torch.manual_seed(34)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = (
+        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+        .eval()
+        .to(device)
+    )
+    base_results = benchmark(
+        model, tokenizer, max_seq_length, tasks=tasks, device=device
     )
 
-    # Optional arguments with default values
+    # Case 2: W8A8-dynamic without SmoothQuant
+    print("Benchmarking W8A8-dynamic without SmoothQuant...")
+    torch.manual_seed(34)
+    w8a8_model = (
+        AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16)
+        .eval()
+        .to(device)
+    )
+    quantize_(w8a8_model, Int8DynamicActivationInt8WeightConfig())
+    w8a8_results = benchmark(
+        w8a8_model, tokenizer, max_seq_length, tasks=tasks, device=device
+    )
+
+    # Case 3: SmoothQuant + W8A8-dynamic
+    print("Benchmarking SmoothQuant with W8A8-dynamic...")
+    smoothquant_results = quantize_and_eval(
+        model_id,
+        alpha,
+        tasks,
+        max_seq_length,
+        calibration_limit,
+        device,
+        model_save_path,
+        model_save_hf_hub_path,
+    )
+
+    # Calculate changes and display results
+    w8a8_ppl_change = (
+        (w8a8_results["perplexity"] - base_results["perplexity"])
+        / base_results["perplexity"]
+        * 100
+    )
+    w8a8_speed_change = (
+        (w8a8_results["tokens_per_sec"] - base_results["tokens_per_sec"])
+        / base_results["tokens_per_sec"]
+        * 100
+    )
+
+    smoothquant_ppl_change = (
+        (smoothquant_results["perplexity"] - base_results["perplexity"])
+        / base_results["perplexity"]
+        * 100
+    )
+    smoothquant_speed_change = (
+        (smoothquant_results["tokens_per_sec"] - base_results["tokens_per_sec"])
+        / base_results["tokens_per_sec"]
+        * 100
+    )
+
+    # Print results
+    print(
+        f"\nBase: PPL={base_results['perplexity']:.2f}, Speed={base_results['tokens_per_sec']:.2f} tokens/sec"
+    )
+    print(
+        f"w8a8-Dynamic: PPL={w8a8_results['perplexity']:.2f}, Speed={w8a8_results['tokens_per_sec']:.2f} tokens/sec"
+    )
+    print(
+        f"SmoothQuant+w8a8: PPL={smoothquant_results['perplexity']:.2f}, Speed={smoothquant_results['tokens_per_sec']:.2f} tokens/sec"
+    )
+    print(f"w8a8 Changes: PPL {w8a8_ppl_change:+.2f}%, Speed {w8a8_speed_change:+.2f}%")
+    print(
+        f"SmoothQuant Changes: PPL {smoothquant_ppl_change:+.2f}%, Speed {smoothquant_speed_change:+.2f}%"
+    )
+
+    return {
+        "base_model": base_results,
+        "w8a8_model": w8a8_results,
+        "smoothquant_model": smoothquant_results,
+        "w8a8_ppl_change_percent": w8a8_ppl_change,
+        "w8a8_speed_improvement_percent": w8a8_speed_change,
+        "smoothquant_ppl_change_percent": smoothquant_ppl_change,
+        "smoothquant_speed_improvement_percent": smoothquant_speed_change,
+    }
+
+
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Evaluate a model with SmoothQuant quantization."
+    )
+
     parser.add_argument(
-        "--model-id", "-m", type=str, help="Repository ID of the model."
+        "--model", type=str, required=True, help="Model ID from Huggingface hub."
     )
     parser.add_argument(
         "--alpha",
         type=float,
         default=0.5,
-        help="The alpha hyperparameter for SmoothQuant.",
+        help="The alpha hyperparameter for SmoothQuant. Default is 0.5.",
     )
     parser.add_argument(
-        "--quant-mode", type=str, help="Quantization mode, either static or dynamic."
+        "--tasks",
+        nargs="+",
+        type=str,
+        help="Task to benchmark model on.",
+        default=["PPL"],
     )
     parser.add_argument(
-        "--calibration-samples",
+        "--calibration_limit",
         type=int,
         default=10,
         help="Number of samples to use for calibration. Default is 10.",
@@ -194,54 +272,38 @@ if __name__ == "__main__":
         help="Device to run the evaluation on. Default is 'cuda'.",
     )
     parser.add_argument(
-        "--precision",
-        type=str,
-        default="bfloat16",
-        help="Precision type. Default is 'bfloat16'.",
-    )
-    parser.add_argument(
-        "--seq_len",
+        "--max_seq_length",
         type=int,
         default=512,
-        help="Length of examples to calibrate and evaluate model on. Default is 512",
+        help="Maximum sequence length. Default is 512",
     )
     parser.add_argument(
-        "--compile",
-        action="store_true",
-        help="Flag to indicate if compilation is required.",
-    )
-    parser.add_argument(
-        "--model-load-path",
+        "--model_save_path",
         type=str,
         default=None,
-        help="Path to load quantized model. If this is provided, "
-        "the model will be loaded from this path instead of quantizing the model.",
+        help="Path to store the quantized model.",
     )
     parser.add_argument(
-        "--model-save-path",
+        "--model_save_hf_hub_path",
         type=str,
         default=None,
-        help="Path to store quantized model.",
-    )
-    parser.add_argument(
-        "--disable-smooth-quant",
-        action="store_true",
-        help="Run conventional dynamic or static quantization for testing or debugging.",
+        help="Huggingface hub path to store the quantized model and tokenizer.",
     )
 
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_parser()
     args = parser.parse_args()
 
-    # Convert precision argument to torch dtype
-    precision_dtype = getattr(torch, args.precision, torch.bfloat16)
-    ppl = wikitext2_ppl(
-        args.model_id,
-        None if args.disable_smooth_quant else args.alpha,
-        args.quant_mode,
-        args.calibration_samples,
+    result = compare_models(
+        args.model,
+        args.alpha,
+        args.tasks,
+        args.max_seq_length,
+        args.calibration_limit,
         args.device,
-        args.precision,
-        args.seq_len,
-        args.compile,
-        args.model_load_path,
         args.model_save_path,
+        args.model_save_hf_hub_path,
     )

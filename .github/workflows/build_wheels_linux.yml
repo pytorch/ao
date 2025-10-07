@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - build/packaging/**
+      - packaging/**
       - .github/workflows/build_wheels_linux.yml
       - setup.py
   push:

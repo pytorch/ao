@@ -74,7 +74,7 @@ pip install torchao
 Quantize your model weights to int4!
 ```
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-quantize_(model, Int4WeightOnlyConfig(group_size=32))
+quantize_(model, Int4WeightOnlyConfig(group_size=32, version=1))
 ```
 Compared to a `torch.compiled` bf16 baseline, your quantized model should be significantly smaller and faster on a single A100 GPU:
 ```
@@ -102,7 +102,7 @@ pip install torchao
   ```
   # Nightly
   pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
-  
+
   # Different CUDA versions
   pip install torchao --index-url https://download.pytorch.org/whl/cu126  # CUDA 12.6
   pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
@@ -113,6 +113,7 @@ pip install torchao
   ```
 </details>
 
+Please see the [torchao compability table](https://github.com/pytorch/ao/issues/2919) for version requirements for dependencies.
 
 ## 🔗 Integrations
 
@@ -143,7 +144,7 @@ Quantize any model with `nn.Linear` layers in just one line (Option 1), or load 
 
 ```python
 from torchao.quantization.quant_api import quantize_, Int4WeightOnlyConfig
-quantize_(model, Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+quantize_(model, Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1))
 ```
 
 #### Option 2: HuggingFace Integration
@@ -153,12 +154,12 @@ from transformers import TorchAoConfig, AutoModelForCausalLM
 from torchao.quantization.quant_api import Int4WeightOnlyConfig
 
 # Create quantization configuration
-quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1))
 
 # Load and automatically quantize
 quantized_model = AutoModelForCausalLM.from_pretrained(
     "microsoft/Phi-4-mini-instruct",
-    torch_dtype="auto",
+    dtype="auto",
     device_map="auto",
     quantization_config=quantization_config
 )
@@ -179,12 +180,17 @@ With this quantization flow, we achieve **67% VRAM reduction and 12-20% speedup*
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization-Aware Training (QAT) to overcome this limitation, especially for lower bit-width dtypes such as int4. In collaboration with [TorchTune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md#quantization-aware-training-qat), we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). For more details, please refer to the [QAT README](torchao/quantization/qat/README.md) and the [original blog](https://pytorch.org/blog/quantization-aware-training/):
 
 ```python
-from torchao.quantization import quantize_
-from torchao.quantization.qat import FakeQuantizeConfig, IntXQuantizationAwareTrainingConfig
-activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
-qat_config = IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
-quantize_(my_model, qat_config)
+from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+from torchao.quantization.qat import QATConfig
+
+# prepare
+base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+quantize_(my_model, QATConfig(base_config, step="prepare"))
+
+# train model (not shown)
+
+# convert
+quantize_(my_model, QATConfig(base_config, step="convert"))
 ```
 
 Users can also combine LoRA + QAT to speed up training by [1.89x](https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700) compared to vanilla QAT using this [fine-tuning recipe](https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py).
@@ -278,7 +284,7 @@ If you find the torchao library useful, please cite it in your work as below.
 @software{torchao,
   title={TorchAO: PyTorch-Native Training-to-Serving Model Optimization},
   author={torchao},
-  url={https://github.com/pytorch/torchao},
+  url={https://github.com/pytorch/ao},
   license={BSD-3-Clause},
   month={oct},
   year={2024}
