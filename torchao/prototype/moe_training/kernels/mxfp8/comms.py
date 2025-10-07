@@ -11,7 +11,7 @@ from torchao.prototype.moe_training.kernels.triton_utils import (
     blockwise_barrier,
     sync_threads,
 )
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import to_dtype, to_mx
 
 
@@ -473,11 +473,9 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
         """
         # Quantize input
         block_size = 32
-        input_scales, input_data = to_mx(
+        input_data, input_scales = triton_to_mxfp8_dim0(
             input,
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            scaling_mode=ScaleCalculationMode.RCEIL,
+            inner_block_size=block_size,
         )
 
         # Dispatch data (async)
@@ -529,11 +527,9 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
 
         # Quantize grad_output
         block_size = 32
-        grad_out_scales, grad_out_data = to_mx(
+        grad_out_data, grad_out_scales = triton_to_mxfp8_dim0(
             grad_output_hp,
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            scaling_mode=ScaleCalculationMode.RCEIL,
+            inner_block_size=block_size,
         )
 
         # Dispatch data (async)
