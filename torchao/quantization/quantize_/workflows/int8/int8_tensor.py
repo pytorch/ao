@@ -34,7 +34,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
         block_size (Optional[list[int]]): block size for quantization granularity
     """
 
-    block_size: Optional[list[int]] = None
+    block_size: list[int]
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -47,23 +47,21 @@ class Int8Tensor(TorchAOBaseTensor):
 
     Non-Tensor Attributes:
         block_size: block size for quantization granularity
-        shape: original tensor shape
         act_quant_kwargs: flags for static/dynamic activation quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = ["block_size", "_shape"]
+    tensor_attribute_names = ["block_size"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
         "dtype",
     ]
 
     def __new__(
-        cls,
-        qdata,
-        scale,
-        block_size,
-        shape,
+        cls: type,
+        qdata: torch.Tensor,
+        scale: torch.Tensor,
+        block_size: list[int],
         act_quant_kwargs=None,
         dtype=None,
     ):
@@ -72,14 +70,13 @@ class Int8Tensor(TorchAOBaseTensor):
             "dtype": dtype or scale.dtype,
             "requires_grad": False,
         }
-        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
+        return torch.Tensor._make_wrapper_subclass(cls, list(qdata.shape), **kwargs)
 
     def __init__(
         self,
-        qdata,
-        scale,
-        block_size,
-        shape,
+        qdata: torch.Tensor,
+        scale: torch.Tensor,
+        block_size: list[int],
         act_quant_kwargs=None,
         dtype=None,
     ):
@@ -87,7 +84,6 @@ class Int8Tensor(TorchAOBaseTensor):
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
-        self._shape = shape
         self.act_quant_kwargs = act_quant_kwargs
 
     def __repr__(self):
@@ -129,7 +125,6 @@ class Int8Tensor(TorchAOBaseTensor):
             int_data,
             scale,
             block_size,
-            w.shape,
             act_quant_kwargs=act_quant_kwargs,
             dtype=w.dtype,
         )
@@ -141,11 +136,11 @@ class Int8Tensor(TorchAOBaseTensor):
         qdata_fp = self.qdata.to(dtype)
         scale = self.scale.to(dtype)
 
-        # Reshape 1D scale to [N, 1] for broadcasting with [N, K] qdata
-        if scale.ndim == 1:
-            scale = scale.unsqueeze(1)
+        # Reshape scale to broadcast
+        if scale.numel() > 1 and scale.shape != qdata_fp.shape:
+            scale = scale.view(*scale.shape, *[1] * (qdata_fp.ndim - scale.ndim))
 
-        return (qdata_fp) * scale
+        return qdata_fp * scale
 
 
 implements = Int8Tensor.implements
@@ -160,7 +155,7 @@ def _(func, types, args, kwargs):
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     """quantization: float -> int8"""
-    input_tensor, weight_tensor, bias = (
+    activation_tensor, weight_tensor, bias = (
         args[0],
         args[1],
         args[2] if len(args) > 2 else None,
@@ -172,14 +167,14 @@ def _(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is not None:
         # INT8 × INT8 (dynamic)
-        # Quantize input if it's not already quantized
-        if not isinstance(input_tensor, Int8Tensor):
-            input_tensor = _choose_quant_func_and_quantize_tensor(
-                input_tensor, weight_tensor.act_quant_kwargs
+        # Quantize activation if it's not already quantized
+        if not isinstance(activation_tensor, Int8Tensor):
+            activation_tensor = _choose_quant_func_and_quantize_tensor(
+                activation_tensor, weight_tensor.act_quant_kwargs
             )
 
-        x_vals_int8 = input_tensor.qdata
-        x_scales = input_tensor.scale
+        x_vals_int8 = activation_tensor.qdata
+        x_scales = activation_tensor.scale
         w_vals_int8_t = weight_tensor.qdata.contiguous().t()
         w_scales = weight_tensor.scale
 
@@ -199,12 +194,14 @@ def _(func, types, args, kwargs):
         result = (y_dot_scaled * w_scales).reshape(
             *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
         )
-        result = result.to(input_tensor.dtype)
+        result = result.to(activation_tensor.dtype)
     else:
         # FP × INT8 (weight-only)
-        input_tensor = input_tensor.dequantize()
+        activation_tensor = activation_tensor.dequantize()
 
-        result = func(input_tensor, weight_tensor.dequantize(input_tensor.dtype), None)
+        result = func(
+            activation_tensor, weight_tensor.dequantize(activation_tensor.dtype), None
+        )
 
     return result + bias if bias is not None else result
 
@@ -220,23 +217,37 @@ def _(func, types, args, kwargs):
         args[4] if len(args) > 4 else 1,
     )
 
-    sliced_scale = tensor.scale
-    if dim == 0 and tensor.scale.ndim >= 1:
-        sliced_scale = aten.slice.Tensor(tensor.scale, 0, start, end, step)
+    assert dim in (0, 1), f"Only dim 0 or 1 supported, got {dim}"
 
-    sliced_shape = list(
-        aten.slice.Tensor(torch.empty(tensor.shape), dim, start, end, step).shape
-    )
+    if end >= tensor.shape[dim]:
+        end = tensor.shape[dim]
+
+    # Always slice the qdata
+    sliced_qdata = func(tensor.qdata, dim, start, end, step)
+
+    if tensor.scale.numel() == 1:
+        # Per-tensor quantization - scale doesn't change
+        sliced_scale = tensor.scale
+    elif dim < tensor.scale.ndim and tensor.scale.shape[dim] > 1:
+        # Block-wise quantization - need to slice the scale appropriately
+        sliced_scale = func(tensor.scale, dim, start, end, step)
+    else:
+        sliced_scale = tensor.scale
+
+    # adjust block_size since the shape has changed, block_size[i] should not be greater than shape[i]
+    block_size = list(tensor.block_size)
+
+    for i in range(len(block_size)):
+        block_size[i] = min(block_size[i], sliced_qdata.shape[i])
 
     return return_and_correct_aliasing(
         func,
         args,
         kwargs,
         Int8Tensor(
-            aten.slice.Tensor(tensor.qdata, dim, start, end, step),
+            sliced_qdata,
             sliced_scale,
-            tensor.block_size,
-            sliced_shape,
+            block_size,
             tensor.act_quant_kwargs,
             tensor.dtype,
         ),
@@ -254,7 +265,6 @@ def _(func, types, args, kwargs):
             self.qdata.transpose(dim0, dim1),
             self.scale,
             [self.block_size[dim1], self.block_size[dim0]],
-            [self._shape[dim1], self._shape[dim0]],
             self.act_quant_kwargs,
             self.dtype,
         ),
@@ -276,7 +286,6 @@ def _(func, types, args, kwargs):
             self.qdata[index],
             selected_scale,
             self.block_size,
-            list(self.qdata[index].shape),
             self.act_quant_kwargs,
             self.dtype,
         ),

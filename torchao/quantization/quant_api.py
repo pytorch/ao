@@ -1585,11 +1585,11 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         else:
             input_quant_func = _int8_asymm_per_token_quant
 
+    block_size = get_weight_block_size(weight)
     if config.version == 1:
         warnings.warn(
             "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
         )
-        block_size = get_weight_block_size(weight)
         quantized_weight = to_affine_quantized_intx(
             weight,
             mapping_type,
@@ -1606,7 +1606,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     else:
         quantized_weight = Int8Tensor.from_hp(
             weight,
-            block_size=get_weight_block_size(weight),
+            block_size,
         )
 
     return quantized_weight

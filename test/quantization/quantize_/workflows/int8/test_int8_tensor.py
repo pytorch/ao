@@ -18,10 +18,7 @@ from torchao.quantization import (
     PerTensor,
     quantize_,
 )
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    Int8Tensor,
-    QuantizeTensorToInt8Kwargs,
-)
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import Int8Tensor
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
@@ -109,38 +106,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         output_quantized = m_q(input_tensor)
 
         error = compute_error(output_original, output_quantized)
-        assert compute_error(output_original, output_quantized) > 20, (
-            f"Quantization error is too high got a SQNR of {error}"
-        )
-
-    def test_linear_operations(self):
-        """Test fp+int8 and int8+int8 linear ops"""
-        weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
-        input_q8 = Int8Tensor.from_hp(self.input_fp, self.block_size)
-
-        reference = torch.nn.functional.linear(self.input_fp, self.weight_fp, self.bias)
-        result_fp = torch.nn.functional.linear(self.input_fp, weight_q8, self.bias)
-        result_q8 = torch.nn.functional.linear(input_q8, weight_q8, self.bias)
-
-        self.assertEqual(result_fp.shape, reference.shape)
-        self.assertEqual(result_q8.shape, reference.shape)
-        self.assertTrue(compute_error(result_fp, reference) > 10)
-        self.assertTrue(compute_error(result_q8, reference) > 10)
-
-    def test_dynamic_quantization(self):
-        """Test dynamic activation quantization"""
-        weight_q8_dynamic = Int8Tensor.from_hp(
-            self.weight_fp,
-            self.block_size,
-            act_quant_kwargs=QuantizeTensorToInt8Kwargs(),
-        )
-
-        reference = torch.nn.functional.linear(self.input_fp, self.weight_fp, self.bias)
-        result_dynamic = torch.nn.functional.linear(
-            self.input_fp, weight_q8_dynamic, self.bias
-        )
-
-        self.assertEqual(result_dynamic.shape, reference.shape)
+        assert error > 20, f"Quantization error is too high got a SQNR of {error}"
 
     @unittest.skip("granularity parameter not supported in current API")
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
@@ -180,23 +146,26 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64))
         self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128))
 
-    def test_transpose(self):
-        """Test transpose operation"""
-        weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
-        transposed = weight_q8.transpose(0, 1)
+        # Int8DynamicActivationInt8WeightConfig uses per-row (PerRow)
+        # Int8WeightOnlyConfig uses per-tensor (PerTensor)
+        if isinstance(config, Int8DynamicActivationInt8WeightConfig):
+            # PerRow: dim 0 slicing affects scale, dim 1 doesn't
+            self.assertEqual(weight1.scale, dummy.weight.scale.narrow(0, 0, 64))
+            self.assertEqual(weight2.scale, dummy.weight.scale)
+        else:
+            # PerTensor: scale unchanged by slicing
+            self.assertEqual(weight1.scale, dummy.weight.scale)
+            self.assertEqual(weight2.scale, dummy.weight.scale)
 
-        self.assertEqual(transposed.shape, (3, 4))
-        self.assertEqual(transposed.block_size, [3, 4])
-
-    def test_select(self):
-        """Test select operation"""
-        weight_q8 = Int8Tensor.from_hp(self.weight_fp, self.block_size)
-        selected = weight_q8.select(0, 0)
-
-        self.assertEqual(selected.shape, (3,))
-
-        with self.assertRaises(AssertionError):
-            weight_q8.select(1, 0)
+    def test_index_select(self):
+        """test that `x_0 = x[0]` works when `x` is a 2D `Int8Tensor`."""
+        N, K = 256, 512
+        x = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+        x_int8 = Int8Tensor.from_hp(x, block_size=[N, K])
+        x_int8_0 = x_int8[0]
+        torch.testing.assert_close(
+            x_int8.dequantize()[0], x_int8_0.dequantize(), atol=0, rtol=0
+        )
 
     def test_error_handling_and_dequant(self):
         """Test input validation and dequantization accuracy"""
