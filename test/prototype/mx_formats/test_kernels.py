@@ -37,6 +37,7 @@ from torchao.prototype.mx_formats.kernels import (
     pack_uint6,
     triton_f6_e2m3_to_bf16,
     triton_f6_e3m2_to_bf16,
+    triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
     triton_to_mxfp8_dim1_reference,
     unpack_uint4,
@@ -431,6 +432,23 @@ def test_fp6_e3m2_pack_unpack():
     assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
 
 
+def triton_to_mxfp8_dim0_reference(
+    x_hp: torch.Tensor, block_size
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    A reference version of `triton_to_mxfp8_dim0` for rowwise quantization.
+    """
+    from torchao.prototype.mx_formats.mx_tensor import to_mx
+
+    # cast across dim0 (rowwise) - no transpose needed
+    scale_e8m0_dim0, x_hp_d0_normalized = to_mx(x_hp, torch.float8_e4m3fn, block_size)
+    scale_e8m0_dim0 = scale_e8m0_dim0.view(torch.float8_e8m0fnu)
+    return (
+        x_hp_d0_normalized,
+        scale_e8m0_dim0.unsqueeze(-1),
+    )
+
+
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
     not is_sm_at_least_89(),
@@ -442,6 +460,21 @@ def test_triton_mxfp8_dim1_randn(M, K):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_89(),
+    reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
+@pytest.mark.parametrize("M", (256, 2048))
+@pytest.mark.parametrize("K", (256, 2048))
+def test_triton_mxfp8_dim0_randn(M, K):
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
+    x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
 
