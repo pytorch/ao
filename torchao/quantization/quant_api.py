@@ -16,10 +16,13 @@ and mixed GEMM kernels
 """
 
 import logging
+import re
 import types
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import OrderedDict as OrderedDictType
 
 import torch
 import torch.nn as nn
@@ -2411,15 +2414,28 @@ class ModuleFqnToConfig(AOBaseConfig):
     """Per module configurations for torchao quantize_ API
 
     Args:
-        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
-         Also has a special key: "_default", if "_default" is present in the dictionary,
-         the config for "_default" will be applied to all the remaining modules that does not have
-         per module configuration specified.
+        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
+         ordered dictionary from
+             (1). fully qualified name (fqn) of module or
+             (2). regex of fully qualified name (in python `re` module regex format), should
+                  start with prefix "re:" or
+             (3). "_default"
+         to the config that we want to apply to the module or None
+
+         Config key ordered by precedence:
+           * fully qualified module name, e.g. `language.layers.0.q_proj`
+           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+             whiever regex fully matches the module fqn first will be applied
+             (order of keys for dictionary are kept consistent since we are using OrderedDict)
+           * "_default", fallback for **all modules** if no match for all previous keys
+             (Note, when using `_default`, the config is applied to all modules, to apply
+              it to only a subset of modules, e.g. with some types, it's better to filter
+              the modules that we don't want to quantize before hand and configure them to
+              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
     """
 
-    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
+    module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+        default_factory=OrderedDict
     )
 
     def __post_init__(self):
@@ -2434,8 +2450,16 @@ def _module_fqn_to_config_handler(
         # Maybe: we can add module type specific config in the future, in needed
         c = config.module_fqn_to_config[module_fqn]
     else:
-        # fallback to use default if no module specific config is provided
-        c = config.module_fqn_to_config.get("_default", None)
+        for maybe_module_fqn_pattern in config.module_fqn_to_config:
+            if not maybe_module_fqn_pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
+                # we'll apply the config for first fully matched pattern
+                c = config.module_fqn_to_config[maybe_module_fqn_pattern]
+                break
+        else:
+            # fallback to use default if no module specific config is provided
+            c = config.module_fqn_to_config.get("_default", None)
 
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
