@@ -1263,7 +1263,8 @@
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
-<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements_torch_function</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">)</span>
+<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
     <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span> <span class="o">=</span> <span class="p">(</span>
         <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>

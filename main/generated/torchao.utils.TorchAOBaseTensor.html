@@ -569,21 +569,14 @@ h: Optional[int] = None,</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.implements">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implements</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aten_ops_or_torch_fns</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.implements" title="Permalink to this definition">¶</a></dt>
-<dd><p>Use this decorator to implement a function for an aten ops in __torch_dispatch__
-(if user passed in a list of ops)
-or torch function in __torch_function__ (if user passed in a single object)</p>
-<dl class="simple">
-<dt>class MyTensor(torch.Tensor):</dt><dd><p>…
-implements = classmethod(_implements)</p>
-</dd>
-</dl>
-<p>implements = MyTensor.implements</p>
-<p>&#64;implements(torch.nn.functional.linear):
-def _(func, types, args, kwargs):</p>
-<blockquote>
-<div><p>…</p>
-</div></blockquote>
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implements</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aten_ops</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.implements" title="Permalink to this definition">¶</a></dt>
+<dd><p>Decorator to implement aten ops for __torch_dispatch__.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.implements_torch_function">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implements_torch_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">torch_fns</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.implements_torch_function" title="Permalink to this definition">¶</a></dt>
+<dd><p>Decorator to implement __torch_function__.</p>
 </dd></dl>
 
 <dl class="py method">
