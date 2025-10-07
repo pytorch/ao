@@ -90,9 +90,7 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
-    _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER,
     register_quantize_module_handler,
-    register_quantize_tensor_handler,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
@@ -1806,7 +1804,6 @@ float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
 )
 
 
-@register_quantize_tensor_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -1879,7 +1876,10 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
+    module: torch.nn.Module,
+    config: Float8DynamicActivationFloat8WeightConfig,
+    *,
+    param_name: str = "weight",
 ):
     assert is_sm_at_least_89() or is_MI300(), (
         "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
@@ -1887,14 +1887,16 @@ def _float8_dynamic_activation_float8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying float8 dynamic activation quant requires module to have weight attribute"
+    assert hasattr(module, param_name), (
+        "applying float8 dynamic activation quant requires module to have parameter {param_name} attribute"
         + f"but {module} does not have one"
     )
-    quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-        module.weight, config
+    quantized_tensor = _float8_dynamic_activation_float8_weight_quantize_tensor(
+        getattr(module, param_name), config
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    setattr(
+        module, param_name, torch.nn.Parameter(quantized_tensor, requires_grad=False)
+    )
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -2435,6 +2437,12 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
 # maintain BC
 ModuleFqnToConfig = ModuleOrParamFqnToConfig
 
+# for now, we need to keep track of what configs support custom param quantization.
+# Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
+CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS = {
+    Float8DynamicActivationFloat8WeightConfig,
+}
+
 
 def _param_fqn_to_config_handler(
     mod_containing_param: torch.nn.Module, fqn: str, config: ModuleOrParamFqnToConfig
@@ -2480,10 +2488,9 @@ def _param_fqn_to_config_handler(
                 pattern.startswith("re:") and re.fullmatch(pattern[3:], f"{fqn}.{name}")
             ):
                 param_config_type = type(param_config)
-                if param_config_type in _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER:
-                    handler = _QUANTIZE_CONFIG_TENSOR_PARAM_HANDLER[param_config_type]
-                    new_param = handler(param, param_config)
-                    setattr(mod_containing_param, name, new_param)
+                if param_config_type in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                    handler = _QUANTIZE_CONFIG_HANDLER[param_config_type]
+                    handler(mod_containing_param, param_config, param_name=name)
                 else:
                     raise NotImplementedError(
                         f"Parameter quantization for {param_config_type} not supported currently!"
