@@ -2385,29 +2385,24 @@ def _fpx_weight_only_transform(
 class ModuleOrParamFqnToConfig(AOBaseConfig):
     """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
-    This extends the functionality of ModuleFqnToConfig to support parameter-level quantization configurations
-    in addition to module-level configurations. It allows for fine-grained control over quantization by
-    specifying configurations for individual parameters or modules using regex pattern matching on their FQNs.
+    Users can either explicitly specify a specific FQN or pass in a regex pattern to match FQNs.
 
-    When passed this config, `quantize_` will first try to replace all modules in the model, matching the logic of ModuleFqnToConfig.
-    Then, quantize_ will attempt to replace any parameters specified by the fqn or that match regexs, ignoring modules that have already been transformed by the previous flow (Modules with an existing AOBaseTensor attached)
-
-    "_default" is ignored for parameter replacement.
-
+    `quantize_` will first try to replace all modules matching the keys of ModuleOrParamFqnToConfig.module_or_param_fqn_to_config,
+    It will then will try to replace any parameters that match the keys, ignoring modules that have already been transformed by the previous flow (modules that contain AOBaseTensor parameters):
 
     Args:
         module_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
             regex patterns (as strings) to quantization configurations.
 
             The patterns can be one of the follows:
-             (1). fully qualified name (fqn) of module or
+             (1). fully qualified name (fqn) of module or paramter or
              (2). regex of fully qualified name (in python `re` module regex format), should
                   start with prefix "re:" or
              (3). "_default"
 
     Config key ordered by precedence:
-    * fully qualified module name, e.g. `language.layers.0.q_proj`
-    * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+    * fully qualified module or paramteter name, e.g. `language.layers.0.q_proj`
+    * regex for module or parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
         whiever regex fully matches the module fqn first will be applied
         (order of keys for dictionary are kept consistent since we are using OrderedDict)
     * "_default", fallback for **all modules** if no match for all previous keys
@@ -2417,10 +2412,12 @@ class ModuleOrParamFqnToConfig(AOBaseConfig):
         None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
 
     Note:
-        - The order of patterns in the OrderedDict matters as the first matching pattern is applied
+        - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied
         - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
+        - "_default" is ignored for parameter replacement.
     """
 
+    # to maintain BC, we keep the same name as ModuleFqnToConfig before
     module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
