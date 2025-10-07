@@ -219,6 +219,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
 
 # Subclass op dispatch registration
 implements = BlockSparseTensor.implements
+implements_torch_function = BlockSparseTensor.implements_torch_function
 
 
 @implements(aten.detach.default)
@@ -301,7 +302,7 @@ def block_sparse__nnz(func, types, args, kwargs):
     return args[0].bsr_values.shape[0]
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def block_sparse_linear(func, types, args, kwargs):
     x_orig, w, bias = args
     x = x_orig.reshape(-1, x_orig.size(-1)).t()

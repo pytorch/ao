@@ -245,6 +245,7 @@ class Float8Tensor(TorchAOBaseTensor):
 
 
 implements = Float8Tensor.implements
+implements_torch_function = Float8Tensor.implements_torch_function
 
 
 @implements(aten.linear.default)
@@ -416,7 +417,7 @@ def _float8_linear_impl(
         )
 
 
-@implements(torch.bmm)
+@implements_torch_function(torch.bmm)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = (
         args[0],
