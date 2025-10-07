@@ -11,6 +11,7 @@ from torchao.prototype.moe_training.kernels.triton_utils import (
     blockwise_barrier,
     sync_threads,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import to_dtype, to_mx
 
 
@@ -468,14 +469,15 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
         """
         Dynamically quantizes input to mxfp8, performs all-to-all, then dequantizes output back to original precision.
         Requires d2h sync to get input_splits and output_splits on host, as required by torch.distributed.all_to_all_single API.
+        Uses RCEIL scaling mode for quantization.
         """
-
         # Quantize input
         block_size = 32
         input_scales, input_data = to_mx(
             input,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
+            scaling_mode=ScaleCalculationMode.RCEIL,
         )
 
         # Dispatch data (async)
@@ -531,6 +533,7 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
             grad_output_hp,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
+            scaling_mode=ScaleCalculationMode.RCEIL,
         )
 
         # Dispatch data (async)
@@ -550,8 +553,8 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
         )
 
         # Explicitly wait since the a2a ops are async
-        grad_input_scales = torch.ops._c10d_functional.wait_tensor(grad_input_scales)
         grad_input_data = torch.ops._c10d_functional.wait_tensor(grad_input_data)
+        grad_input_scales = torch.ops._c10d_functional.wait_tensor(grad_input_scales)
 
         hp_dtype = grad_output_hp.dtype
         lowp_dtype = grad_input_data.dtype
