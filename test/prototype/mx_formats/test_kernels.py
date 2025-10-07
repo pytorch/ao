@@ -440,12 +440,11 @@ def triton_to_mxfp8_dim0_reference(
     """
     from torchao.prototype.mx_formats.mx_tensor import to_mx
 
-    # cast across dim0 (rowwise) - no transpose needed
     scale_e8m0_dim0, x_hp_d0_normalized = to_mx(x_hp, torch.float8_e4m3fn, block_size)
     scale_e8m0_dim0 = scale_e8m0_dim0.view(torch.float8_e8m0fnu)
     return (
         x_hp_d0_normalized,
-        scale_e8m0_dim0.unsqueeze(-1),
+        scale_e8m0_dim0,
     )
 
 
