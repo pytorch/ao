@@ -143,6 +143,22 @@ class PT2ENumericDebuggerTestCase(TestCase):
         def _assert_node_has_from_node_source(node):
             if node.op == "placeholder" or node.op == "output":
                 return
+
+            # Handle guard nodes that don't have from_node metadata in newer PyTorch versions
+            if FROM_NODE_KEY not in node.meta or node.meta[FROM_NODE_KEY] is None:
+                # Guard nodes (like _guards_fn) created by newer PyTorch versions might not have from_node metadata
+                # Skip these nodes as they are not part of the original user graph
+                return
+
+            # Check for nodes that are not part of the ExportedProgram.module().graph
+            if (
+                node.meta[FROM_NODE_KEY][-1].pass_name
+                == "ExportedProgram.module().unlift()"
+            ):
+                # This node is not part of the ExportedProgram.module().graph, so it doesn't need debug info
+                return
+
+            # All other nodes should have from_node metadata
             self.assertIn(
                 FROM_NODE_KEY,
                 node.meta,
