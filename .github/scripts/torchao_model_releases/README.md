@@ -62,13 +62,13 @@ Examples:
 
 Note: for initial release, please include `--populate_model_card_template` to populate model card template.
 
-### SMOOTHQUANT-INT8-INT8
+### SmoothQuant-INT8-INT8
 [SmoothQuant](https://arxiv.org/abs/2211.10438) smooths activation outliers by migrating quantization difficulty from activations to weights through a mathematically equivalent per-channel scaling transformation. That means SmoothQuant observes activation distribution before applying quantization.
 
 Examples:
 ```
-# release SMOOTHQUANT-INT8-INT8 model, calibrated with a specific task
-python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SMOOTHQUANT-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
+# release SmoothQuant-INT8-INT8 model, calibrated with a specific task
+python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SmoothQuant-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
 ```
 
 ### AWQ-INT4
