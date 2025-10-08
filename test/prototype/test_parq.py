@@ -21,7 +21,6 @@ from torchao.prototype.parq.optim import (
 from torchao.prototype.parq.quant import (
     Int4UnifTorchaoQuantizer,
     LSBQuantizer,
-    Quantizer,
     StretchedIntxWeightConfig,
     StretchedUnifTorchaoQuantizer,
     TernaryUnifQuantizer,
@@ -46,7 +45,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     check_cpu_version,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -162,27 +161,41 @@ def build_param_groups(
     model,
     b: int = 2,
     group_size: Optional[int] = None,
-    quantizer: Optional[Quantizer] = None,
+    embed_b: int = 4,
 ):
     params_quant, params_embed, params_no_quant = split_param_groups(model)
     quant_kwargs = {}
     if group_size:
         quant_kwargs["quant_block_size"] = group_size
-    if quantizer is not None:
-        quant_kwargs["quantizer"] = quantizer
     param_groups = [
         {"params": params_quant, "quant_bits": b, **quant_kwargs},
         {"params": params_no_quant},
     ]
     if params_embed:
-        param_groups.append(
-            {
-                "params": params_embed,
-                "quant_bits": 4,
-                "quantizer": UnifTorchaoQuantizer(),
-            }
-        )
+        param_groups.append({"params": params_embed, "quant_bits": embed_b})
     return param_groups
+
+
+def get_optim_kwargs(
+    model, base_optimizer, embedding=True, quant_cls=UnifTorchaoQuantizer
+):
+    optim_kwargs = {}
+    if embedding:
+        embed_data_ptrs = set(
+            (
+                m.weight.data_ptr()
+                for m in model.modules()
+                if isinstance(m, nn.Embedding)
+            )
+        )
+        group_idx = -1
+        for i, group in enumerate(base_optimizer.param_groups):
+            if all(p.data_ptr() in embed_data_ptrs for p in group["params"]):
+                group_idx = i
+                break
+        assert group_idx > -1
+        optim_kwargs["group_quantizer_map"] = {group_idx: quant_cls()}
+    return optim_kwargs
 
 
 def compare_quantized_models(
@@ -222,7 +235,7 @@ def compare_parq_convert(
     orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
 
     # equivalent to torchao's convert step
-    optimizer.torchao_convert(model, weight_only=weight_only)
+    optimizer.torchao_convert(model, weight_only=weight_only, embed_weight_only=True)
 
     inputs = model.example_inputs(device=_DEVICE)
     torch.testing.assert_close(model(inputs), orig_model(inputs))
@@ -290,15 +303,16 @@ class TestPARQuantization(common_utils.TestCase):
             quantizer = TernaryUnifQuantizer() if b == 0 else UnifQuantizer()
         else:
             quantizer = LSBQuantizer()
-        param_groups = build_param_groups(
-            model, b, quantizer=quantizer if per_group_quantizer else None
-        )
+        param_groups = build_param_groups(model, b, embed_b=b)
         base_optimizer = torch.optim.AdamW(param_groups)
 
         prox_map = (
             ProxHardQuant() if hard_prox else ProxPARQ(anneal_start=0, anneal_end=2)
         )
-        optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map)
+        optim_kwargs = get_optim_kwargs(
+            model, base_optimizer, quant_cls=type(quantizer), embedding=False
+        )
+        optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map, **optim_kwargs)
         for _ in range(3):
             x = model.example_inputs(device=_DEVICE)
             out = model(x)
@@ -319,7 +333,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
@@ -356,7 +370,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     def test_int4_weight_only_e2e(self, group_size: int = 32):
         model = M(m=512, n=512, embedding=False).to(torch.bfloat16).to(_DEVICE)
@@ -367,11 +381,13 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
         b = 4
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             Int4UnifTorchaoQuantizer(),
             ProxHardQuant(),
             quant_per_channel=True,
+            **optim_kwargs,
         )
         compare_parq_convert(model, m_ref, optimizer, weight_only=True)
 
@@ -387,11 +403,13 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantize_(m_ref, config)
 
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             UnifTorchaoQuantizer(),
             ProxHardQuant(),
             quant_per_channel=True,
+            **optim_kwargs,
         )
         compare_parq_convert(model, m_ref, optimizer, weight_only=True)
         check_torchao_tensor_subclass(self, model, weight_only=True)
@@ -462,11 +480,13 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
         quantize_(m_ref, config, filter_fn=_is_linear)
 
         base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
             base_optimizer,
             quantizer,
             ProxHardQuant(),
             quant_per_channel=True,
+            **optim_kwargs,
         )
         compare_parq_convert(model, m_ref, optimizer, weight_only=True)
         check_torchao_tensor_subclass(self, model, weight_only=True)
@@ -482,14 +502,19 @@ class TestStretchedUnifTorchaoQuantizer(common_utils.TestCase):
 
         quantizer = StretchedUnifTorchaoQuantizer(b)
         base_optimizer = torch.optim.SGD(build_param_groups(model, b))
+        optim_kwargs = get_optim_kwargs(model, base_optimizer)
         optimizer = QuantOptimizer(
-            base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
+            base_optimizer,
+            quantizer,
+            ProxHardQuant(),
+            quant_per_channel=True,
+            **optim_kwargs,
         )
         optimizer.zero_grad()
         optimizer.step()
 
         apply_activation_quantization(model, optimizer, model_dtype)
-        optimizer.torchao_convert(model)
+        optimizer.torchao_convert(model, embed_weight_only=True)
         check_torchao_tensor_subclass(self, model)
         self.assertTrue(
             torch.equal(model.embed_tokens.weight.qdata, model.linear2.weight.qdata)
@@ -531,8 +556,13 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
         # quantize weights with PARQ
         base_optimizer = torch.optim.SGD(build_param_groups(model, b, group_size))
+        optim_kwargs = get_optim_kwargs(model, base_optimizer, embedding=False)
         optimizer = QuantOptimizer(
-            base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
+            base_optimizer,
+            quantizer,
+            ProxHardQuant(),
+            quant_per_channel=True,
+            **optim_kwargs,
         )
 
         optimizer.zero_grad()

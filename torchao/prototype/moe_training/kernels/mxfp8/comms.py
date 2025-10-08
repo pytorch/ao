@@ -3,11 +3,15 @@ import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
 import triton
 import triton.language as tl
+from torch.distributed._functional_collectives import (
+    all_to_all_single,
+)
 
 from torchao.prototype.moe_training.kernels.triton_utils import (
     blockwise_barrier,
     sync_threads,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import to_dtype, to_mx
 
 
@@ -31,12 +35,6 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
     # Maximum output length (need to be set before use of MXFP8OnDeviceAllToAllV)
     max_output_rows_per_rank = None
 
-    # A preallocated buffer for holding the output, that can be reused without cudaMalloc/cudaFree each iteration
-    output_buf = None
-
-    # A preallocated buffer for holding the output scales, that can be reused without cudaMalloc/cudaFree each iteration
-    output_scales_buf = None
-
     # A preallocated buffer for holding the grad_input, that can be reused without cudaMalloc/cudaFree each iteration
     grad_input_buf = None
 
@@ -47,6 +45,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
     grad_input_splits_buf = None
 
     @staticmethod
+    @torch.compiler.disable
     def forward(
         ctx,
         input: torch.Tensor,
@@ -165,6 +164,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         return hp_output_no_padding, output_splits
 
     @staticmethod
+    @torch.compiler.disable
     def backward(ctx, grad_output, grad_splits):
         """
         Backward is implemented as a shuffle of the output's gradients to the input.
@@ -455,3 +455,118 @@ def _exchange_row_offsets(
     output_offset_for_remote_rank = tl.sum(output_split_sizes)
 
     return input_offset_for_remote_rank, output_offset_for_remote_rank, num_rows_to_read
+
+
+class ToMXFP8AllToAllVDequant(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        output_splits: list[int],
+        input_splits: list[int],
+        group: dist.ProcessGroup = dist.group.WORLD,
+    ):
+        """
+        Dynamically quantizes input to mxfp8, performs all-to-all, then dequantizes output back to original precision.
+        Requires d2h sync to get input_splits and output_splits on host, as required by torch.distributed.all_to_all_single API.
+        Uses RCEIL scaling mode for quantization.
+        """
+        # Quantize input
+        block_size = 32
+        input_scales, input_data = to_mx(
+            input,
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            scaling_mode=ScaleCalculationMode.RCEIL,
+        )
+
+        # Dispatch data (async)
+        output_data = all_to_all_single(
+            input_data,
+            output_split_sizes=output_splits,
+            input_split_sizes=input_splits,
+            group=group,
+        )
+
+        # Dispatch scales (async)
+        output_scales = all_to_all_single(
+            input_scales.view(torch.uint8),  # NCCL cannot handle float8_e8m0fnu yet
+            output_split_sizes=output_splits,
+            input_split_sizes=input_splits,
+            group=group,
+        )
+
+        # Explicitly wait since the a2a ops are async
+        output_scales = torch.ops._c10d_functional.wait_tensor(output_scales)
+        output_data = torch.ops._c10d_functional.wait_tensor(output_data)
+
+        # Dequantize output
+        lowp_dtype = output_data.dtype
+        hp_dtype = input.dtype
+        hp_output = to_dtype(
+            output_data,
+            output_scales.view(torch.float8_e8m0fnu),
+            lowp_dtype,
+            block_size,
+            hp_dtype,
+        )
+
+        ctx.input_splits = input_splits
+        ctx.output_splits = output_splits
+        ctx.group = group
+        return hp_output
+
+    @staticmethod
+    def backward(ctx, grad_output_hp):
+        """
+        Backward is implemented as a shuffle of the output's gradients to the input.
+        Args:
+            `grad_output_hp`: high precision output gradient passed from upstream
+        """
+        # In backward, mxfp8_all_to_all_v input is `grad_output`, and output is `grad_input`.
+        # Input splits are the output splits from forward (and vice-versa).
+        input_splits, output_splits = ctx.input_splits, ctx.output_splits
+
+        # Quantize grad_output
+        block_size = 32
+        grad_out_scales, grad_out_data = to_mx(
+            grad_output_hp,
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            scaling_mode=ScaleCalculationMode.RCEIL,
+        )
+
+        # Dispatch data (async)
+        grad_input_data = all_to_all_single(
+            grad_out_data,
+            output_split_sizes=input_splits,
+            input_split_sizes=output_splits,
+            group=ctx.group,
+        )
+
+        # Dispatch scales (async)
+        grad_input_scales = all_to_all_single(
+            grad_out_scales.view(torch.uint8),  # NCCL cannot handle float8_e8m0fnu yet
+            output_split_sizes=input_splits,
+            input_split_sizes=output_splits,
+            group=ctx.group,
+        )
+
+        # Explicitly wait since the a2a ops are async
+        grad_input_data = torch.ops._c10d_functional.wait_tensor(grad_input_data)
+        grad_input_scales = torch.ops._c10d_functional.wait_tensor(grad_input_scales)
+
+        hp_dtype = grad_output_hp.dtype
+        lowp_dtype = grad_input_data.dtype
+        grad_input_hp = to_dtype(
+            grad_input_data,
+            grad_input_scales.view(torch.float8_e8m0fnu),
+            lowp_dtype,
+            block_size,
+            hp_dtype,
+        )
+        return grad_input_hp, None, None, None
+
+
+# Alias
+to_mxfp8_a2a_dequant = ToMXFP8AllToAllVDequant.apply

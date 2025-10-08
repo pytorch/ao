@@ -97,7 +97,7 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor,
 )
 from torchao.utils import (
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     is_fbcode,
     is_sm_at_least_89,
 )
@@ -1936,7 +1936,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     def test_quantize_api_fp8_int4(self):
         """
@@ -1952,7 +1952,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @unittest.skipIf(is_fbcode(), "cutlass cannot initialize")
     @parametrize("version", [1, 2])
@@ -2125,7 +2125,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_fp8_primitives(self):
@@ -2165,7 +2165,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_fp8_int4_preshuffled_primitives(self):
@@ -2247,7 +2247,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
-        not _is_fbgemm_genai_gpu_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
+        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
     @unittest.skipIf(is_fbcode(), "triton compilation error")
     def test_fbgemm_int4_weight_only_primitives(self):

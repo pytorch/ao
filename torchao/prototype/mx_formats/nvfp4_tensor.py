@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 import sys
 from dataclasses import dataclass
 from enum import Enum
@@ -24,7 +25,11 @@ from torchao.prototype.mx_formats.mx_tensor import (
     tensor_size_fp4x2_to_hp,
     tensor_size_hp_to_fp4x2,
 )
-from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.prototype.mx_formats.utils import (
+    from_blocked,
+    hp_data_dims_to_swizzled_scale_dims_nvfp4,
+    to_blocked,
+)
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
@@ -108,7 +113,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         new_size = tensor_size_fp4x2_to_hp(
             new_size,
-            qdata.stride(0) > qdata.stride(1),
+            qdata.stride(-2) > qdata.stride(-1),
         )
 
         self = torch.Tensor._make_wrapper_subclass(
@@ -170,10 +175,13 @@ class NVFP4Tensor(TorchAOBaseTensor):
         Returns:
             NVFP4Tensor: Quantized tensor in NVFP4 format
         """
+        assert len(data_hp.shape) in (2, 3), "unsupported"
+        leading_dims, M, K = data_hp.shape[:-2], data_hp.shape[-2], data_hp.shape[-1]
+
         if use_triton_kernel:
             assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
-            assert data_hp.shape[1] % 16 == 0, (
-                f"Triton kernel requires K (dim 1) to be divisible by 16, got {data_hp.shape[1]}"
+            assert K % 16 == 0, (
+                f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
             blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
         else:
@@ -181,11 +189,18 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 data_hp, block_size, per_tensor_scale
             )
             if is_swizzled_scales:
-                M, K = data_hp.shape[0], data_hp.shape[1]
-                scale_shape = (M, K // block_size)
+                scale_shape = (math.prod(leading_dims) * M, K // block_size)
                 blockwise_scales = to_blocked(
                     blockwise_scales.view(scale_shape)
                 ).flatten()
+
+        if is_swizzled_scales:
+            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(M, K)
+        else:
+            # a 1x16 unpacked or 1x8 packed qdata tile corresponds to 1
+            # scale element
+            scale_M, scale_K = M, K // block_size
+        blockwise_scales = blockwise_scales.view(*leading_dims, scale_M, scale_K)
 
         return NVFP4Tensor(
             data_lp,
@@ -211,22 +226,26 @@ class NVFP4Tensor(TorchAOBaseTensor):
         Returns:
             torch.Tensor: Dequantized tensor in the target dtype
         """
-        is_transposed = self.qdata.stride(0) < self.qdata.stride(1)
+        is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
         if is_transposed:
-            M, K = self.shape[1], self.shape[0]
+            leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
         else:
-            M, K = self.shape[0], self.shape[1]
-        data = self.qdata.t() if is_transposed else self.qdata
+            leading_dims, M, K = self.shape[:-2], self.shape[-2], self.shape[-1]
+        data = self.qdata.transpose(-2, -1) if is_transposed else self.qdata
         data_unpacked = unpack_uint4(data.contiguous().view(torch.uint8))
         data_f32 = f4_unpacked_to_f32(data_unpacked)
 
-        data_f32 = data_f32.view(M, K // self._block_size, self._block_size)
-        scale_e4m3_reshaped = self.get_hp_scales().view(M, K // self._block_size, 1)
+        data_f32 = data_f32.view(
+            *leading_dims, M, K // self._block_size, self._block_size
+        )
+        scale_e4m3_reshaped = self.get_hp_scales().view(
+            *leading_dims, M, K // self._block_size, 1
+        )
         data_scaled = data_f32 * scale_e4m3_reshaped.to(torch.float32)
-        result = data_scaled.view(M, K).to(target_dtype)
+        result = data_scaled.view(*leading_dims, M, K).to(target_dtype)
 
         if is_transposed:
-            result = result.t()
+            result = result.transpose(-2, -1)
 
         return result
 
@@ -236,16 +255,18 @@ class NVFP4Tensor(TorchAOBaseTensor):
         Returns:
             torch.Tensor: Scales of the NVFP4Tensor
         """
-        is_transposed = self.qdata.stride(0) < self.qdata.stride(1)
+        is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
         if is_transposed:
-            M, K = self.shape[1], self.shape[0]
+            leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
+            scale_e4m3 = self._scale_e4m3.transpose(-2, -1)
         else:
-            M, K = self.shape[0], self.shape[1]
+            leading_dims, M, K = self.shape[:-2], self.shape[-2], self.shape[-1]
+            scale_e4m3 = self._scale_e4m3
 
         if self._is_swizzled_scales:
-            scale_e4m3 = from_blocked(self._scale_e4m3, M, K // self._block_size)
-        else:
-            scale_e4m3 = self._scale_e4m3
+            scale_e4m3 = from_blocked(
+                scale_e4m3, math.prod(leading_dims) * M, K // self._block_size
+            )
 
         return (
             scale_e4m3.to(self._orig_dtype)
@@ -366,8 +387,16 @@ def nvfp4_slice(func, types, args, kwargs):
         raise ValueError("Only support aten.slice with step=1")
 
     assert x.qdata.is_contiguous(), "Only support contiguous data for now"
+    assert len(x.shape) == 2, (
+        f"only rank 2 is supported for slice, got rank {len(x.shape)}"
+    )
 
     M, K = x.shape[0], x.shape[1]
+
+    # The scale manipulations below assume a flattened scale. For now, we
+    # flatten the scale, go through the calculations below, and then reshape
+    # it back to the format which matches the shape of `qdata`.
+    # TODO(future PR): update this
 
     if x._is_swizzled_scales:
         scale_rows = M
@@ -407,7 +436,9 @@ def nvfp4_slice(func, types, args, kwargs):
                 else None
             )
 
-            sliced_scale = aten.slice.Tensor(x._scale_e4m3, 0, start_idx, end_idx, 1)
+            sliced_scale = aten.slice.Tensor(
+                x._scale_e4m3.flatten(), 0, start_idx, end_idx, 1
+            )
             sliced_data = aten.slice.Tensor(x.qdata, 0, start, end, step)
 
         elif dim == 1:
@@ -462,7 +493,7 @@ def nvfp4_slice(func, types, args, kwargs):
                     row_start = row_block * elements_per_row_block
                     col_start = row_start + start_col_block * elements_per_block
                     col_end = row_start + end_col_block * elements_per_block
-                    slices_to_extract.append(x._scale_e4m3[col_start:col_end])
+                    slices_to_extract.append(x._scale_e4m3.flatten()[col_start:col_end])
 
                 # Concatenate all the slices
                 sliced_scale = torch.cat(slices_to_extract, dim=0)
@@ -515,6 +546,19 @@ def nvfp4_slice(func, types, args, kwargs):
 
         sliced_scale = sliced_scale.flatten()
 
+    # reshape at the end
+    sliced_M = sliced_data.shape[0]
+    # multiply by 2 to convert from bytes to num_elements
+    sliced_K = sliced_data.shape[1] * 2
+    if x._is_swizzled_scales:
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(sliced_M, sliced_K)
+    else:
+        # a 1x16 unpacked or 1x8 packed qdata tile corresponds to 1
+        # scale element
+        scale_M = sliced_M
+        scale_K = sliced_K // x._block_size
+    sliced_scale = sliced_scale.view(scale_M, scale_K)
+
     # Create result tensor
     result = NVFP4Tensor(
         sliced_data,
@@ -537,7 +581,29 @@ def nvfp4_t(func, types, args, kwargs):
     old = args[0]
     new = NVFP4Tensor(
         old.qdata.t(),
-        old._scale_e4m3,
+        old._scale_e4m3.t(),
+        old._block_size,
+        old._orig_dtype,
+        old._per_tensor_scale,
+        old._act_per_tensor_scale,
+        old._is_swizzled_scales,
+        old.use_triton_kernel,
+        old.act_quant_kwargs,
+    )
+    return new
+
+
+@implements([aten.transpose.int])
+def nvfp4_transpose(func, types, args, kwargs):
+    old, dim0, dim1 = args
+    assert len(old.shape) == 3, f"unsupported rank {len(old.shape)}"
+    valid_3d_dims = ((1, 2), (2, 1), (-1, -2), (-2, -1))
+    assert (dim0, dim1) in valid_3d_dims, f"transpose unsupported for {dim0=} {dim1=}"
+    new_qdata = func(old.qdata, dim0, dim1, **kwargs)
+    new_scale = func(old._scale_e4m3, dim0, dim1, **kwargs)
+    new = NVFP4Tensor(
+        new_qdata,
+        new_scale,
         old._block_size,
         old._orig_dtype,
         old._per_tensor_scale,
@@ -568,6 +634,25 @@ def nvfp4_view_op(func, types, args, kwargs):
     )
 
 
+@implements([aten.select.int])
+def nvfp4_select(func, types, args, kwargs):
+    old, dim, index = args
+    assert dim == 0, f"NVFP4Tensor aten.select.int with {dim=} is not yet supported"
+    assert len(old.qdata.shape) == len(old._scale_e4m3.shape), "unsupported"
+    new = old.__class__(
+        old.qdata[index],
+        old._scale_e4m3[index],
+        old._block_size,
+        old._orig_dtype,
+        old._per_tensor_scale,
+        old._act_per_tensor_scale,
+        old._is_swizzled_scales,
+        old.use_triton_kernel,
+        old.act_quant_kwargs,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
 def _addmm_nvfp4_dispatch(
     a: NVFP4Tensor, b: NVFP4Tensor, aten_op, bias: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
@@ -576,7 +661,9 @@ def _addmm_nvfp4_dispatch(
     The only difference is whether bias is None or not.
     """
     assert a.qdata.is_contiguous()
+    assert a._scale_e4m3.is_contiguous()
     assert b.qdata.t().is_contiguous()
+    assert b._scale_e4m3.t().is_contiguous()
     assert a._block_size == 16, f"NVFP4 requires block_size=16, got {a._block_size}"
     assert b._block_size == 16, f"NVFP4 requires block_size=16, got {b._block_size}"
 
@@ -591,9 +678,9 @@ def _addmm_nvfp4_dispatch(
         a_scale_blocked = to_blocked(a_scale)
 
     if b._is_swizzled_scales:
-        b_scale_blocked = b._scale_e4m3  # Already swizzled
+        b_scale_blocked = b._scale_e4m3.t()  # Already swizzled
     else:
-        b_scale = b._scale_e4m3.view(N, K // b._block_size)
+        b_scale = b._scale_e4m3.t().view(N, K // b._block_size)
         b_scale_blocked = to_blocked(b_scale)
 
     # Merge double quant scales into 1 scale for Scale_In^D

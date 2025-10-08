@@ -7,7 +7,7 @@
 #
 # To run these benchmarks, use the following command:
 #
-# torchrun --nproc-per-node=8 --local-ranks-filter=0 benchmarks/prototype/moe_training/mxfp8/bench_all_to_all_v.py
+# torchrun --nproc-per-node=4 --local-ranks-filter=0 benchmarks/prototype/moe_training/mxfp8/bench_all_to_all_v.py
 #
 #######################################################################
 import argparse
@@ -24,11 +24,12 @@ from torch.distributed._functional_collectives import (
     all_to_all_single,
     all_to_all_single_autograd,
 )
+from torch.nn import functional as F
 from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    mxfp8_on_device_all_to_all_v,
+    to_mxfp8_a2a_dequant,
 )
 
 device = torch.device("cuda")
@@ -66,50 +67,13 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-# Copy/paste a2a impls added in https://github.com/pytorch/torchtitan/pull/1765
-def default_a2a_dispatch(
+def default_a2a_fwd_bwd(
     routed_input: torch.Tensor,
-    num_tokens_per_expert: torch.Tensor,
+    labels: torch.Tensor,
+    output_splits_list: list[int],
+    input_splits_list: list[int],
     device_mesh: DeviceMesh,
 ):
-    """
-    Default implementation of all-to-all dispatch. Incurs device-to-host sync.
-
-    Returns:
-        routed_input: the local tokens after all-to-all dispatch
-        input_splits: the input splits for all-to-all dispatch
-        output_splits: the output splits for all-to-all dispatch
-        num_tokens_per_expert_group: the number of tokens per EP rank after all-to-all dispatch
-    """
-    ep_degree = device_mesh.size(0)
-    # generate the input splits and output splits for all-to-all
-    with torch.no_grad():
-        num_tokens_per_expert_group = all_to_all_single(
-            num_tokens_per_expert,
-            None,
-            None,
-            group=device_mesh.get_group(),
-        )
-        # Need to wait explicitly because it is used by a triton kernel later
-        # which doesn't realize that AsyncCollectiveTensor needs unwrapping
-        num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
-            num_tokens_per_expert_group
-        )
-        input_splits = (
-            num_tokens_per_expert.view(ep_degree, -1)
-            .sum(dim=1)
-            .to(torch.device("cpu"), non_blocking=True)
-        )
-        # NOTE: this would incur a device-to-host sync
-        output_splits = (
-            num_tokens_per_expert_group.view(ep_degree, -1)
-            .sum(dim=1)
-            .to(torch.device("cpu"), non_blocking=False)
-        )
-        input_splits_list = input_splits.tolist()
-        output_splits_list = output_splits.tolist()
-
-    # perform all-to-all
     routed_input = all_to_all_single_autograd(
         routed_input,
         output_splits_list,
@@ -117,55 +81,37 @@ def default_a2a_dispatch(
         device_mesh.get_group(),
     )
     routed_input = torch.ops._c10d_functional.wait_tensor(routed_input)
-    return (
-        routed_input,
-        input_splits_list,
-        output_splits_list,
-        num_tokens_per_expert_group,
-    )
+
+    loss = F.mse_loss(routed_input, labels)
+    loss.backward()
+
+    torch.cuda.synchronize()
+    return routed_input
 
 
-def mxfp8_a2a_dispatch(
+def mxfp8_a2a_fwd_bwd(
     routed_input: torch.Tensor,
-    num_tokens_per_expert: torch.Tensor,
+    labels: torch.Tensor,
+    output_splits_list: list[int],
+    input_splits_list: list[int],
     device_mesh: DeviceMesh,
-    max_tokens_per_ep_rank: int,
 ):
-    """
-    Perform on-device all-to-all dispatch with dynamically quantized mxfp8 inputs to save network bandwidth
-    and avoid device-to-host sync.
-
-    Returns:
-        routed_input: the local tokens after all-to-all dispatch
-        input_splits: the input splits for all-to-all dispatch
-        output_splits: the output splits for all-to-all dispatch
-    """
-
-    ep_degree = device_mesh.size(0)
-    num_tokens_per_expert_group = all_to_all_single(
-        num_tokens_per_expert,
-        None,
-        None,
-        group=device_mesh.get_group(),
-    )
-    input_splits_per_ep_rank = num_tokens_per_expert.view(ep_degree, -1).sum(dim=1)
-    num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
-        num_tokens_per_expert_group
-    )
-    routed_input, output_splits_per_ep_rank = mxfp8_on_device_all_to_all_v(
+    routed_input = to_mxfp8_a2a_dequant(
         routed_input,
-        input_splits_per_ep_rank,
-        max_tokens_per_ep_rank,
-        device_mesh.get_group().group_name,
+        output_splits_list,
+        input_splits_list,
+        device_mesh.get_group(),
     )
-    tokens_on_rank_after_a2a = output_splits_per_ep_rank.sum()
-    routed_input_no_padding = routed_input[:tokens_on_rank_after_a2a]
-    return (
-        routed_input_no_padding,
-        input_splits_per_ep_rank,
-        output_splits_per_ep_rank,
-        num_tokens_per_expert_group,
-    )
+
+    loss = F.mse_loss(routed_input, labels)
+    loss.backward()
+    torch.cuda.synchronize()
+    return routed_input
+
+
+# Compile target funcs
+default_a2a_sync_compiled = torch.compile(default_a2a_fwd_bwd)
+mxfp8_a2a_sync_compiled = torch.compile(mxfp8_a2a_fwd_bwd)
 
 
 def run_experiment(
@@ -176,15 +122,15 @@ def run_experiment(
         (batch_size * seq_len, dim),
         dtype=torch.bfloat16,
         device=device,
+        requires_grad=True,
     )
-    ref_x = x.detach().clone()
+    ref_x = x.detach().clone().requires_grad_(True)
 
     # Set up device mesh
     mesh = init_device_mesh("cuda", (dist.get_world_size(),))
 
     # Max output tokens per rank is worst case where one rank receives all tokens
     input_tokens_per_rank = batch_size * seq_len
-    max_output_tokens_per_rank = input_tokens_per_rank * dist.get_world_size()
 
     def warmup(func_no_args):
         for _ in range(2):
@@ -195,40 +141,56 @@ def run_experiment(
     input_splits = generate_split_sizes(
         num_splits, input_tokens_per_rank, device=device
     )
+    input_splits_list, output_splits_list = get_split_lists(input_splits, mesh)
 
-    # Bench default a2a
-    warmup(lambda: default_a2a_dispatch(ref_x, input_splits, mesh))
+    # Generate labels
+    labels_shape = (sum(output_splits_list), dim)
+    labels = x.new_ones(*labels_shape)
+
+    # Bench default a2a (exclude d2h sync from preparing input splits_list and output_splits_list)
+    warmup(
+        lambda: default_a2a_sync_compiled(
+            ref_x, labels, output_splits_list, input_splits_list, mesh
+        )
+    )
     start_sec = time.perf_counter()
-    default_a2a_dispatch(ref_x, input_splits, mesh)
+    default_a2a_sync_compiled(
+        ref_x, labels, output_splits_list, input_splits_list, mesh
+    )
     end_sec = time.perf_counter()
     bf16_ms = (end_sec - start_sec) * 1e3
     if args.profile:
         profile_fn(
-            default_a2a_dispatch,
+            default_a2a_sync_compiled,
             ref_x,
-            input_splits,
+            labels,
+            output_splits_list,
+            input_splits_list,
             mesh,
             distributed=True,
             profile_name="all_to_all_single_autograd",
         )
 
-    # Bench mxfp8 a2a
+    # Bench mxfp8 sync a2a (exclude d2h sync from preparing input splits_list and output_splits_list)
     warmup(
-        lambda: mxfp8_a2a_dispatch(x, input_splits, mesh, max_output_tokens_per_rank)
+        lambda: mxfp8_a2a_sync_compiled(
+            x, labels, output_splits_list, input_splits_list, mesh
+        )
     )
     start_sec = time.perf_counter()
-    mxfp8_a2a_dispatch(x, input_splits, mesh, max_output_tokens_per_rank)
+    mxfp8_a2a_sync_compiled(x, labels, output_splits_list, input_splits_list, mesh)
     end_sec = time.perf_counter()
     mxfp8_ms = (end_sec - start_sec) * 1e3
     if args.profile:
         profile_fn(
-            mxfp8_a2a_dispatch,
+            mxfp8_a2a_sync_compiled,
             x,
-            input_splits,
+            labels,
+            output_splits_list,
+            input_splits_list,
             mesh,
-            max_output_tokens_per_rank,
             distributed=True,
-            profile_name="mxfp8_all_to_all_v",
+            profile_name="to_mxfp8_a2a_dequant",
         )
 
     return ExperimentResult(
@@ -256,6 +218,41 @@ def print_results(experiments: List[Experiment]):
             ]
         )
     print(tabulate(rows, headers=headers))
+
+
+def get_split_lists(
+    num_tokens_per_expert: torch.Tensor, device_mesh: DeviceMesh
+) -> tuple[list[int], list[int]]:
+    ep_degree = device_mesh.size(0)
+
+    # generate the input splits and output splits for sync-impls
+    num_tokens_per_expert_group = all_to_all_single(
+        num_tokens_per_expert,
+        None,
+        None,
+        group=device_mesh.get_group(),
+    )
+    # Need to wait explicitly because it is used by a triton kernel later
+    # which doesn't realize that AsyncCollectiveTensor needs unwrapping
+    num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
+        num_tokens_per_expert_group
+    )
+    input_splits = (
+        num_tokens_per_expert.view(ep_degree, -1)
+        .sum(dim=1)
+        .to(torch.device("cpu"), non_blocking=True)
+    )
+    # NOTE: this would incur a device-to-host sync
+    output_splits = (
+        num_tokens_per_expert_group.view(ep_degree, -1)
+        .sum(dim=1)
+        .to(torch.device("cpu"), non_blocking=False)
+    )
+
+    input_splits_list = input_splits.tolist()
+    output_splits_list = output_splits.tolist()
+
+    return input_splits_list, output_splits_list
 
 
 def generate_split_sizes(K: int, N: int, device: str = "cuda") -> torch.Tensor:
