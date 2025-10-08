@@ -18,9 +18,9 @@ class ToySingleLinearModel(torch.nn.Module):
         self,
         input_dim,
         output_dim,
+        dtype,
+        device,
         has_bias=False,
-        dtype=None,
-        device=None,
     ):
         super().__init__()
         self.dtype = dtype
@@ -50,9 +50,9 @@ class ToyTwoLinearModel(torch.nn.Module):
         input_dim,
         hidden_dim,
         output_dim,
+        dtype,
+        device,
         has_bias=False,
-        dtype=None,
-        device=None,
     ):
         super().__init__()
         self.dtype = dtype
@@ -238,7 +238,7 @@ def create_model_and_input_data(
         m, k, n (int): dimensions of the model and input data
     """
     if model_type == "linear":
-        model = ToyTwoLinearModel(k, m, n, device=device, dtype=high_precision_dtype)
+        model = ToySingleLinearModel(k, n, device=device, dtype=high_precision_dtype)
         input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string
