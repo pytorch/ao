@@ -19,7 +19,9 @@ from .GPTQ import (
     MultiTensorInputRecorder,
 )
 from .granularity import (
+    Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -43,7 +45,6 @@ from .observer import (
 )
 from .quant_api import (
     CutlassInt4PackedLayout,
-    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -161,7 +162,6 @@ __all__ = [
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
     "ModuleFqnToConfig",
-    "FbgemmConfig",
     # tensor subclasses
     "Int4Tensor",
     "Int4PlainInt32Tensor",
@@ -199,8 +199,10 @@ __all__ = [
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "Granularity",
     "PerTensor",
     "PerAxis",
+    "PerBlock",
     "PerGroup",
     "PerRow",
     "PerToken",

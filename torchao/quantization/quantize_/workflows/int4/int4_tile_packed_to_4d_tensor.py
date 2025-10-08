@@ -6,7 +6,7 @@
 
 
 import math
-from typing import List
+from typing import List, Optional
 
 import torch
 
@@ -44,6 +44,11 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
                    for example groupwise quantization will have block_size (1, group_size)
         shape: shape of the original Tensor
 
+    Optional Tensor Data Attributes:
+        act_pre_scale (Optional[Tensor]): Optional scale for activation Tensor, if present,
+               we'll multiply activation Tensor with act_pre_scale before applying dynamic
+               quantization to activation or running quantized mm op
+
     Note on Details for tile packed to 4d packing format:
 
       This is used by tinygemm kernels `_weight_int4pack_mm`. The weight is stored as
@@ -53,6 +58,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
 
     tensor_data_names = ["qdata", "scale_and_zero"]
     tensor_attribute_names = ["block_size", "shape"]
+    optional_tensor_data_names = ["act_pre_scale"]
 
     def __new__(
         cls,
@@ -60,6 +66,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         scale_and_zero: torch.Tensor,
         block_size: List[int],
         shape: torch.Size,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -73,13 +80,18 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         scale_and_zero: torch.Tensor,
         block_size: List[int],
         shape: torch.Size,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size
+        self.act_pre_scale = act_pre_scale
 
     def _quantization_type(self):
-        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        if self.act_pre_scale is not None:
+            s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
+        return s
 
     @classmethod
     def from_hp(
@@ -214,18 +226,21 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
 
-        return cls(
+        return Int4TilePackedTo4dTensor(
             qdata=packed_weight,
             scale_and_zero=scale_and_zero,
             block_size=block_size,
             shape=original_shape,
+            act_pre_scale=None,
         )
 
 
 implements = Int4TilePackedTo4dTensor.implements
+implements_torch_function = Int4TilePackedTo4dTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -246,9 +261,12 @@ def _(func, types, args, kwargs):
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
     )
 
+    if weight_tensor.act_pre_scale is not None:
+        input_tensor = input_tensor * weight_tensor.act_pre_scale
+
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
-    packed_weight = weight_tensor.qdata
+    qdata = weight_tensor.qdata
     scale_and_zero = weight_tensor.scale_and_zero
     original_shape = weight_tensor.shape
 
@@ -266,7 +284,7 @@ def _(func, types, args, kwargs):
         y = act_mat
     else:
         y = torch.ops.aten._weight_int4pack_mm(
-            act_mat, packed_weight, groupsize, scale_and_zero
+            act_mat, qdata, groupsize, scale_and_zero
         )
     # remove out_feature padding
     orig_out_features = original_shape[-2]
@@ -313,6 +331,7 @@ def _(func, _types, args, _kwargs):
             self.scale_and_zero,
             self.block_size,
             self.shape,
+            act_pre_scale=self.act_pre_scale,
         )
 
     pw_ratio = data_len / pw_len
@@ -338,6 +357,7 @@ def _(func, _types, args, _kwargs):
         scale_and_zero,
         block_size,
         new_shape,
+        act_pre_scale=self.act_pre_scale,
     )
 
 

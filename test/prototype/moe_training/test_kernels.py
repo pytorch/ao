@@ -12,7 +12,6 @@ import torch
 if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
     triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
@@ -21,7 +20,7 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
 )
-from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+from torchao.prototype.moe_training.kernels.mxfp8 import (
     compute_blocked_scale_offsets_for_K_groups,
     compute_blocked_scale_offsets_for_M_groups,
     torch_to_blocked_2d_K_groups,
@@ -38,8 +37,11 @@ from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_colwise,
     torch_to_float8_per_group_rowwise,
 )
-from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import (
+    is_sm_at_least_100,
+)
 
 
 @skip_if_rocm("ROCm enablement in progress")
@@ -213,7 +215,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
 @pytest.mark.parametrize(
     "m,k,n_groups", [(256, 256, 4), (16640, 5120, 16), (16640, 8192, 16)]
 )
-def test_mxfp8_per_group_blocked_scales_2d(
+def test_triton_mx_block_rearrange_2d_M_groups(
     m: int,
     k: int,
     n_groups: int,
@@ -271,11 +273,14 @@ def test_mxfp8_per_group_blocked_scales_3d(
     )
 
 
+@pytest.mark.skip(
+    "Temporarily disable and use e2e training numerical tests instead. See: https://github.com/pytorch/ao/pull/2990#discussion_r2354167396"
+)
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
 @pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
-def test_mxfp8_per_group_blocked_scales_2d2d(
+def test_triton_mx_block_rearrange_2d_K_groups(
     m: int,
     total_k: int,
     n_groups: int,
@@ -313,3 +318,52 @@ def test_mxfp8_per_group_blocked_scales_2d2d(
         output_group_offsets,
     )
     assert torch.equal(ref_out_scales, triton_out_scales), "blocked scales not equal"
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.parametrize("E", (1, 2, 4, 8))
+@pytest.mark.parametrize("N", (32, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
+@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.FLOOR,))
+def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
+    from torchao.prototype import mxfp8_cuda
+
+    scaling_mode_str = (
+        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
+    )
+    block_size = 32
+
+    # Use disinct incrementing values from 0 to E*M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, E * N * K, dtype=input_dtype, device="cuda")
+        .reshape(E, N, K)
+        .contiguous()
+    )
+
+    # Reference implementation
+    s_d1_ref, y_d1_ref = to_mx(
+        # Transpose so N is final dim, since to_mx scales along that dim
+        x.transpose(-2, -1).contiguous(),
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+    )
+
+    # Transpose tensors and scales back so we have effectively
+    # quantized input shape (E, N, K) along N
+    y_d1_ref = y_d1_ref.transpose(-2, -1)
+    s_d1_ref = s_d1_ref.transpose(-2, -1)
+
+    # CUDA implementation (should work with any stride pattern)
+    y_d1, s_d1 = mxfp8_cuda.quantize_3d(
+        x, scale_dim_n=block_size, scaling_mode=scaling_mode_str
+    )
+    # Check scales
+    torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+
+    # Check quantized values
+    torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+    assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"

@@ -14,7 +14,7 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+from torchao.prototype.moe_training.kernels.mxfp8 import (
     compute_blocked_scale_offsets_for_M_groups,
     torch_to_blocked_2d_M_groups,
     triton_mx_block_rearrange_2d_M_groups,
@@ -80,6 +80,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     Mg, K = input_shape
     input_group_offsets = generate_jagged_offs(num_groups, Mg, multiple_of=32)
+    _, output_group_offsets = compute_blocked_scale_offsets_for_M_groups(
+        input_group_offsets
+    )
 
     # bench torch
     compiled_run_torch = torch.compile(torch_to_blocked_2d_M_groups)
@@ -90,14 +93,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         compiled_run_torch,
         input_tensor,
         input_group_offsets,
-        Mg,
         K,
     )
 
     # bench triton
-    _, output_group_offsets = compute_blocked_scale_offsets_for_M_groups(
-        input_group_offsets
-    )
     triton_out_scales = triton_mx_block_rearrange_2d_M_groups(
         input_tensor,
         input_group_offsets,

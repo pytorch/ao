@@ -16,8 +16,9 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 )
 
 import torchao
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
-from torchao.quantization import int8_weight_only, quantize_
+from torchao.quantization import Int8WeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -331,7 +332,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
-    QUANT_METHOD_FN = staticmethod(int8_weight_only)
+    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
     QUANT_METHOD_KWARGS = {}
 
     @staticmethod
@@ -426,7 +427,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
 
 class TorchAOIntegrationTestCase(common_utils.TestCase):
-    def _test_slice_and_copy_similar_to_vllm(self, config):
+    def _test_slice_and_copy_similar_to_vllm(self, config: AOBaseConfig):
         # making sure https://github.com/vllm-project/vllm/blob/90bd2ab6e3eb7e83d3f40d99fc23e6e43834743a/vllm/model_executor/layers/linear.py#L483-L495 works properly
         # the test is similar to the linked code, but with some hardcoded arguments
         # and does not use tensor parallelism
@@ -606,6 +607,37 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         moe_combined.load_state_dict(new_state_dict, assign=True)
         # make sure it runs
         moe_combined(input)
+
+    def _test_narrow_similar_to_vllm(self, config: AOBaseConfig):
+        # this happens various times in vllm when slicing weights around
+
+        dtype = torch.bfloat16
+        l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
+        quantize_(l, config)
+
+        orig = l.weight
+        new = orig.narrow(1, 0, 1024)
+
+        for data_attr_name in new.tensor_data_names:
+            orig_attr = getattr(orig, data_attr_name)
+            new_attr = getattr(new, data_attr_name)
+            assert len(orig_attr.shape) == len(new_attr.shape), (
+                f"shape mismatch: {orig_attr.shape} vs {new_attr.shape}"
+            )
+
+    def _test_quantize_3d_param_similar_to_vllm(self, config: AOBaseConfig):
+        # this happens when vLLM loads empty MoE weights, quantizes
+        # them, and stitches 2d params from the checkpoint into a 3d param
+        # in memory
+
+        dtype = torch.bfloat16
+        with torch.device("meta"):
+            l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
+        l.weight = torch.nn.Parameter(
+            torch.randn(60, 2816, 2048, device="cuda", dtype=dtype)
+        )
+        quantize_(l, config)
+        _w_slice = l.weight[0]
 
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)

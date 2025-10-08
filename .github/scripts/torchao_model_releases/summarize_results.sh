@@ -39,26 +39,9 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
    # Clear or create the output file
    > "$OUTPUT_FILE"
 
-  {
+   {
     echo "===== Summary for model: $MODEL_ID ====="
-    MEMORY_LOG="${SAFE_MODEL_ID}_memory.log"
-    LATENCY_LOG_PATTERN="${SAFE_MODEL_ID}_latency_batch*_in*_out*.log"
     QUALITY_LOG_PATTERN="${SAFE_MODEL_ID}_quality_*.log"
-    if [ -f "$MEMORY_LOG" ]; then
-      echo "--- Memory log (last 1 lines) ---"
-      tail -n 1 "$MEMORY_LOG"
-    else
-      echo "--- Memory log not found: $MEMORY_LOG"
-    fi
-    LATENCY_LOGS=( $LATENCY_LOG_PATTERN )
-    if [ -e "${LATENCY_LOGS[0]}" ]; then
-      for LAT_LOG in "${LATENCY_LOGS[@]}"; do
-        echo "--- Latency log: $LAT_LOG (last 7 lines) ---"
-        tail -n 7 "$LAT_LOG"
-      done
-    else
-      echo "--- No latency logs found matching pattern: $LATENCY_LOG_PATTERN"
-    fi
     # Quality logs (multiple files, one per task)
     QUALITY_LOGS=( $QUALITY_LOG_PATTERN )
     if [ -e "${QUALITY_LOGS[0]}" ]; then
@@ -76,6 +59,25 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
       done
     else
       echo "--- No quality logs found matching pattern: $QUALITY_LOG_PATTERN"
+    fi
+
+    MEMORY_LOG="${SAFE_MODEL_ID}_memory.log"
+    if [ -f "$MEMORY_LOG" ]; then
+      echo "--- Memory log (last 1 lines) ---"
+      tail -n 1 "$MEMORY_LOG"
+    else
+      echo "--- Memory log not found: $MEMORY_LOG"
+    fi
+
+    LATENCY_LOG_PATTERN="${SAFE_MODEL_ID}_latency_batch*_in*_out*.log"
+    LATENCY_LOGS=( $LATENCY_LOG_PATTERN )
+    if [ -e "${LATENCY_LOGS[0]}" ]; then
+      for LAT_LOG in "${LATENCY_LOGS[@]}"; do
+        echo "--- Latency log: $LAT_LOG (last 7 lines) ---"
+        tail -n 7 "$LAT_LOG"
+      done
+    else
+      echo "--- No latency logs found matching pattern: $LATENCY_LOG_PATTERN"
     fi
     echo ""
     echo "===== End of Summary for model: $MODEL_ID ====="

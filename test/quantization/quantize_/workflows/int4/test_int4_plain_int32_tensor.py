@@ -19,6 +19,7 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
 )
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     torch_version_at_least,
@@ -76,6 +77,25 @@ class Int4PlainInt32Tensor(TestCase):
                 str(type(state_dict["weight"])),
                 "<class 'torchao.quantization.Int4PlainInt32Tensor'>",
             )
+
+    def test_activation_prescaling(self):
+        dtype = torch.bfloat16
+        device = "xpu"
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, get_config(128))
+        qw = linear.weight
+        assert isinstance(qw, SupportsActivationPreScaling), (
+            "Expected int4 tensor supports activation prescaling"
+        )
+        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
+        _ACT_PRE_SCALE = 2
+        qw.act_pre_scale = _ACT_PRE_SCALE
+        quantized = linear(input)
+
+        # making sure activation pre scaling is successfully applied to the activation
+        self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
 
 instantiate_parametrized_tests(Int4PlainInt32Tensor)

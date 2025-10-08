@@ -29,7 +29,7 @@ def quantize_int8_rowwise(
     probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
     integer value. Thus, stochastic rounding also approximates the floating point value exactly.
 
-    Currently this function differs from AQT's `int8_weight_only()` in the following way:
+    Currently this function differs from AQT's `Int8WeightOnlyConfig()` in the following way:
     1. Precision: AQT keeps original dtype when doing quantization, while this function upcasts input
     to FP32 before quantization. Output scale maintains the original input dtype.
     2. Calculate scale: AQT uses `input.abs().amax() / 127.5`, while `input.abs().amax() / 127` is
@@ -174,9 +174,10 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
 
 
 implements = Int8QuantizedTrainingLinearWeight.implements
+implements_torch_function = Int8QuantizedTrainingLinearWeight.implements_torch_function
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     return _Int8WeightOnlyLinear.apply(*args, **kwargs)
 

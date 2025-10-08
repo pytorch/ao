@@ -5,18 +5,23 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List
+import math
+from typing import List, Optional
 
 import torch
 
 from torchao.quantization.quant_primitives import (
     MappingType,
     _choose_qparams_affine_tinygemm,
+    _choose_qparams_and_quantize_affine_hqq,
     _quantize_affine_tinygemm,
 )
+from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import (
     TorchAOBaseTensor,
 )
+
+from .int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 
 __all__ = [
     "Int4OpaqueTensor",
@@ -40,6 +45,11 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
                     we only support group_size = 32/64/128.
         shape: shape of the original Tensor
 
+    Optional Tensor Data Attributes:
+        act_pre_scale (Optional[Tensor]): Optional scale for activation Tensor, if present,
+               we'll multiply activation Tensor with act_pre_scale before applying dynamic
+               quantization to activation or running quantized mm op
+
     Note on Details for data layout for CPU tinygemm kernel:
 
       We use AVX512 to compute TINYGEMM on CPU. We can also leverage AVX512_VNNI and AMX instructions with torch.compile and max-autotune.
@@ -49,6 +59,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
 
     tensor_data_names = ["qdata", "scale_and_zero"]
     tensor_attribute_names = ["block_size", "shape"]
+    optional_tensor_data_names = ["act_pre_scale"]
 
     def __new__(
         cls,
@@ -56,6 +67,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         scale_and_zero,
         block_size,
         shape,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -69,20 +81,26 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         scale_and_zero: torch.Tensor,
         block_size: List[int],
         shape: torch.Size,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size
+        self.act_pre_scale = act_pre_scale
 
     def _quantization_type(self):
-        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        if self.act_pre_scale is not None:
+            s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
+        return s
 
     @classmethod
     def from_hp(
         cls,
         w: torch.Tensor,
         block_size: List[int],
+        int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
     ):
         assert w.ndim == 2 and w.device.type == "cpu", (
             f"Expecting 2D tensor on CPU, but got: {w.shape} on {w.device.type}"
@@ -99,26 +117,54 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         eps = 1e-6
         scale_dtype = None
         zero_point_dtype = w.dtype
-        scale, zero_point = _choose_qparams_affine_tinygemm(
-            w,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            scale_dtype,
-            zero_point_dtype,
-        )
-        int_data = _quantize_affine_tinygemm(
-            w,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min,
-            quant_max,
-        )
+
+        # we support two paths for constructing a Int4OpaqueTensor
+        # 1. use [hqq](https://mobiusml.github.io/hqq_blog/) algorithm to compute
+        # scale and zero_point, then convert to the format that's compatible with tinygemm kernels
+        # 2. don't use hqq, use default tinygemm algorithm to compute scale and zero_point
+        #
+        # both approach should have the same performance since both are using CPU tinygemm kernel for gemm
+        # 1. typically will have higher accuracy compared to 2.
+        if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
+            nbits = int(math.log2(quant_max + 1))
+            axis = 1
+            group_size = block_size[-1]
+            int_data, scale, zero_point, _ = _choose_qparams_and_quantize_affine_hqq(
+                w,
+                nbits=nbits,
+                group_size=group_size,
+                axis=axis,
+                compute_dtype=zero_point_dtype,
+                device=w.device,
+            )
+            int_data = int_data.to(target_dtype)
+        else:
+            assert (
+                int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.TINYGEMM
+            ), (
+                f"Unsupported Int4ChooseQParamsAlgorithm: {int4_choose_qparams_algorithm}"
+            )
+
+            scale, zero_point = _choose_qparams_affine_tinygemm(
+                w,
+                mapping_type,
+                block_size,
+                target_dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype,
+                zero_point_dtype,
+            )
+            int_data = _quantize_affine_tinygemm(
+                w,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+            )
         assert int_data.dtype == torch.int32, (
             "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
         )
@@ -129,7 +175,6 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
         return Int4OpaqueTensor(
@@ -137,13 +182,16 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
             scale_and_zero=scale_and_zero,
             block_size=block_size,
             shape=original_shape,
+            act_pre_scale=None,
         )
 
 
 implements = Int4OpaqueTensor.implements
+implements_torch_function = Int4OpaqueTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -162,6 +210,9 @@ def _(func, types, args, kwargs):
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"Shapes of input and weight do not match, input:{input_tensor.shape}, weight: {weight_tensor.shape}"
     )
+
+    if weight_tensor.act_pre_scale is not None:
+        input_tensor = input_tensor * weight_tensor.act_pre_scale
 
     act_mat = input_tensor
     packed_weight = weight_tensor.qdata
