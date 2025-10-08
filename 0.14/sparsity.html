@@ -1,0 +1,1484 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Sparsity Overview &mdash; torchao 0.14 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Benchmarking API Guide" href="benchmarking_api_guide.html" />
+    <link rel="prev" title="Contributor Guide" href="contributor_guide.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Learn
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started">
+                  <span class=dropdown-title>Get Started</span>
+                  <p>Run PyTorch locally or get started quickly with one of the supported cloud platforms</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                  <p>Whats new in PyTorch tutorials</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                  <p>Familiarize yourself with PyTorch concepts and modules</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                  <p>Bite-size, ready-to-deploy PyTorch code examples</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                  <p>Master PyTorch basics with our engaging YouTube tutorial series</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Ecosystem
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem">
+                  <span class="dropdown-title">Tools</span>
+                  <p>Learn about the tools and frameworks in the PyTorch Ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class=dropdown-title>Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class=dropdown-title>Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2024">
+                  <span class="dropdown-title">Contributor Awards - 2024</span>
+                  <p>Award winners announced at this year's PyTorch Conference</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                  <p>Build innovative and privacy-aware AI experiences for edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch-overview">
+                  <span class="dropdown-title">ExecuTorch</span>
+                  <p>End-to-end solution for enabling on-device inference capabilities across mobile and edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch/stable/index.html">
+                  <span class="dropdown-title">ExecuTorch Docs</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p>Explore the documentation for comprehensive guidance on how to use PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/pytorch-domains">
+                  <span class="dropdown-title">PyTorch Domains</span>
+                  <p>Read the PyTorch Domains documentation to learn more about domain-specific libraries</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Blogs & News 
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">PyTorch Blog</span>
+                  <p>Catch up on the latest technical news and happenings</p>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/community-blog">
+                  <span class="dropdown-title">Community Blog</span>
+                  <p>Stories from the PyTorch ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/videos">
+                  <span class="dropdown-title">Videos</span>
+                  <p>Learn about the latest PyTorch tutorials, new, and more </p>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                  <p>Stay up-to-date with the latest updates</p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                About
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn more about the PyTorch Foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact-us">
+                  <span class="dropdown-title">Contact Us</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown">
+              <a href="https://pytorch.org/join" data-cta="join">
+                Become a Member
+              </a>
+            </div>
+          </li>
+          <li>
+           <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="github-icon">
+             </a>
+           </div>
+          </li>
+          <!--- TODO: This block adds the search icon to the nav bar. We will enable it later. 
+          <li>
+            <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="search-icon">
+             </a>
+            </div>
+          </li>
+          --->
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+    <div class="version">
+        <a href='https://pytorch.org/ao/versions.html'>0.14 &#x25BC</a>
+    </div>
+    
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="quantization_overview.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_float8.html">torchao.float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html">torchao.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Eager Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">PT2E Quantization Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials_source/pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Sparsity Overview</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="_sources/sparsity.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id="
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="sparsity-overview">
+<h1>Sparsity Overview<a class="headerlink" href="#sparsity-overview" title="Permalink to this heading">¶</a></h1>
+<p>Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing how the elements are pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).</p>
+<section id="goal">
+<h2>Goal<a class="headerlink" href="#goal" title="Permalink to this heading">¶</a></h2>
+<p>We feel that the main problem current sparsity researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like:</p>
+<ul class="simple">
+<li><p><em>When should I mask?</em></p></li>
+<li><p><em>When/how should I store the compressed representation?</em></p></li>
+<li><p><em>Do I want in-place or out-of-place mask updates?</em></p></li>
+<li><p><em>How can I call sparse matmul instead of dense?</em></p></li>
+</ul>
+<p>We feel like the above problems can be solved once by <code class="docutils literal notranslate"><span class="pre">torchao</span></code>, letting researchers focus on what really matters - pushing sparse kernel performance or more accurate pruning algorithms.</p>
+<p>More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We aim to provide modular building blocks, that can be used to accelerate not only inference but training as well, and that compose nicely with <code class="docutils literal notranslate"><span class="pre">torchao</span></code> quantization workflows.</p>
+<ol class="arabic simple">
+<li><p>Train sparse models from scratch with hardware acceleration, with minimal accuracy loss.</p></li>
+<li><p>Recover accuracy loss of pruned model with custom pruning algorthim.</p></li>
+<li><p>Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.</p></li>
+</ol>
+</section>
+<section id="design">
+<h2>Design<a class="headerlink" href="#design" title="Permalink to this heading">¶</a></h2>
+<p>Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.</p>
+<p>In quantization, the theoretical performance gain is generally determined by the data type that we are quantizing to - quantizing from float32 to float16 yields a theoretical 2x speedup. For pruning/sparsity, the analogous variable would be the sparsity level/ sparsity pattern. For semi-structured, the sparsity level is fixed at 50%, so we expect a theoretical 2x improvement. For block-sparse matrices and unstructured sparsity, the speedup is variable and depends on the sparsity level of the tensor.</p>
+<p>One key difference between sparsity and quantization is in how the accuracy degradation is determined: In general, the accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. Sparsity and quantization are closely related and share accuracy mitigation techniques like quantization/sparsity aware training.</p>
+<p>By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.</p>
+<p>Given a target sparsity pattern, pruning/sparsifying a model can then be thought of as two separate subproblems:</p>
+<ul class="simple">
+<li><p><strong>Accuracy</strong> - How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?</p></li>
+<li><p><strong>Performance</strong> - How can I accelerate my sparse weights for inference and reduce memory overhead?</p></li>
+</ul>
+<p>Our workflow is designed to consist of two parts that answer each question independently:</p>
+<ul class="simple">
+<li><p>a frontend python user-facing API to find sparse weights for any arbitrary sparsity pattern.</p></li>
+<li><p>a backend collection of sparse kernels / ops to reduce memory/latency.</p></li>
+</ul>
+<p>The handoff point between these two pieces are sparse weights stored in a dense format, with 0 in the place of missing elements. This is a natural handoff point because sparse matrix multiplication and dense matrix multiplication with this tensor will be numerically equivalent. This lets us present a clear contract to the user for our backend, for a given sparsity pattern:</p>
+<p>If you can get your dense matrix into a <strong>2:4 sparse format</strong>, we can speed up matrix multiplication up to <strong>1.7x</strong> with no numerical loss.</p>
+<p>This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.</p>
+<img alt="pruning_flow" src="_images/pruning_ecosystem_diagram.png" />
+<p>Below, we provide an example of accelerating a model with 2:4 sparsity + bf16 using our PyTorch APIs.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_sparse_semi_structured</span><span class="p">,</span> <span class="n">SparseSemiStructuredTensor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.ao.pruning</span><span class="w"> </span><span class="kn">import</span> <span class="n">WeightNormSparsifier</span>
+
+<span class="c1"># bfloat16 CUDA model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">half</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+
+<span class="c1"># Accuracy: Finding a sparse subnetwork</span>
+<span class="n">sparse_config</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+   <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+      <span class="n">sparse_config</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;tensor_fqn&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.weight&quot;</span><span class="p">})</span>
+
+<span class="n">sparsifier</span> <span class="o">=</span> <span class="n">WeightNormSparsifier</span><span class="p">(</span><span class="n">sparsity_level</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+                                 <span class="n">sparse_block_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">4</span><span class="p">),</span>
+                                 <span class="n">zeros_per_block</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="c1"># attach FakeSparsity</span>
+<span class="n">sparsifier</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">sparse_config</span><span class="p">)</span>
+<span class="n">sparsifier</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+<span class="n">sparsifier</span><span class="o">.</span><span class="n">squash_mask</span><span class="p">()</span>
+<span class="c1"># now we have dense model with sparse weights</span>
+
+<span class="c1"># Performance: Accelerated sparse inference</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+   <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+      <span class="n">mod</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">to_sparse_semi_structured</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>Fundamentally, the flow works by manipulating <code class="docutils literal notranslate"><span class="pre">torch.Tensors</span></code>. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a <code class="docutils literal notranslate"><span class="pre">prepare</span></code> function, which attaches FakeSparsity paramerizations to the tensors specified in the config.</p>
+<p>FakeSparsity is a parameterization which simulates unstructured sparsity, where each element has a mask. Because of this, we can use it to simulate any sparsity pattern we want.</p>
+<p>The user will then train the prepared model using their own custom code, calling <code class="docutils literal notranslate"><span class="pre">.step()</span></code> to update the mask if necessary. Once they’ve found a suitable mask, they call <code class="docutils literal notranslate"><span class="pre">squash_mask()</span></code> to fuse the mask into the weights, creating a dense tensor with 0s in the right spot.</p>
+<p>Users will then convert their model for accelerated sparse inference by either using the quantization flow for quantized block sparse CPU inference or by calling <code class="docutils literal notranslate"><span class="pre">to_sparse_semi_structured</span></code> on the specified weight tensors.</p>
+</section>
+<section id="context">
+<h2>Context<a class="headerlink" href="#context" title="Permalink to this heading">¶</a></h2>
+<p>This section provides some context on neural network pruning/sparsity as well as definitions for some common pruning/sparsity terms. In academia / industry, <strong>pruning</strong> and <strong>sparsity</strong> are often used interchangeably to refer to the same thing. This can be confusing, especially since sparsity is an overloaded term that can refer to many other things, such as sparse tensor representations.</p>
+<p>Note that this section focuses on <strong>pruning</strong>, instead of <strong>sparse training</strong>. The distinction being that in <strong>pruning</strong> we start with a pretrained dense model, while during <strong>sparse training</strong> we train a sparse model from scratch.</p>
+<p>In order to avoid confusion, we generally try to use sparsity to refer to tensors. Note that a sparse tensor can refer to a dense tensor with many zero values, or a tensor stored using a sparse representation. We describe the flow as <strong>pruning</strong> and the resultant model as a <strong>pruned</strong> model.</p>
+<p>Roughly, the flow for achieving a more performant pruned model looks like this:</p>
+<img alt="flow" src="_images/pruning_flow.png" />
+<p>The general idea behind pruning is that we can mask out some of the weights of a trained neural network and recover any accuracy loss. The resultant pruned model can be run on optimized kernels that take advantage of this sparsity for accelerated inference.</p>
+<p>Zeroing out pruned parameters doesn’t affect the latency / memory overhead of the model out of the box. This is because the dense tensor itself still contains the pruned elements (the 0 elements) and will still compute using those elements during a matrix multiply. In order to realize performance gains, we need to swap out our dense kernels for sparse kernels.</p>
+<p>Loosely speaking, these sparse representations allow us to skip calculations involving pruned elements in order to speed up matrix multiplication. To do this, these optimized sparse kernels work on sparse matrices that are stored in a more efficient format. Some sparse tensor layouts are tightly coupled to specific backends, like NVIDIA 2:4, while others are more general and are supported by more than one backend (CSC is supported by FBGEMM and QNNPACK).</p>
+<table>
+  <tr>
+   <td><strong>Name</strong>
+   </td>
+   <td><strong>Description</strong>
+   </td>
+   <td><strong>How the sparse matrix is stored</strong>
+   </td>
+  </tr>
+  <tr>
+   <td>COO (sparse_coo)
+   </td>
+   <td>COOrdinate format to store sparse matrices. The matrices are stored as a combination of the non-sparse data vector and the index locations of those elements in the dense matrix.
+   </td>
+   <td>sparse matrix = {Index: Tensor of coordinate locations,
+                           Data: Tensor of values corresponding to index locations }
+   </td>
+  </tr>
+  <tr>
+   <td>BSR (sparse_bsr)
+   </td>
+   <td>Block sparse row format to store sparse matrices. The matrices are stored as data blocks and the index locations of those blocks in the dense matrix. Very similar to COO, except that individual data consists of blocks, not scalars.
+   </td>
+   <td>sparse matrix = {Index: Tensor of coordinate locations, two dimensional for a matrix,
+                           Data: Tensor of blocks corresponding to index locations }
+where a block is a matrix corresponding to the sparsity pattern.
+   </td>
+  </tr>
+  <tr>
+   <td>CSR (sparse_csr) / CSC (sparse_csc)
+   </td>
+   <td>Compressed sparse row /column format to store sparse matrices. The sparse matrices are stored as data blocks on columns / rows and indices of those rows/columns in a dense matrix. This is the most compact format for storing block sparse matrices.
+   </td>
+   <td>sparse_matrix = {Index: 1D tensor of column indices,
+                            IndexPtr: 1D tensor specifying the start and end indices of columns for rows, starting from row 0,
+                            Data: Tensor of blocks corresponding to Index locations.}
+   </td>
+  </tr>
+  <tr>
+   <td>NVIDIA 2:4 compressed representation
+   </td>
+   <td>Custom NVIDIA compressed storage format for 2:4 semi-structured sparsity. We store the sparse matrix as a compressed dense matrix (½ the size) containing the non-pruned elements and a bitmask index. When multiplying our sparse matrix by another dense matrix, we use the mask to index into the dense matrix and multiply with our compressed dense matrix.
+   </td>
+   <td>sparse_matrix = {Bitmask: 2bit indices of pruned elements Compressed dense matrix: contains all unpruned elements, half the size of original dense matrix}
+   </td>
+  </tr>
+</table><p><em>Table 4.1: Overview of common sparse tensor layouts.</em></p>
+<p>While the general idea of pruning is quite simple, there are many details that a user must figure out before they can successfully prune a model.</p>
+<p>These can be loosely broken down as follows:</p>
+<ul class="simple">
+<li><p><strong>Pruning Configuration</strong> - What layers should I prune? What sparsity level should I prune to?</p></li>
+<li><p><strong>Pruning Criteria</strong> - How should I decide which parameters to remove?</p></li>
+<li><p><strong>Pruning Strategy</strong> - Once I have removed parameters, how can I recover any accuracy degradation?</p></li>
+<li><p><strong>Sparsity Pattern</strong> -  Should I try to use a specific sparsity pattern when I prune my model? Different hardware backends support accelerated inference for different sparsity patterns.</p></li>
+</ul>
+<section id="pruning-configuration">
+<h3>Pruning Configuration<a class="headerlink" href="#pruning-configuration" title="Permalink to this heading">¶</a></h3>
+<p>Not all layers in a neural network are created equal. Some layers can be more sensitive to pruning than others. The user must decide what layers to prune and also the <strong>sparsity level</strong> for each layer, which is the % of 0s for that weight tensor. The pruning configuration has an effect on both the accuracy and speedup of the pruned model.</p>
+<p>Determining the best pruning configuration and sparsity level for a given model is an open problem and a general solution does not exist. This is in part because the optimal pruning configuration is dependent on the subsequent pruning criteria and strategy, and there are an infinite number of ways to decide how to prune models and how to recover lost accuracy.</p>
+<p>One common method to determine which layers to prune and to what degree is to perform sensitivity analysis  by pruning each layer in the model at different sparsity levels and seeing the subsequent accuracy drop (without retraining). This gives a user a sparsity-accuracy curve for each layer that the user can then use as a proxy to determine the best pruning configuration.</p>
+</section>
+<section id="pruning-criteria">
+<h3>Pruning Criteria<a class="headerlink" href="#pruning-criteria" title="Permalink to this heading">¶</a></h3>
+<p>A user must decide on a criteria for removing parameters from a neural network. Much like determining the best pruning configuration, determining the best pruning criteria is an open research question and is dependent on the other aforementioned factors.</p>
+<p>The most common pruning criteria is to use weight magnitude. The idea is that low-magnitude weights contribute less than high-magnitude weights to the model output. If we want to remove parameters, we can remove the weights that have the smallest absolute value.</p>
+<p>However, even with a simple pruning criteria such as weight magnitude, there are additional factors that a user would have to consider:</p>
+<ul class="simple">
+<li><p>Local vs global scope</p>
+<ul>
+<li><p><strong>Local scope</strong> implies that the sparsity mask is only computed with respect to the layer statistics.</p>
+<ul>
+<li><p>Pros: Simple mask computing</p></li>
+<li><p>Cons: Potentially sub-optimal accuracy vs sparsity tradeoff.</p></li>
+</ul>
+</li>
+<li><p><strong>Global scope</strong> means that the sparsity statistics are not bounded by a single layer, but can span over multiple layers if needed.</p>
+<ul>
+<li><p>Pros: No need for per-layer thresholds. The tensor statistics is shared across layers, and normalization is used across layers to allow for it.</p></li>
+<li><p>Cons: Increased complexity when computing the masks.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Tensors used for mask calculation</p>
+<ul>
+<li><p><strong>Weights</strong>:  Just use the weight tensor in order to calculate the mask. This method is the simplest for inference as the weight tensors are constant.</p></li>
+<li><p><strong>Gradients</strong>: Compute importance based on both weights and gradient norms. Common for pre-training based methods. Currently CTR_mobile_feed uses a gradient-based pruning algorithm.</p></li>
+<li><p><strong>Activations</strong>: In some research papers, the norm of the activations that are applied with the weight of interest are used to compute the importance score.</p></li>
+</ul>
+</li>
+<li><p>In place or out of place mask updates</p>
+<ul>
+<li><p><strong>In-place</strong> updates the sparse tensor by performing W = W (Mask). Once the weight tenosr is udpated, the sparse values are zeroed out and cannot be recovered.</p>
+<ul>
+<li><p><strong>Pros</strong>: Requires only one copy of the sparse tensor to be stored (+ mask)</p></li>
+<li><p><strong>Cons</strong>: Once a mask is applied to a weight, it is zeroed out, all past history is lost. These weights cannot regrow.</p></li>
+</ul>
+</li>
+<li><p><strong>Out-of-place</strong> updates don’t modify the tensor directly, but perform the following: W’ = W (Mask) and dW’= dW (Mask)</p>
+<ul>
+<li><p><strong>Pros</strong>: The original tensor is preserved (the masked elements are not updated via backprop). Weights can regrow if the mask changes. This is necessary for PAT.</p></li>
+<li><p><strong>Cons</strong>: In addition to the unmasked weights (W), the masked weights (W’) are computed and resident in memory for forward/backward computations.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<table>
+  <tr>
+   <td>
+<strong>Name</strong>
+   </td>
+   <td><strong>Description</strong>
+   </td>
+   <td><strong>Notes</strong>
+   </td>
+  </tr>
+  <tr>
+   <td>Magnitude / Saliency
+   </td>
+   <td>Remove parameters that have the lowest norm (L1 is commonly used)
+   </td>
+   <td>Shown to work well with 2:4 semi-structured sparsity. Able to achieve identical accuracy as the original model by repeating the training loop after one-shot magnitude pruning.
+   </td>
+  </tr>
+  <tr>
+   <td>Movement Pruning
+   </td>
+   <td>These methods aim to use gradient information in order to decide what parameters to remove. The idea is to remove parameters that do not change much during fine-tuning.
+   </td>
+   <td>Common for pretrained models.
+<p>
+See <a href="https://arxiv.org/abs/2005.07683">https://arxiv.org/abs/2005.07683</a>
+   </td>
+  </tr>
+  <tr>
+   <td>Low-rank factorization
+   </td>
+   <td>These methods aim to replace Wx with SQx, where S and Q are matrices with lower rank.
+   </td>
+   <td>Usually these methods use some sort of layer-wise reconstruction, where instead of training the model to recover lost accuracy, they seek to match layer-wise statistics (Find SQx such that L2(SQx, Wx) is minimized).
+   </td>
+  </tr>
+  <tr>
+   <td>Random
+   </td>
+   <td>Remove parameters randomly
+   </td>
+   <td>
+   </td>
+  </tr>
+</table><p><em>Table 4.2: Description of some common pruning criteria.</em></p>
+</section>
+<section id="pruning-strategy">
+<h3>Pruning Strategy<a class="headerlink" href="#pruning-strategy" title="Permalink to this heading">¶</a></h3>
+<p>This is a general term that describes the method in which a user tries to recover any accuracy degradation from their pruned model. After pruning a model, it is common to see accuracy degradation of the model, so users usually retrain the pruned model in order to remediate this. The pruning strategy also determines when and how often the model is pruned during model training.</p>
+<p>The line between a pruning strategy and a pruning criteria is not well defined, especially in the case of pruning aware training methods, which update the mask during training. We sometimes use the term <strong>pruning</strong> <strong>algorithm</strong> to refer to the combination of these two items. These two factors, along with the pruning configuration ultimately control the final accuracy of the pruned model.</p>
+<table>
+  <tr>
+   <td><strong>Pruning Strategy</strong>
+   </td>
+   <td><strong>Description</strong>
+   </td>
+   <td><strong>Notes</strong>
+   </td>
+  </tr>
+  <tr>
+   <td>Zero-shot
+   </td>
+   <td>Prune once, don’t retrain the model
+   </td>
+   <td>These methods rely on more complicated pruning criteria.
+<p>
+This is sometimes referred to as one-shot in literature, but we will use one-shot to refer to pruning once and retraining once.
+   </td>
+  </tr>
+  <tr>
+   <td>One-shot
+   </td>
+   <td>Prune once, retrain the model once
+   </td>
+   <td>NVIDIA has shown that one-shot 2:4 semi-structured sparsity pruning generalizes well across a range of common vision / nlp models.  \
+ \
+The retraining strategy is to simply repeat the training process again.
+   </td>
+  </tr>
+  <tr>
+   <td>Iterative
+   </td>
+   <td>Prune the model, retrain, repeat
+   </td>
+   <td>We can iteratively increase the sparsity level, or iteratively prune different layers in the model.
+   </td>
+  </tr>
+  <tr>
+   <td>Pruning Aware Training
+   </td>
+   <td>Mask is learned during training
+   </td>
+   <td>Used by CTR_feed for their current pruning algorithm.
+   </td>
+  </tr>
+  <tr>
+   <td>NAS / Multimask
+   </td>
+   <td>Multiple masks are used during training. This can be thought of a form of neural architecture search.
+   </td>
+   <td>Used by PySpeech (<a href="https://fb.workplace.com/notes/903357547304197">FastNAS</a>)
+   </td>
+  </tr>
+  <tr>
+   <td>Layer-wise reconstruction
+   </td>
+   <td>Instead of retraining using a loss function, we try to recover as much information as possible from each layer by using a two model approach similar to knowledge distillation.
+   </td>
+   <td>See <a href="https://arxiv.org/pdf/2204.09656.pdf">https://arxiv.org/pdf/2204.09656.pdf</a>
+   </td>
+  </tr>
+</table><p><em>Table 4.3: Description of some common pruning strategies.</em></p>
+</section>
+<section id="sparsity-pattern">
+<h3>Sparsity Pattern<a class="headerlink" href="#sparsity-pattern" title="Permalink to this heading">¶</a></h3>
+<p>A sparsity pattern describes how the pruned parameters are arranged within the model / tensor.</p>
+<p>Recall that in general it is necessary to use optimized sparse kernels in order to achieve performance gains. Depending on the format and the sparsity level of the weight tensor, sparse matrix multiplication can be faster than its dense counterpart. It can also be slower if a tensor is not sufficiently sparse.</p>
+<p>At the most general level, pruning is unstructured -every parameter has it’s own mask. This gives the most flexibility but requires very high sparsity (&gt;98%) in order to provide performance benefits. In order to provide accelerated inference at lower sparsity levels, hardware backends have added support for special sparsity patterns.</p>
+<p>We seek to prune the model so that the weight tensors exhibit the same sparsity pattern as our inference backend. If we are able to recover the accuracy lost while maintaining the sparsity pattern, we can run this model on sparse hardware for accelerated inference without an accuracy penalty. We can also run a model pruned to a different sparsity pattern on our target backend, at the expense of some additional accuracy loss.</p>
+<p>The specific backend hardware and its corresponding sparsity pattern, as well as the pruning configuration ultimately dictates the performance speedups that we observe. If we prune a model using a different pruning criteria it will have the same performance characteristics if it follows the same sparsity pattern and sparsity level. For example, if we decided to remove the highest-magnitude weights instead of the lowest-magnitude weights, we wouldn’t expect that to change the performance characteristics of the pruned model.</p>
+  <table>
+    <tr>
+     <td><strong>Sparsity Pattern</strong>
+     </td>
+     <td><strong>Mask Visualization </strong>
+  <p>
+  <strong>(50% sparsity level)</strong>
+     </td>
+    </tr>
+    <tr>
+     <td>Unstructured Sparsity
+     </td>
+     <td>
+
+  <table>
+  <caption style="caption-side: bottom; text-align: center;">
+       <i>Fig 2.3: unstructured sparsity</i>
+   </caption>
+    <tr>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+    </tr>
+    <tr>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+    </tr>
+  </table>
+
+
+  </td>
+ </tr>
+ <tr>
+  <td> 2:4 Semi-Structured
+  </td>
+  <td>
+  <table>
+  <caption style="caption-side: bottom; text-align: center;">
+       <i>Fig 2.4: 2:4 semi-structured sparsity</i>
+   </caption>
+    <tr>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+    </tr>
+    <tr>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>0
+     </td>
+    </tr>
+  </table>
+
+  </td>
+ </tr>
+ <tr>
+  <td> Block Sparsity
+
+  </td>
+  <td>
+
+  <table>
+  <caption style="caption-side: bottom; text-align: center;">
+       <i>Fig 2.5: 4x4 block-wise structured sparsity</i>
+  </caption>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+    </tr>
+  </table>
+
+  </td>
+ </tr>
+ <tr>
+  <td> Structured Sparsity
+  </td>
+  <td>
+  <table>
+   <caption style="caption-side: bottom; text-align: center;">
+       <i>Fig 2.6: row-wise structured sparsity</i>
+   </caption>
+    <tr>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+    </tr>
+    <tr>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+     <td>1
+     </td>
+    </tr>
+    <tr>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+     <td>0
+     </td>
+    </tr>
+  </table>
+  </td>
+ </tr>
+</table><p><em>Table 4.4: Description of some common sparsity patterns.</em></p>
+<p>For more information on our supported APIs and benchmaks please refer <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/sparsity/README.md">Sparsity README</a>.</p>
+</section>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="benchmarking_api_guide.html" class="btn btn-neutral float-right" title="Benchmarking API Guide" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="contributor_guide.html" class="btn btn-neutral" title="Contributor Guide" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2024-present, torchao Contributors.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Sparsity Overview</a><ul>
+<li><a class="reference internal" href="#goal">Goal</a></li>
+<li><a class="reference internal" href="#design">Design</a></li>
+<li><a class="reference internal" href="#context">Context</a><ul>
+<li><a class="reference internal" href="#pruning-configuration">Pruning Configuration</a></li>
+<li><a class="reference internal" href="#pruning-criteria">Pruning Criteria</a></li>
+<li><a class="reference internal" href="#pruning-strategy">Pruning Strategy</a></li>
+<li><a class="reference internal" href="#sparsity-pattern">Sparsity Pattern</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+         <script src="_static/jquery.js"></script>
+         <script src="_static/underscore.js"></script>
+         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="_static/doctools.js"></script>
+         <script src="_static/clipboard.min.js"></script>
+         <script src="_static/copybutton.js"></script>
+         <script src="_static/design-tabs.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+<!-- Disabling "auto-collapsing" of sections on the left side bar. Replace script with commented out sections to reenable. -->
+<!--  -->
+<script script type="text/javascript">
+    var collapsedSections = []
+</script>
+
+ 
+<script type="text/javascript">
+  $(document).ready(function () {
+    // Patch the "GitHub" link at the top of the page
+    // to point to the torchao repo.
+    var overwrite = function (_) {
+      if ($(this).length > 0) {
+        $(this)[0].href = "https://github.com/pytorch/ao"
+      }
+    }
+    // PC
+    $(".main-menu a:contains('GitHub')").each(overwrite);
+    // Mobile
+    e$(".mobile-menu a:contains('Github')").each(overwrite);
+  });
+</script>
+
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+           <li class="resources-mobile-menu-title">
+             <a>Learn</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/get-started">Get Started</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials">Tutorials</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+             </li>
+           </ul>
+           <li class="resources-mobile-menu-title">
+             <a>Ecosystem</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/ecosystem">Tools</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/#community-module">Community</a>
+             </li>
+             <li>
+               <a href="https://discuss.pytorch.org/">Forums</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/resources">Developer Resources</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2024</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Edge</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/edge">About PyTorch Edge</a>
+             </li>
+             
+             <li>
+               <a href="https://pytorch.org/executorch-overview">ExecuTorch</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/executorch/stable/index.html">ExecuTorch Documentation</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Docs</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/pytorch-domains">PyTorch Domains</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            <a>Blog & News</a>
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/blog/">PyTorch Blog</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/community-blog">Community Blog</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/videos">Videos</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/newsletter">Newsletter</a>
+             </li>
+          </ul>
+          
+          <li class="resources-mobile-menu-title">
+            <a>About</a>
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/governing-board">Governing Board</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/staff">Staff</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/contact-us">Contact Us</a>
+            </li>
+          </ul>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>
