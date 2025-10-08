@@ -104,6 +104,7 @@ to_my_trainable_dtype = MyTrainableDTypeTensor.from_float
 #####################################################
 
 implements = MyTrainableDTypeTensor.implements
+implements_torch_function = MyTrainableDTypeTensor.implements_torch_function
 
 
 class _QuantizedLinearOp(torch.autograd.Function):
@@ -134,7 +135,7 @@ class _QuantizedLinearOp(torch.autograd.Function):
         return grad_input, grad_weight
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     """
     Handle the linear op with quantized weights.

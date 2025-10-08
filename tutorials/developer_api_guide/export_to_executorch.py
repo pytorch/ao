@@ -27,6 +27,7 @@ class MyDTypeTensorExtended(MyDTypeTensor):
 
 
 implements = MyDTypeTensorExtended.implements
+implements_torch_function = MyDTypeTensorExtended.implements_torch_function
 to_my_dtype_extended = MyDTypeTensorExtended.from_float
 
 aten = torch.ops.aten
@@ -52,7 +53,7 @@ def _embedding_byte(
     return torch.ops.aten.embedding.default(weight, indices)
 
 
-@implements(torch.nn.functional.embedding)
+@implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
     indices = args[0]
     weight = args[1]

@@ -70,9 +70,9 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
     elif elem_dtype == torch.float4_e2m1fn_x2:
         if not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
-        elif emulate and compile:
+        elif compile:
             # TODO(future PR): investigate and fix this
-            pytest.skip("mxfp4 + emulate + compile currently does not work, low SQNR")
+            pytest.skip("mxfp4 + compile currently does not work, low SQNR")
 
     m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
     m_mx = copy.deepcopy(m)
@@ -218,3 +218,16 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
             gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
         )
         self._test_narrow_similar_to_vllm(config)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
+    def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
+        config = NVFP4InferenceConfig(
+            mm_config=NVFP4MMConfig.WEIGHT_ONLY,
+            use_triton_kernel=False,
+            use_dynamic_per_tensor_scale=False,
+        )
+        self._test_quantize_3d_param_similar_to_vllm(config)

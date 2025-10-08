@@ -14,9 +14,13 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
+    _choose_qparams_and_quantize_scale_only_hqq,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
+)
+from torchao.quantization.quantize_.workflows.intx.intx_choose_qparams_algorithm import (
+    IntxChooseQParamsAlgorithm,
 )
 from torchao.quantization.utils import _get_per_token_block_size
 from torchao.utils import (
@@ -177,6 +181,9 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         activation_quantization: Optional[
             IntxUnpackedToInt8TensorActivationQuantization
         ] = None,
+        intx_choose_qparams_algorithm: Optional[
+            IntxChooseQParamsAlgorithm
+        ] = IntxChooseQParamsAlgorithm.AFFINE,
         custom_scale: Optional[torch.Tensor] = None,
         custom_zero_point: Optional[torch.Tensor] = None,
     ):
@@ -184,9 +191,36 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         Create an IntxUnpackedToInt8Tensor from a high-precision tensor
         """
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[target_dtype]
-        if custom_scale is not None and custom_zero_point is not None:
-            scale, zero_point = custom_scale, custom_zero_point
-        elif custom_scale is None and custom_zero_point is None:
+
+        if intx_choose_qparams_algorithm is not None:
+            assert custom_scale is None, (
+                "custom_scale is not supported with intx_choose_qparams_algorithm"
+            )
+            assert custom_zero_point is None, (
+                "custom_zero_point is not supported with intx_choose_qparams_algorithm"
+            )
+
+        if intx_choose_qparams_algorithm is None:
+            assert custom_scale is not None, "custom_scale must be given"
+            assert custom_zero_point is not None, "custom_zero_point must be given"
+            scale = custom_scale
+            zero_point = custom_zero_point
+            qdata = quantize_affine(
+                hp_tensor,
+                block_size,
+                scale,
+                zero_point,
+                output_dtype=torch.int8,
+                quant_min=qmin,
+                quant_max=qmax,
+            )
+        elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.HQQ_SCALE_ONLY:
+            qdata, scale = _choose_qparams_and_quantize_scale_only_hqq(
+                hp_tensor, block_size, qmin, qmax
+            )
+            qdata = qdata.to(torch.int8)
+            zero_point = torch.zeros_like(scale, dtype=torch.int8)
+        elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE:
             scale, zero_point = choose_qparams_affine(
                 hp_tensor,
                 mapping_type,
@@ -196,19 +230,19 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 quant_max=qmax,
                 zero_point_dtype=torch.int8,
             )
+            qdata = quantize_affine(
+                hp_tensor,
+                block_size,
+                scale,
+                zero_point,
+                output_dtype=torch.int8,
+                quant_min=qmin,
+                quant_max=qmax,
+            )
         else:
             raise ValueError(
-                "`custom_scale` and `custom_zero_point` must be both defined or both None"
+                f"Unsupported IntxChooseQParamsAlgorithm: {intx_choose_qparams_algorithm}"
             )
-        qdata = quantize_affine(
-            hp_tensor,
-            block_size,
-            scale,
-            zero_point,
-            output_dtype=torch.int8,
-            quant_min=qmin,
-            quant_max=qmax,
-        )
 
         # Reshape scale and zero_point to be compatible with block_size
         # This is asserted in IntxUnpackedToInt8Tensor's __init__
@@ -280,9 +314,11 @@ def _apply_int8_act_asym_per_token_quant_dequant(hp_tensor):
 
 
 implements = IntxUnpackedToInt8Tensor.implements
+implements_torch_function = IntxUnpackedToInt8Tensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -307,7 +343,8 @@ def _(func, types, args, kwargs):
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-@implements([torch.nn.functional.embedding, aten.embedding.default])
+@implements(aten.embedding.default)
+@implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
     assert len(args) == 2
     indices, weight_tensor = (
