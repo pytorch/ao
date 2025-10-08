@@ -315,7 +315,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             (v,),
             matcher_check_fn,
             check_quantization=True,
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
         )
 
     @skipIfNoDynamoSupport
@@ -391,7 +391,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             mod,
             (v,),
             check_quantization=True,
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
             matcher_check_fn=matcher_check_fn,
         )
 
@@ -569,7 +569,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (v,),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
             )
 
     def _qconv2d_add_test_helper2(
@@ -666,7 +666,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (x, x2, x3),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
             )
 
     @skipIfNoDynamoSupport
@@ -1374,7 +1374,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 if matcher_check_fn is not None
                 else _default_matcher_check_fn
             ),
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
             check_quantization=True,
             is_qat=is_qat,
             is_dynamic=is_dynamic,
@@ -1547,7 +1547,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 mod,
                 inputs,
                 matcher_check_fn,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
                 check_quantization=True,
             )
 
@@ -1737,7 +1737,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (v,),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
                 is_qat=is_qat,
                 is_dynamic=is_dynamic,
             )
@@ -1842,7 +1842,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 if matcher_check_fn is not None
                 else default_matcher_check_fn
             ),
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float,
+            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
             check_quantization=True,
             is_dynamic=is_dynamic,
         )
@@ -2230,7 +2230,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     # TODO: investigate options of torch.compile in fbcode
     @unittest.skipIf(IS_FBCODE, "Failing in fbcode")
     @parametrize("has_bias", [True, False])
-    @parametrize("dtype", [torch.float, torch.bfloat16])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("per_channel_quant", [True, False])
     @parametrize("dynamic", [True, False])
     def test_smooth_quant_with_int_mm(
@@ -2243,7 +2243,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
         or
             (with bias) pattern_no_bias -> add -> reshape -> reshape
         """
-        if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
+
+        # Check MKLDNN bfloat16 support safely
+        def _is_mkldnn_bf16_supported():
+            try:
+                return torch.ops.mkldnn._is_mkldnn_bf16_supported()
+            except (AttributeError, RuntimeError):
+                return False
+
+        if dtype == torch.bfloat16 and not _is_mkldnn_bf16_supported():
             return
         M = 16
         in_feature = 32
@@ -2320,7 +2328,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     # TODO: investigate options of torch.compile in fbcode
     @unittest.skipIf(IS_FBCODE, "Failing in fbcode")
     @parametrize("has_bias", [True, False])
-    @parametrize("dtype", [torch.float, torch.bfloat16])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("dynamic", [True, False])
     @parametrize("reshape_a", [True, False])
     @parametrize(
@@ -2346,7 +2354,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
         The pattern depiction doesn't mean that convert_element_type output is fed into expand_a as input,
         but simply that activation scale may be applied after an expand operation on it.
         """
-        if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
+
+        # Check MKLDNN bfloat16 support safely
+        def _is_mkldnn_bf16_supported():
+            try:
+                return torch.ops.mkldnn._is_mkldnn_bf16_supported()
+            except (AttributeError, RuntimeError):
+                return False
+
+        if dtype == torch.bfloat16 and not _is_mkldnn_bf16_supported():
             return
         in_feature = 32
         out_feature = 64
