@@ -15,6 +15,7 @@ from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
     AWQConfig,
 )
+from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
@@ -27,7 +28,6 @@ from torchao.quantization import (
     PerRow,
     quantize_,
 )
-from torchao.prototype.smoothquant import SmoothQuantConfig
 
 
 def _get_username():
@@ -899,8 +899,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_seq_length",
         type=int,
-        default=1024,
-        help="Maximum sequence length of examples to calibrate and evaluate model on. Default is 1024",
+        default=2048,
+        help="Maximum sequence length of examples to calibrate and evaluate model on. Default is 2048",
     )
     parser.add_argument(
         "--push_to_hub",
