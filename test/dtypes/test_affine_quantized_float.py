@@ -215,7 +215,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         # Create a new model and load the state dict
         with torch.device("meta"):
-            new_model = ToyTwoLinearModel(16, 32, 16, device="cuda", dtype=torch.float32)
+            new_model = ToyTwoLinearModel(
+                16, 32, 16, device="cuda", dtype=torch.float32
+            )
             if mode == "static":
                 quantize_(new_model, factory)
             new_model.load_state_dict(loaded_state_dict, assign=True)
