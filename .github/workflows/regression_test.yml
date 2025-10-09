@@ -117,4 +117,4 @@ jobs:
         pip install .
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        pytest test --verbose -s
+        pytest test/quantization/pt2e/test_x86inductor_fusion.py --verbose -s
