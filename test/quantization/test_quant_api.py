@@ -1005,9 +1005,37 @@ class TestFqnToConfig(TestCase):
                 "linear": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
                 ),
-                # "re:linear": Float8DynamicActivationFloat8WeightConfig(
-                #     granularity=PerTensor(),
-                # ),
+                "re:linear": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        assert isinstance(model.linear.weight, Float8Tensor)
+        assert model.linear.weight.scale.numel() == 128
+
+    def test_quantize_module_default_bc(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(128, 128)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = TestModule().to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                # only this config should be applied, as module fqn takes precedence
+                "_default": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
             }
         )
 
@@ -1030,12 +1058,12 @@ class TestFqnToConfig(TestCase):
         )
         quant_config = FqnToConfig(
             {
+                "re:.*weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
                 # only this config should be applied, as module fqn takes precedence
                 "0": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
-                ),
-                "re:.*weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor(),
                 ),
             }
         )
