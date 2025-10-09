@@ -7,9 +7,10 @@
 #
 # To run these benchmarks, use the following command:
 #
-# torchrun --nproc-per-node=8 --local-ranks-filter=0 benchmarks/prototype/moe_training/mxfp8/bench_all_to_all_v.py
+# torchrun --nproc-per-node=4 --local-ranks-filter=0 benchmarks/prototype/moe_training/mxfp8/bench_all_to_all_v.py
 #
 #######################################################################
+import argparse
 import os
 import time
 from dataclasses import dataclass
@@ -18,13 +19,17 @@ from typing import List
 import torch
 from tabulate import tabulate
 from torch import distributed as dist
+from torch.distributed import DeviceMesh, init_device_mesh
 from torch.distributed._functional_collectives import (
+    all_to_all_single,
     all_to_all_single_autograd,
 )
+from torch.nn import functional as F
 from tqdm import tqdm
 
+from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    mxfp8_on_device_all_to_all_v,
+    to_mxfp8_a2a_dequant,
 )
 
 device = torch.device("cuda")
@@ -37,8 +42,8 @@ class ExperimentConfig:
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    bf16_us: float
-    mxfp8_us: float
+    bf16_ms: float
+    mxfp8_ms: float
 
 
 @dataclass(frozen=True)
@@ -50,7 +55,7 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     # (batch_size, seq_len, dim)
     input_shapes = [
-        (8, 8192, 5120),
+        (16, 8192, 5120),
     ]
     configs = []
     for shape in input_shapes:
@@ -62,99 +67,135 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-def run_experiment(config: ExperimentConfig) -> ExperimentResult:
+def default_a2a_fwd_bwd(
+    routed_input: torch.Tensor,
+    labels: torch.Tensor,
+    output_splits_list: list[int],
+    input_splits_list: list[int],
+    device_mesh: DeviceMesh,
+):
+    routed_input = all_to_all_single_autograd(
+        routed_input,
+        output_splits_list,
+        input_splits_list,
+        device_mesh.get_group(),
+    )
+    routed_input = torch.ops._c10d_functional.wait_tensor(routed_input)
+
+    loss = F.mse_loss(routed_input, labels)
+    loss.backward()
+
+    torch.cuda.synchronize()
+    return routed_input
+
+
+def mxfp8_a2a_fwd_bwd(
+    routed_input: torch.Tensor,
+    labels: torch.Tensor,
+    output_splits_list: list[int],
+    input_splits_list: list[int],
+    device_mesh: DeviceMesh,
+):
+    routed_input = to_mxfp8_a2a_dequant(
+        routed_input,
+        output_splits_list,
+        input_splits_list,
+        device_mesh.get_group(),
+    )
+
+    loss = F.mse_loss(routed_input, labels)
+    loss.backward()
+    torch.cuda.synchronize()
+    return routed_input
+
+
+# Compile target funcs
+default_a2a_sync_compiled = torch.compile(default_a2a_fwd_bwd)
+mxfp8_a2a_sync_compiled = torch.compile(mxfp8_a2a_fwd_bwd)
+
+
+def run_experiment(
+    config: ExperimentConfig, args: argparse.Namespace
+) -> ExperimentResult:
     batch_size, seq_len, dim = config.input_shape
     x = torch.randn(
         (batch_size * seq_len, dim),
         dtype=torch.bfloat16,
         device=device,
+        requires_grad=True,
     )
-    ref_x = x.detach().clone()
+    ref_x = x.detach().clone().requires_grad_(True)
+
+    # Set up device mesh
+    mesh = init_device_mesh("cuda", (dist.get_world_size(),))
 
     # Max output tokens per rank is worst case where one rank receives all tokens
     input_tokens_per_rank = batch_size * seq_len
-    max_output_tokens_per_rank = input_tokens_per_rank * dist.get_world_size()
-
-    def using_bf16(
-        input_tensor: torch.Tensor, input_splits: torch.Tensor
-    ) -> torch.Tensor:
-        # Calculate output splits from input splits
-        output_splits = torch.empty_like(input_splits)
-        dist.all_to_all_single(output_splits, input_splits)
-
-        # Perform all-to-all
-        out = all_to_all_single_autograd(
-            input_tensor,
-            output_splits.tolist(),
-            input_splits.tolist(),
-            dist.group.WORLD,
-        )
-        out = torch.ops._c10d_functional.wait_tensor(out)
-        return out
-
-    def using_mxfp8(
-        input_tensor: torch.Tensor, input_splits: torch.Tensor
-    ) -> torch.Tensor:
-        output, output_splits = mxfp8_on_device_all_to_all_v(
-            input_tensor,
-            input_splits,
-            max_output_tokens_per_rank,
-            dist.group.WORLD.group_name,
-        )
-        output = torch.ops._c10d_functional.wait_tensor(output)
-        output_splits = torch.ops._c10d_functional.wait_tensor(output_splits)
-        return output
 
     def warmup(func_no_args):
         for _ in range(2):
             func_no_args()
 
-    num_splits = dist.get_world_size()
+    num_experts_per_rank = 2
+    num_splits = dist.get_world_size() * num_experts_per_rank
     input_splits = generate_split_sizes(
         num_splits, input_tokens_per_rank, device=device
     )
+    input_splits_list, output_splits_list = get_split_lists(input_splits, mesh)
 
-    print(
-        "Benchmarking using bf16",
-        "batch_size",
-        batch_size,
-        "seq_len",
-        seq_len,
-        "dim",
-        dim,
-        "input_tokens_per_rank",
-        input_tokens_per_rank,
-        "max_output_tokens_per_rank",
-        max_output_tokens_per_rank,
-    )
-    warmup(lambda: using_bf16(ref_x, input_splits))
-    start_ns = time.perf_counter()
-    using_bf16(ref_x, input_splits)
-    end_ns = time.perf_counter()
-    bf16_us = (end_ns - start_ns) * 1e6
+    # Generate labels
+    labels_shape = (sum(output_splits_list), dim)
+    labels = x.new_ones(*labels_shape)
 
-    print(
-        "Benchmarking using_mxfp8",
-        "batch_size",
-        batch_size,
-        "seq_len",
-        seq_len,
-        "dim",
-        dim,
-        "input_tokens_per_rank",
-        input_tokens_per_rank,
-        "max_output_tokens_per_rank",
-        max_output_tokens_per_rank,
+    # Bench default a2a (exclude d2h sync from preparing input splits_list and output_splits_list)
+    warmup(
+        lambda: default_a2a_sync_compiled(
+            ref_x, labels, output_splits_list, input_splits_list, mesh
+        )
     )
-    warmup(lambda: using_mxfp8(x, input_splits))
-    start_ns = time.perf_counter()
-    using_mxfp8(x, input_splits)
-    end_ns = time.perf_counter()
-    mxfp8_us = (end_ns - start_ns) * 1e6
+    start_sec = time.perf_counter()
+    default_a2a_sync_compiled(
+        ref_x, labels, output_splits_list, input_splits_list, mesh
+    )
+    end_sec = time.perf_counter()
+    bf16_ms = (end_sec - start_sec) * 1e3
+    if args.profile:
+        profile_fn(
+            default_a2a_sync_compiled,
+            ref_x,
+            labels,
+            output_splits_list,
+            input_splits_list,
+            mesh,
+            distributed=True,
+            profile_name="all_to_all_single_autograd",
+        )
+
+    # Bench mxfp8 sync a2a (exclude d2h sync from preparing input splits_list and output_splits_list)
+    warmup(
+        lambda: mxfp8_a2a_sync_compiled(
+            x, labels, output_splits_list, input_splits_list, mesh
+        )
+    )
+    start_sec = time.perf_counter()
+    mxfp8_a2a_sync_compiled(x, labels, output_splits_list, input_splits_list, mesh)
+    end_sec = time.perf_counter()
+    mxfp8_ms = (end_sec - start_sec) * 1e3
+    if args.profile:
+        profile_fn(
+            mxfp8_a2a_sync_compiled,
+            x,
+            labels,
+            output_splits_list,
+            input_splits_list,
+            mesh,
+            distributed=True,
+            profile_name="to_mxfp8_a2a_dequant",
+        )
 
     return ExperimentResult(
-        bf16_us=bf16_us,
-        mxfp8_us=mxfp8_us,
+        bf16_ms=bf16_ms,
+        mxfp8_ms=mxfp8_ms,
     )
 
 
@@ -162,8 +203,8 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
         "num_splits",
-        "bf16_us",
-        "mxfp8_us",
+        "bf16_ms",
+        "mxfp8_ms",
     ]
     rows = []
     num_splits = dist.get_world_size()
@@ -172,11 +213,46 @@ def print_results(experiments: List[Experiment]):
             [
                 str(experiment.config.input_shape),
                 num_splits,
-                experiment.result.bf16_us,
-                experiment.result.mxfp8_us,
+                experiment.result.bf16_ms,
+                experiment.result.mxfp8_ms,
             ]
         )
     print(tabulate(rows, headers=headers))
+
+
+def get_split_lists(
+    num_tokens_per_expert: torch.Tensor, device_mesh: DeviceMesh
+) -> tuple[list[int], list[int]]:
+    ep_degree = device_mesh.size(0)
+
+    # generate the input splits and output splits for sync-impls
+    num_tokens_per_expert_group = all_to_all_single(
+        num_tokens_per_expert,
+        None,
+        None,
+        group=device_mesh.get_group(),
+    )
+    # Need to wait explicitly because it is used by a triton kernel later
+    # which doesn't realize that AsyncCollectiveTensor needs unwrapping
+    num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
+        num_tokens_per_expert_group
+    )
+    input_splits = (
+        num_tokens_per_expert.view(ep_degree, -1)
+        .sum(dim=1)
+        .to(torch.device("cpu"), non_blocking=True)
+    )
+    # NOTE: this would incur a device-to-host sync
+    output_splits = (
+        num_tokens_per_expert_group.view(ep_degree, -1)
+        .sum(dim=1)
+        .to(torch.device("cpu"), non_blocking=False)
+    )
+
+    input_splits_list = input_splits.tolist()
+    output_splits_list = output_splits.tolist()
+
+    return input_splits_list, output_splits_list
 
 
 def generate_split_sizes(K: int, N: int, device: str = "cuda") -> torch.Tensor:
@@ -209,7 +285,7 @@ def generate_split_sizes(K: int, N: int, device: str = "cuda") -> torch.Tensor:
     return result.to(dtype=torch.int64)
 
 
-def main():
+def main(args: argparse.Namespace):
     torch.random.manual_seed(123)
 
     # Set up process group
@@ -219,7 +295,7 @@ def main():
     configs = get_configs()
     results = []
     for config in tqdm(configs):
-        result = run_experiment(config)
+        result = run_experiment(config, args)
         results.append(Experiment(config=config, result=result))
 
     # Use Tabulate to print results
@@ -237,4 +313,7 @@ def setup_distributed():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", action="store_true")
+    args = parser.parse_args()
+    main(args)

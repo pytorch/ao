@@ -36,7 +36,7 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     fill_defaults,
     is_sm_at_least_90,
 )
@@ -171,7 +171,7 @@ class Float8Tensor(TorchAOBaseTensor):
         kernel_choice = None
         if (
             kernel_preference == KernelPreference.AUTO
-            and _is_fbgemm_genai_gpu_available()
+            and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
             and float8_dtype == torch.float8_e4m3fn
@@ -182,7 +182,7 @@ class Float8Tensor(TorchAOBaseTensor):
             kernel_choice = "fbgemm"
         elif kernel_preference == KernelPreference.FBGEMM:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
-            assert _is_fbgemm_genai_gpu_available() and is_sm_at_least_90(), (
+            assert _is_fbgemm_gpu_genai_available() and is_sm_at_least_90(), (
                 "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
             )
             assert hp_value_lb is None, (
@@ -245,9 +245,11 @@ class Float8Tensor(TorchAOBaseTensor):
 
 
 implements = Float8Tensor.implements
+implements_torch_function = Float8Tensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -270,7 +272,7 @@ def _(func, types, args, kwargs):
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
-            if _is_fbgemm_genai_gpu_available() and is_sm_at_least_90():
+            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
                 kernel_choice = "fbgemm"
         elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
             kernel_choice = "fbgemm"
@@ -281,7 +283,7 @@ def _(func, types, args, kwargs):
             kernel_choice = "torch"
 
         if kernel_choice == "fbgemm":
-            assert _is_fbgemm_genai_gpu_available(), (
+            assert _is_fbgemm_gpu_genai_available(), (
                 "Expected fbgemm_gpu_genai package to be installed"
             )
             assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
@@ -359,7 +361,7 @@ def _(func, types, args, kwargs):
         )
 
 
-@implements(torch.bmm)
+@implements_torch_function(torch.bmm)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = (
         args[0],
@@ -371,7 +373,7 @@ def _(func, types, args, kwargs):
 
     kernel_preference = weight_tensor.kernel_preference
     assert kernel_preference != KernelPreference.TORCH, "bmm is not supported for TORCH"
-    assert _is_fbgemm_genai_gpu_available(), (
+    assert _is_fbgemm_gpu_genai_available(), (
         "bmm is not supported when fbgemm_gpu_genai is not installed"
     )
 
@@ -418,10 +420,10 @@ def _(func, types, args, kwargs):
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
-    """Only supports slicing for dim == 1 and dim == 2
-    original tensor shape has dimension (N, K)
-    qdata has dimension (N, K)
-    scale (per row quantization) has dimension: (N,)
+    """Supports slicing for 1d, 2d, and 3d tensors
+    original tensor shape has dimension (N, K), or (E, N, K)
+    qdata has dimension (N, K) or (E, N, K)
+    scale (per row quantization) has dimension: (N,) or (E, N)
 
     since qdata has the same dimension as original tensor, we can directly slice that
     for scale, we'll do a slice when dim is 0, and don't need to do anything for dim 1
@@ -431,12 +433,14 @@ def _(func, types, args, kwargs):
     """
     self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
     assert step == 1
-    assert dim == 0 or dim == 1, f"Only dim==0 or 1 are supported, got: {dim}"
+    assert dim == 0 or dim == 1 or dim == 2, (
+        f"Only dim==0,1,2 are supported, got: dim={dim}"
+    )
     if end >= self.shape[dim]:
         end = self.shape[dim]
 
-    assert self.qdata.ndim == 2, (
-        f"Expected packed weight to have dim 2, got {self.qdata.dim}"
+    assert self.qdata.ndim == 2 or self.qdata.ndim == 3, (
+        f"Expected packed weight to have dim==2,3 got: dim={self.qdata.ndim}"
     )
 
     # Always slice the qdata
@@ -637,6 +641,28 @@ def _(func, types, args, kwargs):
         old_float8_tensor.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_float8_tensor)
+
+
+@implements(aten.unsqueeze.default)
+def _(func, types, args, kwargs):
+    self, dim = args
+    assert dim == 0, f"Only dim == 0 is supported, got: {dim}"
+    qdata = self.qdata.unsqueeze(dim=dim)
+    scale = self.scale.unsqueeze(dim=dim)
+    block_size = []
+    for i in range(len(qdata.shape)):
+        block_size.append(qdata.shape[i] // scale.shape[i])
+
+    new = self.__class__(
+        qdata,
+        scale,
+        block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
 
 
 Float8Tensor.__module__ = "torchao.quantization"

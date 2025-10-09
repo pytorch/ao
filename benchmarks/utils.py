@@ -72,7 +72,7 @@ def profile_fwd_bwd(
     print(f"Saved: {profile_name}.json")
 
 
-def profile_fn(fn, *args, profile_name="profile", **kwargs):
+def profile_fn(fn, *args, profile_name="profile", distributed=False, **kwargs):
     wait, warmup, active = 1, 1, 1
     total_steps = wait + warmup + active
     with torch.profiler.profile(
@@ -89,9 +89,11 @@ def profile_fn(fn, *args, profile_name="profile", **kwargs):
             _ = fn(*args, **kwargs)
             prof.step()
 
-    # Save profiler results
-    prof.export_chrome_trace(f"{profile_name}.json")
-    print(f"Saved: {profile_name}.json")
+    if distributed:
+        if torch.distributed.get_rank() == 0:
+            # Save profiler results
+            prof.export_chrome_trace(f"{profile_name}.json")
+            print(f"Saved: {profile_name}.json")
 
 
 def benchmark_cuda_function_in_microseconds(f, *args, **kwargs):
