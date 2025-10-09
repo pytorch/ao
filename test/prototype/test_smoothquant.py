@@ -24,7 +24,6 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
-from torchao.testing.model_architectures import ToyTokenizer
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -56,25 +55,9 @@ class ToyLinearModel(torch.nn.Module):
         return (x,)
 
     def forward(self, x):
-        if x.dtype in [torch.long, torch.int]:
-            batch_size, seq_len = x.shape
-            x = (
-                torch.nn.functional.one_hot(
-                    x.long().clamp(0, self.linear1.in_features - 1),
-                    self.linear1.in_features,
-                )
-                .float()
-                .view(-1, self.linear1.in_features)
-            )
-
         x = self.linear1(x)
         x = self.linear2(x)
         x = self.linear3(x)
-
-        if x.dtype in [torch.long, torch.int] or "batch_size" in locals():
-            self.lm_head = torch.nn.Linear(64, 1000).to(x.device)
-            return self.lm_head(x).view(batch_size, seq_len, 1000)
-
         return x
 
 
@@ -156,7 +139,6 @@ class TestSmoothQuant(unittest.TestCase):
     )
     def test_observer_insertion(self, base_config):
         """Test that PREPARE step correctly inserts SmoothQuantObservedLinear."""
-        from torchao._models._eval import TransformerEvalWrapper
 
         m = ToyLinearModel().eval()
 
@@ -175,12 +157,9 @@ class TestSmoothQuant(unittest.TestCase):
         self.assertIsInstance(m.linear1, SmoothQuantObservedLinear)
         self.assertTrue(hasattr(m.linear1, "obs"))
 
-        # Test calibration via evaluation
-        results = TransformerEvalWrapper(
-            model=m,
-            tokenizer=ToyTokenizer(),
-        ).run_eval(tasks=["hellaswag"], limit=10)
-        self.assertIsNotNone(results)
+        # Test calibration
+        test_data = torch.randn(2, 512)
+        m(test_data)
 
         # CONVERT step - should produce regular Linear with quantized weights
         config.step = SmoothQuantStep.CONVERT
@@ -197,8 +176,8 @@ class TestSmoothQuant(unittest.TestCase):
             # TODO: Check more quantization APIs
         ],
     )
-    def test_smoothquant_loading(self, base_config):
-        """Test loading with quantized checkpoints."""
+    def test_prepare_for_loading(self, base_config):
+        """Test PREPARE_FOR_LOADING step for loading pre-quantized checkpoints."""
 
         m = ToyLinearModel().eval()
 
