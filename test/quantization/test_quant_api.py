@@ -59,9 +59,6 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
-    IntxUnpackedToInt8Tensor,
-)
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
