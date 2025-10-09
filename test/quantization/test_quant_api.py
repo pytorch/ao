@@ -34,6 +34,7 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
+    Float8Tensor,
     Int4TilePackedTo4dTensor,
     IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
@@ -44,6 +45,7 @@ from torchao.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -53,7 +55,6 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
-    ModuleOrParamFqnToConfig,
     PerRow,
     PerTensor,
     Quantizer,
@@ -906,7 +907,7 @@ common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
-class TestModuleOrParamFqnToConfig(TestCase):
+class TestFqnToConfig(TestCase):
     def test_quantize_param_fqn_exact(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
@@ -916,7 +917,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
 
-        quant_config = ModuleOrParamFqnToConfig(
+        quant_config = FqnToConfig(
             {
                 "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
@@ -929,11 +930,6 @@ class TestModuleOrParamFqnToConfig(TestCase):
             quant_config,
         )
 
-        # Note: Need to import Float8Tensor from the correct location
-        from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
-            Float8Tensor,
-        )
-
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
 
     def test_quantize_param_and_module_fqn(self):
@@ -944,7 +940,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
-        quant_config = ModuleOrParamFqnToConfig(
+        quant_config = FqnToConfig(
             {
                 "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
@@ -960,6 +956,10 @@ class TestModuleOrParamFqnToConfig(TestCase):
             quant_config,
         )
 
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+        assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
+        assert model.shared_expert.gate_proj.weight.scale.numel() == 1
+
     def test_quantize_param_and_module_fqn_regex(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
@@ -968,7 +968,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
-        quant_config = ModuleOrParamFqnToConfig(
+        quant_config = FqnToConfig(
             {
                 "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
@@ -984,13 +984,40 @@ class TestModuleOrParamFqnToConfig(TestCase):
             quant_config,
         )
 
-        from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
-            Float8Tensor,
-        )
-
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
         assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
         assert model.shared_expert.gate_proj.weight.scale.numel() == 1
+
+    def test_quantize_modle_exact_match_preference(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(128, 128)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = TestModule().to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                # only this config should be applied, as module fqn takes precedence
+                "linear": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                # "re:linear": Float8DynamicActivationFloat8WeightConfig(
+                #     granularity=PerTensor(),
+                # ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        assert isinstance(model.linear.weight, Float8Tensor)
+        assert model.linear.weight.scale.numel() == 128
 
     def test_quantize_modle_param_double_specified(self):
         model = (
@@ -1001,7 +1028,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
             .to(torch.bfloat16)
             .cuda()
         )
-        quant_config = ModuleOrParamFqnToConfig(
+        quant_config = FqnToConfig(
             {
                 # only this config should be applied, as module fqn takes precedence
                 "0": Float8DynamicActivationFloat8WeightConfig(
@@ -1016,10 +1043,6 @@ class TestModuleOrParamFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
-        )
-
-        from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
-            Float8Tensor,
         )
 
         assert isinstance(model[0].weight, Float8Tensor)
@@ -1040,7 +1063,7 @@ class TestModuleOrParamFqnToConfig(TestCase):
         model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
 
         # Create config with unsupported parameter handler
-        quant_config = ModuleOrParamFqnToConfig(
+        quant_config = FqnToConfig(
             {
                 "0.weight": UnsupportedParamConfig(),
             }
