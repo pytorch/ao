@@ -1840,6 +1840,11 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
 
+    if weight.device.type != "cpu" and isinstance(weight_granularity, PerRow):
+        assert weight.dtype == torch.bfloat16, (
+            "PerRow quantization only works for bfloat16 precision input weight"
+        )
+
     if config.version == 1:
         warnings.warn(
             "Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
@@ -1851,10 +1856,6 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             # not doing what the user asked
             return weight
 
-        if isinstance(weight_granularity, PerRow):
-            assert weight.dtype == torch.bfloat16, (
-                "PerRow quantization only works for bfloat16 precision input weight"
-            )
         block_size = get_block_size(weight.shape[-2:], weight_granularity)
         if weight.dim() == 3:
             block_size = tuple([1] + list(block_size))
