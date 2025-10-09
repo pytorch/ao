@@ -2243,15 +2243,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         or
             (with bias) pattern_no_bias -> add -> reshape -> reshape
         """
-
-        # Check MKLDNN bfloat16 support safely
-        def _is_mkldnn_bf16_supported():
-            try:
-                return torch.ops.mkldnn._is_mkldnn_bf16_supported()
-            except (AttributeError, RuntimeError):
-                return False
-
-        if dtype == torch.bfloat16 and not _is_mkldnn_bf16_supported():
+        if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
         M = 16
         in_feature = 32
@@ -2354,15 +2346,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         The pattern depiction doesn't mean that convert_element_type output is fed into expand_a as input,
         but simply that activation scale may be applied after an expand operation on it.
         """
-
-        # Check MKLDNN bfloat16 support safely
-        def _is_mkldnn_bf16_supported():
-            try:
-                return torch.ops.mkldnn._is_mkldnn_bf16_supported()
-            except (AttributeError, RuntimeError):
-                return False
-
-        if dtype == torch.bfloat16 and not _is_mkldnn_bf16_supported():
+        if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
         in_feature = 32
         out_feature = 64
