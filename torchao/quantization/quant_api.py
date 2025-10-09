@@ -2389,29 +2389,21 @@ class FqnToConfig(AOBaseConfig):
     It will then will try to replace any parameters that match the keys, ignoring modules that have already been transformed by the previous flow (modules that contain AOBaseTensor parameters):
 
     Args:
-        module_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): An ordered dictionary mapping
-            regex patterns (as strings) to quantization configurations.
-
+        fqn_to_config
             The patterns can be one of the follows:
-             (1). fully qualified name (fqn) of module or paramter or
-             (2). regex of fully qualified name (in python `re` module regex format), should
-                  start with prefix "re:" or
-             (3). "_default"
-
-    Config key ordered by precedence:
-    * fully qualified module or paramteter name, e.g. `language.layers.0.q_proj`
-    * regex for module or parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
-        whiever regex fully matches the module fqn first will be applied
-        (order of keys for dictionary are kept consistent since we are using OrderedDict)
-    * "_default", fallback for **all modules** if no match for all previous keys
-        (Note, when using `_default`, the config is applied to all modules, to apply
-        it to only a subset of modules, e.g. with some types, it's better to filter
-        the modules that we don't want to quantize before hand and configure them to
-        None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
+            * fully qualified module or paramteter name, e.g. `language.layers.0.q_proj`
+            * regex for module or parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+                whiever regex fully matches the module fqn first will be applied
+                (order of keys for dictionary are kept consistent since we are using OrderedDict)
+            * "_default", fallback for **all modules** if no match for all previous keys
+                (Note, when using `_default`, the config is applied to all modules, to apply
+                it to only a subset of modules, e.g. with some types, it's better to filter
+                the modules that we don't want to quantize before hand and configure them to
+                None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
+                module_fqn_to_config (OrderedDict[str, Optional[AOBaseConfig]]): For BC
 
     Note:
         - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied
-        - Parameters that are already TorchAOBaseTensor instances are skipped to avoid double quantization
         - "_default" is ignored for parameter replacement.
     """
 
@@ -2426,22 +2418,27 @@ class FqnToConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
+
+        # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
         if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) > 0:
             warnings.warn(
                 "Both module_fqn_to_config and fqn_to_config are specified, only fqn_to_config will be used"
             )
+            self.module_fqn_to_config = self.fqn_to_config
         if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) == 0:
             self.fqn_to_config = self.module_fqn_to_config
             warnings.warn(
-                "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig, see https://github.com/pytorch/ao/issues/2967 for more details"
+                "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig"
             )
         elif len(self.fqn_to_config) > 0 and len(self.module_fqn_to_config) == 0:
             self.module_fqn_to_config = self.fqn_to_config
         else:
             self.module_fqn_to_config = self.fqn_to_config
+
+        # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
         if "_default" in self.fqn_to_config:
             warnings.warn(
-                "Config Deprecation: _default is deprecated and will no longer be supported in a future release"
+                "Config Deprecation: _default is deprecated and will no longer be supported in a future release."
             )
 
 
@@ -2499,10 +2496,15 @@ def _get_config_for_fqn(
 ):
     """Helper function to get the config for a given fqn from an FqnToConfig object.
 
-    In order of precednece it will try to match
-    1) the fqn exactly
-    2) any regex that matches the fqn
-    3) default, if specified (for mainitainig BC)
+    Args:
+        fqn (str): The fully qualified name to match against the config patterns.
+        config (FqnToConfig): The FqnToConfig object containing mapping of FQNs or regex patterns to quantization configs.
+        default (Optional[AOBaseConfig]): The default config to use if no match is found. Defaults to None.
+
+    Returns:
+        c (AOBaseConfig): If fqn is specified exactly in FqnToConfig, then fqn_to_config[fqn] will be returned.
+        Otherwise we will return the config of the first matching regex pattern in FqnToConfig.
+        Finally, we will return the default config if it is specified.
     """
     c = None
     if fqn in config.fqn_to_config:
@@ -2532,7 +2534,7 @@ def select_module_if_filter_fn_or_contains_params_matching_pattern(
     config: FqnToConfig,
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
 ):
-    """Check if a module should be selected for quantization, if filter_fn(module, fqn) is True or if module contains any top-level parameters that match the fqns/regexs in FqnToConfig.
+    """Check if a module should be selected for quantization to be applied
 
     Args:
         module (torch.nn.Module): The module to check for parameter pattern matches.
