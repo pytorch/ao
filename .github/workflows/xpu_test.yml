@@ -228,4 +228,16 @@ jobs:
           path: ./**/core.[1-9]*
 
       - name: Teardown XPU
-        uses: pytorch/pytorch/.github/actions/teardown-xpu@main
+        if: always()
+        shell: bash
+        run: |
+          # Prune all stopped containers.
+          # If other runner is pruning on this node, will skip.
+          nprune=$(ps -ef | grep -c "docker container prune")
+          if [[ $nprune -eq 1 ]]; then
+            docker container prune -f
+          fi
+      
+      - name: Runner diskspace health check
+        uses: pytorch/pytorch/.github/actions/diskspace-cleanup@main
+        if: always()
