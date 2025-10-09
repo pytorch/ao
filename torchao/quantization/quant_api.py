@@ -2405,6 +2405,8 @@ class FqnToConfig(AOBaseConfig):
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
               None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
+        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later
+        `version`: int: Version of config to use.
 
     Note:
         - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied
@@ -2434,6 +2436,7 @@ class FqnToConfig(AOBaseConfig):
                 "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig"
             )
             self.fqn_to_config = self.module_fqn_to_config
+            self.module_fqn_to_config = OrderedDict()
 
         # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
         if "_default" in self.fqn_to_config:

@@ -1061,8 +1061,6 @@ class TestFqnToConfig(TestCase):
 
         quant_config = FqnToConfig(
             {
-                # only this config should be applied, as module fqn takes precedence
-                # if we have both a linear and param at the same level,
                 "_default": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow(),
                 ),
@@ -1081,6 +1079,7 @@ class TestFqnToConfig(TestCase):
         assert model[0].linear.weight.scale.numel() == 128
 
         assert isinstance(model[0].param, Float8Tensor)
+        assert model[0].param.scale.numel() == 1
 
     def test_quantize_model_param_double_specified(self):
         model = (
