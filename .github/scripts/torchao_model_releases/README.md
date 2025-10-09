@@ -140,12 +140,36 @@ After environment is setup, we can run eval:
 sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag mmlu
 ```
 
+See https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks for all supported tasks.
+
 Note: you can pass in `--use_cache` if the eval task failed during the middle of the run
-and you don't want to re-run all evals.
+and you don't want to re-run all evals and there is no change to the model checkpoint.
 ```
 sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag mmlu --use_cache
 ```
 
+#### Multi-modal Model Quality Eval
+For multi-modal model quality eval, we need to install lmms-eval
+```
+uv pip install git+https://github.com/EvolvingLMMs-Lab/lmms-eval.git
+```
+After environment is setup, we can run eval:
+```
+sh eval.sh --eval_type mm_quality --model_ids google/gemma-3-12b-it --mm_tasks chartqa --model_type gemma3 --mm_eval_batch_size 32
+```
+
+See https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/models/simple for supported model types.
+See https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/tasks for supported multi-modal tasks.
+
+Note: larger mm_eval_batch_size could speedup eval but may cause OOM, when that happens, please reduce the number
+
+Note: you can pass in `--use_cache` if the eval task failed during the middle of the run
+and you don't want to re-run all evals and there is no change to model checkpoint.
+```
+sh eval.sh --eval_type mm_quality --model_ids google/gemma-3-12b-it --mm_tasks chartqa --model_type gemma3 --mm_eval_batch_size 32 --use_cache
+```
+
+Alternatively, please feel free to use the example scripts directly from llms-eval repo: https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/examples/models to run the evaluation.
 
 #### Summarize results
 After we have finished all evals for each model, we can summarize the results with:

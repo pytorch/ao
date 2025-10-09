@@ -24,3 +24,10 @@ check_lm_eval() {
     exit 1
   fi
 }
+
+check_lmms_eval() {
+  if ! pip show lmms_eval > /dev/null 2>&1; then
+    echo "Error: lmms_eval package is NOT installed. please install with `uv pip install git+https://github.com/EvolvingLMMs-Lab/lmms-eval.git`" >&2
+    exit 1
+  fi
+}
