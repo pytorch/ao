@@ -10,7 +10,7 @@
 # we expect to skip loading the .so files and a warning should be logged but no error
 
 PREV_TORCH_VERSION = 2.8.0
-PREV_TORCHAO_VERSION = 0.14.0
+PREV_TORCHAO_VERSION = 0.13.0
 
 # Function to check torchao import with configurable expectations
 check_torchao_import() {
