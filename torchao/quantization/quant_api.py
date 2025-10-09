@@ -246,23 +246,22 @@ def _replace_with_custom_fn_if_matches_filter_with_name(
         if device is not None:
             model.to(device=device)  # move to device before quantization
         model = replacement_fn(model, cur_fqn[:-1], *extra_args)
-        return model
-    else:
-        named_children_list = list(model.named_children())
-        for name, child in named_children_list:
-            new_child = _replace_with_custom_fn_if_matches_filter_with_name(
-                child,
-                replacement_fn,
-                filter_fn,
-                f"{cur_fqn}{name}.",
-                device,
-                extra_args,
-            )
-            if new_child is not child:
-                setattr(model, name, new_child)
-        if device is not None:
-            model.to(device=device)  # move parent module to device
-        return model
+    # For parameter quantization, filter_fn(model, cur_fqn) no longer is terminal, as a module may contain both a parameter we want to quantize and subsequent submodules.
+    named_children_list = list(model.named_children())
+    for name, child in named_children_list:
+        new_child = _replace_with_custom_fn_if_matches_filter_with_name(
+            child,
+            replacement_fn,
+            filter_fn,
+            f"{cur_fqn}{name}.",
+            device,
+            extra_args,
+        )
+        if new_child is not child:
+            setattr(model, name, new_child)
+    if device is not None:
+        model.to(device=device)  # move parent module to device
+    return model
 
 
 def _is_linear(mod, *args):
@@ -2419,7 +2418,7 @@ class FqnToConfig(AOBaseConfig):
     fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
-    # to maintain BC, we keep the same name as ModuleFqnToConfig before
+    # to maintain BC, we keep the previous module_fqn_to_config field
     module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
@@ -2427,10 +2426,19 @@ class FqnToConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
-        if self.version == 1:
+        if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) > 0:
+            warnings.warn(
+                "Both module_fqn_to_config and fqn_to_config are specified, only fqn_to_config will be used"
+            )
+        if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) == 0:
+            self.fqn_to_config = self.module_fqn_to_config
             warnings.warn(
                 "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig, see https://github.com/pytorch/ao/issues/2967 for more details"
             )
+        elif len(self.fqn_to_config) > 0 and len(self.module_fqn_to_config) == 0:
+            self.module_fqn_to_config = self.fqn_to_config
+        else:
+            self.module_fqn_to_config = self.fqn_to_config
 
 
 # maintain BC
@@ -2465,7 +2473,7 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     Raises:
         NotImplementedError: If a configuration type doesn't have a registered parameter handler.
     """
-
+    # breakpoint()
     # 1) module swap
     c = _get_config_for_fqn(
         fqn, config, default=config.fqn_to_config.get("_default", None)
@@ -2477,7 +2485,8 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     # 2) handle custom parameter flow
     for parameter_name, param in list(module.named_parameters()):
         if parameter_name in dir(module):
-            c = _get_config_for_fqn(f"{fqn}.{parameter_name}", config)
+            full_param_fqn = f"{fqn}.{parameter_name}" if fqn != "" else parameter_name
+            c = _get_config_for_fqn(full_param_fqn, config)
             if c is not None:
                 if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
@@ -2531,18 +2540,20 @@ def select_module_if_filter_fn_or_contains_params_matching_pattern(
         bool: True if filter_fn is passed and filter_fn(module, fqn) is True, or if any of the top-level parameters match the patterns in config.fqn_to_config
                 False otherwise.
     """
+    # breakpoint()
     if filter_fn is not None and filter_fn(module, fqn):
+        print(f"Selected module {fqn} for quantization")
         return True
-    else:
-        for name, param in module.named_parameters():
-            if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
-                for pattern in config.fqn_to_config:
-                    full_param_fqn = f"{fqn}.{name}"
-                    if (pattern == full_param_fqn) or (
-                        pattern.startswith("re:")
-                        and re.fullmatch(pattern[3:], f"{fqn}.{name}")
-                    ):
-                        return True
+    for name, param in module.named_parameters():
+        if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
+            full_param_fqn = f"{fqn}.{name}" if fqn != "" else name
+            for pattern in config.fqn_to_config:
+                if (pattern == full_param_fqn) or (
+                    pattern.startswith("re:")
+                    and re.fullmatch(pattern[3:], full_param_fqn)
+                ):
+                    print(f"Found matching pattern for {full_param_fqn}")
+                    return True
     return False
 
 

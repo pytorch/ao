@@ -1047,6 +1047,41 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.linear.weight, Float8Tensor)
         assert model.linear.weight.scale.numel() == 128
 
+    def test_quantize_module_default_param_quant(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(128, 128)
+                self.param = torch.nn.Parameter(torch.randn(128, 128))
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = TestModule().to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                # only this config should be applied, as module fqn takes precedence
+                # if we have both a linear and param at the same level,
+                "linear": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "param": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        assert isinstance(model.linear.weight, Float8Tensor)
+        assert model.linear.weight.scale.numel() == 128
+
+        assert isinstance(model.param, Float8Tensor)
+
     def test_quantize_modle_param_double_specified(self):
         model = (
             torch.nn.Sequential(
