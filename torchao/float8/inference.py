@@ -12,7 +12,7 @@ from typing import List, NamedTuple, Optional, Tuple, Union
 import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
-from torchao.float8.types import FP8Granularity, FP8GranularityCPU
+from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
     PerGroup,
     PerRow,
@@ -205,43 +205,9 @@ def _normalize_granularity(
             list[FP8Granularity],
         ]
     ],
+    supported_granularities: tuple[FP8Granularity] = (PerTensor, PerRow),
+    support_different_granularities: bool = False,
 ) -> Tuple[FP8Granularity, FP8Granularity]:
-    processed_granularity = None
-    if granularity is None:
-        processed_granularity = (PerTensor(), PerTensor())
-    elif isinstance(granularity, (PerTensor, PerRow)):
-        processed_granularity = (granularity, granularity)
-    elif isinstance(granularity, (tuple, list)) and len(granularity) == 2:
-        if not (
-            isinstance(granularity[0], (PerTensor, PerRow))
-            and isinstance(granularity[1], (PerTensor, PerRow))
-        ):
-            raise ValueError(
-                f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported."
-            )
-        if not isinstance(granularity[0], type(granularity[1])):
-            raise ValueError(
-                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
-            )
-        processed_granularity = tuple(granularity)
-    else:
-        raise ValueError(
-            f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
-        )
-    return processed_granularity
-
-
-def _normalize_granularity_opaque_tensor(
-    granularity: Optional[
-        Union[
-            FP8GranularityCPU,
-            Tuple[FP8GranularityCPU, FP8GranularityCPU],
-            list[FP8GranularityCPU],
-        ]
-    ],
-) -> Tuple[FP8GranularityCPU, FP8GranularityCPU]:
-    """For Float8OpaqueTensor on CPU"""
-    supported_granularities = (PerTensor, PerRow, PerGroup)
     processed_granularity = None
     if granularity is None:
         processed_granularity = (PerTensor(), PerTensor())
@@ -253,7 +219,13 @@ def _normalize_granularity_opaque_tensor(
             and isinstance(granularity[1], supported_granularities)
         ):
             raise ValueError(
-                f"Invalid granularity types: {granularity}, only PerTensor, PerRow or PerGroup are supported."
+                f"Invalid granularity types: {granularity}, only {supported_granularities} are supported."
+            )
+        if not support_different_granularities and not isinstance(
+            granularity[0], type(granularity[1])
+        ):
+            raise ValueError(
+                f"Different granularities for activation and weight are not supported: {granularity}, only {supported_granularities} are supported."
             )
         if isinstance(granularity[0], PerGroup):
             if not isinstance(granularity[1], PerGroup):
@@ -267,7 +239,7 @@ def _normalize_granularity_opaque_tensor(
         processed_granularity = tuple(granularity)
     else:
         raise ValueError(
-            f"Invalid granularity specification: {granularity}, only PerTensor, PerRow or PerGroup are supported."
+            f"Invalid granularity specification: {granularity}, only {supported_granularities} are supported."
         )
     return processed_granularity
 

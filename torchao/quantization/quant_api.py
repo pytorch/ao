@@ -60,7 +60,6 @@ from torchao.float8.inference import (
     FP8Granularity,
     _check_hardware_support,
     _normalize_granularity,
-    _normalize_granularity_opaque_tensor,
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -1812,13 +1811,16 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         )
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
-        normalize_granularity_func = (
-            _normalize_granularity
-            if self.float8_packing_format == Float8PackingFormat.PLAIN
-            else _normalize_granularity_opaque_tensor
+        supported_granularities = ()
+        if self.float8_packing_format == Float8PackingFormat.PLAIN:
+            supported_granularities = (PerTensor, PerRow)
+        elif self.float8_packing_format == Float8PackingFormat.OPAQUE:
+            supported_granularities = (PerTensor, PerRow, PerGroup)
+        support_different_granularities = (
+            self.float8_packing_format == Float8PackingFormat.OPAQUE
         )
-        activation_granularity, weight_granularity = normalize_granularity_func(
-            self.granularity
+        activation_granularity, weight_granularity = _normalize_granularity(
+            self.granularity, supported_granularities, support_different_granularities
         )
         self.granularity = [activation_granularity, weight_granularity]
 

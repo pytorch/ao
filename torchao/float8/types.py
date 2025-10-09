@@ -16,5 +16,4 @@ if TYPE_CHECKING:
 
 
 # Define FP8Granularity type alias to break circular import dependencies
-FP8Granularity = Union["PerTensor", "PerRow"]
-FP8GranularityCPU = Union["PerTensor", "PerRow", "PerGroup"]
+FP8Granularity = Union["PerTensor", "PerRow", "PerGroup"]
