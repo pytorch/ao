@@ -2383,28 +2383,24 @@ def _fpx_weight_only_transform(
 class FqnToConfig(AOBaseConfig):
     """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
-    Users can either explicitly specify a specific FQN or pass in a regex pattern to match FQNs.
-
-    `quantize_` will first try to replace all modules matching the keys of FqnToConfig.fqn_to_config,
-    It will then will try to replace any parameters that match the keys, ignoring modules that have already been transformed by the previous flow (modules that contain AOBaseTensor parameters):
-
     Args:
         `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
          ordered dictionary from
-             (1). fully qualified name (fqn) of module or
+             (1). fully qualified name (fqn) of module or parameter
              (2). regex of fully qualified name (in python `re` module regex format), should
                   start with prefix "re:" or
              (3). "_default"
-         to the config that we want to apply to the module or None
+         to the config that we want to apply to the module/param or None
 
          Config key ordered by precedence:
            * fully qualified module name, e.g. `language.layers.0.q_proj`
            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
-             whiever regex fully matches the module fqn first will be applied
+             whichever regex fully matches the module fqn first will be applied
              (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * fully qualified parameter name
-           * regex for parameter names
-           * "_default", fallback for **all modules** if no match for all previous keys
+           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
+           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+             The first regex that matches will be applied.
+           * "_default", fallback if no match for all previous keys
              (Note, when using `_default`, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
@@ -2430,17 +2426,14 @@ class FqnToConfig(AOBaseConfig):
         # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
         if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) > 0:
             raise ValueError(
-                "Both module_fqn_to_config and fqn_to_config are non-empty, expected one to be"
+                "Both module_fqn_to_config and fqn_to_config are non-empty, expected one to be empty!"
             )
-        if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) == 0:
-            self.fqn_to_config = self.module_fqn_to_config
+        if len(self.module_fqn_to_config) > 0:
+            assert len(self.fqn_to_config) == 0
             warnings.warn(
                 "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig"
             )
-        elif len(self.fqn_to_config) > 0 and len(self.module_fqn_to_config) == 0:
-            self.module_fqn_to_config = self.fqn_to_config
-        else:
-            self.module_fqn_to_config = self.fqn_to_config
+            self.fqn_to_config = self.module_fqn_to_config
 
         # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
         if "_default" in self.fqn_to_config:
@@ -2507,13 +2500,13 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
 def _get_config_for_fqn(fqn: str, config: FqnToConfig):
     """Helper function to get the config for a given fqn from an FqnToConfig object.
 
-    Args:
-        fqn (str): The fully qualified name to match against the config patterns.
-        config (FqnToConfig): The FqnToConfig object containing mapping of FQNs or regex patterns to quantization configs.
-
-    Returns:
-        c (AOBaseConfig): If fqn is specified exactly in FqnToConfig, then fqn_to_config[fqn] will be returned.
-                          Otherwise we will return the config of the first matching regex pattern in FqnToConfig.
+        Args:
+            fqn (str): The fully qualified name to match against the config patterns.
+            config (FqnToConfig): The FqnToConfig object containing mapping of FQNs or regex patterns to quantization configs.
+    torchao/quantization/quant_api.py
+        Returns:
+            c (AOBaseConfig): If fqn is specified exactly in FqnToConfig, then fqn_to_config[fqn] will be returned.
+                              Otherwise we will return the config of the first matching regex pattern in FqnToConfig.
     """
     c = None
     if fqn in config.fqn_to_config:

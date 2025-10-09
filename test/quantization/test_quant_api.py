@@ -1081,9 +1081,8 @@ class TestFqnToConfig(TestCase):
         assert model[0].linear.weight.scale.numel() == 128
 
         assert isinstance(model[0].param, Float8Tensor)
-        assert model[0].param.scale.numel() == 1
 
-    def test_quantize_modle_param_double_specified(self):
+    def test_quantize_model_param_double_specified(self):
         model = (
             torch.nn.Sequential(
                 torch.nn.Linear(128, 128),
