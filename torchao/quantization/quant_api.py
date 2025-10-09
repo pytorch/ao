@@ -1731,11 +1731,7 @@ def _input_activation_quant_cpu_fp8(
     activation_dtype: torch.dtype,
 ):
     """Dynamic quantize activation to fp8 for CPU."""
-    if not isinstance(activation_granularity, PerGroup):
-        block_size = get_block_size(x.shape, activation_granularity)
-    else:
-        group_size = activation_granularity.group_size
-        block_size = (*([1] * (len(x.shape) - 1)), group_size)
+    block_size = get_block_size(x.shape, activation_granularity)
     return to_affine_quantized_floatx(
         input_float=x,
         block_size=block_size,
@@ -1842,26 +1838,23 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     float8_packing_format = config.float8_packing_format
 
     # Ensure works on device
-    is_cpu = weight.device.type == "cpu"
-    if not is_cpu:
-        _check_hardware_support(granularity)
     activation_granularity, weight_granularity = granularity
-
-    if not is_cpu and not _fp8_mm_compat(weight):
-        # TODO(future PR): this should really throw an exception instead of silently
-        # not doing what the user asked
-        return weight
-
-    if not is_cpu and isinstance(weight_granularity, PerRow):
-        assert weight.dtype == torch.bfloat16, (
-            "PerRow quantization only works for bfloat16 precision input weight"
-        )
 
     if config.version == 1:
         warnings.warn(
             "Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
         )
 
+        _check_hardware_support(granularity)
+        if not _fp8_mm_compat(weight):
+            # TODO(future PR): this should really throw an exception instead of silently
+            # not doing what the user asked
+            return weight
+
+        if isinstance(weight_granularity, PerRow):
+            assert weight.dtype == torch.bfloat16, (
+                "PerRow quantization only works for bfloat16 precision input weight"
+            )
         block_size = get_block_size(weight.shape[-2:], weight_granularity)
         if weight.dim() == 3:
             block_size = tuple([1] + list(block_size))
