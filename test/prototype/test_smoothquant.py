@@ -21,10 +21,10 @@ from torchao.quantization.linear_activation_scale import (
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
 )
-from torchao.testing.model_architectures import ToyTokenizer
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
+from torchao.testing.model_architectures import ToyTokenizer
 
 
 class ToyLinearModel(torch.nn.Module):

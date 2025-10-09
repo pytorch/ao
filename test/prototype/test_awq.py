@@ -17,7 +17,7 @@ from torch.testing._internal.common_utils import (
 from torchao.prototype.awq import AWQConfig, AWQStep
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.testing.model_architectures import ToyTokenizer
-from torchao.utils import _is_fbgemm_genai_gpu_available
+from torchao.utils import _is_fbgemm_gpu_genai_available, torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -141,25 +141,29 @@ class TestAWQ(TestCase):
             input_cat = torch.cat(calibration_data, dim=-2)
             ref_out = m(input_cat)
 
-        quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
-        quantize_(m, quant_config)
+            # baseline quantization
+            quantize_(m_baseline, base_config)
+
+            # awq quantization
+            quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+            quantize_(m, quant_config)
 
         # Calibration via evaluation
         results = TransformerEvalWrapper(model=m, tokenizer=ToyTokenizer()).run_eval(
-            tasks=["hellaswag"], limit=n_calibration_examples
+            tasks=["hellaswag"], limit=dataset_size
         )
         self.assertIsNotNone(results)
 
-            quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
-            quantize_(m, quant_config)
+        quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+        quantize_(m, quant_config)
 
-            # evaluating on calibration data set to remove any uncertainty
-            awq_out = m(input_cat)
-            baseline_out = m_baseline(input_cat)
+        # evaluating on calibration data set to remove any uncertainty
+        awq_out = m(input_cat)
+        baseline_out = m_baseline(input_cat)
 
-            loss_awq = (ref_out - awq_out).pow(2).mean().item()
-            loss_base = (ref_out - baseline_out).pow(2).mean().item()
-            assert loss_awq <= loss_base
+        loss_awq = (ref_out - awq_out).pow(2).mean().item()
+        loss_base = (ref_out - baseline_out).pow(2).mean().item()
+        assert loss_awq <= loss_base
 
     @parametrize("device", devices)
     def test_awq_loading(self, device):
