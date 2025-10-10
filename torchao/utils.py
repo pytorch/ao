@@ -646,6 +646,7 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
         ...
         __torch_function__ = classmethod(_dispatch__torch_function__)
     """
+    #print(f"dispatch__torch_function__ {func}, cls = {cls}")
     kwargs = {} if kwargs is None else kwargs
     if (
         hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE")
@@ -655,8 +656,11 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, types, args, kwargs)
 
     with torch._C.DisableTorchFunctionSubclass():
-        return func(*args, **kwargs)
-
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            print("func is ", func if func is not None else "n/a", "cls is ", cls if cls is not None else "n/a", "args are", args, "kwargs are ", kwargs)
+            raise e
 
 def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
     """Use this util function for a common `__torch_dispatch__` implementation
@@ -666,6 +670,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
         ...
         __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     """
+    #print(f"dispatched to {func}, cls is {cls}, types is {types}, args is {args}, kwargs is {kwargs}")
     if (
         hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE")
         and cls in cls._ATEN_OP_OR_TORCH_FN_TABLE
