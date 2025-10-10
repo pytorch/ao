@@ -22,7 +22,10 @@ from torchao.float8.config import (
     e5m2_dtype,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_linear_utils import (
+    _populate_debug_fqns,
+    convert_to_float8_training,
+)
 from torchao.float8.float8_ops import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
@@ -394,6 +397,88 @@ class TestFloat8Linear:
             m_ref,
             config,
         )
+
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [
+            Float8LinearRecipeName.TENSORWISE,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
+        ],
+    )
+    def test_debug_logging(self, recipe_name):
+        x = torch.randn(1, 16, 16, device="cuda", dtype=torch.bfloat16)
+        m = nn.Sequential(
+            nn.Linear(16, 32, bias=False, device="cuda", dtype=torch.bfloat16),
+            nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(32, 64, bias=False, device="cuda", dtype=torch.bfloat16),
+            ),
+        )
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
+
+        @torch.no_grad()
+        def mean_absolute_percentage_error(x_ref, x):
+            tmp = torch.abs(x_ref - x) / torch.clamp(torch.abs(x_ref), min=1e-9)
+            # trim to avoid values close to 0 from
+            # significantly impacting the results
+            tmp = torch.clamp(tmp, max=1e3)
+            return torch.mean(tmp)
+
+        iter_counter = 0
+        iter_fqn_gemm_name_to_data = {}
+
+        @torch._dynamo.disable
+        def debug_logging_fn(fqn, gemm_name, a_hp, b_hp, a_fp8, b_fp8):
+            """
+            Example debugging function - this is user defined, easy to customize
+            1. captures M, K, N
+            2. captures MAPE for high precision vs float8 gemm
+            3. leaves data on GPU, so the user can move it to CPU at their
+               convenience
+            """
+            M, K = a_hp.shape
+            K2, N = b_hp.shape
+            assert K == K2
+            res_hp = a_hp @ b_hp
+            res_fp8 = a_fp8 @ b_fp8
+            mape = mean_absolute_percentage_error(res_hp, res_fp8)
+            iter_fqn_gemm_name_to_data[(iter_counter, fqn, gemm_name)] = (M, K, N), mape
+
+        object.__setattr__(config, "_debug_logging_fn", debug_logging_fn)
+        m = convert_to_float8_training(m, config=config)
+        _populate_debug_fqns(m)
+
+        # iter 0
+        m = torch.compile(m)
+        y = m(x)
+        y.sum().backward()
+
+        # iter 1
+        iter_counter += 1
+        m = torch.compile(m)
+        y = m(x)
+        y.sum().backward()
+
+        if recipe_name == Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
+            # check length is num_float8_layers * num_gemms_per_layer * num_iters
+            assert len(iter_fqn_gemm_name_to_data) == 2 * 2 * (iter_counter + 1)
+            # check that some of the expected debug logs exist
+            assert (0, "0", "output") in iter_fqn_gemm_name_to_data
+            assert (1, "1.1", "grad_input") in iter_fqn_gemm_name_to_data
+        else:
+            # check length is num_float8_layers * num_gemms_per_layer * num_iters
+            assert len(iter_fqn_gemm_name_to_data) == 2 * 3 * (iter_counter + 1)
+            # check that some of the expected debug logs exist
+            assert (0, "0", "output") in iter_fqn_gemm_name_to_data
+            assert (0, "1.1", "grad_weight") in iter_fqn_gemm_name_to_data
+            assert (1, "1.1", "grad_input") in iter_fqn_gemm_name_to_data
+
+        # check logged data is what we expect
+        example_data = iter_fqn_gemm_name_to_data[(1, "1.1", "grad_input")]
+        assert example_data[0] == (16, 64, 32)
+        assert type(example_data[1]) == torch.Tensor
+        assert example_data[1].shape == torch.Size()
 
     @pytest.mark.parametrize(
         "emulate", [True, False] if is_sm_at_least_89() else [True]
