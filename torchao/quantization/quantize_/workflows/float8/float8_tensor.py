@@ -256,6 +256,21 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
+    return _float8_linear_impl(input_tensor, weight_tensor, bias)
+
+
+@implements([torch.matmul, aten.mm.default])
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = args[0], args[1]
+    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape} (before transpose)")
+    return _float8_linear_impl(input_tensor, weight_tensor.t())
+
+
+def _float8_linear_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     assert isinstance(weight_tensor, Float8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
@@ -663,6 +678,65 @@ def _(func, types, args, kwargs):
         self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(torch.ops.aten.to.dtype_layout)
+def _(func, types, args, kwargs):
+    # only support kwargs for now
+    assert len(args) == 1
+    self = args[0]
+    # only support dtype, layout, and device for now
+    for k in kwargs.keys():
+        assert k in ["dtype", "layout", "device"]
+    # only support same dtype and layout
+    # different dtype and layout has undefined behavior
+    if "dtype" in kwargs:
+        assert kwargs["dtype"] == self.dtype
+    if "layout" in kwargs:
+        assert kwargs["layout"] == self.layout
+    # if device is the same, treat this like a no-op
+    device = kwargs.get("device")
+    if device == self.device:
+        return self
+    # otherwise, move all inner tensors to the new device
+    new_tensor = self.__class__(
+        func(self.qdata, device=device),
+        func(self.scale, device=device),
+        self.block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_tensor)
+
+
+# This is called during _apply() to see if we can shallow
+# copy the content of one tensor into another. For now,
+# we only allow shallow copy if both tensors are `Float8Tensor`
+@implements(torch._has_compatible_shallow_copy_type)
+def _(func, types, args, kwargs):
+    assert len(args) == 2
+    return (
+        isinstance(args[0], Float8Tensor) and
+        isinstance(args[1], Float8Tensor)
+    )
+
+
+@implements(aten.t.default)
+def _(func, types, args, kwargs):
+    assert len(args) == 1
+    self = args[0]
+    new_tensor = self.__class__(
+        self.qdata.t(),
+        self.scale.t(),
+        self.block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
 
 Float8Tensor.__module__ = "torchao.quantization"
