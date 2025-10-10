@@ -1156,6 +1156,12 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
+        if isinstance(self.int4_packing_format, str):
+            self.int4_packing_format = Int4PackingFormat(self.int4_packing_format)
+        if isinstance(self.int4_choose_qparams_algorithm, str):
+            self.int4_choose_qparams_algorithm = Int4ChooseQParamsAlgorithm(
+                self.int4_choose_qparams_algorithm
+            )
 
 
 # for BC
