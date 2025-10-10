@@ -232,8 +232,8 @@ def load_exported_model(
 
 def set_fast(predictor, loaded_exported_model=False):
     if not loaded_exported_model:
-        predictor.image_encoder.trunk.forward = torch.compile(
-            predictor.image_encoder.trunk.forward,
+        predictor.image_encoder.forward = torch.compile(
+            predictor.image_encoder.forward,
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,
