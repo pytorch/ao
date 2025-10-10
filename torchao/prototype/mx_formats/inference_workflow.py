@@ -211,6 +211,7 @@ torch.serialization.add_safe_globals(
         NVFP4MMConfig,
         MXGemmKernelChoice,
         QuantizeTensorToMXKwargs,
+        QuantizeTensorToNVFP4Kwargs,
         ScaleCalculationMode,
     ]
 )
