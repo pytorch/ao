@@ -376,6 +376,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         assert torch.allclose(y_ref, y)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_weight_t_and_non_t_numerics_match(self):
         # verify that numerics match whether weight is stored
         # in transposed format (for cuBLAS) vs non-transposed format
@@ -586,6 +587,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
             self._test_per_token_linear_impl("cuda", dtype)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test__int_mm(self):
         # TODO(future): figure out what here needs to move to PT core,
         # if it's not already tested there
@@ -607,6 +609,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
@@ -772,6 +775,7 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             Int8DynamicallyQuantizedLinearWeight.from_float,
@@ -781,6 +785,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int8_weight_only_quant_subclass(self, device, dtype):
         undo_recommended_configs()
         self._test_lin_weight_subclass_impl(
@@ -788,6 +793,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8DynamicallyQuantizedLinearWeight.from_float,
@@ -810,6 +816,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_aq_int8_weight_only_quant_2_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8WeightOnlyQuantizedLinearWeight2.from_float,
@@ -819,6 +826,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8WeightOnlyQuantizedLinearWeight3.from_float,
@@ -990,6 +998,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
@@ -1006,6 +1015,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1017,6 +1027,7 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int4_weight_only_hqq_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1168,6 +1179,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         undo_recommended_configs()
         if device != "cuda":
@@ -1200,6 +1212,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
         undo_recommended_configs()
         if device != "cuda":
@@ -1302,6 +1315,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         is_fbcode(), "'PlainAQTTensorImpl' object has no attribute 'int_data'"
     )
     @torch.no_grad()
+    @skip_if_rocm("ROCm enablement in progress")
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
             self.skipTest("indcutor failed for cpu right now")
@@ -1312,12 +1326,14 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_save_load_int8woqtensors(self, device, dtype):
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
+    @skip_if_rocm("ROCm enablement in progress")
     def test_save_load_int4woqtensors(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1326,6 +1342,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
 class TorchCompileUnitTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_fullgraph(self):
         lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
@@ -1510,6 +1527,7 @@ class TestAutoQuant(unittest.TestCase):
             ],
         )
     )
+    @skip_if_rocm("ROCm enablement in progress")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
 
@@ -1586,6 +1604,7 @@ class TestAutoQuant(unittest.TestCase):
         assert len(_AUTOQUANT_CACHE) > 0
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1635,6 +1654,7 @@ class TestAutoQuant(unittest.TestCase):
             ],
         )
     )
+    @skip_if_rocm("ROCm enablement in progress")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -2057,6 +2077,7 @@ class TestBenchmarkModel(unittest.TestCase):
         return benchmark_model(m_bf16, num_runs, example_inputs)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_benchmark_model_cuda(self):
         assert self.run_benchmark_model("cuda") is not None
 

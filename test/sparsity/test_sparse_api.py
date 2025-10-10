@@ -22,6 +22,7 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
@@ -194,6 +195,7 @@ class TestBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("input_shape", [1, 1024])
+    @skip_if_rocm("ROCm enablement in progress")
     def test_sparse(self, compile, input_shape):
         input = torch.rand((input_shape, 1024)).half().cuda()
         model = (
@@ -227,6 +229,7 @@ class TestBlockSparseWeight(common_utils.TestCase):
 class TestQuantBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
+    @skip_if_rocm("ROCm enablement in progress")
     def test_sparse(self, compile):
         input = torch.rand((256, 128)).to(torch.bfloat16).cuda()
         model = (

@@ -17,6 +17,7 @@ from torchao.prototype.blockwise_fp8_inference.blockwise_quantization import (
     fp8_blockwise_weight_dequant,
     fp8_blockwise_weight_quant,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_sm_at_least_89
 
 BLOCKWISE_SIZE_MNK = [
@@ -37,6 +38,7 @@ BLOCKWISE_SIZE_MNK = [
     if is_sm_at_least_89()
     else [torch.float8_e5m2],
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_blockwise_quant_dequant(_, N, K, dtype):
     x = torch.randn(N, K).cuda()
     qx, s = fp8_blockwise_weight_quant(x, dtype=dtype)
@@ -59,6 +61,7 @@ def test_blockwise_quant_dequant(_, N, K, dtype):
     if is_sm_at_least_89()
     else [torch.float8_e5m2],
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_blockwise_fp8_gemm(M, N, K, dtype):
     A = torch.randn(M, K).cuda()
     B = torch.randn(N, K).cuda()

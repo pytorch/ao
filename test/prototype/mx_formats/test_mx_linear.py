@@ -25,6 +25,7 @@ from torchao.prototype.mx_formats.mx_linear import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -265,6 +266,7 @@ def test_activation_checkpointing():
         ScaleCalculationMode.RCEIL,
     ],
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_linear_compile(
     hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice, scale_calculation_mode
 ):

@@ -263,6 +263,7 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @skip_if_rocm("ROCm enablement in progress")
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
             torch.cuda.is_available()
@@ -301,6 +302,7 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("compile", [False, True])
+    @skip_if_rocm("ROCm enablement in progress")
     def test_quantize_api(self, compile):
         nf4_linear = nn.Linear(512, 512, device="cuda")
         torchao.quantize_(nf4_linear, nf4_weight_only())

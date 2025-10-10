@@ -43,6 +43,7 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -423,6 +424,7 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@skip_if_rocm("ROCm enablement in progress")
 def test_fp6_e2m3_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 0.5, 7.5, -0.0], [-0.875, 1.0, -6.0, 0.125]]).to(
         "cuda"
@@ -438,6 +440,7 @@ def test_fp6_e2m3_pack_unpack():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@skip_if_rocm("ROCm enablement in progress")
 def test_fp6_e3m2_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 5.0, 28.0, -0.0], [-0.25, 0.1875, 0.0625, 8.0]]).to(
         "cuda"
@@ -480,6 +483,7 @@ def test_triton_mxfp8_dim1_randn(M, K):
         (128, 1),
     ],
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_rearrange(shape):
     scales = torch.randint(256, size=shape, device="cuda", dtype=torch.uint8)
     eager = to_blocked(scales, False)

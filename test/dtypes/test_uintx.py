@@ -14,6 +14,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
+from torchao.testing.utils import skip_if_rocm
 
 dtypes = (
     torch.uint1,
@@ -75,6 +76,7 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_rocm("ROCm enablement in progress")
 def test_uintx_weight_only_model_quant(dtype, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
@@ -132,6 +134,7 @@ def test_uintx_target_dtype(dtype):
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+@skip_if_rocm("ROCm enablement in progress")
 def test_uintx_target_dtype_compile(dtype):
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
     # make sure it runs
