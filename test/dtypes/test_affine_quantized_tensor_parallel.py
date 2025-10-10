@@ -115,7 +115,7 @@ class TestAffineQuantizedTensorParallel(DTensorTestBase):
         dn_quant(up_quant(example_input))
 
         mesh = self.build_device_mesh()
-        mesh.device_type = "cuda"
+        mesh._device_type = "cuda"
 
         # Shard the models
         up_dist = self.colwise_shard(up_quant, mesh)
