@@ -404,7 +404,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_fp8_sdpa_rewriter(self):
-        import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+        import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
