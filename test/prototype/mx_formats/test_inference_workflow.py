@@ -6,10 +6,12 @@
 
 import copy
 import tempfile
+from contextlib import contextmanager
 
 import pytest
 import torch
 import torch.nn as nn
+from torch.profiler import ProfilerActivity, profile
 
 from torchao.prototype.mx_formats.config import (
     MXGemmKernelChoice,
@@ -42,6 +44,23 @@ def run_around_tests():
     yield
     # 3. after test - teardown
     torch._dynamo.reset()
+
+
+@contextmanager
+def cuda_kernel_profiler(kernel_pattern):
+    """Context manager for profiling CUDA kernels."""
+    result = {"found": False, "kernel_names": []}
+
+    with profile(activities=[ProfilerActivity.CUDA]) as prof:
+        yield result
+
+    kernel_names = [
+        evt.name
+        for evt in prof.events()
+        if evt.device_type == torch.autograd.DeviceType.CUDA and evt.name
+    ]
+    result["kernel_names"] = kernel_names
+    result["found"] = any(kernel_pattern in name for name in kernel_names)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -178,7 +197,14 @@ def test_inference_workflow_nvfp4(
 
     x = torch.randn(batch_size, in_features, device="cuda", dtype=inpt_dtype)
     y_ref = m(x)
-    y_mx = m_mx(x)
+
+    if use_triton_kernel and mm_config != NVFP4MMConfig.WEIGHT_ONLY:
+        with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
+            y_mx = m_mx(x)
+        assert result["found"], "Expected quantize_nvfp4 kernel to be found"
+    else:
+        y_mx = m_mx(x)
+
     sqnr = compute_error(y_ref, y_mx)
 
     if mm_config == NVFP4MMConfig.WEIGHT_ONLY:
