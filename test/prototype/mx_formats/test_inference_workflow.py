@@ -191,6 +191,16 @@ def test_inference_workflow_nvfp4(
         f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
     )
 
+    # serialization
+    with tempfile.NamedTemporaryFile() as f:
+        torch.save(m_mx.state_dict(), f)
+        f.seek(0)
+
+        # temporary workaround for https://github.com/pytorch/ao/issues/3077
+        torch.serialization.add_safe_globals([getattr])
+
+        _ = torch.load(f, weights_only=True)
+
 
 class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
