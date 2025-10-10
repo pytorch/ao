@@ -1,0 +1,62 @@
+name: Run Library Integration Tests
+
+on:
+  schedule:
+    # 6 am PST every day
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: library_integration_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: SM-89
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+            torch-lib-spec: '--pre fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
+          - name: H100
+            runs-on: linux.aws.h100
+            torch-lib-spec: '--pre torchvision torchaudio fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.4"
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 60
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: ${{ matrix.gpu-arch-type }}
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
+      script: |
+        conda create -n venv python=3.9 -y
+        conda activate venv
+        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        python -m pip install --upgrade pip
+        pip install uv
+        uv pip install ${{ matrix.torch-lib-spec }}
+        uv pip install -r dev-requirements.txt
+        pip install .
+        export TORCHAO_DIR=$(pwd)
+        cd ..
+        # install vllm from source so that we can use the latest
+        # pytorch and fbgemm-gpu-genai
+        git clone https://github.com/vllm-project/vllm.git
+        cd vllm
+        git submodule update --init --recursive
+        python use_existing_torch.py
+        pip install -r requirements/build.txt
+        pip install --no-build-isolation -e .
+        cd $TORCHAO_DIR
+        pytest test/integration --verbose -s
