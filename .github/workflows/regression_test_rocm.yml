@@ -21,7 +21,7 @@ jobs:
       matrix:
         include:
           - name: ROCM Nightly
-            runs-on: linux.rocm.gpu.gfx942.1.b
+            runs-on: linux.rocm.gpu.gfx942.1.a
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
             gpu-arch-type: "rocm"
             gpu-arch-version: "6.3"
