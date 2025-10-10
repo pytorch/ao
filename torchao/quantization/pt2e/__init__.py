@@ -55,11 +55,6 @@ from .fake_quantize import (
     enable_fake_quant,
     enable_observer,
 )
-from .learnable_fake_quantize import (
-    LearnableFakeQuantize,
-    disable_range_learning,
-    enable_range_learning,
-)
 from .observer import (
     AffineQuantizedObserverBase,
     FixedQParamsObserver,
@@ -108,7 +103,6 @@ __all__ = [
     "FusedMovingAvgObsFakeQuantize",
     # old observers
     "HistogramObserver",
-    "LearnableFakeQuantize",
     "MinMaxObserver",
     "MovingAverageMinMaxObserver",
     "MovingAveragePerChannelMinMaxObserver",
@@ -127,8 +121,6 @@ __all__ = [
     "enable_observer",
     "disable_fake_quant",
     "disable_observer",
-    "enable_range_learning",
-    "disable_range_learning",
     # export_utils
     "move_exported_model_to_eval",
     "move_exported_model_to_train",
