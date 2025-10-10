@@ -21,6 +21,7 @@ import types
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, List, Optional, Tuple, Union
 from typing import OrderedDict as OrderedDictType
 
@@ -96,6 +97,7 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
+    TorchAOBaseTensor,
     _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
@@ -103,36 +105,21 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
-from .granularity import (
-    Granularity,
-    PerAxis,
-    PerGroup,
-    PerRow,
-    PerTensor,
-)
+from .GPTQ import Int4WeightOnlyGPTQQuantizer
+from .granularity import Granularity, PerAxis, PerGroup, PerRow, PerTensor
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .linear_quant_modules import (
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightQuantizer,
-)
-from .qat import (
-    intx_quantization_aware_training,
-)
+from .linear_quant_modules import Int4WeightOnlyQuantizer, Int8DynActInt4WeightQuantizer
+from .qat import intx_quantization_aware_training
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
     quantize_affine,
 )
-from .subclass import (
-    QuantizedLinearWeightBase,
-)
+from .subclass import QuantizedLinearWeightBase
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
@@ -259,23 +246,22 @@ def _replace_with_custom_fn_if_matches_filter_with_name(
         if device is not None:
             model.to(device=device)  # move to device before quantization
         model = replacement_fn(model, cur_fqn[:-1], *extra_args)
-        return model
-    else:
-        named_children_list = list(model.named_children())
-        for name, child in named_children_list:
-            new_child = _replace_with_custom_fn_if_matches_filter_with_name(
-                child,
-                replacement_fn,
-                filter_fn,
-                f"{cur_fqn}{name}.",
-                device,
-                extra_args,
-            )
-            if new_child is not child:
-                setattr(model, name, new_child)
-        if device is not None:
-            model.to(device=device)  # move parent module to device
-        return model
+    # For parameter quantization, filter_fn(model, cur_fqn) no longer is terminal, as a module may contain both a parameter we want to quantize and subsequent submodules.
+    named_children_list = list(model.named_children())
+    for name, child in named_children_list:
+        new_child = _replace_with_custom_fn_if_matches_filter_with_name(
+            child,
+            replacement_fn,
+            filter_fn,
+            f"{cur_fqn}{name}.",
+            device,
+            extra_args,
+        )
+        if new_child is not child:
+            setattr(model, name, new_child)
+    if device is not None:
+        model.to(device=device)  # move parent module to device
+    return model
 
 
 def _is_linear(mod, *args):
@@ -528,16 +514,19 @@ def quantize_(
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
     filter_fn = _is_linear if filter_fn is None else filter_fn
-    if isinstance(config, ModuleFqnToConfig):
+    if isinstance(config, FqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            _module_fqn_to_config_handler,
-            filter_fn,
+            _fqn_to_config_handler,
+            partial(
+                _select_module_if_filter_fn_or_contains_params_matching_pattern,
+                config=config,
+                filter_fn=filter_fn,
+            ),
             device=device,
             extra_args=(config,),
         )
         return
-
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
@@ -548,7 +537,6 @@ def quantize_(
             device=device,
             extra_args=(config,),
         )
-
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
@@ -1884,7 +1872,10 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
+    module: torch.nn.Module,
+    config: Float8DynamicActivationFloat8WeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
     assert is_sm_at_least_89() or is_MI300(), (
         "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
@@ -1892,14 +1883,18 @@ def _float8_dynamic_activation_float8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying float8 dynamic activation quant requires module to have weight attribute"
+    assert hasattr(module, parameter_name), (
+        "applying float8 dynamic activation quant requires module to have parameter {parameter_name} attribute"
         + f"but {module} does not have one"
     )
-    quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-        module.weight, config
+    quantized_tensor = _float8_dynamic_activation_float8_weight_quantize_tensor(
+        getattr(module, parameter_name), config
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_tensor, requires_grad=False),
+    )
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -2385,62 +2380,193 @@ def _fpx_weight_only_transform(
 
 
 @dataclass
-class ModuleFqnToConfig(AOBaseConfig):
-    """Per module configurations for torchao quantize_ API
+class FqnToConfig(AOBaseConfig):
+    """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
     Args:
-        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
+        `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
          ordered dictionary from
-             (1). fully qualified name (fqn) of module or
+             (1). fully qualified name (fqn) of module or parameter
              (2). regex of fully qualified name (in python `re` module regex format), should
                   start with prefix "re:" or
              (3). "_default"
-         to the config that we want to apply to the module or None
+         to the config that we want to apply to the module/param or None
 
          Config key ordered by precedence:
            * fully qualified module name, e.g. `language.layers.0.q_proj`
            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
-             whiever regex fully matches the module fqn first will be applied
+             whichever regex fully matches the module fqn first will be applied
              (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * "_default", fallback for **all modules** if no match for all previous keys
+           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
+           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+             The first regex that matches will be applied.
+           * "_default", fallback if no match for all previous keys
              (Note, when using `_default`, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
               None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
+        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later
+        `version`: int: Version of config to use.
+
+    Note:
+        - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied
+        - "_default" is ignored for parameter replacement.
     """
 
+    fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+        default_factory=OrderedDict
+    )
+    # to maintain BC, we keep the previous module_fqn_to_config field
     module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
+    version: int = 1
 
     def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.quantization.ModuleFqnToConfig")
+        torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
+
+        # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
+        if len(self.module_fqn_to_config) > 0:
+            assert len(self.fqn_to_config) == 0
+            warnings.warn(
+                "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig"
+            )
+            self.fqn_to_config = self.module_fqn_to_config
+        if len(self.fqn_to_config) > 0:
+            assert len(self.module_fqn_to_config) == 0
+            self.module_fqn_to_config = self.fqn_to_config
+
+        # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
+        if "_default" in self.fqn_to_config:
+            warnings.warn(
+                "Config Deprecation: _default is deprecated and will no longer be supported in a future release."
+            )
 
 
-def _module_fqn_to_config_handler(
-    module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
-):
-    c = None
-    if module_fqn in config.module_fqn_to_config:
-        # Maybe: we can add module type specific config in the future, in needed
-        c = config.module_fqn_to_config[module_fqn]
-    else:
-        for maybe_module_fqn_pattern in config.module_fqn_to_config:
-            if not maybe_module_fqn_pattern.startswith("re:"):
-                continue
-            elif re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
-                # we'll apply the config for first fully matched pattern
-                c = config.module_fqn_to_config[maybe_module_fqn_pattern]
-                break
+# maintain BC
+ModuleFqnToConfig = FqnToConfig
+
+# for now, we need to keep track of what configs support custom param quantization.
+# Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
+CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS = {
+    Float8DynamicActivationFloat8WeightConfig,
+}
+
+
+def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfig):
+    """This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.
+
+    Args:
+        module (torch.nn.Module): The module to be processed.
+        fqn (str): The fully qualified name of the module containing the parameters.
+        config (FqnToConfig): Configuration object containing regex patterns / fqn mapped
+            to quantization configurations.
+
+    Returns:
+        torch.nn.Module: The modified module with quantized parameters.
+
+    Raises:
+        NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.
+    """
+    # First we see if our module fqn matches with FqnToConfig, if so, we apply the appropriate transform
+    config_contains_match, c = _get_config_for_fqn(fqn, config)
+    if config_contains_match:
+        # special case to handle None in config
+        if c is not None:
+            handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+            return handler(module, c)
         else:
-            # fallback to use default if no module specific config is provided
-            c = config.module_fqn_to_config.get("_default", None)
+            return module
 
+    # If no config is found, we see if any of our top-level parameter FQNs matches with FqnToConfig
+    for parameter_name, param in list(module.named_parameters()):
+        if parameter_name in dir(module):
+            parameter_fqn = f"{fqn}.{parameter_name}" if fqn != "" else parameter_name
+            config_contains_match, c = _get_config_for_fqn(parameter_fqn, config)
+            if config_contains_match:
+                if c is not None:
+                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+                        return handler(module, c, parameter_name=parameter_name)
+                    else:
+                        raise NotImplementedError(
+                            f"Parameter quantization for {type(c)} not supported currently!"
+                        )
+                else:
+                    return module
+
+    # If no module_fqn or parameter_fqn matches, then we apply _default
+    c = config.fqn_to_config.get("_default", None)
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
         return handler(module, c)
 
+    # Else return unmodified module
     return module
+
+
+def _get_config_for_fqn(fqn: str, config: FqnToConfig):
+    """Helper function to get the config for a given fqn from an FqnToConfig object.
+
+    Args:
+        fqn (str): The fully qualified name to match against the config patterns.
+        config (FqnToConfig): The FqnToConfig object containing mapping of FQNs or regex patterns to quantization configs.
+
+    Returns:
+        c (AOBaseConfig): If fqn is specified exactly in FqnToConfig, then fqn_to_config[fqn] will be returned.
+                          Otherwise we will return the config of the first matching regex pattern in FqnToConfig.
+    """
+    found, c = False, None
+    if fqn in config.fqn_to_config:
+        assert not fqn.startswith("re:"), (
+            f"Error: Exact match but regex {fqn} specified."
+        )
+        # Maybe: we can add module type specific config in the future, if needed
+        c = config.fqn_to_config[fqn]
+        found = True
+    else:
+        for maybe_module_or_param_fqn_pattern in config.fqn_to_config:
+            if not maybe_module_or_param_fqn_pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(maybe_module_or_param_fqn_pattern[3:], fqn):
+                # we'll apply the config for first fully matched pattern
+                c = config.fqn_to_config[maybe_module_or_param_fqn_pattern]
+                found = True
+                break
+    return found, c
+
+
+def _select_module_if_filter_fn_or_contains_params_matching_pattern(
+    module: nn.Module,
+    fqn: str,
+    config: FqnToConfig,
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+):
+    """Check if a module should be selected for quantization to be applied
+
+    Args:
+        module (torch.nn.Module): The module to check for parameter pattern matches.
+        fqn (str): The fully qualified name of the module.
+        config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for
+            parameter quantization.
+        filter_fn (Optional[Callable[[torch.nn.Module], bool]]): A function that takes a module and fqn and return whether to quantize the module.
+
+    Returns:
+        bool: True if filter_fn is passed and filter_fn(module, fqn) is True, or if any of the top-level parameters match the patterns in config.fqn_to_config
+                False otherwise.
+    """
+    if filter_fn is not None and filter_fn(module, fqn):
+        return True
+    for name, param in module.named_parameters():
+        if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
+            parameter_fqn = f"{fqn}.{name}" if fqn != "" else name
+            for pattern in config.fqn_to_config:
+                if (pattern == parameter_fqn) or (
+                    pattern.startswith("re:")
+                    and re.fullmatch(pattern[3:], parameter_fqn)
+                ):
+                    return True
+    return False
 
 
 torch.serialization.add_safe_globals(

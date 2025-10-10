@@ -175,7 +175,7 @@ Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivati
     from torchao.quantization.quant_api import (
         IntxWeightOnlyConfig,
         Int8DynamicActivationIntxWeightConfig,
-        ModuleFqnToConfig,
+        FqnToConfig,
         quantize_,
     )
     from torchao.quantization.granularity import PerGroup, PerAxis
@@ -198,7 +198,7 @@ Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivati
         weight_granularity=PerGroup(32),
         weight_scale_dtype=torch.bfloat16,
     )
-    quant_config = ModuleFqnToConfig({"_default": linear_config, "model.embed_tokens": embedding_config})
+    quant_config = FqnToConfig({"_default": linear_config, "model.embed_tokens": embedding_config})
     quantization_config = TorchAoConfig(quant_type=quant_config, include_embedding=True, untie_embedding_weights=True, modules_to_not_convert=[])
 
     # either use `untied_model_id` or `untied_model_local_path`
