@@ -8,7 +8,6 @@ import importlib
 import itertools
 import re
 import time
-import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
@@ -34,17 +33,6 @@ __all__ = [
     "is_sm_at_least_90",
     "is_package_at_least",
     "DummyModule",
-    # Deprecated
-    "TORCH_VERSION_AT_LEAST_2_2",
-    "TORCH_VERSION_AT_LEAST_2_3",
-    "TORCH_VERSION_AT_LEAST_2_4",
-    "TORCH_VERSION_AT_LEAST_2_5",
-    "TORCH_VERSION_AT_LEAST_2_6",
-    "TORCH_VERSION_AT_LEAST_2_7",
-    "TORCH_VERSION_AFTER_2_2",
-    "TORCH_VERSION_AFTER_2_3",
-    "TORCH_VERSION_AFTER_2_4",
-    "TORCH_VERSION_AFTER_2_5",
 ]
 
 
@@ -376,61 +364,6 @@ def torch_version_at_least(min_version):
 
     # Parser for local identifiers
     return parse_version(torch.__version__) >= parse_version(min_version)
-
-
-def _deprecated_torch_version_at_least(version_str: str) -> str:
-    """
-    Wrapper for existing TORCH_VERSION_AT_LEAST* variables that will log
-    a deprecation warning if the variable is used.
-    """
-    version_str_var_name = "_".join(version_str.split(".")[:2])
-    deprecation_msg = f"TORCH_VERSION_AT_LEAST_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
-    return _BoolDeprecationWrapper(
-        torch_version_at_least(version_str),
-        deprecation_msg,
-    )
-
-
-def _deprecated_torch_version_after(version_str: str) -> str:
-    """
-    Wrapper for existing TORCH_VERSION_AFTER* variables that will log
-    a deprecation warning if the variable is used.
-    """
-    bool_value = is_fbcode() or version("torch") >= version_str
-    version_str_var_name = "_".join(version_str.split(".")[:2])
-    deprecation_msg = f"TORCH_VERSION_AFTER_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
-    return _BoolDeprecationWrapper(bool_value, deprecation_msg)
-
-
-class _BoolDeprecationWrapper:
-    """
-    A deprecation wrapper that logs a warning when the given bool value is accessed.
-    """
-
-    def __init__(self, bool_value: bool, msg: str):
-        self.bool_value = bool_value
-        self.msg = msg
-
-    def __bool__(self):
-        warnings.warn(self.msg)
-        return self.bool_value
-
-    def __eq__(self, other):
-        return bool(self) == bool(other)
-
-
-# Deprecated, use `torch_version_at_least` directly instead
-TORCH_VERSION_AT_LEAST_2_8 = _deprecated_torch_version_at_least("2.8.0")
-TORCH_VERSION_AT_LEAST_2_7 = _deprecated_torch_version_at_least("2.7.0")
-TORCH_VERSION_AT_LEAST_2_6 = _deprecated_torch_version_at_least("2.6.0")
-TORCH_VERSION_AT_LEAST_2_5 = _deprecated_torch_version_at_least("2.5.0")
-TORCH_VERSION_AT_LEAST_2_4 = _deprecated_torch_version_at_least("2.4.0")
-TORCH_VERSION_AT_LEAST_2_3 = _deprecated_torch_version_at_least("2.3.0")
-TORCH_VERSION_AT_LEAST_2_2 = _deprecated_torch_version_at_least("2.2.0")
-TORCH_VERSION_AFTER_2_5 = _deprecated_torch_version_after("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = _deprecated_torch_version_after("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = _deprecated_torch_version_after("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = _deprecated_torch_version_after("2.2.0.dev")
 
 
 """
