@@ -23,7 +23,6 @@ from torchao.prototype.mx_formats.mx_tensor import (
     to_dtype,
 )
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -348,7 +347,6 @@ def test_exponent_nan_in(elem_dtype):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("pack_fp6", [False, True])
-@skip_if_rocm("ROCm enablement in progress")
 def test_exponent_nan_out(elem_dtype, pack_fp6):
     """
     If block exponent value is NaN, the MX tensor block value is NaN
@@ -473,7 +471,6 @@ def test_clone():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
 @pytest.mark.parametrize("pack_fp6", [False, True])
-@skip_if_rocm("ROCm enablement in progress")
 def test_fp6_packing(elem_dtype, pack_fp6):
     x = torch.randn(1, 2, 4, device="cuda")
     block_size = 4
@@ -490,7 +487,6 @@ def test_fp6_packing(elem_dtype, pack_fp6):
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("all_zeros", [False, True])
-@skip_if_rocm("ROCm enablement in progress")
 def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     """
     Verifies that compile does not change numerics of MX casts
@@ -648,7 +644,6 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
-@skip_if_rocm("ROCm enablement in progress")
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 

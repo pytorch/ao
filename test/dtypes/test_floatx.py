@@ -73,7 +73,6 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
 
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("device", _DEVICES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_from_scaled_tc_floatx_compile(self, ebits, mbits, device):
         M, N = 256, 64
         nbits = 1 + ebits + mbits

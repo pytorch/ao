@@ -34,7 +34,6 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
-from torchao.testing.utils import skip_if_rocm
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
@@ -102,7 +101,6 @@ class TestQuantizedTraining(TestCase):
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_int8_weight_only_compile(self, leading_dims, bias, device):
         _reset()
         embed_dim = 128
@@ -135,7 +133,6 @@ class TestQuantizedTraining(TestCase):
 
     @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_int8_weight_only_training(self, compile, device):
         _reset()
         bsize = 4
@@ -186,7 +183,6 @@ class TestQuantizedTraining(TestCase):
     )
     @parametrize("module_swap", [False, True])
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @skip_if_rocm("ROCm enablement in progress")
     def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
@@ -300,7 +296,6 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 
