@@ -9,6 +9,7 @@ from typing import List, Optional, Union
 import sympy
 import torch
 
+BYTES_PER_EL_FLOAT4 = 0.5
 BYTES_PER_EL_FLOAT8 = 1
 BYTES_PER_EL_BF16 = 2
 
@@ -190,16 +191,24 @@ def get_tensor_memory_traffic_ovhd_s(
             "mxfp8_emulated",
             "mxfp8_cublas",
             "mxfp8_cublas_rceil",
+            "mxfp4_cutlass",
         ), "unsupported"
         # For now, assume that we can't profitably fuse kernel 1 and kernel 2
         # x_bf16 = ...
         # kernel 1:               x_bf16 -> x_mxfp8_dim0
         # kernel 2:               x_bf16 -> x_mxfp8_dim1
-        if fuse_with_prev:
-            kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+        if mx_recipe_name == "mxfp4_cutlass":
+            if fuse_with_prev:
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT4 * numel
+            else:
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT4 * numel
+            kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT4 * numel
         else:
-            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
-        kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            if fuse_with_prev:
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+            else:
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
         res_bytes = [kernel_1_rw, kernel_2_rw]
 
     # convert from bytes to seconds
@@ -229,6 +238,8 @@ def get_individual_gemm_time_sympy(
         peak_tops = specs["bf16_peak_tops"]
     elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         peak_tops = specs["fp8_peak_tops"]
+    elif dtype is torch.float4_e2m1fn_x2:
+        peak_tops = specs["fp4_peak_tops"]
     else:
         assert False, "unsupported"
     compute_gemm_time_s = gemm_ops / peak_tops / specs["pct_achievable_gemm_tops"]
@@ -242,8 +253,13 @@ def get_individual_gemm_time_sympy(
             "mxfp8_emulated",
             "mxfp8_cublas",
             "mxfp8_cublas_rceil",
+            "mxfp4_cutlass",
         ), "unsupported"
-        assert dtype in (torch.float8_e4m3fn, torch.float8_e5m2), "unsupported"
+        assert dtype in (
+            torch.float8_e4m3fn,
+            torch.float8_e5m2,
+            torch.float4_e2m1fn_x2,
+        ), "unsupported"
         # adjust reads for MX scaling
         block_size = 32
         num_scale_reads = num_reads // block_size
@@ -255,6 +271,8 @@ def get_individual_gemm_time_sympy(
     elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         # read in float8, output in bfloat16
         bytes_rw = num_reads * BYTES_PER_EL_FLOAT8 + num_writes * BYTES_PER_EL_BF16
+    elif dtype is torch.float4_e2m1fn_x2:
+        bytes_rw = num_reads * BYTES_PER_EL_FLOAT4 + num_writes * BYTES_PER_EL_BF16
     else:
         assert False, "unsupported"
     mem_gemm_time_s = (
