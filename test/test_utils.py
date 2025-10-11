@@ -366,6 +366,49 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         Parent._ATEN_OP_TABLE[Parent]["new_op"] = "added_later"
         self.assertNotIn("new_op", Child._ATEN_OP_TABLE[Child])
 
+    def test_subclassing_with_real_op(self):
+        counter = {"calls": 0}
+
+        class Parent(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+            def __new__(cls, qdata, attr):
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata, attr):
+                pass
+
+        # Real op implementation
+        @Parent.implements([torch.ops.aten.cat.default])
+        def _cat_op(func, types, args, kwargs):
+            counter["calls"] += 1
+            return func(*args, **kwargs)
+
+        class Child(Parent):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+        # Table checks
+        self.assertIn(torch.ops.aten.cat.default, Parent._ATEN_OP_TABLE[Parent])
+        self.assertIn(torch.ops.aten.cat.default, Child._ATEN_OP_TABLE[Child])
+
+        # Ensure child table is distinct
+        self.assertIsNot(Parent._ATEN_OP_TABLE, Child._ATEN_OP_TABLE)
+
+        # calling the op through the child tensor
+        t1 = torch.randn(2, 3)
+        t2 = torch.randn(2, 3)
+        child_tensor1 = Child(t1, "a")
+        child_tensor2 = Child(t2, "b")
+
+        torch.ops.aten.cat.default([child_tensor1, child_tensor2], 0)
+
+        self.assertEqual(counter["calls"], 1)
+
     def test_multiple_inheritance(self):
         class A(TorchAOBaseTensor):
             tensor_data_names = ["a"]
