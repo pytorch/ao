@@ -41,11 +41,9 @@ jobs:
       - name: Update pip
         run: python -m pip install --upgrade pip
       - name: Install dependencies
-        env:
-            USE_CPP: "0"
         run: |
           python -m pip install torch
-          python -m pip install -e .
+          python -m pip install -e . --no-build-isolation
           pip install -r dev-requirements.txt
           python -m pip install -r docs/requirements.txt
       - name: Build docs
