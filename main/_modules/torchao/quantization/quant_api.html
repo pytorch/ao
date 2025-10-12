@@ -633,12 +633,6 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        None</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
-            <span class="n">new_module</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">out_features</span><span class="p">)</span>
-        <span class="n">new_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">weight</span>
-        <span class="n">new_module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">bias</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">new_module</span>
     <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
         <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move to device before quantization</span>
@@ -679,12 +673,6 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        None</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
-            <span class="n">new_module</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">out_features</span><span class="p">)</span>
-        <span class="n">new_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">weight</span>
-        <span class="n">new_module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">bias</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">new_module</span>
     <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
         <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move to device before quantization</span>
@@ -2117,6 +2105,10 @@
         <span class="s2">&quot;applying int8 weight only quant requires module to have weight attribute&quot;</span>
         <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_float8_weight_only_quant_tensor</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
 
     <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
@@ -2326,6 +2318,9 @@
         <span class="s2">&quot;applying float8 dynamic activation quant requires module to have weight attribute&quot;</span>
         <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot;but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+
     <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">_float8_dynamic_activation_float8_weight_quantize_tensor</span><span class="p">(</span>
         <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span>
     <span class="p">)</span>
@@ -2360,6 +2355,9 @@
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationFloat8SemiSparseWeightConfig</span>
 <span class="p">):</span>
     <span class="k">assert</span> <span class="n">is_sm_at_least_90</span><span class="p">(),</span> <span class="s2">&quot;Float8 quantization is only supported on CUDA&gt;=9.0&quot;</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
 
     <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
     <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
@@ -2424,6 +2422,9 @@
     <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
         <span class="s2">&quot;Float8 static activation quantization is only supported on CUDA 8.9 and above&quot;</span>
     <span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
 
     <span class="n">scale</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">activation_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span>
@@ -2794,6 +2795,9 @@
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_fpx</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
 
@@ -2871,6 +2875,21 @@
         <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">module</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">Float8Linear</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Unwrap a torchao Float8Linear by returning a nn.Linear with the same weights and bias.</span>
+
+<span class="sd">    Torchao inference quantization techniques are generally only applicable to nn.Linear</span>
+<span class="sd">    layers, so this helper is useful for unwrapping models trained with torchao float8 training,</span>
+<span class="sd">    which replaces nn.Linear layers with Float8Linear layers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+        <span class="n">new_module</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">module</span><span class="o">.</span><span class="n">out_features</span><span class="p">)</span>
+    <span class="n">new_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
+    <span class="n">new_module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">bias</span>
+    <span class="k">return</span> <span class="n">new_module</span>
 
 
 <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">(</span>
