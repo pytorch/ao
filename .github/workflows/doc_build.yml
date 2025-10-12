@@ -39,7 +39,7 @@ jobs:
           activate-environment: test
           python-version: ${{ matrix.python-version }}
       - name: Update pip
-        run: python -m pip install --upgrade "pip<25"
+        run: python -m pip install --upgrade pip
       - name: Install dependencies
         run: |
           python -m pip install torch
