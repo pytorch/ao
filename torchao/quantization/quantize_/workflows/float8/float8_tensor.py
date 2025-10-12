@@ -262,8 +262,30 @@ def _(func, types, args, kwargs):
 @implements([torch.matmul, aten.mm.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = args[0], args[1]
-    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape} (before transpose)")
+    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape}, weight.block_size = {weight_tensor.block_size} (before transpose)")
     return _float8_linear_impl(input_tensor, weight_tensor.t())
+
+
+@implements([aten.addmm_.default])
+def _(func, types, args, kwargs):
+    output_tensor, input_tensor, weight_tensor = (
+        args[0],
+        args[1],
+        args[2] if len(args) > 2 else None,
+    )
+    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape}, weight.block_size = {weight_tensor.block_size} (before transpose), output_tensor = {output_tensor.shape}")
+    out = _float8_linear_impl(input_tensor, weight_tensor.t())
+    return output_tensor.copy_(out)
+
+
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    # For now, just support copying from a Float8Tensor to a Float8Tensor
+    assert len(args) == 2
+    assert isinstance(args[0], Float8Tensor) and isinstance(args[1], Float8Tensor)
+    args[0].qdata.copy_(args[1].qdata, **kwargs)
+    args[0].scale.copy_(args[1].scale, **kwargs)
+    return args[0]
 
 
 def _float8_linear_impl(
@@ -310,10 +332,12 @@ def _float8_linear_impl(
             wq = weight_tensor.qdata
             x_scale = input_tensor.scale
             w_scale = weight_tensor.scale
-            if _is_rowwise_scaled(weight_tensor):
+            if True: #_is_rowwise_scaled(weight_tensor):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
+                print(f"        * fbgemm op input = {xq.shape}, weight = {wq.shape}, input_scale = {x_scale.shape}, weight_scale = {w_scale.shape}")
+                wq = wq.contiguous()
                 res = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq,
                     wq,
@@ -323,6 +347,8 @@ def _float8_linear_impl(
                     use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
             else:
+                print("weight_tensor failed _is_rowwise_scaled, SHOULDN'T BE HERE!!!!!!")
+                breakpoint()
                 assert _is_tensorwise_scaled(weight_tensor)
                 assert _is_tensorwise_scaled(input_tensor)
                 res = torch.ops.fbgemm.f8f8bf16(
@@ -727,10 +753,11 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     assert len(args) == 1
     self = args[0]
+    assert len(self.block_size) == 2
     new_tensor = self.__class__(
         self.qdata.t(),
         self.scale.t(),
-        self.block_size,
+        (self.block_size[1], self.block_size[0]),
         self.mm_config,
         self.act_quant_kwargs,
         self.kernel_preference,
