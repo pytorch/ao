@@ -248,8 +248,8 @@ implements = Float8Tensor.implements
 implements_torch_function = Float8Tensor.implements_torch_function
 
 
-@implements([aten.linear.default])
-@implements_torch_function([torch.nn.functional.linear])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -259,33 +259,22 @@ def _(func, types, args, kwargs):
     return _float8_linear_impl(input_tensor, weight_tensor, bias)
 
 
-@implements([torch.matmul, aten.mm.default])
+@implements(aten.mm.default)
+@implements_torch_function(torch.matmul)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = args[0], args[1]
-    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape}, weight.block_size = {weight_tensor.block_size} (before transpose)")
     return _float8_linear_impl(input_tensor, weight_tensor.t())
 
 
-@implements([aten.addmm_.default])
+@implements(aten.addmm_.default)
 def _(func, types, args, kwargs):
     output_tensor, input_tensor, weight_tensor = (
         args[0],
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape}, weight.block_size = {weight_tensor.block_size} (before transpose), output_tensor = {output_tensor.shape}")
     out = _float8_linear_impl(input_tensor, weight_tensor.t())
     return output_tensor.copy_(out)
-
-
-@implements(aten.copy_.default)
-def _(func, types, args, kwargs):
-    # For now, just support copying from a Float8Tensor to a Float8Tensor
-    assert len(args) == 2
-    assert isinstance(args[0], Float8Tensor) and isinstance(args[1], Float8Tensor)
-    args[0].qdata.copy_(args[1].qdata, **kwargs)
-    args[0].scale.copy_(args[1].scale, **kwargs)
-    return args[0]
 
 
 def _float8_linear_impl(
@@ -332,11 +321,11 @@ def _float8_linear_impl(
             wq = weight_tensor.qdata
             x_scale = input_tensor.scale
             w_scale = weight_tensor.scale
-            if True: #_is_rowwise_scaled(weight_tensor):
+            # TODO: fix this?
+            if True:  # _is_rowwise_scaled(weight_tensor):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
-                print(f"        * fbgemm op input = {xq.shape}, weight = {wq.shape}, input_scale = {x_scale.shape}, weight_scale = {w_scale.shape}")
                 wq = wq.contiguous()
                 res = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq,
@@ -347,8 +336,6 @@ def _float8_linear_impl(
                     use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
             else:
-                print("weight_tensor failed _is_rowwise_scaled, SHOULDN'T BE HERE!!!!!!")
-                breakpoint()
                 assert _is_tensorwise_scaled(weight_tensor)
                 assert _is_tensorwise_scaled(input_tensor)
                 res = torch.ops.fbgemm.f8f8bf16(
@@ -746,7 +733,7 @@ def _(func, types, args, kwargs):
         self.mm_config,
         self.act_quant_kwargs,
         self.kernel_preference,
-        self.dtype
+        self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
@@ -754,13 +741,10 @@ def _(func, types, args, kwargs):
 # This is called during _apply() to see if we can shallow
 # copy the content of one tensor into another. For now,
 # we only allow shallow copy if both tensors are `Float8Tensor`
-@implements(torch._has_compatible_shallow_copy_type)
+@implements_torch_function(torch._has_compatible_shallow_copy_type)
 def _(func, types, args, kwargs):
     assert len(args) == 2
-    return (
-        isinstance(args[0], Float8Tensor) and
-        isinstance(args[1], Float8Tensor)
-    )
+    return isinstance(args[0], Float8Tensor) and isinstance(args[1], Float8Tensor)
 
 
 @implements(aten.t.default)
@@ -775,7 +759,7 @@ def _(func, types, args, kwargs):
         self.mm_config,
         self.act_quant_kwargs,
         self.kernel_preference,
-        self.dtype
+        self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
