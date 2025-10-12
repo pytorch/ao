@@ -260,7 +260,6 @@ def _(func, types, args, kwargs):
 @implements([torch.matmul, aten.mm.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = args[0], args[1]
-    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape}, weight.block_size = {weight_tensor.block_size} (before transpose)")
     return _float8_linear_impl(input_tensor, weight_tensor.t())
 
 
@@ -271,7 +270,6 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    print(f"input = {input_tensor.shape}, weight = {weight_tensor.shape}, weight.block_size = {weight_tensor.block_size} (before transpose), output_tensor = {output_tensor.shape}")
     out = _float8_linear_impl(input_tensor, weight_tensor.t())
     return output_tensor.copy_(out)
 
@@ -330,11 +328,11 @@ def _float8_linear_impl(
             wq = weight_tensor.qdata
             x_scale = input_tensor.scale
             w_scale = weight_tensor.scale
+            # TODO: fix this?
             if True: #_is_rowwise_scaled(weight_tensor):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
-                print(f"        * fbgemm op input = {xq.shape}, weight = {wq.shape}, input_scale = {x_scale.shape}, weight_scale = {w_scale.shape}")
                 wq = wq.contiguous()
                 res = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq,
@@ -345,8 +343,6 @@ def _float8_linear_impl(
                     use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
             else:
-                print("weight_tensor failed _is_rowwise_scaled, SHOULDN'T BE HERE!!!!!!")
-                breakpoint()
                 assert _is_tensorwise_scaled(weight_tensor)
                 assert _is_tensorwise_scaled(input_tensor)
                 res = torch.ops.fbgemm.f8f8bf16(
