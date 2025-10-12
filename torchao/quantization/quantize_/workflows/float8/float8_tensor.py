@@ -598,8 +598,22 @@ def _(func, types, args, kwargs):
         assert original_shape[-1] == size[-1], (
             f"Only support reshaping when last dimension matches, requested: reshaping from {original_shape} to {size}"
         )
-        qdata = self.qdata.reshape(*size)
-        scale = self.scale.reshape(*size)
+        # TODO(andrew): This is technically not needed for unsloth fp8 RL
+        # but fixes a bug nonetheless, can do this separately
+        # Example input shapes:
+        #     self.shape = [6, 363, 4096]
+        #     self.scale.shape = [6, 363, 1]
+        #     self.block_size = [1, 1, 4096]
+        #     size = [-1, 4096]
+        #
+        # Example output shapes:
+        #     self.shape = [2178, 4096]
+        #     self.scale.shape = [2178, 1]
+        #     self.block_size = [1, 4096]
+        new_dim0 = original_shape[0] * original_shape[1]
+        assert size[0] == new_dim0 or size[0] == -1
+        qdata = self.qdata.reshape(new_dim0, -1)
+        scale = self.scale.reshape(new_dim0, -1)
         block_size = self.block_size.copy()
         block_size = [block_size[0] * block_size[1], block_size[2]]
     elif len(original_shape) == 2 and len(size) == 3:
