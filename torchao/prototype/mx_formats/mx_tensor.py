@@ -567,13 +567,15 @@ class MXTensor(TorchAOBaseTensor):
     def _quantization_type(self):
         return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
 
-    def to_dtype(self, target_dtype):
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        if output_dtype is None:
+            output_dtype = self.dtype
         return to_dtype(
             self.qdata,
             self.scale,
             self._elem_dtype,
             self._block_size,
-            target_dtype,
+            output_dtype,
             self._pack_fp6,
         )
 
@@ -718,8 +720,8 @@ def _addmm_mx_dispatch(
 
     else:
         # emulated MX gemm
-        a_hp = a.to_dtype(a._orig_dtype)
-        b_hp = b.to_dtype(b._orig_dtype)
+        a_hp = a.dequantize(a._orig_dtype)
+        b_hp = b.dequantize(b._orig_dtype)
         # assert memory layout we expect to be required in hardware
         assert a_hp.is_contiguous()
         assert b_hp.t().is_contiguous()
@@ -780,7 +782,7 @@ def mx_cast_up_op(func, types, args, kwargs):
 
     def unwrap(x):
         if isinstance(x, MXTensor):
-            return x.to_dtype(x._orig_dtype)
+            return x.dequantize(x._orig_dtype)
         return x
 
     new_args = tree_map(unwrap, args)
