@@ -285,7 +285,7 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
     # Test full-width column slicing (should maintain views)
     full_width_slice = tensor[:, 0:K]
-    assert full_width_slice._scale_e4m3.data_ptr() == tensor._scale_e4m3.data_ptr()
+    assert full_width_slice.scale.data_ptr() == tensor.scale.data_ptr()
     assert full_width_slice.qdata.data_ptr() == tensor.qdata.data_ptr()
 
 
@@ -394,9 +394,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         use_triton_kernel=True,
     )
 
-    torch.testing.assert_close(
-        nvfp4_pt._scale_e4m3.flatten(), nvfp4_triton._scale_e4m3.flatten()
-    )
+    torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
     pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
     triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
     torch.testing.assert_close(
@@ -523,7 +521,7 @@ def test_nvfp4_to_copy():
     x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
     assert torch.equal(x.qdata, y.qdata)
-    assert torch.equal(x._scale_e4m3, y._scale_e4m3)
+    assert torch.equal(x.scale, y.scale)
     assert x._per_tensor_scale is None
     assert y._per_tensor_scale is None
     assert x._act_per_tensor_scale is None
@@ -586,9 +584,9 @@ def test_scale_shape_matches_qdata(
     if is_swizzled_scales:
         # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
         expected_padded_m = ceil_div(orig_m, 128) * 32
-    actual_padded_m = x._scale_e4m3.shape[m_dim]
+    actual_padded_m = x.scale.shape[m_dim]
     assert expected_padded_m == actual_padded_m, (
-        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x._scale_e4m3.shape}"
+        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x.scale.shape}"
     )
 
     orig_k = x_hp.shape[k_dim]
@@ -596,10 +594,10 @@ def test_scale_shape_matches_qdata(
     if is_swizzled_scales:
         # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
         expected_padded_k = ceil_div(orig_k // block_size, 4) * 16
-    actual_padded_k = x._scale_e4m3.shape[k_dim]
+    actual_padded_k = x.scale.shape[k_dim]
 
     assert expected_padded_k == actual_padded_k, (
-        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x._scale_e4m3.shape}"
+        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x.scale.shape}"
     )
 
 
