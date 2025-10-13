@@ -522,10 +522,10 @@ def test_nvfp4_to_copy():
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
     assert torch.equal(x.qdata, y.qdata)
     assert torch.equal(x.scale, y.scale)
-    assert x._per_tensor_scale is None
-    assert y._per_tensor_scale is None
-    assert x._act_per_tensor_scale is None
-    assert y._act_per_tensor_scale is None
+    assert x.per_tensor_scale is None
+    assert y.per_tensor_scale is None
+    assert x.act_per_tensor_scale is None
+    assert y.act_per_tensor_scale is None
     assert x._block_size == y._block_size
     assert x.use_triton_kernel == y.use_triton_kernel
     assert x.act_quant_kwargs == y.act_quant_kwargs
