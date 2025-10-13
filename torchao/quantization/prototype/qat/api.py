@@ -1,6 +1,6 @@
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
-    FakeQuantizeConfig,
+    IntxFakeQuantizeConfig as FakeQuantizeConfig,
 )
 
 __all__ = [
