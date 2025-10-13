@@ -99,7 +99,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
     def __new__(
         cls,
         qdata,
-        blockwise_scales,
+        scale,
         block_size,
         orig_dtype,
         _per_tensor_scale=None,
@@ -125,7 +125,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         )
 
         self.qdata = qdata
-        self.scale = blockwise_scales
+        self.scale = scale
         self._block_size = block_size
         self._orig_dtype = orig_dtype
         self._per_tensor_scale = _per_tensor_scale
@@ -136,7 +136,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return self
 
     def __repr__(self):
-        return f"NVFP4Tensor: blockwise_scales: {self.scale}, per_tensor_scale: {self._per_tensor_scale}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"
+        return f"NVFP4Tensor: scale: {self.scale}, per_tensor_scale: {self._per_tensor_scale}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"
 
     def _quantization_type(self):
         return f"{self._is_swizzled_scales=}, {self.use_triton_kernel=}, {self.act_quant_kwargs=}"
