@@ -2355,17 +2355,7 @@ class FqnToConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
 
         # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
-        if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) > 0:
-            raise ValueError(
-                "Both module_fqn_to_config and fqn_to_config are set. Only one should be set."
-            )
-        if len(self.module_fqn_to_config) > 0:
-            assert len(self.fqn_to_config) == 0
-            warnings.warn(
-                "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig"
-            )
-            self.fqn_to_config = self.module_fqn_to_config
-            self.module_fqn_to_config = None
+        self.module_fqn_to_config = self.fqn_to_config
 
         # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
         if "_default" in self.fqn_to_config:
