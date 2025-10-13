@@ -185,8 +185,6 @@ llama4_configs = {
         interleave_moe_layer_step=1,
     ),
 ```
-- [Full repro commands](https://www.internalfb.com/phabricator/paste/view/P1974482524)
-
 
 | Configuration                                                              | Throughput (Median Tokens/s) | Max Memory (GiB) |
 |:---------------------------------------------------------------------------|-----------------------------:|-----------------:|
@@ -194,8 +192,28 @@ llama4_configs = {
 | MXFP8 for Linears only                                                     |                      52038.0 |           146.62 |
 | MXFP8 for Grouped GEMMs only                                               |                      69350.0 |           144.71 |
 | MXFP8 for Linears + Grouped GEMMs                                          |                      70747.0 |           145.32 |
-| MXFP8 for Linears + Grouped GEMMs + A2A Dispatch                      |                      72602.5 |           145.45 |
-| MXFP8 for Linears + Grouped GEMMs + A2A Dispatch + A2A Combine   |                      73152.0 |           146.08 |
+
+#### Commands to reproduce these benchmarks:
+
+bfloat16 baseline:
+```
+rm -rf /tmp/torchinductor_${USER}; CUDA_VISIBLE_DEVICES="4,5,6,7" TORCHTITAN_ROOT=/home/${USER}/torchtitan NGPU=4 EXTRA_ARGS="--metrics.log_freq=10 --training.steps=200  --parallelism.data_parallel_shard_degree=4 --parallelism.expert_parallel_degree=4 --parallelism.tensor_parallel_degree=1 --compile.enable --training.seq_len=8192 --activation_checkpoint.mode=none --model.print_after_conversion" ./llama4.sh
+```
+
+MXFP8 dense only:
+```
+rm -rf /tmp/torchinductor_${USER}; CUDA_VISIBLE_DEVICES="4,5,6,7" TORCHTITAN_ROOT=/home/${USER}/torchtitan NGPU=4 EXTRA_ARGS="--metrics.log_freq=10 --training.steps=200  --parallelism.data_parallel_shard_degree=4 --parallelism.expert_parallel_degree=4 --parallelism.tensor_parallel_degree=1 --compile.enable --training.seq_len=8192 --activation_checkpoint.mode=none --model.print_after_conversion --model.converters="quantize.linear.mx"" ./llama4.sh
+```
+
+MXFP8 MoE only:
+```
+rm -rf /tmp/torchinductor_${USER}; CUDA_VISIBLE_DEVICES="4,5,6,7" TORCHTITAN_ROOT=/home/${USER}/torchtitan NGPU=4 EXTRA_ARGS="--metrics.log_freq=10 --training.steps=200  --parallelism.data_parallel_shard_degree=4 --parallelism.expert_parallel_degree=4 --parallelism.tensor_parallel_degree=1 --compile.enable --training.seq_len=8192 --activation_checkpoint.mode=none --model.print_after_conversion --model.converters="quantize.grouped_mm.mx"" ./llama4.sh
+```
+
+MXFP8 MoE + Dense:
+```
+rm -rf /tmp/torchinductor_${USER}; CUDA_VISIBLE_DEVICES="4,5,6,7" TORCHTITAN_ROOT=/home/${USER}/torchtitan NGPU=4 EXTRA_ARGS="--metrics.log_freq=10 --training.steps=50  --parallelism.data_parallel_shard_degree=4 --parallelism.expert_parallel_degree=4 --parallelism.tensor_parallel_degree=1 --compile.enable --training.seq_len=8192 --activation_checkpoint.mode=none --model.print_after_conversion --model.converters="quantize.grouped_mm.mx,quantize.linear.mx"" ./llama4.sh
+```
 
 
 ## Implementation details for developers
