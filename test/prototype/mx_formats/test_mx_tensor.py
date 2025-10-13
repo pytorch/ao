@@ -53,7 +53,7 @@ def _test_mx(
     data_hp, elem_dtype, block_size, scale_calculation_mode=ScaleCalculationMode.FLOOR
 ):
     data_mx = MXTensor.to_mx(data_hp, elem_dtype, block_size, scale_calculation_mode)
-    data_mx_dq = data_mx.to_dtype(data_hp.dtype)
+    data_mx_dq = data_mx.dequantize(data_hp.dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
         sqnr = compute_error(orig, new)
@@ -389,7 +389,7 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         pack_fp6,
         None,
     )
-    tensor_hp = tensor_mx.to_dtype(torch.float)
+    tensor_hp = tensor_mx.dequantize(torch.float)
     assert torch.all(torch.isnan(tensor_hp.flatten()[0:4]))
     assert not torch.any(torch.isnan(tensor_hp.flatten()[4:]))
 
@@ -436,10 +436,10 @@ def test_transpose(elem_dtype):
         elem_dtype,
         block_size,
     )
-    tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()
+    tensor_mx_dq_t = tensor_mx.dequantize(tensor_hp.dtype).t()
 
     tensor_mx_t = tensor_mx.t()
-    tensor_mx_t_dq = tensor_mx_t.to_dtype(tensor_hp.dtype)
+    tensor_mx_t_dq = tensor_mx_t.dequantize(tensor_hp.dtype)
 
     assert tensor_mx_dq_t.shape == tensor_mx_t_dq.shape
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
@@ -461,8 +461,8 @@ def test_clone():
     data_mx = MXTensor.to_mx(data, torch.float8_e4m3fn, block_size)
     data_mx_c = data_mx.clone()
     torch.testing.assert_close(
-        data_mx.to_dtype(torch.bfloat16),
-        data_mx_c.to_dtype(torch.bfloat16),
+        data_mx.dequantize(torch.bfloat16),
+        data_mx_c.dequantize(torch.bfloat16),
         atol=0,
         rtol=0,
     )
@@ -571,7 +571,7 @@ def test_index_select():
 
     x_mx_1 = x_mx[1]
     torch.testing.assert_close(
-        x_mx.to_dtype(x.dtype)[1], x_mx_1.to_dtype(x.dtype), atol=0, rtol=0
+        x_mx.dequantize(x.dtype)[1], x_mx_1.dequantize(x.dtype), atol=0, rtol=0
     )
 
 

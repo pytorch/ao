@@ -136,7 +136,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return self
 
     def __repr__(self):
-        return f"NVFP4Tensor: scale: {self.scale}, per_tensor_scale: {self.per_tensor_scale}, d: {self.qdata}, d_hp: {self.to_dtype(self._orig_dtype)}"
+        return f"NVFP4Tensor: scale: {self.scale}, per_tensor_scale: {self.per_tensor_scale}, d: {self.qdata}, d_hp: {self.dequantize(self._orig_dtype)}"
 
     def _quantization_type(self):
         return f"{self._is_swizzled_scales=}, {self.use_triton_kernel=}, {self.act_quant_kwargs=}"
@@ -217,7 +217,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
     # Do not force the NVFP4Tensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
 
-    def to_dtype(self, target_dtype: torch.dtype) -> torch.Tensor:
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Convert NVFP4Tensor back to high precision dtype.
 
         Args:
@@ -226,6 +226,8 @@ class NVFP4Tensor(TorchAOBaseTensor):
         Returns:
             torch.Tensor: Dequantized tensor in the target dtype
         """
+        if output_dtype is None:
+            output_dtype = self.dtype
         is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
         if is_transposed:
             leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
@@ -242,7 +244,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             *leading_dims, M, K // self._block_size, 1
         )
         data_scaled = data_f32 * scale_e4m3_reshaped.to(torch.float32)
-        result = data_scaled.view(*leading_dims, M, K).to(target_dtype)
+        result = data_scaled.view(*leading_dims, M, K).to(output_dtype)
 
         if is_transposed:
             result = result.transpose(-2, -1)
@@ -731,7 +733,7 @@ def nvfp4_linear(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is None:
         # weight_only quant
-        weight_dequant = weight_tensor.to_dtype(weight_tensor._orig_dtype)
+        weight_dequant = weight_tensor.dequantize(weight_tensor._orig_dtype)
         return torch.nn.functional.linear(input_tensor, weight_dequant, bias)
     else:
         # dynamic quant
@@ -759,9 +761,9 @@ def nvfp4_mm(func, types, args, kwargs):
         raise NotImplementedError("NVFP4Tensor: weight must be NVFP4Tensor")
 
     if weight_tensor.act_quant_kwargs is None:
-        weight_dequant = weight_tensor.to_dtype(weight_tensor._orig_dtype)
+        weight_dequant = weight_tensor.dequantize(weight_tensor._orig_dtype)
         if isinstance(input_tensor, NVFP4Tensor):
-            input_dequant = input_tensor.to_dtype(input_tensor._orig_dtype)
+            input_dequant = input_tensor.dequantize(input_tensor._orig_dtype)
             return func(input_dequant, weight_dequant)
         else:
             return func(input_tensor, weight_dequant)
@@ -791,9 +793,9 @@ def nvfp4_addmm(func, types, args, kwargs):
         raise NotImplementedError("NVFP4Tensor: weight must be NVFP4Tensor")
 
     if weight_tensor.act_quant_kwargs is None:
-        weight_dequant = weight_tensor.to_dtype(weight_tensor._orig_dtype)
+        weight_dequant = weight_tensor.dequantize(weight_tensor._orig_dtype)
         if isinstance(input_tensor, NVFP4Tensor):
-            input_dequant = input_tensor.to_dtype(input_tensor._orig_dtype)
+            input_dequant = input_tensor.dequantize(input_tensor._orig_dtype)
             return torch.addmm(bias, input_dequant, weight_dequant)
         else:
             return torch.addmm(bias, input_tensor, weight_dequant)

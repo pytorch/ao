@@ -58,7 +58,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         scale = None
 
     x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
-    x_reconstructed = x_nvfp4.to_dtype(dtype)
+    x_reconstructed = x_nvfp4.dequantize(dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
         sqnr = compute_error(orig, new)
@@ -91,7 +91,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         x_nvfp4_t = x_nvfp4.transpose(-2, -1)
         x_t = x.transpose(-2, -1)
 
-    x_reconstructed_t = x_nvfp4_t.to_dtype(dtype)
+    x_reconstructed_t = x_nvfp4_t.dequantize(dtype)
     assert_sqnr_gt_threshold(x_t, x_reconstructed_t, 8.0)
 
     assert x_t.shape == x_reconstructed_t.shape, (
@@ -127,7 +127,7 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
     assert tensor._is_swizzled_scales == is_swizzled_scales
-    reconstructed = tensor.to_dtype(torch.bfloat16)
+    reconstructed = tensor.dequantize(torch.bfloat16)
     assert reconstructed.shape == data.shape
 
 
@@ -181,10 +181,10 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     assert sliced_tensor._is_swizzled_scales == True
 
     # Verify sliced tensor can be dequantized
-    sliced_reconstructed = sliced_tensor.to_dtype(torch.bfloat16)
+    sliced_reconstructed = sliced_tensor.dequantize(torch.bfloat16)
 
     # Compare with direct slicing of original data
-    original_reconstructed = tensor.to_dtype(torch.bfloat16)
+    original_reconstructed = tensor.dequantize(torch.bfloat16)
     if slice_dim == 0:
         expected = original_reconstructed[slice_spec, :]
     else:
@@ -324,8 +324,8 @@ def test_nvfp4_swizzled_scales_serialization():
     assert reconstructed_tensor._is_swizzled_scales == True
 
     # Verify functionality is preserved
-    original_dq = original_tensor.to_dtype(torch.bfloat16)
-    reconstructed_dq = reconstructed_tensor.to_dtype(torch.bfloat16)
+    original_dq = original_tensor.dequantize(torch.bfloat16)
+    reconstructed_dq = reconstructed_tensor.dequantize(torch.bfloat16)
 
     torch.testing.assert_close(original_dq, reconstructed_dq, atol=1e-6, rtol=1e-6)
 
@@ -404,8 +404,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         rtol=0,
     )
 
-    x_pt_dequant = nvfp4_pt.to_dtype(dtype)
-    x_triton_dequant = nvfp4_triton.to_dtype(dtype)
+    x_pt_dequant = nvfp4_pt.dequantize(dtype)
+    x_triton_dequant = nvfp4_triton.dequantize(dtype)
 
     sqnr = compute_error(x_pt_dequant, x_triton_dequant)
     SQNR_THRESHOLD = 40.0
