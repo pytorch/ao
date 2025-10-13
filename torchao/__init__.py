@@ -65,13 +65,18 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
     v2_8_0 = _parse_version("2.8.0")
     v0_13_0 = _parse_version("0.13.0")
     v2_9_0_dev = _parse_version("2.9.0.dev")
-    v0_14_0_dev = _parse_version("0.14.0.dev")
+    v0_14_0 = _parse_version("0.14.0")
+    v2_10_0_dev = _parse_version("2.10.0.dev")
+    v0_15_0_dev = _parse_version("0.15.0.dev")
 
     if torch_version == v2_8_0 and torchao_version == v0_13_0:
         # current torchao version and torch version, check here for clarity
         skip_loading_so_files = False
-    elif torch_version == v2_9_0_dev and torchao_version == v0_14_0_dev:
+    elif torch_version == v2_9_0_dev and torchao_version == v0_14_0:
         # .dev for nightlies since 2.9.0 and 0.14.0 has not been released
+        skip_loading_so_files = False
+    elif torch_version == v2_10_0_dev and torchao_version == v0_15_0_dev:
+        # .dev for nightlies since 2.10.0 and 0.15.0 has not been released
         skip_loading_so_files = False
     else:
         skip_loading_so_files = True

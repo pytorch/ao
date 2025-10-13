@@ -19,7 +19,10 @@ MODEL_ID_ARRAY=()
 EVAL_TYPE="all"
 # these will be parsed in the other scripts
 BATCH_SIZES="1 256"    # Default for latency eval
+MM_EVAL_BATCH_SIZE=1   # Default batch size for mm quality eval
 TASKS="mmlu"           # Default for quality eval
+MM_TASKS="chartqa"     # Default for multi-modal quality eval (not included in all)
+MODEL_TYPE=""
 USE_CACHE=false      # default: do not use cache
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -50,6 +53,10 @@ while [[ $# -gt 0 ]]; do
       BATCH_SIZES="$1"
       shift
       ;;
+    --mm_eval_batch_size)
+      MM_EVAL_BATCH_SIZE="$2"
+      shift 2
+      ;;
     --tasks)
       shift
       if [[ $# -eq 0 ]]; then
@@ -57,6 +64,24 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       TASKS="$1"
+      shift
+      ;;
+    --model_type)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "Error: --model_type requires a value"
+        exit 1
+      fi
+      MODEL_TYPE="$1"
+      shift
+      ;;
+    --mm_tasks)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "Error: --mm_tasks requires a value"
+        exit 1
+      fi
+      MM_TASKS="$1"
       shift
       ;;
     --use_cache)
@@ -93,6 +118,16 @@ run_quality() {
     sh eval_quality.sh --model_ids "$model_id" --tasks $TASKS
   fi
 }
+run_mm_quality() {
+  check_lmms_eval
+  local model_id="$1"
+  echo "run_mm_quality" $model_id $MODEL_TYPE
+  if $USE_CACHE; then
+    sh eval_mm_quality.sh --model_ids "$model_id" --tasks $MM_TASKS --model_type $MODEL_TYPE --batch_size $MM_EVAL_BATCH_SIZE --use_cache
+  else
+    sh eval_mm_quality.sh --model_ids "$model_id" --tasks $MM_TASKS --model_type $MODEL_TYPE --batch_size $MM_EVAL_BATCH_SIZE
+  fi
+}
 for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
   case "$EVAL_TYPE" in
     memory)
@@ -103,6 +138,9 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
       ;;
     quality)
       run_quality "$MODEL_ID"
+      ;;
+    mm_quality)
+      run_mm_quality "$MODEL_ID"
       ;;
     all)
       run_quality "$MODEL_ID"

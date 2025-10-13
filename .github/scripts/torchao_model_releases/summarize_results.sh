@@ -51,14 +51,34 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
             PATTERN="pretrained=${MODEL_ID}"
             LAST_LINE=$(grep -n "$PATTERN" "$Q_LOG" | tail -1 | cut -d: -f1)
             if [ -n "$LAST_LINE" ]; then
-                echo "--- Quality log: $Q_LOG (lines starting from $((LAST_LINE + 1))) ---"
-                tail -n +"$((LAST_LINE + 1))" "$Q_LOG"
+                echo "--- Quality log: $Q_LOG (lines starting from $((LAST_LINE))) ---"
+                tail -n +"$((LAST_LINE))" "$Q_LOG"
             else
                 echo "Pattern not found in $Q_LOG"
             fi
       done
     else
       echo "--- No quality logs found matching pattern: $QUALITY_LOG_PATTERN"
+    fi
+
+    MM_QUALITY_LOG_PATTERN="${SAFE_MODEL_ID}_mm_quality_*.log"
+    # Multi-modal Quality logs (multiple files, one per task)
+    MM_QUALITY_LOGS=( $MM_QUALITY_LOG_PATTERN )
+    if [ -e "${MM_QUALITY_LOGS[0]}" ]; then
+        for Q_LOG in "${MM_QUALITY_LOGS[@]}"; do
+            # find last appearance of pretrained={MODEL_ID} and
+            # extract all lines after that
+            PATTERN="pretrained=${MODEL_ID}"
+            LAST_LINE=$(grep -n "$PATTERN" "$Q_LOG" | tail -1 | cut -d: -f1)
+            if [ -n "$LAST_LINE" ]; then
+                echo "--- Multi-modal Quality log: $Q_LOG (lines starting from $((LAST_LINE))) ---"
+                tail -n +"$((LAST_LINE))" "$Q_LOG"
+            else
+                echo "Pattern not found in $Q_LOG"
+            fi
+      done
+    else
+      echo "--- No quality logs found matching pattern: $MM_QUALITY_LOG_PATTERN"
     fi
 
     MEMORY_LOG="${SAFE_MODEL_ID}_memory.log"
