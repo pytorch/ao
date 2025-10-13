@@ -26,7 +26,7 @@ from torchao.quantization.pt2e.fake_quantize import (
 from torchao.quantization.pt2e.inductor_passes.arm import (
     _register_quantization_weight_pack_pass,
 )
-from torchao.quantization.pt2e.inductor_passes.x86 import (
+from torchao.quantization.pt2e.inductor_passes.utils import (
     quant_lift_up,
 )
 from torchao.quantization.pt2e.observer import (
