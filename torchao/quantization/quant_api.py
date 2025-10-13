@@ -21,7 +21,6 @@ import types
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import partial
 from typing import Any, Callable, List, Optional, Tuple, Union
 from typing import OrderedDict as OrderedDictType
 
@@ -478,7 +477,7 @@ def _get_linear_subclass_inserter(
 def quantize_(
     model: torch.nn.Module,
     config: AOBaseConfig,
-    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = _is_linear,
     device: Optional[torch.types.Device] = None,
 ):
     """Convert the weight of linear modules in the model with `config`, model is modified inplace
@@ -513,19 +512,19 @@ def quantize_(
     """
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
-    filter_fn = _is_linear if filter_fn is None else filter_fn
     if isinstance(config, FqnToConfig):
-        _replace_with_custom_fn_if_matches_filter_with_name(
-            model,
-            _fqn_to_config_handler,
-            partial(
-                _select_module_if_filter_fn_or_contains_params_matching_pattern,
-                config=config,
-                filter_fn=filter_fn,
-            ),
-            device=device,
-            extra_args=(config,),
-        )
+        if filter_fn is None or filter_fn is _is_linear:
+            _replace_with_custom_fn_if_matches_filter_with_name(
+                model,
+                _fqn_to_config_handler,
+                _filter_fn_and_param_in_fqn_config,
+                device=device,
+                extra_args=(config,),
+            )
+        else:
+            raise ValueError(
+                "Only filter_fn= `is_linear` or `None` is supported for FqnToConfig!"
+            )
         return
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
@@ -2426,15 +2425,17 @@ class FqnToConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
 
         # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
+        if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) > 0:
+            raise ValueError(
+                "Both module_fqn_to_config and fqn_to_config are set. Only one should be set."
+            )
         if len(self.module_fqn_to_config) > 0:
             assert len(self.fqn_to_config) == 0
             warnings.warn(
                 "Config Deprecation: ModuleFqnToConfig is deprecated and will no longer be supported in a future release, please use FqnToConfig"
             )
             self.fqn_to_config = self.module_fqn_to_config
-        if len(self.fqn_to_config) > 0:
-            assert len(self.module_fqn_to_config) == 0
-            self.module_fqn_to_config = self.fqn_to_config
+            self.module_fqn_to_config = None
 
         # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
         if "_default" in self.fqn_to_config:
@@ -2536,11 +2537,10 @@ def _get_config_for_fqn(fqn: str, config: FqnToConfig):
     return found, c
 
 
-def _select_module_if_filter_fn_or_contains_params_matching_pattern(
+def _select_module_if_contains_params_matching_pattern(
     module: nn.Module,
     fqn: str,
     config: FqnToConfig,
-    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
 ):
     """Check if a module should be selected for quantization to be applied
 
@@ -2549,14 +2549,11 @@ def _select_module_if_filter_fn_or_contains_params_matching_pattern(
         fqn (str): The fully qualified name of the module.
         config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for
             parameter quantization.
-        filter_fn (Optional[Callable[[torch.nn.Module], bool]]): A function that takes a module and fqn and return whether to quantize the module.
 
     Returns:
         bool: True if filter_fn is passed and filter_fn(module, fqn) is True, or if any of the top-level parameters match the patterns in config.fqn_to_config
                 False otherwise.
     """
-    if filter_fn is not None and filter_fn(module, fqn):
-        return True
     for name, param in module.named_parameters():
         if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
             parameter_fqn = f"{fqn}.{name}" if fqn != "" else name
@@ -2567,6 +2564,16 @@ def _select_module_if_filter_fn_or_contains_params_matching_pattern(
                 ):
                     return True
     return False
+
+
+def _filter_fn_and_param_in_fqn_config(mod, fqn, config, filter_fn):
+    param_in_fqn_config = _select_module_if_contains_params_matching_pattern(
+        mod, fqn, config=config
+    )
+    if filter_fn is None:
+        return param_in_fqn_config
+    else:
+        return filter_fn(mod, fqn) and param_in_fqn_config
 
 
 torch.serialization.add_safe_globals(
