@@ -49,9 +49,9 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     a_scale_block = to_blocked(a_scale)
     b_scale_block = to_blocked(b_scale)
 
-    out_hp = a_mx.to_dtype(torch.bfloat16) @ b_mx.to_dtype(torch.bfloat16).transpose(
-        -1, -2
-    )
+    out_hp = a_mx.dequantize(torch.bfloat16) @ b_mx.dequantize(
+        torch.bfloat16
+    ).transpose(-1, -2)
     out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
 
     return compute_error(out_hp, out).item()
