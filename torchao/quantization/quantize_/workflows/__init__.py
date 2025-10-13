@@ -13,6 +13,9 @@ from .int4.int4_packing_format import Int4PackingFormat
 from .int4.int4_plain_int32_tensor import (
     Int4PlainInt32Tensor,
 )
+from .int4.int4_plain_int32_tensor_npu import (
+    Int4PlainInt32TensorNPU,
+)
 from .int4.int4_preshuffled_tensor import (
     Int4PreshuffledTensor,
 )
@@ -36,6 +39,7 @@ __all__ = [
     "Int4PreshuffledTensor",
     "Int4MarlinSparseTensor",
     "Int4PlainInt32Tensor",
+    "Int4PlainInt32TensorNPU",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",

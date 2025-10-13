@@ -78,6 +78,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4OpaqueTensor,
     Int4PackingFormat,
     Int4PlainInt32Tensor,
+    Int4PlainInt32TensorNPU,
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
@@ -1210,10 +1211,16 @@ def _int4_weight_only_quantize_tensor(weight, config):
             )
             return new_weight
         elif int4_packing_format == Int4PackingFormat.PLAIN_INT32:
-            new_weight = Int4PlainInt32Tensor.from_hp(
-                weight,
-                block_size,
-            )
+            if weight.device.type == "npu":
+                new_weight = Int4PlainInt32TensorNPU.from_hp(
+                    weight,
+                    block_size,
+                )
+            else: 
+                new_weight = Int4PlainInt32Tensor.from_hp(
+                    weight,
+                    block_size,
+                )
             return new_weight
         elif int4_packing_format == Int4PackingFormat.MARLIN_SPARSE:
             new_weight = Int4MarlinSparseTensor.from_hp(
