@@ -526,7 +526,6 @@
     <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">_ConfigDeprecationWrapper</span><span class="p">,</span>
     <span class="n">is_MI300</span><span class="p">,</span>
     <span class="n">is_sm_at_least_89</span><span class="p">,</span>
     <span class="n">is_sm_at_least_90</span><span class="p">,</span>
@@ -578,18 +577,7 @@
     <span class="s2">&quot;autoquant&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_get_subclass_inserter&quot;</span><span class="p">,</span>
     <span class="s2">&quot;quantize_&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;int8_dynamic_activation_int4_weight&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;int8_dynamic_activation_int8_weight&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;int8_dynamic_activation_int8_semi_sparse_weight&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;int4_weight_only&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;int8_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;intx_quantization_aware_training&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;float8_weight_only&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;uintx_weight_only&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;fpx_weight_only&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;gemlite_uintx_weight_only&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;float8_dynamic_activation_float8_weight&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;float8_static_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Float8DynamicActivationFloat8SemiSparseWeightConfig&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ModuleFqnToConfig&quot;</span><span class="p">,</span>
@@ -937,7 +925,7 @@
 <span class="sd">        # Int8DynamicActivationInt8WeightConfig (optimized with int8 mm op and torch.compile)</span>
 <span class="sd">        # Int4WeightOnlyConfig (optimized with int4 tinygemm kernel and torch.compile)</span>
 <span class="sd">        # Int8WeightOnlyConfig (optimized with int8 mm op and torch.compile</span>
-<span class="sd">        from torchao.quantization.quant_api import int4_weight_only</span>
+<span class="sd">        from torchao.quantization.quant_api import Int4WeightOnlyConfig</span>
 
 <span class="sd">        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))</span>
 <span class="sd">        quantize_(m, Int4WeightOnlyConfig(group_size=32, version=1))</span>
@@ -1057,12 +1045,6 @@
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
             <span class="s2">&quot;torchao.quantization.Int8DynamicActivationInt4WeightConfig&quot;</span>
         <span class="p">)</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="n">int8_dynamic_activation_int4_weight</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;int8_dynamic_activation_int4_weight&quot;</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
-<span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">)</span>
@@ -1430,12 +1412,6 @@
         <span class="p">)</span>
 
 
-<span class="c1"># for bc</span>
-<span class="n">int4_dynamic_activation_int4_weight</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;int4_dynamic_activation_int4_weight&quot;</span><span class="p">,</span> <span class="n">Int4DynamicActivationInt4WeightConfig</span>
-<span class="p">)</span>
-
-
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int4DynamicActivationInt4WeightConfig</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_int4_dynamic_activation_int4_weight_transform</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int4DynamicActivationInt4WeightConfig</span>
@@ -1491,12 +1467,6 @@
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
             <span class="s2">&quot;torchao.quantization.GemliteUIntXWeightOnlyConfig&quot;</span>
         <span class="p">)</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="n">gemlite_uintx_weight_only</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;gemlite_uintx_weight_only&quot;</span><span class="p">,</span> <span class="n">GemliteUIntXWeightOnlyConfig</span>
-<span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">GemliteUIntXWeightOnlyConfig</span><span class="p">)</span>
@@ -1574,11 +1544,6 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.Int4WeightOnlyConfig&quot;</span><span class="p">)</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="c1"># TODO maybe change other callsites</span>
-<span class="n">int4_weight_only</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span><span class="s2">&quot;int4_weight_only&quot;</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_int4_weight_only_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
@@ -1792,10 +1757,6 @@
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.Int8WeightOnlyConfig&quot;</span><span class="p">)</span></div>
 
 
-<span class="c1"># for BC</span>
-<span class="n">int8_weight_only</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span><span class="s2">&quot;int8_weight_only&quot;</span><span class="p">,</span> <span class="n">Int8WeightOnlyConfig</span><span class="p">)</span>
-
-
 <span class="k">def</span><span class="w"> </span><span class="nf">_int8_weight_only_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
     <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
@@ -1953,12 +1914,6 @@
         <span class="p">)</span></div>
 
 
-<span class="c1"># for BC</span>
-<span class="n">int8_dynamic_activation_int8_weight</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;int8_dynamic_activation_int8_weight&quot;</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span>
-<span class="p">)</span>
-
-
 <span class="k">def</span><span class="w"> </span><span class="nf">_int8_dynamic_activation_int8_weight_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
     <span class="n">act_mapping_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">act_mapping_type</span>
@@ -2062,12 +2017,6 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.Float8WeightOnlyConfig&quot;</span><span class="p">)</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="n">float8_weight_only</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;float8_weight_only&quot;</span><span class="p">,</span> <span class="n">Float8WeightOnlyConfig</span>
-<span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_weight_only_quant_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
@@ -2226,12 +2175,6 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">[</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">]</span></div>
-
-
-<span class="c1"># for bc</span>
-<span class="n">float8_dynamic_activation_float8_weight</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;float8_dynamic_activation_float8_weight&quot;</span><span class="p">,</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span>
-<span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_dynamic_activation_float8_weight_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
@@ -2409,12 +2352,6 @@
         <span class="p">)</span></div>
 
 
-<span class="c1"># for bc</span>
-<span class="n">float8_static_activation_float8_weight</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;float8_static_activation_float8_weight&quot;</span><span class="p">,</span> <span class="n">Float8StaticActivationFloat8WeightConfig</span>
-<span class="p">)</span>
-
-
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8StaticActivationFloat8WeightConfig</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_static_activation_float8_weight_transform</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8StaticActivationFloat8WeightConfig</span>
@@ -2495,12 +2432,6 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.UIntXWeightOnlyConfig&quot;</span><span class="p">)</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="n">uintx_weight_only</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span>
-    <span class="s2">&quot;uintx_weight_only&quot;</span><span class="p">,</span> <span class="n">UIntXWeightOnlyConfig</span>
-<span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">UIntXWeightOnlyConfig</span><span class="p">)</span>
@@ -2779,10 +2710,6 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.FPXWeightOnlyConfig&quot;</span><span class="p">)</span></div>
-
-
-<span class="c1"># for BC</span>
-<span class="n">fpx_weight_only</span> <span class="o">=</span> <span class="n">_ConfigDeprecationWrapper</span><span class="p">(</span><span class="s2">&quot;fpx_weight_only&quot;</span><span class="p">,</span> <span class="n">FPXWeightOnlyConfig</span><span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">FPXWeightOnlyConfig</span><span class="p">)</span>
