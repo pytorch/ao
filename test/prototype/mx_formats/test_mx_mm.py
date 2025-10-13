@@ -43,8 +43,8 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     assert b_data.is_contiguous()
     b_data = b_data.transpose(-1, -2)
 
-    a_scale = a_mx._scale_e8m0.view(M, K // 32)
-    b_scale = b_mx._scale_e8m0.view(N, K // 32)
+    a_scale = a_mx.scale.view(M, K // 32)
+    b_scale = b_mx.scale.view(N, K // 32)
 
     a_scale_block = to_blocked(a_scale)
     b_scale_block = to_blocked(b_scale)

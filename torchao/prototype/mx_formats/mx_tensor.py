@@ -470,7 +470,7 @@ def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
 
 
 class MXTensor(TorchAOBaseTensor):
-    tensor_data_names = ["qdata", "_scale_e8m0"]
+    tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = [
         "_elem_dtype",
         "_block_size",
@@ -548,10 +548,10 @@ class MXTensor(TorchAOBaseTensor):
             # TODO investigate
             assert target_numel == qdata.numel(), f"{target_numel} != {qdata.numel()}"
 
-        # `_scale_e8m0` has rank 1 and applies to a row-major memory layout of
+        # `scale` has rank 1 and applies to a row-major memory layout of
         # `qdata`
         self.qdata = qdata
-        self._scale_e8m0 = scale_e8m0_bits
+        self.scale = scale_e8m0_bits
         self._elem_dtype = elem_dtype
         self._block_size = block_size
         self._orig_dtype = orig_dtype
@@ -562,7 +562,7 @@ class MXTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
 
     def _quantization_type(self):
         return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
@@ -570,7 +570,7 @@ class MXTensor(TorchAOBaseTensor):
     def to_dtype(self, target_dtype):
         return to_dtype(
             self.qdata,
-            self._scale_e8m0,
+            self.scale,
             self._elem_dtype,
             self._block_size,
             target_dtype,
@@ -685,8 +685,8 @@ def _addmm_mx_dispatch(
         assert a._block_size == 32, f"Invalid block size {a._block_size}"
         assert b._block_size == 32, f"Invalid block size {b._block_size}"
 
-        a_scale = a._scale_e8m0.view(M, K // a._block_size)
-        b_scale = b._scale_e8m0.view(N, K // b._block_size)
+        a_scale = a.scale.view(M, K // a._block_size)
+        b_scale = b.scale.view(N, K // b._block_size)
         a_scale_block = to_blocked(a_scale)
         b_scale_block = to_blocked(b_scale)
 
@@ -757,7 +757,7 @@ def mx_t(func, types, args, kwargs):
     old = args[0]
     new = MXTensor(
         old.qdata.t(),
-        old._scale_e8m0,
+        old.scale,
         old._elem_dtype,
         old._block_size,
         old._orig_dtype,
@@ -801,7 +801,7 @@ def mx_view_op(func, types, args, kwargs):
     new_data = func(data, new_size, *args[2:], **kwargs)
     return MXTensor(
         new_data,
-        args[0]._scale_e8m0,
+        args[0].scale,
         args[0]._elem_dtype,
         args[0]._block_size,
         args[0]._orig_dtype,
@@ -821,7 +821,7 @@ def mx_slice(func, types, args, kwargs):
     M, K = x.shape[0], x.shape[1]
 
     # TODO why doesn't scale have shape?
-    scale_shaped = x._scale_e8m0.view(M, K // x._block_size)
+    scale_shaped = x.scale.view(M, K // x._block_size)
 
     if dim == 0:
         # Slicing along the first dimension (rows) TODO assuming that dim 1 is reduciton dim for now
@@ -888,12 +888,12 @@ def mx_clone(func, types, args, kwargs):
 def mx_select(func, types, args, kwargs):
     old_mx_tensor, dim, index = args
     assert dim == 0, f"MXTensor aten.select.int with {dim=} is not yet supported"
-    assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor._scale_e8m0.shape), (
+    assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor.scale.shape), (
         "unsupported"
     )
     new_mx_tensor = old_mx_tensor.__class__(
         old_mx_tensor.qdata[index],
-        old_mx_tensor._scale_e8m0[index],
+        old_mx_tensor.scale[index],
         old_mx_tensor._elem_dtype,
         old_mx_tensor._block_size,
         old_mx_tensor._orig_dtype,
