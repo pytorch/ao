@@ -75,7 +75,7 @@ def _test_mx(
         assert data_mx.qdata.shape == (*prev_dims, K // 2)
     else:
         assert data_mx.qdata.shape == (*prev_dims, K)
-    assert data_mx._scale_e8m0.shape == (*prev_dims, K // block_size)
+    assert data_mx.scale.shape == (*prev_dims, K // block_size)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -146,7 +146,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     assert torch.isnan(data_mx.qdata[0])
     assert torch.all(data_mx.qdata[1:] == 0)
     # fp32 denorm
@@ -168,7 +168,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 denorm
     # fmt: off
@@ -189,7 +189,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # fp32 some denorm
     # fmt: off
@@ -220,7 +220,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 some denorm
     # fmt: off
@@ -251,7 +251,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # zero
     data_hp = torch.tensor([0] * 32, dtype=torch.uint32).view(torch.float32)
@@ -262,7 +262,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # fp32 normal
     # fmt: off
@@ -293,7 +293,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 normal
     # fmt: off
@@ -324,7 +324,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
 
 
@@ -340,8 +340,8 @@ def test_exponent_nan_in(elem_dtype):
     )
     block_size = 4
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
-    assert torch.all(torch.isnan(tensor_mx._scale_e8m0[0]))
-    assert not torch.any(torch.isnan(tensor_mx._scale_e8m0[1:]))
+    assert torch.all(torch.isnan(tensor_mx.scale[0]))
+    assert not torch.any(torch.isnan(tensor_mx.scale[1:]))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -507,8 +507,8 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
     x_mx_c = to_mx_c(x, elem_dtype, block_size)
     torch.testing.assert_close(
-        x_mx._scale_e8m0,
-        x_mx_c._scale_e8m0,
+        x_mx.scale,
+        x_mx_c.scale,
         atol=0,
         rtol=0,
     )
@@ -519,7 +519,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     pack_fp6 = False
     x_mx_dq = to_dtype(
         x_mx.qdata,
-        x_mx._scale_e8m0,
+        x_mx.scale,
         x_mx._elem_dtype,
         x_mx._block_size,
         hp_dtype,  # noqa: E501
@@ -527,7 +527,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c.qdata,
-        x_mx_c._scale_e8m0,
+        x_mx_c.scale,
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
         hp_dtype,
