@@ -97,7 +97,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
 )
 from torchao.utils import (
     TorchAOBaseTensor,
-    _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
