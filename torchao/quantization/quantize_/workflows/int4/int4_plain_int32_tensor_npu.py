@@ -21,11 +21,6 @@ __all__ = ["Int4PlainInt32TensorNPU"]
 
 aten = torch.ops.aten
 
-try:
-    import torch_npu
-except ImportError:
-    torch_npu = None
-
 
 class Int4PlainInt32TensorNPU(TorchAOBaseTensor):
     """
@@ -93,9 +88,6 @@ class Int4PlainInt32TensorNPU(TorchAOBaseTensor):
         w: torch.Tensor,
         block_size: List[int],
     ):
-        if torch_npu is None:
-            raise ImportError("Requires torch_npu but it is not installed")
-
         assert w.ndim == 2 and w.device.type == "npu", (
             f"Expecting 2D tensor on NPU, but got: {w.shape} on {w.device.type}"
         )
@@ -143,7 +135,7 @@ class Int4PlainInt32TensorNPU(TorchAOBaseTensor):
             f"torch_npu.npu_convert_weight_to_int4pack expects last dim must be aligned to 8,but got {int_data.shape[-1]}"
         )
 
-        packed_weight = torch_npu.npu_convert_weight_to_int4pack(
+        packed_weight = torch.ops.npu.npu_convert_weight_to_int4pack(
             int_data.contiguous(), 0
         )
 
@@ -173,9 +165,6 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-
-    if torch_npu is None:
-        raise ImportError("Requires torch_npu but it is not installed")
 
     assert input_tensor.device.type == "npu", (
         f"For NPU device only but got: {input_tensor.device.type}"
@@ -219,7 +208,7 @@ def _(func, types, args, kwargs):
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
 
-    y = torch_npu.npu_weight_quant_batchmatmul(
+    y = torch.ops.npu.npu_weight_quant_batchmatmul(
         x=act_mat,
         weight=packed_weight.contiguous().transpose(-1, -2),
         antiquant_scale=scale,
