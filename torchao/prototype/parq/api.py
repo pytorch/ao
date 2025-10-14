@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+
+import torch
 
 from torchao.prototype.parq.optim import QuantOptimizer
 from torchao.prototype.parq.quant import (
@@ -29,7 +31,12 @@ class QuantConfig:
             object.__setattr__(self, "quantizer", q)
 
 
-def create_param_groups_and_group_quantizer_map(model, quant_configs_and_filter_fns):
+def create_param_groups_and_group_quantizer_map(
+    model: torch.nn.Module,
+    quant_configs_and_filter_fns: List[
+        Tuple[QuantConfig, Callable[[torch.nn.Module, str], bool]]
+    ],
+):
     param_groups = []
     group_quantizer_map = {}
     for idx, (config, _) in enumerate(quant_configs_and_filter_fns):
@@ -111,14 +118,16 @@ from torchao.prototype.parq import ProxHardQuant
 
 
 def create_optimizer(
-    model,
-    quant_configs_and_filter_fns,
-    base_optimizer_cls,
-    base_optimizer_kwargs,
+    model: torch.nn.Module,
+    quant_configs_and_filter_fns: List[
+        Tuple[QuantConfig, Callable[[torch.nn.Module, str], bool]]
+    ],
+    base_optimizer_cls: Type[torch.optim.Optimizer],
+    base_optimizer_kwargs: Dict[str, Any],
     *,
-    warmup_steps=0,
-    quant_period=1,
-    quant_per_channel=True,
+    warmup_steps: int = 0,
+    quant_period: int = 1,
+    quant_per_channel: bool = True,
 ):
     param_groups, group_quantizer_map = create_param_groups_and_group_quantizer_map(
         model, quant_configs_and_filter_fns
