@@ -8,9 +8,9 @@ This prototype provides:
         - ~1.15 - 1.3x speedups over bfloat16 `torch._grouped_mm` for DeepSeekV3 671b shapes (depending on the `M` dimension, i.e. batch_size * seq_len)
 
 
-2. [TorchTitan](https://github.com/pytorch/torchtitan/tree/main) integration: to get started with e2e pretraining of DeepSeekV3/Llama4 with torchtitan, simply add the flag to your training command: `--model.converters="quantize.grouped_mm.mx" [--quantize.grouped_mm.mx.fqns="experts"]`
+2. [TorchTitan](https://github.com/pytorch/torchtitan/tree/main) integration of torchao's dynamically quantized `_scaled_grouped_mm`: pretrain DeepSeekV3/Llama4 with MXFP8 grouped GEMMs by adding the flag to your training command: `--model.converters="quantize.grouped_mm.mx" [--quantize.grouped_mm.mx.fqns="experts"]`
 
-3. Model conversion via the torchao `quantize_(...)` API: this swaps all `torch._grouped_mm` ops in your model definition to use torchao `_scaled_grouped_mm` under the hood (see [example](#model-conversion-api-example-end-to-end-training) below).
+3. `quantize_(...)` API support for model conversion: this swaps all `torch._grouped_mm` ops in your model definition to use torchao `_scaled_grouped_mm` under the hood (see [example](#model-conversion-api-example-end-to-end-training) below).
 
 
 ## Table of Contents
@@ -136,62 +136,66 @@ for step in range(10):
 - For FP8 rowwise MoE training, CUDA 12.4+ and SM89+ GPU arch are required.
 
 ## Performance benchmarks: MXFP8
-#### Single device, torchao _scaled_grouped_mm forward + backward pass vs torch._grouped_mm
+
+
+### Single MoE layer forward + backward pass vs bfloat16 baseline
+
+| Model        | total_M | N    | K    | bf16 time (ms) | mxfp8 time (ms) | speedup |
+|--------------|---------|------|------|---------------|-----------------|---------|
+| Llama4 16e   | 131072  | 8192 | 5120 | 275.270       | 192.420         | 1.431x  |
+| DeepSeekV3   | 131072  | 2048 | 7168 | 92.032        | 80.182          | 1.148x  |
+
+To reproduce these benchmarks, on a B200 GPU machine, run the following commands:
+
+Llama4 17b 16e shapes:
+```bash
+CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=5120 --hidden_dim=8192 --local_num_experts=8
+```
+
+DeepSeekV3 671b shapes:
+```bash
+CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=7168 --hidden_dim=2048 --local_num_experts=8
+```
+
+### Individual bfloat16 torch._grouped_mm op vs torchao_scaled_grouped_mm
+
+MXFP8:
+
+| M,N,K,G                | bf16_fwd_bwd_us | scaled_fwd_bwd_us | scaled_fwd_bwd_speedup |
+|------------------------|-----------------|-------------------|------------------------|
+| (128000, 8192, 5120, 1) | 40463           | 24406             | 1.658x                 |
+| (128000, 8192, 5120, 2) | 35494.5         | 24705.1           | 1.437x                 |
+| (128000, 8192, 5120, 4) | 38879.3         | 24508.5           | 1.586x                 |
+| (128000, 8192, 5120, 8) | 35714.6         | 25937.6           | 1.377x                 |
+| (128000, 1536, 5120, 1) | 6353.06         | 7401.54           | 0.858x                 |
+| (128000, 1536, 5120, 2) | 6511.65         | 6729.33           | 0.968x                 |
+| (128000, 1536, 5120, 4) | 6455.2          | 6626.5            | 0.974x                 |
+| (128000, 1536, 5120, 8) | 7716.13         | 6516.74           | 1.184x                 |
+| (128000, 2048, 7168, 1) | 11758           | 11255.7           | 1.045x                 |
+| (128000, 2048, 7168, 2) | 15012.9         | 9917.9            | 1.514x                 |
+| (128000, 2048, 7168, 4) | 14904.2         | 10493.8           | 1.42x                  |
+| (128000, 2048, 7168, 8) | 13178           | 9638.38           | 1.367x                 |
+
 
 To reproduce this benchmark, on a B200 GPU machine, run the following command:
-- `python benchmarks/prototype/moe_training/^Cnchmark_scaled_grouped_mm_dq.py  --compile`
+- `python benchmarks/prototype/moe_training/benchmark_scaled_grouped_mm_dq.py --compile`
 - torchao: `0.14.0+gitc7b8e13da`
 - torch: `2.10.0a0+gitf6de195`
 
-#### Single device, Llama4 16e MoE layer forward + backward pass vs bfloat16 baseline
 
-Llama4 16e shapes:
-```
-CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=5120 --hidden_dim=8192 --local_num_experts=8
-total_M: 131072, N: 8192, K: 5120
-bf16 time: 275.270 ms
-mxfp8 time: 192.420 ms
-speedup: 1.431x
-```
-
-DeepSeekV3 shapes:
-```
-CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=7168 --hidden_dim=2048 --local_num_experts=8
-total_M: 131072, N: 2048, K: 7168
-bf16 time: 92.032 ms
-mxfp8 time: 80.182 ms
-speedup: 1.148x
-```
-
-#### End-to-end training with TorchTitan of Llama4 16e MoE layer vs bfloat16 baseline
+#### End-to-end training: Llama4 16e MoE layer vs bfloat16 baseline with TorchTitan
 - Single node benchmarks with 4xB200
 - Llama4 16e default configs; FSDP=4, EP=4; AC=none; compile=True; seq_len=8192; local_bs=8
 - Reduced num layers from 48 -> 2 to avoid OOM in single node setting
+- TorchTitan debug model config (same as Llama4 17bx16e, but with 2 layers):
 
-- Debug model config:
 
-```python
-llama4_configs = {
-    "debugmodel": TransformerModelArgs(
-        dim=5120,
-        n_layers=2,
-        n_heads=40,
-        n_kv_heads=8,
-        ffn_dim_multiplier=1.2,
-        multiple_of=2048,
-        rope_theta=500000,
-        max_seq_len=10485760,
-        moe_args=MoEArgs(num_experts=16),
-        interleave_moe_layer_step=1,
-    ),
-```
-
-| Configuration                                                              | Throughput (Median Tokens/s) | Max Memory (GiB) |
-|:---------------------------------------------------------------------------|-----------------------------:|-----------------:|
-| bf16 baseline                                                              |                      49381.0 |           145.55 |
-| MXFP8 for Linears only                                                     |                      52038.0 |           146.62 |
-| MXFP8 for Grouped GEMMs only                                               |                      69350.0 |           144.71 |
-| MXFP8 for Linears + Grouped GEMMs                                          |                      70747.0 |           145.32 |
+| Configuration                                                              | Throughput (Median Tokens/s) | Max Memory (GiB) | Speedup over bf16
+|:---------------------------------------------------------------------------|-----------------------------:|------------------|------------------|
+| bf16 baseline                                                              |                      49381.0 |           145.55 | -
+| MXFP8 for Linears only                                                     |                      52038.0 |           146.62 | 1.053x
+| MXFP8 for Grouped GEMMs only                                               |                      69350.0 |           144.71 | 1.404x
+| MXFP8 for Linears + Grouped GEMMs                                          |                      70747.0 |           145.32 | 1.433x
 
 #### Commands to reproduce these benchmarks:
 
