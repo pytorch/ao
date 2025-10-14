@@ -489,18 +489,25 @@ def quantize_(
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
     if isinstance(config, FqnToConfig):
-        if filter_fn is None or filter_fn is _is_linear:
-            _replace_with_custom_fn_if_matches_filter_with_name(
-                model,
-                _fqn_to_config_handler,
-                _filter_fn_and_param_in_fqn_config,
-                device=device,
-                extra_args=(config,),
+        if filter_fn is not None:
+            warnings.warn(
+                "FqnToConfig and filter_fn both specified. These are mutually applied."
             )
         else:
-            raise ValueError(
-                "Only filter_fn= `is_linear` or `None` is supported for FqnToConfig!"
-            )
+            if "_default" in config.fqn_to_config:
+                raise ValueError(
+                    "Cannot use _default as a key in FqnToConfig when filter_fn=None"
+                )
+
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _fqn_to_config_handler,
+            lambda mod, fqn: _filter_fn_and_param_in_fqn_config(
+                mod, fqn, config, filter_fn
+            ),
+            device=device,
+            extra_args=(config,),
+        )
         return
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
@@ -2474,6 +2481,9 @@ def _select_module_if_contains_params_matching_pattern(
         bool: True if filter_fn is passed and filter_fn(module, fqn) is True, or if any of the top-level parameters match the patterns in config.fqn_to_config
                 False otherwise.
     """
+    config_contains_fqn, _ = _get_config_for_fqn(fqn, config)
+    if config_contains_fqn or "_default" in config.fqn_to_config:
+        return True
     for name, param in module.named_parameters():
         if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
             parameter_fqn = f"{fqn}.{name}" if fqn != "" else name

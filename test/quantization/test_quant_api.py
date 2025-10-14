@@ -877,6 +877,7 @@ class TestFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
+            filter_fn=None,
         )
 
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
@@ -921,9 +922,6 @@ class TestFqnToConfig(TestCase):
 
         quant_config = FqnToConfig(
             {
-                "_default": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
                 "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerTensor()
                 ),
@@ -938,16 +936,13 @@ class TestFqnToConfig(TestCase):
                 ),
             }
         )
-        quantize_(model, quant_config)
+        quantize_(model, quant_config, filter_fn=None)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 128
 
         model = TestModule().to(torch.bfloat16).cuda()
         quant_config = FqnToConfig(
             {
-                "_default": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
                 "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerTensor()
                 ),
@@ -959,16 +954,13 @@ class TestFqnToConfig(TestCase):
                 ),
             }
         )
-        quantize_(model, quant_config)
+        quantize_(model, quant_config, filter_fn=None)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 128
 
         model = TestModule().to(torch.bfloat16).cuda()
         quant_config = FqnToConfig(
             {
-                "_default": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
                 "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerTensor()
                 ),
@@ -977,22 +969,19 @@ class TestFqnToConfig(TestCase):
                 ),
             }
         )
-        quantize_(model, quant_config)
+        quantize_(model, quant_config, filter_fn=None)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 128
 
         model = TestModule().to(torch.bfloat16).cuda()
         quant_config = FqnToConfig(
             {
-                "_default": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
                 "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow()
                 ),
             }
         )
-        quantize_(model, quant_config)
+        quantize_(model, quant_config, filter_fn=None)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 128
 
@@ -1018,6 +1007,7 @@ class TestFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
+            filter_fn=None,
         )
 
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
@@ -1046,6 +1036,7 @@ class TestFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
+            filter_fn=None,
         )
 
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
@@ -1078,6 +1069,7 @@ class TestFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
+            filter_fn=None,
         )
 
         assert isinstance(model.linear.weight, Float8Tensor)
@@ -1097,9 +1089,6 @@ class TestFqnToConfig(TestCase):
 
         quant_config = FqnToConfig(
             {
-                "_default": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow(),
-                ),
                 "0.param": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerTensor(),
                 ),
@@ -1109,10 +1098,8 @@ class TestFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
+            filter_fn=None,
         )
-
-        assert isinstance(model[0].linear.weight, Float8Tensor)
-        assert model[0].linear.weight.scale.numel() == 128
 
         assert isinstance(model[0].param, Float8Tensor)
         assert model[0].param.scale.numel() == 1
