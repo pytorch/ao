@@ -66,6 +66,9 @@ def tensor_to_amax(
     else:
         assert scaling_granularity is ScalingGranularity.AXISWISE, "unsupported"
         assert axiswise_dim is not None, "unsupported"
+        # Fix for bfloat16 precision amplification in amax_to_scale()
+        if x.dtype == torch.bfloat16:
+            x = torch.abs(x).to(torch.float32)
         amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True)
 
     # If the user asked for distributed reduction, do it.
