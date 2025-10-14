@@ -81,9 +81,12 @@ template <typename T> constexpr int get_vnni_size() { return vnni_traits<T>::siz
 
 #define AT_DISPATCH_BOOL(VALUE, NAME, HINT, ...)             \
   [&]() {                                                    \
-    switch (VALUE) {                                         \
-      AT_DISPATCH_CASE_ENUM(true, bool, HINT, __VA_ARGS__)   \
-      AT_DISPATCH_CASE_ENUM(false, bool, HINT, __VA_ARGS__)  \
+    if (VALUE) {                                             \
+      constexpr bool HINT = true;                            \
+      __VA_ARGS__;                                           \
+    } else {                                                 \
+      constexpr bool HINT = false;                           \
+      __VA_ARGS__;                                           \
     }                                                        \
   }()
 

@@ -16,10 +16,13 @@ and mixed GEMM kernels
 """
 
 import logging
+import re
 import types
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import OrderedDict as OrderedDictType
 
 import torch
 import torch.nn as nn
@@ -80,6 +83,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
@@ -94,8 +98,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    _ConfigDeprecationWrapper,
-    check_cpu_version,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -147,18 +149,7 @@ __all__ = [
     "autoquant",
     "_get_subclass_inserter",
     "quantize_",
-    "int8_dynamic_activation_int4_weight",
-    "int8_dynamic_activation_int8_weight",
-    "int8_dynamic_activation_int8_semi_sparse_weight",
-    "int4_weight_only",
-    "int8_weight_only",
     "intx_quantization_aware_training",
-    "float8_weight_only",
-    "uintx_weight_only",
-    "fpx_weight_only",
-    "gemlite_uintx_weight_only",
-    "float8_dynamic_activation_float8_weight",
-    "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
@@ -202,12 +193,6 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-    if isinstance(model, Float8Linear):
-        with torch.device("meta"):
-            new_module = nn.Linear(model.in_features, model.out_features)
-        new_module.weight = model.weight
-        new_module.bias = model.bias
-        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -248,12 +233,6 @@ def _replace_with_custom_fn_if_matches_filter_with_name(
     Returns:
         None
     """
-    if isinstance(model, Float8Linear):
-        with torch.device("meta"):
-            new_module = nn.Linear(model.in_features, model.out_features)
-        new_module.weight = model.weight
-        new_module.bias = model.bias
-        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -518,7 +497,7 @@ def quantize_(
         # Int8DynamicActivationInt8WeightConfig (optimized with int8 mm op and torch.compile)
         # Int4WeightOnlyConfig (optimized with int4 tinygemm kernel and torch.compile)
         # Int8WeightOnlyConfig (optimized with int8 mm op and torch.compile
-        from torchao.quantization.quant_api import int4_weight_only
+        from torchao.quantization.quant_api import Int4WeightOnlyConfig
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
         quantize_(m, Int4WeightOnlyConfig(group_size=32, version=1))
@@ -640,12 +619,6 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
         )
 
 
-# for BC
-int8_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
-    "int8_dynamic_activation_int4_weight", Int8DynamicActivationInt4WeightConfig
-)
-
-
 @register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
 def _int8_dynamic_activation_int4_weight_transform(
     module: torch.nn.Module,
@@ -751,6 +724,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
             - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
             - opaque_torchao_auto: this format is optimized for CPU performance.
+        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
         Note:
@@ -769,6 +743,9 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
+        IntxChooseQParamsAlgorithm.AFFINE
+    )
 
     version: int = 2
 
@@ -833,6 +810,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
     act_mapping_type = config.act_mapping_type
     layout = config.layout
     intx_packing_format = config.intx_packing_format
+    intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
     assert weight.dim() == 2, (
         f"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -871,6 +849,7 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
             weight_dtype,
             mapping_type=weight_mapping_type,
             activation_quantization="int8_asym_per_token",
+            intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
             custom_scale=custom_scale,
             custom_zero_point=custom_zero_point,
         )
@@ -892,6 +871,9 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
 
     # Version 1
     assert config.version == 1
+    assert intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
+        "IntxChooseQParamsAlgorithm.AFFINE is the only supported algorithm for version 1"
+    )
     warnings.warn(
         "Config Deprecation: version 1 of Int8DynamicActivationIntxWeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
     )
@@ -1002,12 +984,6 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
         )
 
 
-# for bc
-int4_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
-    "int4_dynamic_activation_int4_weight", Int4DynamicActivationInt4WeightConfig
-)
-
-
 @register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
 def _int4_dynamic_activation_int4_weight_transform(
     module: torch.nn.Module, config: Int4DynamicActivationInt4WeightConfig
@@ -1063,12 +1039,6 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.GemliteUIntXWeightOnlyConfig"
         )
-
-
-# for BC
-gemlite_uintx_weight_only = _ConfigDeprecationWrapper(
-    "gemlite_uintx_weight_only", GemliteUIntXWeightOnlyConfig
-)
 
 
 @register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
@@ -1146,11 +1116,6 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
-
-
-# for BC
-# TODO maybe change other callsites
-int4_weight_only = _ConfigDeprecationWrapper("int4_weight_only", Int4WeightOnlyConfig)
 
 
 def _int4_weight_only_quantize_tensor(weight, config):
@@ -1364,10 +1329,6 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
 
 
-# for BC
-int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyConfig)
-
-
 def _int8_weight_only_quantize_tensor(weight, config):
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
@@ -1525,12 +1486,6 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         )
 
 
-# for BC
-int8_dynamic_activation_int8_weight = _ConfigDeprecationWrapper(
-    "int8_dynamic_activation_int8_weight", Int8DynamicActivationInt8WeightConfig
-)
-
-
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     layout = config.layout
     act_mapping_type = config.act_mapping_type
@@ -1636,12 +1591,6 @@ class Float8WeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.Float8WeightOnlyConfig")
 
 
-# for BC
-float8_weight_only = _ConfigDeprecationWrapper(
-    "float8_weight_only", Float8WeightOnlyConfig
-)
-
-
 def _float8_weight_only_quant_tensor(weight, config):
     if config.version == 1:
         warnings.warn(
@@ -1677,6 +1626,10 @@ def _float8_weight_only_transform(
         "applying int8 weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
+
     new_weight = _float8_weight_only_quant_tensor(module.weight, config)
 
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
@@ -1821,12 +1774,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         self.granularity = [activation_granularity, weight_granularity]
 
 
-# for bc
-float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
-    "float8_dynamic_activation_float8_weight", Float8DynamicActivationFloat8WeightConfig
-)
-
-
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -1918,15 +1865,9 @@ def _float8_dynamic_activation_float8_weight_transform(
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
     )
-    assert (
-        check_cpu_version(module.weight.device, "2.6.0")
-        or is_sm_at_least_89()
-        or is_MI300()
-    ), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+ or on CPU with PyTorch >= 2.6.0"
-    )
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
+
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
         module.weight, config
     )
@@ -1961,6 +1902,9 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
 ):
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
 
     weight = module.weight
     weight_dtype = config.weight_dtype
@@ -2012,12 +1956,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         )
 
 
-# for bc
-float8_static_activation_float8_weight = _ConfigDeprecationWrapper(
-    "float8_static_activation_float8_weight", Float8StaticActivationFloat8WeightConfig
-)
-
-
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8StaticActivationFloat8WeightConfig
@@ -2025,6 +1963,9 @@ def _float8_static_activation_float8_weight_transform(
     assert is_sm_at_least_89() or is_MI300(), (
         "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     )
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
 
     scale = config.scale
     activation_dtype = config.activation_dtype
@@ -2095,12 +2036,6 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.UIntXWeightOnlyConfig")
-
-
-# for BC
-uintx_weight_only = _ConfigDeprecationWrapper(
-    "uintx_weight_only", UIntXWeightOnlyConfig
-)
 
 
 @register_quantize_module_handler(UIntXWeightOnlyConfig)
@@ -2213,6 +2148,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
             - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,
                 and is intended for export applications like ExecuTorch.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
         Note:
@@ -2229,6 +2165,9 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     scale_dtype: Optional[torch.dtype] = None
     layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
+        IntxChooseQParamsAlgorithm.AFFINE
+    )
     version: int = 2
 
     def __post_init__(self):
@@ -2246,8 +2185,9 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         assert self.mapping_type in [
             MappingType.ASYMMETRIC,
             MappingType.SYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         ], (
-            f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
+            f"mapping_type must be MappingType.ASYMMETRIC, MappingType.SYMMETRIC, or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.mapping_type}"
         )
 
 
@@ -2264,6 +2204,7 @@ def _intx_weight_only_quantize_tensor(
     scale_dtype = config.scale_dtype
     layout = config.layout
     intx_packing_format = config.intx_packing_format
+    intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
     assert weight.dim() == 2, (
         f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
@@ -2291,6 +2232,7 @@ def _intx_weight_only_quantize_tensor(
                 mapping_type=mapping_type,
                 custom_scale=custom_scale,
                 custom_zero_point=custom_zero_point,
+                intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
             )
             if scale_dtype is not None and scale_dtype != weight.dtype:
                 _adjust_scale_dtype_in_intx_unpacked_tensor(
@@ -2302,6 +2244,9 @@ def _intx_weight_only_quantize_tensor(
             raise ValueError(f"Unsupported packing format: {intx_packing_format}")
 
     # Version 1
+    assert config.intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
+        "version 1 only supports affine algorithm"
+    )
     assert config.version == 1
     warnings.warn(
         "Config Deprecation: version 1 of IntxWeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
@@ -2371,10 +2316,6 @@ class FPXWeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.FPXWeightOnlyConfig")
 
 
-# for BC
-fpx_weight_only = _ConfigDeprecationWrapper("fpx_weight_only", FPXWeightOnlyConfig)
-
-
 @register_quantize_module_handler(FPXWeightOnlyConfig)
 def _fpx_weight_only_transform(
     module: torch.nn.Module, config: FPXWeightOnlyConfig
@@ -2384,6 +2325,9 @@ def _fpx_weight_only_transform(
     weight = module.weight
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
 
     from torchao.dtypes import to_affine_quantized_fpx
     from torchao.dtypes.floatx import FloatxTensorCoreLayout
@@ -2410,15 +2354,28 @@ class ModuleFqnToConfig(AOBaseConfig):
     """Per module configurations for torchao quantize_ API
 
     Args:
-        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
-         Also has a special key: "_default", if "_default" is present in the dictionary,
-         the config for "_default" will be applied to all the remaining modules that does not have
-         per module configuration specified.
+        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
+         ordered dictionary from
+             (1). fully qualified name (fqn) of module or
+             (2). regex of fully qualified name (in python `re` module regex format), should
+                  start with prefix "re:" or
+             (3). "_default"
+         to the config that we want to apply to the module or None
+
+         Config key ordered by precedence:
+           * fully qualified module name, e.g. `language.layers.0.q_proj`
+           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+             whiever regex fully matches the module fqn first will be applied
+             (order of keys for dictionary are kept consistent since we are using OrderedDict)
+           * "_default", fallback for **all modules** if no match for all previous keys
+             (Note, when using `_default`, the config is applied to all modules, to apply
+              it to only a subset of modules, e.g. with some types, it's better to filter
+              the modules that we don't want to quantize before hand and configure them to
+              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
     """
 
-    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
+    module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+        default_factory=OrderedDict
     )
 
     def __post_init__(self):
@@ -2433,14 +2390,37 @@ def _module_fqn_to_config_handler(
         # Maybe: we can add module type specific config in the future, in needed
         c = config.module_fqn_to_config[module_fqn]
     else:
-        # fallback to use default if no module specific config is provided
-        c = config.module_fqn_to_config.get("_default", None)
+        for maybe_module_fqn_pattern in config.module_fqn_to_config:
+            if not maybe_module_fqn_pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
+                # we'll apply the config for first fully matched pattern
+                c = config.module_fqn_to_config[maybe_module_fqn_pattern]
+                break
+        else:
+            # fallback to use default if no module specific config is provided
+            c = config.module_fqn_to_config.get("_default", None)
 
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
         return handler(module, c)
 
     return module
+
+
+def _unwrap_float8_linear(module: Float8Linear) -> nn.Linear:
+    """
+    Unwrap a torchao Float8Linear by returning a nn.Linear with the same weights and bias.
+
+    Torchao inference quantization techniques are generally only applicable to nn.Linear
+    layers, so this helper is useful for unwrapping models trained with torchao float8 training,
+    which replaces nn.Linear layers with Float8Linear layers.
+    """
+    with torch.device("meta"):
+        new_module = nn.Linear(module.in_features, module.out_features)
+    new_module.weight = module.weight
+    new_module.bias = module.bias
+    return new_module
 
 
 torch.serialization.add_safe_globals(

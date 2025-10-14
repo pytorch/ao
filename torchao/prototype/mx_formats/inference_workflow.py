@@ -17,13 +17,18 @@ from torchao.prototype.mx_formats.config import (
     _validate_elem_dtype,
     _validate_gemm_kernel_choice,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor, QuantizeTensorToMXKwargs
+from torchao.prototype.mx_formats.mx_tensor import (
+    MXTensor,
+    QuantizeTensorToMXKwargs,
+    ScaleCalculationMode,
+)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4MMConfig,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
 )
+from torchao.quantization.quant_api import _quantization_type
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -89,17 +94,13 @@ class MXFPInferenceConfig(AOBaseConfig):
 
 
 def _linear_extra_repr(self):
-    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={repr(self.weight)}"
+    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
 @register_quantize_module_handler(MXFPInferenceConfig)
 def _mx_inference_linear_transform(
     module: torch.nn.Module, config: MXFPInferenceConfig
 ):
-    # TODO Sm120 has slightly more restrictive reqs
-    # TODO handle AMD
-    assert is_sm_at_least_100(), "MXFP is only supported on sm100 machiens for now"
-
     weight = module.weight
 
     assert weight.dtype == torch.bfloat16, (
@@ -167,9 +168,9 @@ def _nvfp4_inference_linear_transform(
 
     weight = module.weight
 
-    if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+    if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
-            f"NVFP4 only supports weight shape divisible by 16, got {weight.shape}"
+            f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
     if module.bias is not None and weight.dtype == torch.float32:
@@ -187,6 +188,8 @@ def _nvfp4_inference_linear_transform(
     if config.mm_config == NVFP4MMConfig.DYNAMIC:
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+            use_triton_kernel=config.use_triton_kernel,
+            is_swizzled_scales=True,
         )
 
     quantized_weight = NVFP4Tensor.to_nvfp4(
@@ -209,6 +212,9 @@ torch.serialization.add_safe_globals(
         NVFP4Tensor,
         NVFP4MMConfig,
         MXGemmKernelChoice,
+        QuantizeTensorToMXKwargs,
+        QuantizeTensorToNVFP4Kwargs,
+        ScaleCalculationMode,
     ]
 )
 

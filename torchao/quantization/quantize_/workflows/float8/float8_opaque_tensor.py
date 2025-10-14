@@ -148,9 +148,11 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
 
 
 implements = Float8OpaqueTensor.implements
+implements_torch_function = Float8OpaqueTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],

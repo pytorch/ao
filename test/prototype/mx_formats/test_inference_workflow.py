@@ -5,10 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import tempfile
+from contextlib import contextmanager
 
 import pytest
 import torch
 import torch.nn as nn
+from torch.profiler import ProfilerActivity, profile
 
 from torchao.prototype.mx_formats.config import (
     MXGemmKernelChoice,
@@ -20,7 +23,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -43,6 +46,23 @@ def run_around_tests():
     torch._dynamo.reset()
 
 
+@contextmanager
+def cuda_kernel_profiler(kernel_pattern):
+    """Context manager for profiling CUDA kernels."""
+    result = {"found": False, "kernel_names": []}
+
+    with profile(activities=[ProfilerActivity.CUDA]) as prof:
+        yield result
+
+    kernel_names = [
+        evt.name
+        for evt in prof.events()
+        if evt.device_type == torch.autograd.DeviceType.CUDA and evt.name
+    ]
+    result["kernel_names"] = kernel_names
+    result["found"] = any(kernel_pattern in name for name in kernel_names)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
@@ -50,12 +70,12 @@ def run_around_tests():
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
+@pytest.mark.parametrize("emulate", [True, False])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
 )  # TODO(future): deploy gfx950 in ROCM CI
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required")
-def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
+def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: bool):
     """
     Smoke test for inference compile
     """
@@ -64,17 +84,24 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+        elif not is_sm_at_least_100() and not emulate:
+            pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
     elif elem_dtype == torch.float4_e2m1fn_x2:
-        if not is_sm_at_least_100():
-            pytest.skip("CUDA capability >= 10.0 required for float4 gemm")
+        if not is_sm_at_least_100() and not emulate:
+            pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
+        elif compile:
+            # TODO(future PR): investigate and fix this
+            pytest.skip("mxfp4 + compile currently does not work, low SQNR")
 
     m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
     m_mx = copy.deepcopy(m)
-    kernel_choice = (
-        MXGemmKernelChoice.CUTLASS
-        if elem_dtype == torch.float4_e2m1fn_x2
-        else MXGemmKernelChoice.CUBLAS
-    )
+
+    if emulate:
+        kernel_choice = MXGemmKernelChoice.EMULATED
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        kernel_choice = MXGemmKernelChoice.CUTLASS
+    else:
+        kernel_choice = MXGemmKernelChoice.CUBLAS
     config = MXFPInferenceConfig(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
@@ -92,6 +119,16 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool):
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
+
+    # serialization
+    with tempfile.NamedTemporaryFile() as f:
+        torch.save(m_mx.state_dict(), f)
+        f.seek(0)
+
+        # temporary workaround for https://github.com/pytorch/ao/issues/3077
+        torch.serialization.add_safe_globals([getattr])
+
+        _ = torch.load(f, weights_only=True)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -160,7 +197,14 @@ def test_inference_workflow_nvfp4(
 
     x = torch.randn(batch_size, in_features, device="cuda", dtype=inpt_dtype)
     y_ref = m(x)
-    y_mx = m_mx(x)
+
+    if use_triton_kernel and mm_config != NVFP4MMConfig.WEIGHT_ONLY:
+        with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
+            y_mx = m_mx(x)
+        assert result["found"], "Expected quantize_nvfp4 kernel to be found"
+    else:
+        y_mx = m_mx(x)
+
     sqnr = compute_error(y_ref, y_mx)
 
     if mm_config == NVFP4MMConfig.WEIGHT_ONLY:
@@ -172,3 +216,54 @@ def test_inference_workflow_nvfp4(
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
     )
+
+    # serialization
+    with tempfile.NamedTemporaryFile() as f:
+        torch.save(m_mx.state_dict(), f)
+        f.seek(0)
+
+        # temporary workaround for https://github.com/pytorch/ao/issues/3077
+        torch.serialization.add_safe_globals([getattr])
+
+        _ = torch.load(f, weights_only=True)
+
+
+class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
+    def test_slice_and_copy_similar_to_vllm(self):
+        config = MXFPInferenceConfig(
+            activation_dtype=torch.float8_e4m3fn,
+            weight_dtype=torch.float8_e4m3fn,
+            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+        )
+        self._test_slice_and_copy_similar_to_vllm(config)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
+    def test_narrow_similar_to_vllm(self):
+        config = MXFPInferenceConfig(
+            activation_dtype=torch.float8_e4m3fn,
+            weight_dtype=torch.float8_e4m3fn,
+            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+        )
+        self._test_narrow_similar_to_vllm(config)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch_version_at_least("2.8.0"),
+        reason="torch.compile requires PyTorch 2.8+",
+    )
+    def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
+        config = NVFP4InferenceConfig(
+            mm_config=NVFP4MMConfig.WEIGHT_ONLY,
+            use_triton_kernel=False,
+            use_dynamic_per_tensor_scale=False,
+        )
+        self._test_quantize_3d_param_similar_to_vllm(config)

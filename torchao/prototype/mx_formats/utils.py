@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Tuple
+
 import torch
 from torch.distributed._tensor import DTensor
 
@@ -16,7 +18,6 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mx_block_rearrange,
     triton_to_mxfp8_dim1,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 Tensor = torch.Tensor
 
@@ -100,6 +101,22 @@ def from_blocked(
     return padded[:original_rows, :original_cols]
 
 
+def hp_data_dims_to_swizzled_scale_dims_nvfp4(
+    hp_data_M,
+    hp_data_K,
+) -> Tuple[int, int]:
+    """
+    Given the `M` and `K` dimensions of a high precision contiguous tensor,
+    returns a 2d tuple of the dims of the swizzled nvfp4 scale corresponding to
+    that tensor.
+    """
+    # a 128x64 unpacked or 128x32 packed qdata tile corresponds
+    # to a swizzled 32x16 scale tile
+    scale_M = ceil_div(hp_data_M, 128) * 32
+    scale_K = ceil_div(hp_data_K, 64) * 16
+    return scale_M, scale_K
+
+
 def _to_blocked_single(scales: Tensor) -> Tensor:
     """Assume that we have a 128x4 block of scales in K Major order
 
@@ -120,6 +137,10 @@ def _to_mxfp8_dim1_kernel_wrapper(
     cast_kernel_choice,
     scale_calculation_mode: ScaleCalculationMode,
 ):
+    # avoid circular import
+    # TODO(future PR): split this utils file in two
+    from torchao.prototype.mx_formats.mx_tensor import MXTensor
+
     if cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
         assert scale_calculation_mode == ScaleCalculationMode.FLOOR
         a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)

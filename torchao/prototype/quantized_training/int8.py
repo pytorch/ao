@@ -174,9 +174,10 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
 
 
 implements = Int8QuantizedTrainingLinearWeight.implements
+implements_torch_function = Int8QuantizedTrainingLinearWeight.implements_torch_function
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     return _Int8WeightOnlyLinear.apply(*args, **kwargs)
 
