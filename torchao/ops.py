@@ -69,7 +69,7 @@ lib.define(
     "da8w4_linear_cpu(Tensor input, Tensor input_scales, Tensor input_qzeros, Tensor weight, Tensor weight_scales, Tensor weight_qzeros, Tensor compensation, Tensor? bias, ScalarType output_dtype) -> Tensor"
 )
 lib.define(
-    "_scaled_embedding_bag(Tensor qweight, Tensor indices, Tensor offsets, Tensor weight_scale, float o_scale, int mode, bool include_last_offset) -> Tensor"
+    "_scaled_embedding_bag(Tensor qweight, Tensor indices, Tensor offsets, Tensor weight_scale, float o_scale, int mode, bool include_last_offset, ScalarType output_dtype) -> Tensor"
 )
 lib.define(
     "float8_linear_prepack_cpu(Tensor weight, Tensor scales) -> (Tensor, Tensor)"
@@ -1118,13 +1118,13 @@ def _(
     o_scale: float,
     mode: int,
     include_last_offset: bool,
+    out_dtype: torch.dtype,
 ) -> Tensor:
     # Only support include_last_offset == True
     assert include_last_offset == True
     batch_size = offsets.shape[0] - 1
     # Only support out_dtype == torch.float32
     # Next setp: support more out_dtype
-    out_dtype = torch.float32
     return qweight.new_empty(batch_size, qweight.shape[1], dtype=out_dtype)
 
 
