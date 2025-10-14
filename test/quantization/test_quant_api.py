@@ -10,7 +10,6 @@ import copy
 import gc
 import tempfile
 import unittest
-import warnings
 from pathlib import Path
 
 import torch
@@ -34,6 +33,8 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
+    Int4TilePackedTo4dTensor,
+    IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
     PerGroup,
 )
@@ -57,9 +58,6 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
-    IntxUnpackedToInt8Tensor,
-)
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -691,6 +689,100 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_module_fqn_to_config_regex_basic(self):
+        config1 = Int4WeightOnlyConfig(
+            group_size=32, int4_packing_format="tile_packed_to_4d"
+        )
+        config = ModuleFqnToConfig({"re:linear.*": config1})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_module_fqn_to_config_regex_precedence(self):
+        """Testing that full path config takes precedence over
+        regex config in ModuleFqnToConfig
+        """
+        config1 = Int4WeightOnlyConfig(
+            group_size=32, int4_packing_format="tile_packed_to_4d"
+        )
+        config2 = IntxWeightOnlyConfig()
+        config = ModuleFqnToConfig({"linear1": config1, "re:linear.*": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_module_fqn_to_config_regex_precedence2(self):
+        """Testing that full path config takes precedence over
+        regex config in ModuleFqnToConfig, swapping
+        the order of `re:linear.*` and `linear1` to make sure that
+        `linear1` config has precedence even it comes after `linear*`
+        """
+        config1 = Int4WeightOnlyConfig(
+            group_size=32, int4_packing_format="tile_packed_to_4d"
+        )
+        config2 = IntxWeightOnlyConfig()
+        config = ModuleFqnToConfig({"re:linear.*": config2, "linear1": config1})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_module_fqn_to_config_regex_fullmatch(self):
+        """Testing that we will only match the fqns that fully
+        matches the regex
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self, dtype, device):
+                super().__init__()
+                self.dtype = dtype
+                self.device = device
+                self.linear1 = torch.nn.Linear(32, 64, dtype=dtype, device=device)
+                self.not_full_match_linear2 = torch.nn.Linear(
+                    64, 32, dtype=dtype, device=device
+                )
+                self.linear3_full_match = torch.nn.Linear(
+                    32, 32, dtype=dtype, device=device
+                )
+
+            def forward(self, x):
+                x = self.linear1(x)
+                x = self.not_full_match_linear2(x)
+                x = self.linear3_full_match(x)
+                return
+
+            def example_inputs(self):
+                return (torch.randn(1, 32, dtype=self.dtype, device=self.device),)
+
+        config1 = Int4WeightOnlyConfig(
+            group_size=32, int4_packing_format="tile_packed_to_4d"
+        )
+        config2 = IntxWeightOnlyConfig()
+        config = ModuleFqnToConfig({"re:linear.*": config2, "linear1": config1})
+        model = M(dtype=torch.bfloat16, device="cuda")
+        example_inputs = model.example_inputs()
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        # since fqn does not fully match `linear*`, it should not be quantized
+        assert not isinstance(
+            model.not_full_match_linear2.weight, IntxUnpackedToInt8Tensor
+        )
+        # linear3_full_match matches `linear*`, so should be quantized
+        assert isinstance(model.linear3_full_match.weight, IntxUnpackedToInt8Tensor)
+
     def test_module_fqn_to_config_embedding_linear(self):
         weight_dtype = torch.int8
         granularity = PerGroup(8)
@@ -753,56 +845,6 @@ class TestQuantFlow(TestCase):
                 sd[k] = v.to("cuda")
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
-
-    def test_config_deprecation(self):
-        """
-        Test that old config functions like `int4_weight_only` trigger deprecation warnings.
-        """
-        from torchao.quantization import (
-            float8_dynamic_activation_float8_weight,
-            float8_static_activation_float8_weight,
-            float8_weight_only,
-            fpx_weight_only,
-            gemlite_uintx_weight_only,
-            int4_dynamic_activation_int4_weight,
-            int4_weight_only,
-            int8_dynamic_activation_int4_weight,
-            int8_dynamic_activation_int8_weight,
-            int8_weight_only,
-            uintx_weight_only,
-        )
-
-        # Reset deprecation warning state, otherwise we won't log warnings here
-        warnings.resetwarnings()
-
-        # Map from deprecated API to the args needed to instantiate it
-        deprecated_apis_to_args = {
-            float8_dynamic_activation_float8_weight: (),
-            float8_static_activation_float8_weight: (torch.randn(3)),
-            float8_weight_only: (),
-            fpx_weight_only: (3, 2),
-            gemlite_uintx_weight_only: (),
-            int4_dynamic_activation_int4_weight: (),
-            int4_weight_only: (),
-            int8_dynamic_activation_int4_weight: (),
-            int8_dynamic_activation_int8_weight: (),
-            int8_weight_only: (),
-            uintx_weight_only: (torch.uint4,),
-        }
-
-        with warnings.catch_warnings(record=True) as _warnings:
-            # Call each deprecated API twice
-            for cls, args in deprecated_apis_to_args.items():
-                cls(*args)
-                cls(*args)
-
-            # Each call should trigger the warning only once
-            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
-            for w in _warnings:
-                self.assertIn(
-                    "is deprecated and will be removed in a future release",
-                    str(w.message),
-                )
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)

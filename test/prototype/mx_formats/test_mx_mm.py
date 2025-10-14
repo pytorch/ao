@@ -43,15 +43,15 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     assert b_data.is_contiguous()
     b_data = b_data.transpose(-1, -2)
 
-    a_scale = a_mx._scale_e8m0.view(M, K // 32)
-    b_scale = b_mx._scale_e8m0.view(N, K // 32)
+    a_scale = a_mx.scale.view(M, K // 32)
+    b_scale = b_mx.scale.view(N, K // 32)
 
     a_scale_block = to_blocked(a_scale)
     b_scale_block = to_blocked(b_scale)
 
-    out_hp = a_mx.to_dtype(torch.bfloat16) @ b_mx.to_dtype(torch.bfloat16).transpose(
-        -1, -2
-    )
+    out_hp = a_mx.dequantize(torch.bfloat16) @ b_mx.dequantize(
+        torch.bfloat16
+    ).transpose(-1, -2)
     out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
 
     return compute_error(out_hp, out).item()

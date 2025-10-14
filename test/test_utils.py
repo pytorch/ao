@@ -8,6 +8,7 @@ import warnings
 from unittest.mock import patch
 
 import torch
+import torch.nn.functional as F
 
 from torchao.testing.utils import skip_if_no_cuda
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
@@ -143,6 +144,10 @@ class TestTorchAOBaseTensor(unittest.TestCase):
 
         self.assertTrue(torch.equal(lp_tensor.qdata, reconstructed.qdata))
         self.assertEqual(lp_tensor.attr, reconstructed.attr)
+
+        # test _get_to_kwargs
+        _ = lp_tensor._get_to_kwargs(torch.strided, device="cuda")
+        _ = lp_tensor._get_to_kwargs(layout=torch.strided, device="cuda")
 
         # `to` / `_to_copy`
         original_device = lp_tensor.device
@@ -339,6 +344,53 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             l.weight, "attr", None, zero_point=None, optional_attr="value"
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
+
+    def test_implements_and_torch_function_together(self):
+        """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
+        counter = {"calls": 0}
+
+        class MyTensor(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr", "device"]
+
+            def __new__(cls, qdata: torch.Tensor, attr: str = "attr", device=None):
+                kwargs = {}
+                if device is None:
+                    device = qdata.device
+                kwargs["device"] = device
+                kwargs["dtype"] = qdata.dtype
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata: torch.Tensor, attr: str = "attr", device=None):
+                pass
+
+        implements = MyTensor.implements
+        implements_torch_function = MyTensor.implements_torch_function
+
+        @implements([torch.ops.aten.t.default])
+        @implements_torch_function([F.linear])
+        def fake_linear(func, types, args, kwargs):
+            counter["calls"] += 1
+
+        l = torch.nn.Linear(2, 3)
+        l.weight = torch.nn.Parameter(MyTensor(l.weight.detach(), "attr", None))
+        x = torch.randn(4, 2)
+
+        # Torch function path
+        F.linear(x, l.weight, l.bias)
+        self.assertEqual(
+            counter["calls"], 1, "Expected fake_linear to be called via F.linear"
+        )
+
+        # ATen path
+        mt = MyTensor(torch.randn(3, 4))
+        torch.ops.aten.t.default(mt)
+        self.assertEqual(
+            counter["calls"], 2, "Expected fake_linear to be called via aten.t.default"
+        )
 
 
 if __name__ == "__main__":

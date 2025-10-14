@@ -5,6 +5,15 @@ from typing import Callable, Optional, Union
 import torch
 from torch import Tensor
 
+from torchao.quantization import (
+    Granularity,
+    PerAxis,
+    PerBlock,
+    PerGroup,
+    PerRow,
+    PerTensor,
+    PerToken,
+)
 from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
     FROM_NODE_KEY,
@@ -32,6 +41,7 @@ from torchao.quantization.pt2e.graph_utils import (
     get_equivalent_types,
     update_equivalent_types_dict,
 )
+from torchao.quantization.utils import get_block_size
 
 from .fake_quantize import (
     FakeQuantize,
@@ -131,9 +141,17 @@ __all__ = [
     "compare_results",
     # should be merged with torchao/quantization/observer.py in the future
     "AffineQuantizedObserverBase",
+    "Granularity",
     "MappingType",
+    "PerAxis",
+    "PerBlock",
+    "PerGroup",
+    "PerRow",
+    "PerTensor",
+    "PerToken",
     "TorchAODType",
     "ZeroPointDomain",
+    "get_block_size",
     "default_fake_quant",
     "default_dynamic_fake_quant",
 ]

@@ -167,9 +167,10 @@ class CodebookQuantizedPackedTensor(TorchAOBaseTensor):
 
 
 implements = CodebookQuantizedPackedTensor.implements
+implements_torch_function = CodebookQuantizedPackedTensor.implements_torch_function
 
 
-@implements([F.linear])
+@implements_torch_function(F.linear)
 def _(func, types, args, kwargs):
     """
     Override for `torch.nn.functional.linear` specifically for the

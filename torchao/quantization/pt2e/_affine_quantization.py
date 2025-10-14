@@ -13,9 +13,9 @@ from typing import Any, List, Optional, Union
 
 import torch
 
+from torchao.quantization import Granularity
 from torchao.quantization.pt2e.observer import (
     AffineQuantizedObserverBase,
-    Granularity,
     MappingType,
     TorchAODType,
     ZeroPointDomain,

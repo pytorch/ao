@@ -46,6 +46,14 @@ rowwise_scaled_linear_sparse_cutlass_f8f8(
   return at::Tensor{};
 }
 
+#ifdef DEF_SPARSE_CUTLASS_OPS
+TORCH_LIBRARY(torchao, m) {
+  m.def(
+      "torchao::rowwise_scaled_linear_sparse_cutlass_f8f8(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_meta, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor",
+      rowwise_scaled_linear_sparse_cutlass_f8f8);
+}
+#endif
+
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::rowwise_scaled_linear_sparse_cutlass_f8f8",
          &rowwise_scaled_linear_sparse_cutlass_f8f8);
