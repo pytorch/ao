@@ -394,7 +394,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             scale_calculation_mode=ScaleCalculationMode.FLOOR,
         )
         grad_out_t_data = grad_out_t_mx.qdata
-        grad_out_t_scales = grad_out_t_mx._scale_e8m0
+        grad_out_t_scales = grad_out_t_mx.scale
 
         # Transpose A so we can scale along the M dimension, then un-transpose.
         # A shape: (M, K)
@@ -410,7 +410,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             scale_calculation_mode=ScaleCalculationMode.FLOOR,
         )
         A_t_data = A_t_mx.qdata
-        A_t_scales = A_t_mx._scale_e8m0
+        A_t_scales = A_t_mx.scale
 
         # Convert scales to blocked format for 2d-2d grouped mm
         scale_group_offsets = offs // block_size
@@ -463,7 +463,7 @@ def _to_mxfp8_dim1_3d(
     )
     B_data = B_t_mx.qdata.t()  # (K, E*N) -> (E*N, K)
     B_data = B_data.reshape(E, N, K)  # (E*N, K) -> (E, N, K)
-    B_scales = B_t_mx._scale_e8m0.view(torch.uint8)  # (K, E*N//block_size)
+    B_scales = B_t_mx.scale.view(torch.uint8)  # (K, E*N//block_size)
     B_scales = B_scales.reshape(
         K, E, N // block_size
     )  # (K, E*N//block_size) -> (K, E, N//block_size)
