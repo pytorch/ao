@@ -6,7 +6,6 @@
 
 import copy
 import unittest
-from typing import Tuple
 
 import torch
 from torch.testing._internal import common_utils
@@ -18,7 +17,11 @@ from torchao.quantization import (
     PerTensor,
     quantize_,
 )
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import Int8Tensor
+from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    Int8Tensor,
+    QuantizeTensorToInt8Kwargs,
+)
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
@@ -89,7 +92,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def test_int8_linear_variants(
         self,
         dtype: torch.dtype,
-        sizes: Tuple,
+        sizes: tuple,
         config,
     ):
         M, N, K = sizes
@@ -107,6 +110,38 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         error = compute_error(output_original, output_quantized)
         assert error > 20, f"Quantization error is too high got a SQNR of {error}"
+
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_static_quantization(self, dtype):
+        """Test static quantization with pre-computed scale"""
+        K, N = 128, 64
+        weight = torch.randn(N, K, dtype=dtype, device="cuda")
+        input_tensor = torch.randn(32, K, dtype=dtype, device="cuda")
+
+        act_scale, _ = choose_qparams_affine(
+            input=input_tensor,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=(1, K),
+            target_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            scale_dtype=dtype,
+            zero_point_dtype=torch.int8,
+        )
+
+        # Create weight with static quantization
+        weight_int8 = Int8Tensor.from_hp(
+            weight,
+            block_size=[N, K],
+            act_quant_kwargs=QuantizeTensorToInt8Kwargs(
+                block_size=[1, K],
+                static_scale=act_scale,
+            ),
+        )
+
+        output = torch.nn.functional.linear(input_tensor, weight_int8)
+        self.assertEqual(output.shape, (32, N))
+        self.assertEqual(output.dtype, dtype)
 
     @unittest.skip("granularity parameter not supported in current API")
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])

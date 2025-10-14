@@ -31,10 +31,12 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor (either activation or weight)
 
     Args:
-        block_size (Optional[list[int]]): block size for quantization granularity
+        block_size (list[int]): block size for quantization granularity
+        static_scale (Optional[torch.Tensor]): pre-computed scale for static quantization
     """
 
     block_size: list[int]
+    static_scale: Optional[torch.Tensor] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -154,7 +156,7 @@ def _(func, types, args, kwargs):
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
-    """quantization: float -> int8"""
+    """quantization: dynamic, static, weight-only int8 quantization"""
     activation_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -166,39 +168,60 @@ def _(func, types, args, kwargs):
     )
 
     if weight_tensor.act_quant_kwargs is not None:
-        # INT8 × INT8 (dynamic)
-        # Quantize activation if it's not already quantized
         if not isinstance(activation_tensor, Int8Tensor):
-            activation_tensor = _choose_quant_func_and_quantize_tensor(
-                activation_tensor, weight_tensor.act_quant_kwargs
-            )
+            if weight_tensor.act_quant_kwargs.static_scale is not None:
+                # INT8 × INT8 (static): symmetric quantization only
+                static_scale = weight_tensor.act_quant_kwargs.static_scale
 
-        x_vals_int8 = activation_tensor.qdata
+                int_data = quantize_affine(
+                    activation_tensor,
+                    block_size=tuple(weight_tensor.act_quant_kwargs.block_size),
+                    scale=static_scale,
+                    zero_point=torch.zeros(
+                        activation_tensor.shape[0],
+                        1,
+                        dtype=torch.int8,
+                        device=activation_tensor.device,
+                    ),
+                    output_dtype=torch.int8,
+                )
+
+                activation_tensor = Int8Tensor(
+                    int_data,
+                    static_scale,
+                    list(weight_tensor.act_quant_kwargs.block_size),
+                    dtype=activation_tensor.dtype,
+                )
+            else:
+                # INT8 × INT8 (dynamic): compute scale at runtime
+                activation_tensor = _choose_quant_func_and_quantize_tensor(
+                    activation_tensor, weight_tensor.act_quant_kwargs
+                )
+
+        x_vals = activation_tensor.qdata
         x_scales = activation_tensor.scale
-        w_vals_int8_t = weight_tensor.qdata.contiguous().t()
+        w_vals_t = weight_tensor.qdata.contiguous().t()
         w_scales = weight_tensor.scale
 
-        tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+        tmp = x_vals.reshape(-1, x_vals.shape[-1])
         x_scales_dtype = x_scales.dtype
 
         # Cast fp16 scale to float
         intermediate_dtype = (
             torch.float if x_scales_dtype == torch.half else x_scales_dtype
         )
-        y_dot_int64 = torch.mm(tmp.to(torch.int64), w_vals_int8_t.to(torch.int64))
-        y_dot_scaled = y_dot_int64.to(intermediate_dtype) * x_scales.reshape(-1, 1).to(
-            intermediate_dtype
-        )
-        y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
+        # Note: CUDA doesn't support int32/int64 matmul, so we convert to float
+        # Error message is NotImplementedError: "addmm_cuda" not implemented for 'Int'
+        # This may introduce minor numerical differences compared to int arithmetic
+        y_dot = torch.mm(tmp.to(intermediate_dtype), w_vals_t.to(intermediate_dtype))
+        y_dot_scaled = y_dot * x_scales.reshape(-1, 1).to(intermediate_dtype)
 
         result = (y_dot_scaled * w_scales).reshape(
-            *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
+            *x_vals.shape[:-1], y_dot_scaled.shape[-1]
         )
         result = result.to(activation_tensor.dtype)
     else:
         # FP × INT8 (weight-only)
-        activation_tensor = activation_tensor.dequantize()
-
         result = func(
             activation_tensor, weight_tensor.dequantize(activation_tensor.dtype), None
         )
