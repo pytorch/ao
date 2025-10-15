@@ -26,11 +26,6 @@ from torchao.utils import (
     torch_version_at_least,
 )
 
-try:
-    import torch_npu
-except ImportError:
-    torch_npu = None
-
 
 def get_config(group_size):
     return Int4WeightOnlyConfig(
@@ -40,11 +35,10 @@ def get_config(group_size):
 
 
 @unittest.skipIf(not torch_version_at_least("2.7.1"), "Need pytorch 2.7.1+")
-@unittest.skipIf(torch_npu is None, "torch_npu is not available")
-@unittest.skipIf(not torch_npu.npu.is_available(), "NPU not available")
 @unittest.skipIf(
-    version.parse(torch_npu.__version__) < version.parse("2.7.1rc1"),
-    "Need torch_npu 2.7.1rc1+",
+    torch.accelerator.current_accelerator(True).type == "npu"
+    and torch.accelerator.is_available(),
+    "NPU not available",
 )
 class Int4PlainInt32TensorNPU(TestCase):
 

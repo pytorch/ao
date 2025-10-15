@@ -128,11 +128,11 @@ class Int4PlainInt32TensorNPU(TorchAOBaseTensor):
         )
 
         assert int_data.dtype == torch.int32, (
-            f"torch_npu.npu_convert_weight_to_int4pack expects `int32` dtype"
+            f"torch.ops.npu.npu_convert_weight_to_int4pack expects `int32` dtype"
         )
 
         assert int_data.shape[-1] % 8 == 0, (
-            f"torch_npu.npu_convert_weight_to_int4pack expects last dim must be aligned to 8,but got {int_data.shape[-1]}"
+            f"torch.ops.npu.npu_convert_weight_to_int4pack expects last dim must be aligned to 8,but got {int_data.shape[-1]}"
         )
 
         packed_weight = torch.ops.npu.npu_convert_weight_to_int4pack(
