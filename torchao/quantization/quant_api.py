@@ -2464,10 +2464,11 @@ def _get_config_for_fqn(fqn: str, config: FqnToConfig):
     return found, c
 
 
-def _select_module_if_contains_params_matching_pattern(
+def _filter_fn_and_param_in_fqn_config(
     module: nn.Module,
     fqn: str,
     config: FqnToConfig,
+    filter_fn: Optional[Callable[[nn.Module, str], bool]],
 ):
     """Check if a module should be selected for quantization to be applied
 
@@ -2476,14 +2477,18 @@ def _select_module_if_contains_params_matching_pattern(
         fqn (str): The fully qualified name of the module.
         config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for
             parameter quantization.
+        filter_fn (Optional[Callable[[nn.Module, str], bool]]): A function that takes a module and returns True if the module should be quantized.
 
     Returns:
         bool: True if filter_fn is passed and filter_fn(module, fqn) is True, or if any of the top-level parameters match the patterns in config.fqn_to_config
                 False otherwise.
     """
+    filter_fn_valid = True
+    if filter_fn is not None:
+        filter_fn_valid = filter_fn(module, fqn)
     config_contains_fqn, _ = _get_config_for_fqn(fqn, config)
     if config_contains_fqn or "_default" in config.fqn_to_config:
-        return True
+        return filter_fn_valid and True
     for name, param in module.named_parameters():
         if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
             parameter_fqn = f"{fqn}.{name}" if fqn != "" else name
@@ -2492,18 +2497,8 @@ def _select_module_if_contains_params_matching_pattern(
                     pattern.startswith("re:")
                     and re.fullmatch(pattern[3:], parameter_fqn)
                 ):
-                    return True
+                    return filter_fn_valid and True
     return False
-
-
-def _filter_fn_and_param_in_fqn_config(mod, fqn, config, filter_fn):
-    param_in_fqn_config = _select_module_if_contains_params_matching_pattern(
-        mod, fqn, config=config
-    )
-    if filter_fn is None:
-        return param_in_fqn_config
-    else:
-        return filter_fn(mod, fqn) and param_in_fqn_config
 
 
 def _unwrap_float8_linear(module: Float8Linear) -> nn.Linear:
