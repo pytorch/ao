@@ -489,15 +489,15 @@ def quantize_(
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
 
     if isinstance(config, FqnToConfig):
-        if filter_fn is not None:
-            warnings.warn(
-                "FqnToConfig and filter_fn both specified. These are mutually applied."
+        if filter_fn is not None and filter_fn is not _is_linear:
+            raise ValueError(
+                "filter_fn and FqnToConfig are both specified! Only one can be specified at a time"
             )
-        else:
-            if "_default" in config.fqn_to_config:
-                raise ValueError(
-                    "Cannot use _default as a key in FqnToConfig when filter_fn=None"
-                )
+
+        if filter_fn is None and "_default" in config.fqn_to_config:
+            raise ValueError(
+                "Cannot use _default as a key in FqnToConfig when filter_fn=None. Please specify a filter_fn or remove _default from FqnToConfig"
+            )
 
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,

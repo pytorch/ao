@@ -808,12 +808,7 @@ class TestQuantFlow(TestCase):
         example_inputs = (indices,)
         model = TestHelperModules.EmbeddingConvLinearModule().eval()
         model(*example_inputs)
-        quantize_(
-            model,
-            config,
-            filter_fn=lambda x, fqn: isinstance(x, torch.nn.Linear)
-            or isinstance(x, torch.nn.Embedding),
-        )
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
 
         assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
