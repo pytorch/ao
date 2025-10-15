@@ -14,6 +14,7 @@ import torch
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
+    PerBlock,
     PerRow,
     PerTensor,
 )
@@ -212,16 +213,16 @@ def _normalize_granularity(
         processed_granularity = (granularity, granularity)
     elif isinstance(granularity, (tuple, list)) and len(granularity) == 2:
         if not (
-            isinstance(granularity[0], (PerTensor, PerRow))
-            and isinstance(granularity[1], (PerTensor, PerRow))
+            isinstance(granularity[0], (PerTensor, PerRow, PerBlock))
+            and isinstance(granularity[1], (PerTensor, PerRow, PerBlock))
         ):
             raise ValueError(
-                f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported."
+                f"Invalid granularity types: {granularity}, only PerTensor, PerRow, and PerBlock are supported."
             )
-        if not isinstance(granularity[0], type(granularity[1])):
-            raise ValueError(
-                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
-            )
+        #if not isinstance(granularity[0], type(granularity[1])):
+        #    raise ValueError(
+        #        f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
+        #    )
         processed_granularity = tuple(granularity)
     else:
         raise ValueError(
@@ -244,7 +245,7 @@ def _check_hardware_support(
         ValueError: If invalid granularity type is provided
     """
     for _granularity in granularities:
-        if not isinstance(_granularity, (PerTensor, PerRow)):
+        if not isinstance(_granularity, (PerTensor, PerRow, PerBlock)):
             raise ValueError(
                 f"Invalid granularity type: {_granularity}, only PerTensor or PerRow are supported."
             )

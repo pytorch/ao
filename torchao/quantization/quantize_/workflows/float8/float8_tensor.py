@@ -22,7 +22,7 @@ from torchao.float8.inference import (
     preprocess_data,
     preprocess_scale,
 )
-from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.granularity import PerBlock, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
     _dequantize_affine_float8,
@@ -173,12 +173,12 @@ class Float8Tensor(TorchAOBaseTensor):
             kernel_preference == KernelPreference.AUTO
             and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
-            and isinstance(granularity, PerRow)
+            and isinstance(granularity, (PerRow, PerBlock))
             and float8_dtype == torch.float8_e4m3fn
             and hp_value_lb is None
         ):
-            # if kernel_preference is AUTO and per row quantization
-            # we'll use fbgemm quantize kernel for best performance
+            # if kernel_preference is AUTO and per row or per block (prototype)
+            # quantization we'll use fbgemm quantize kernel for best performance
             kernel_choice = "fbgemm"
         elif kernel_preference == KernelPreference.FBGEMM:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
@@ -209,6 +209,11 @@ class Float8Tensor(TorchAOBaseTensor):
                 for i in range(hp_tensor.ndim):
                     scale_shape.append(hp_tensor.shape[i] // block_size[i])
                 scale = scale.reshape(*scale_shape)
+            elif isinstance(granularity, PerBlock):
+                from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_block
+                assert len(granularity.block_size) == 2
+                bm, bn = granularity.block_size
+                data, scale = quantize_fp8_block(hp_tensor, bm, bn)
             else:
                 assert isinstance(granularity, PerTensor), (
                     f"Expected per tensor, got {granularity}"
@@ -339,7 +344,6 @@ def _float8_linear_impl(
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
-                wq = wq.contiguous()
                 res = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq,
                     wq,
@@ -348,14 +352,30 @@ def _float8_linear_impl(
                     bias=bias,
                     use_fast_accum=mm_config.use_fast_accum,
                 ).reshape(out_shape)
-            else:
-                assert _is_tensorwise_scaled(weight_tensor)
+            elif _is_tensorwise_scaled(weight_tensor):
                 assert _is_tensorwise_scaled(input_tensor)
                 res = torch.ops.fbgemm.f8f8bf16(
                     xq,
                     wq,
                     x_scale * w_scale,
                     use_fast_accum=mm_config.use_fast_accum,
+                ).reshape(out_shape)
+                if bias is not None:
+                    res = res + bias
+            else:
+                # blockwise, only support symmetric blocks for now
+                (bm, bk) = weight_tensor.block_size
+                (bm_input, bk_input) = input_tensor.block_size
+                assert bm == bk, "only support symmetric blocks for now"
+                assert bm == bm_input and bk == bk_input, "block sizes don't match"
+                res = torch.ops.fbgemm.f8f8bf16_blockwise(
+                    xq,
+                    wq.contiguous(),
+                    x_scale,
+                    w_scale.contiguous(),
+                    bm,
+                    bm,
+                    bk,
                 ).reshape(out_shape)
                 if bias is not None:
                     res = res + bias
@@ -780,4 +800,4 @@ def _(func, types, args, kwargs):
 Float8Tensor.__module__ = "torchao.quantization"
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])
+torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs, PerBlock])
