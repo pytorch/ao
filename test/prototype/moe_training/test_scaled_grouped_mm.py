@@ -8,7 +8,8 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from torchao.utils import torch_version_at_least
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.utils import is_sm_version, torch_version_at_least
 
 # We need to skip before doing any imports which would use triton, since
 # triton won't be available on CPU builds and torch < 2.5
@@ -43,10 +44,15 @@ from torchao.testing.utils import skip_if_rocm
 
 
 @skip_if_rocm("ROCm not supported")
-def test_valid_scaled_grouped_mm_2d_3d():
+@pytest.mark.parametrize("m", [131072])
+@pytest.mark.parametrize("n", [8192])
+@pytest.mark.parametrize("k", [5120])
+@pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
+def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
+    if not is_sm_version(9, 0):
+        pytest.skip("Skipping FP8 rowwise test, requires sm90")
     out_dtype = torch.bfloat16
     device = "cuda"
-    m, n, k, n_groups = 16, 32, 16, 4
     a = torch.randn(
         m * n_groups,
         k,
@@ -72,6 +78,7 @@ def test_valid_scaled_grouped_mm_2d_3d():
         b_t,
         offs=offs,
         out_dtype=out_dtype,
+        scaling_type=MoEScalingType.FP8_ROWWISE,
     )
 
     # Validate result.
@@ -307,7 +314,7 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize(
-    "M,K,N", [(1024, 5120, 8192), (2048, 5120, 8192), (16640, 5120, 8192)]
+    "M,K,N", [(16640, 5120, 8192), (131072, 5120, 8192), (131072, 8192, 5120)]
 )
 @pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
 def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):
