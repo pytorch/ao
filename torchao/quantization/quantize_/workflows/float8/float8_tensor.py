@@ -286,6 +286,20 @@ def _float8_linear_impl(
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
 
+    # TODO: make this better
+    # During the backward pass, we transpose the weight tensor,
+    # so if the weight tensor was originally rowwise quantized,
+    # now it becomes colwise. In this case, simply dequantize
+    # the tensor and do a bf16 matmul
+    is_backward = (
+        weight_tensor.block_size[0] == weight_tensor.shape[0] and
+        weight_tensor.block_size[1] == 1
+    )
+    if is_backward:
+        return torch.nn.functional.linear(
+            input_tensor, weight_tensor.dequantize(), bias,
+        )
+
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantizing activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
@@ -321,8 +335,7 @@ def _float8_linear_impl(
             wq = weight_tensor.qdata
             x_scale = input_tensor.scale
             w_scale = weight_tensor.scale
-            # TODO: fix this?
-            if True:  # _is_rowwise_scaled(weight_tensor):
+            if _is_rowwise_scaled(weight_tensor):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
