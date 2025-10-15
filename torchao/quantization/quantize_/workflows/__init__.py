@@ -1,3 +1,6 @@
+from .float8.float8_semi_sparse_tensor import (
+    Float8SemiSparseTensor,
+)
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -38,6 +41,7 @@ __all__ = [
     "Int4PlainInt32Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
+    "Float8SemiSparseTensor",
     "QuantizeTensorToFloat8Kwargs",
     "Int4OpaqueTensor",
     "Int4ChooseQParamsAlgorithm",

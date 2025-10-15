@@ -1336,6 +1336,7 @@ def _int8_weight_only_quantize_tensor(weight, config):
     if group_size is None:
         group_size = weight.shape[-1]
     block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
+    # todo: support fp8 semi-sparse
     new_weight = to_affine_quantized_intx(
         weight,
         mapping_type,
@@ -1584,6 +1585,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
     version: int = 2
+    # todo: add packing format
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Float8WeightOnlyConfig")
