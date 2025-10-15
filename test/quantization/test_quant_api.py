@@ -1043,7 +1043,7 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
         assert model.shared_expert.gate_proj.weight.scale.numel() == 1
 
-    def test_quantize_modle_exact_match_preference(self):
+    def test_quantize_model_exact_match_preference(self):
         class TestModule(torch.nn.Module):
             def __init__(self):
                 super().__init__()
