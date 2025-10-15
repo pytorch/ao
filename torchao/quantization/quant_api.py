@@ -2317,7 +2317,7 @@ def _fpx_weight_only_transform(
 
 @dataclass
 class ModuleFqnToConfig(AOBaseConfig):
-    """Per module configurations for torchao quantize_ API
+    r"""Per module configurations for torchao quantize_ API
 
     Args:
         `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
