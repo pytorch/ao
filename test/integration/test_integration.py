@@ -48,9 +48,13 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
-    choose_qparams_affine,
     dequantize_affine,
-    quantize_affine,
+)
+from torchao.quantization.smoothquant import (
+    SmoothFakeDynamicallyQuantizedLinear,
+    get_scale,
+    smooth_fq_linear_to_inference,
+    swap_linear_with_smooth_fq_linear,
 )
 from torchao.quantization.smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -62,9 +66,11 @@ from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
     _fqn_to_op_to_shape_to_count,
+    _quant_int8_dynamic_per_token_linear,
     _quantize_activation_per_token_absmax,
     compute_error,
     dequantize_per_channel,
+    dynamically_quantize_per_channel,
 )
 from torchao.quantization.utils import (
     compute_error as SQNR,
@@ -471,27 +477,9 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         # torch.aminmax support half on cpu
 
         x = torch.randn(16, 32, device=device, dtype=float_dtype)
-
-        eps = torch.finfo(torch.float32).eps
-        block_size = (1, x.shape[1])
-        zero_point_dtype = torch.int64
-
-        mapping_type = MappingType.SYMMETRIC
-        scale, zero_point = choose_qparams_affine(
-            x,
-            mapping_type,
-            block_size,
-            target_dtype=int_dtype,
-            quant_min=qmin,
-            quant_max=qmax,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
+        y_vals, y_scale, y_zero_point = dynamically_quantize_per_channel(
+            x, qmin, qmax, int_dtype
         )
-        y_vals = quantize_affine(
-            x, block_size, scale, zero_point, int_dtype, qmin, qmax
-        )
-        y_scale = scale
-        y_zero_point = zero_point
 
         min_val, max_val = torch.aminmax(x, dim=1)
 
@@ -573,6 +561,30 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
     def test_quantize_per_token_xpu(self):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl("xpu", dtype)
+
+    def _test_per_token_linear_impl(self, device, dtype):
+        x = torch.randn(2, 16, 8, device=device, dtype=dtype)
+        w = torch.randn(16, 8, device=device, dtype=dtype)
+        wq, w_scales, _w_zp = dynamically_quantize_per_channel(w, -127, 127, torch.int8)
+        # Note: need to make the weight contiguous because we are
+        # testing in eager mode and cuBlas will not give correct results
+        # for a transposed weight
+        y = _quant_int8_dynamic_per_token_linear(
+            x, wq.t().contiguous(), w_scales, None, dtype
+        )
+        y_ref = torch.matmul(x, w.t())
+        sqnr = compute_error(y_ref, y)
+        self.assertTrue(sqnr >= 42.0)
+
+    def test_per_token_linear_cpu(self):
+        for dtype in (torch.float32,):
+            self._test_per_token_linear_impl("cpu", dtype)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_per_token_linear_cuda(self):
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            self._test_per_token_linear_impl("cuda", dtype)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test__int_mm(self):
@@ -1198,6 +1210,30 @@ class TestSaveLoadMeta(unittest.TestCase):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         self._test_handle_save_load_meta_impl(_int4wo_api, device, 20, test_dtype=dtype)
+
+
+class TorchCompileUnitTest(unittest.TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_fullgraph(self):
+        lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
+        lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
+            lin_fp16, alpha=0.25
+        )
+
+        x0 = torch.randn(17, 1, 32, device="cuda", dtype=torch.float16)
+
+        # calibrate
+        _ = lin_smooth(x0)
+
+        # inference
+        lin_smooth.to_inference()
+
+        # torch.compile
+        lin_smooth_opt = torch.compile(lin_smooth, fullgraph=True)
+        # print(lin_smooth_opt)
+
+        lin_smooth_opt(x0)
+        # print(y)
 
 
 class UtilsUnitTest(unittest.TestCase):
