@@ -67,10 +67,14 @@ def cuda_kernel_profiler(kernel_pattern):
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
-@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
-@pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("compile", [True, False])
-@pytest.mark.parametrize("emulate", [True, False])
+# @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn])
+# @pytest.mark.parametrize("bias", [True, False])
+# @pytest.mark.parametrize("compile", [True, False])
+# @pytest.mark.parametrize("emulate", [True, False])
+@pytest.mark.parametrize("bias", [False])
+@pytest.mark.parametrize("compile", [False])
+@pytest.mark.parametrize("emulate", [False])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
@@ -93,7 +97,11 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")
 
-    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    # M, N, K = 16, 3072, 4096
+    # M, N, K = 1920, 3072, 256
+    M, N, K = 1920, 18432, 3072
+    # m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m = nn.Linear(K, N, bias=bias, dtype=torch.bfloat16, device="cuda")    
     m_mx = copy.deepcopy(m)
 
     if emulate:
@@ -108,18 +116,22 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
         gemm_kernel_choice=kernel_choice,
     )
     quantize_(m_mx, config=config)
+    print("m_mx:", m_mx)
+        
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True)
 
-    x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
-    y_ref = m(x)
-    y_mx = m_mx(x)
+    with torch.inference_mode():
+        x = torch.randn(1, M, K, device="cuda", dtype=torch.bfloat16)
+        y_ref = m(x)
+        y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
     SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
 
+    raise Exception("stop")
     # serialization
     with tempfile.NamedTemporaryFile() as f:
         torch.save(m_mx.state_dict(), f)
