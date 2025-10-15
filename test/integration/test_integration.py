@@ -56,12 +56,6 @@ from torchao.quantization.smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
-from torchao.quantization.smoothquant import (
-    SmoothFakeDynamicallyQuantizedLinear,
-    get_scale,
-    smooth_fq_linear_to_inference,
-    swap_linear_with_smooth_fq_linear,
-)
 from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
