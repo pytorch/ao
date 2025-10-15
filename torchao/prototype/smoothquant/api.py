@@ -117,8 +117,9 @@ def _smooth_quant_transform(
     qw = quant_mod.weight
 
     # Add smoothing factor metadata
+    use_inv_scale = qw.device.type == "cpu"
     qw = to_weight_tensor_with_linear_activation_scale_metadata(
-        qw, smoothing_factor.to(qw.dtype)
+        qw, smoothing_factor.to(qw.dtype), use_inv_scale
     )
     linear.weight = torch.nn.Parameter(qw, requires_grad=False)
     linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
