@@ -214,6 +214,7 @@ def run(
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
     * `gemm_cache_filename (optional)`: file to cache gemm benchmark results
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
+    * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
 

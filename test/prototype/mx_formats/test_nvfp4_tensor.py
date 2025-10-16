@@ -58,7 +58,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         scale = None
 
     x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
-    x_reconstructed = x_nvfp4.to_dtype(dtype)
+    x_reconstructed = x_nvfp4.dequantize(dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
         sqnr = compute_error(orig, new)
@@ -91,7 +91,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         x_nvfp4_t = x_nvfp4.transpose(-2, -1)
         x_t = x.transpose(-2, -1)
 
-    x_reconstructed_t = x_nvfp4_t.to_dtype(dtype)
+    x_reconstructed_t = x_nvfp4_t.dequantize(dtype)
     assert_sqnr_gt_threshold(x_t, x_reconstructed_t, 8.0)
 
     assert x_t.shape == x_reconstructed_t.shape, (
@@ -127,7 +127,7 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
     assert tensor._is_swizzled_scales == is_swizzled_scales
-    reconstructed = tensor.to_dtype(torch.bfloat16)
+    reconstructed = tensor.dequantize(torch.bfloat16)
     assert reconstructed.shape == data.shape
 
 
@@ -181,10 +181,10 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     assert sliced_tensor._is_swizzled_scales == True
 
     # Verify sliced tensor can be dequantized
-    sliced_reconstructed = sliced_tensor.to_dtype(torch.bfloat16)
+    sliced_reconstructed = sliced_tensor.dequantize(torch.bfloat16)
 
     # Compare with direct slicing of original data
-    original_reconstructed = tensor.to_dtype(torch.bfloat16)
+    original_reconstructed = tensor.dequantize(torch.bfloat16)
     if slice_dim == 0:
         expected = original_reconstructed[slice_spec, :]
     else:
@@ -285,7 +285,7 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
     # Test full-width column slicing (should maintain views)
     full_width_slice = tensor[:, 0:K]
-    assert full_width_slice._scale_e4m3.data_ptr() == tensor._scale_e4m3.data_ptr()
+    assert full_width_slice.scale.data_ptr() == tensor.scale.data_ptr()
     assert full_width_slice.qdata.data_ptr() == tensor.qdata.data_ptr()
 
 
@@ -324,8 +324,8 @@ def test_nvfp4_swizzled_scales_serialization():
     assert reconstructed_tensor._is_swizzled_scales == True
 
     # Verify functionality is preserved
-    original_dq = original_tensor.to_dtype(torch.bfloat16)
-    reconstructed_dq = reconstructed_tensor.to_dtype(torch.bfloat16)
+    original_dq = original_tensor.dequantize(torch.bfloat16)
+    reconstructed_dq = reconstructed_tensor.dequantize(torch.bfloat16)
 
     torch.testing.assert_close(original_dq, reconstructed_dq, atol=1e-6, rtol=1e-6)
 
@@ -394,9 +394,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         use_triton_kernel=True,
     )
 
-    torch.testing.assert_close(
-        nvfp4_pt._scale_e4m3.flatten(), nvfp4_triton._scale_e4m3.flatten()
-    )
+    torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
     pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
     triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
     torch.testing.assert_close(
@@ -406,8 +404,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         rtol=0,
     )
 
-    x_pt_dequant = nvfp4_pt.to_dtype(dtype)
-    x_triton_dequant = nvfp4_triton.to_dtype(dtype)
+    x_pt_dequant = nvfp4_pt.dequantize(dtype)
+    x_triton_dequant = nvfp4_triton.dequantize(dtype)
 
     sqnr = compute_error(x_pt_dequant, x_triton_dequant)
     SQNR_THRESHOLD = 40.0
@@ -523,11 +521,11 @@ def test_nvfp4_to_copy():
     x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
     assert torch.equal(x.qdata, y.qdata)
-    assert torch.equal(x._scale_e4m3, y._scale_e4m3)
-    assert x._per_tensor_scale is None
-    assert y._per_tensor_scale is None
-    assert x._act_per_tensor_scale is None
-    assert y._act_per_tensor_scale is None
+    assert torch.equal(x.scale, y.scale)
+    assert x.per_tensor_scale is None
+    assert y.per_tensor_scale is None
+    assert x.act_per_tensor_scale is None
+    assert y.act_per_tensor_scale is None
     assert x._block_size == y._block_size
     assert x.use_triton_kernel == y.use_triton_kernel
     assert x.act_quant_kwargs == y.act_quant_kwargs
@@ -586,9 +584,9 @@ def test_scale_shape_matches_qdata(
     if is_swizzled_scales:
         # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
         expected_padded_m = ceil_div(orig_m, 128) * 32
-    actual_padded_m = x._scale_e4m3.shape[m_dim]
+    actual_padded_m = x.scale.shape[m_dim]
     assert expected_padded_m == actual_padded_m, (
-        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x._scale_e4m3.shape}"
+        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x.scale.shape}"
     )
 
     orig_k = x_hp.shape[k_dim]
@@ -596,10 +594,10 @@ def test_scale_shape_matches_qdata(
     if is_swizzled_scales:
         # in swizzled nvfp4, a 128x128 data unpacked / 128x64 data packed maps to a 32x16 scale tile
         expected_padded_k = ceil_div(orig_k // block_size, 4) * 16
-    actual_padded_k = x._scale_e4m3.shape[k_dim]
+    actual_padded_k = x.scale.shape[k_dim]
 
     assert expected_padded_k == actual_padded_k, (
-        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x._scale_e4m3.shape}"
+        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x.scale.shape}"
     )
 
 
