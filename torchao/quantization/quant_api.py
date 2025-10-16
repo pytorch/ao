@@ -491,7 +491,7 @@ def quantize_(
     if isinstance(config, FqnToConfig):
         if filter_fn is not None and filter_fn is not _is_linear:
             raise ValueError(
-                "filter_fn and FqnToConfig are both specified! Only one can be specified at a time"
+                "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None or filter_fn=_is_linear is supported when FqnToConfig is specified."
             )
 
         if filter_fn is None and "_default" in config.fqn_to_config:
@@ -2340,7 +2340,7 @@ class FqnToConfig(AOBaseConfig):
              (Note, when using `_default`, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
-              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
+              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`) "_default" is not supported when filter_fn is not specified.
         `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later
         `version`: int: Version of config to use.
 
@@ -2475,20 +2475,20 @@ def _filter_fn_and_param_in_fqn_config(
     Args:
         module (torch.nn.Module): The module to check for parameter pattern matches.
         fqn (str): The fully qualified name of the module.
-        config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for
-            parameter quantization.
+        config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for quantization.
         filter_fn (Optional[Callable[[nn.Module, str], bool]]): A function that takes a module and returns True if the module should be quantized.
 
     Returns:
-        bool: True if filter_fn is passed and filter_fn(module, fqn) is True, or if any of the top-level parameters match the patterns in config.fqn_to_config
-                False otherwise.
+        bool: True if both filter_fn(module, fqn) is True, and the module is specified in FqnToConfig. False otherwise.
     """
-    filter_fn_valid = True
     if filter_fn is not None:
-        filter_fn_valid = filter_fn(module, fqn)
+        if not filter_fn(module, fqn):
+            return False
+
+    # filter_fn must be True
     config_contains_fqn, _ = _get_config_for_fqn(fqn, config)
     if config_contains_fqn or "_default" in config.fqn_to_config:
-        return filter_fn_valid and True
+        return True
     for name, param in module.named_parameters():
         if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
             parameter_fqn = f"{fqn}.{name}" if fqn != "" else name
@@ -2497,7 +2497,9 @@ def _filter_fn_and_param_in_fqn_config(
                     pattern.startswith("re:")
                     and re.fullmatch(pattern[3:], parameter_fqn)
                 ):
-                    return filter_fn_valid and True
+                    return True
+
+    # not specified in fqn config
     return False
 
 

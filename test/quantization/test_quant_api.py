@@ -1158,6 +1158,50 @@ class TestFqnToConfig(TestCase):
         self.assertIn("not supported currently", str(context.exception))
         self.assertIn("UnsupportedParamConfig", str(context.exception))
 
+    def test_filter_fn_and_fqn_to_config_error(self):
+        """Test that specifying non-default filter_fn and FqnToConfig raises ValueError."""
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        # This should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            quantize_(model, quant_config, filter_fn=lambda mod, fqn: True)
+
+        error_msg = "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None or filter_fn=_is_linear is supported when FqnToConfig is specified."
+        self.assertEqual(error_msg, str(context.exception))
+
+    def test_filter_fn_none_and_default_in_config(self):
+        """Test that specifying filter_fn=None and _default in FqnToConfig raises ValueError."""
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "_default": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        # This should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            quantize_(model, quant_config, filter_fn=None)
+
+        error_msg = "Cannot use _default as a key in FqnToConfig when filter_fn=None. Please specify a filter_fn or remove _default from FqnToConfig"
+        self.assertEqual(error_msg, str(context.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
