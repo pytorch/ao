@@ -442,7 +442,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">reduce</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">importlib.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">version</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">math</span><span class="w"> </span><span class="kn">import</span> <span class="n">gcd</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Type</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.utils.parametrize</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">parametrize</span>
@@ -861,6 +861,25 @@
 <span class="n">TORCH_VERSION_AFTER_2_4</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.4.0.dev&quot;</span><span class="p">)</span>
 <span class="n">TORCH_VERSION_AFTER_2_3</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.3.0.dev&quot;</span><span class="p">)</span>
 <span class="n">TORCH_VERSION_AFTER_2_2</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.2.0.dev&quot;</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_ConfigDeprecationWrapper</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A deprecation wrapper that directs users from a deprecated &quot;config function&quot;</span>
+<span class="sd">    (e.g. `int4_weight_only`) to the replacement config class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">deprecated_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_cls</span><span class="p">:</span> <span class="n">Type</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">deprecated_name</span> <span class="o">=</span> <span class="n">deprecated_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_cls</span> <span class="o">=</span> <span class="n">config_cls</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">deprecated_name</span><span class="si">}</span><span class="s2">` is deprecated and will be removed in a future release. &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Please use `</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">` instead. Example usage:</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;    quantize_(model, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(...))&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">config_cls</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
 
 <span class="sd">&quot;&quot;&quot;</span>
