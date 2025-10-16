@@ -486,8 +486,8 @@ def test_triton_mxfp8_dim1_randn(M, K):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_89(),
-    reason="float8 in triton requires CUDA capability 8.9 or greater",
+    not is_sm_at_least_100(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("M", (256, 2048, 131072))
 @pytest.mark.parametrize("K", (256, 5120, 7168))
@@ -495,6 +495,20 @@ def test_triton_mxfp8_dim0_randn(M, K):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater",
+)
+def test_triton_mxfp8_dim0_zeros():
+    x = torch.zeros(8192, 5120, dtype=torch.bfloat16, device="cuda")
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
+    x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
+    assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
 
