@@ -120,11 +120,18 @@ def get_parser():
 
 def get_dloader(args, training: bool):
     transforms = [v2.ToImage()]
+    input_size = (
+        args.data_config["input_size"][1] if args.data_config is not None else 224
+    )  # Standard ViT input size
 
     if training:
-        transforms.extend([v2.RandomResizedCrop(224), v2.RandomHorizontalFlip()])
+        transforms.extend([v2.RandomResizedCrop(input_size), v2.RandomHorizontalFlip()])
     else:
-        transforms.extend([v2.Resize(256), v2.CenterCrop(224)])
+        # For validation, resize to slightly larger then center crop
+        if "dinov2" in args.model.lower():
+            input_size = 518  # DINOv2 models expect 518x518
+        resize_size = int(input_size * 256 / 224)  # Scale proportionally (584 for 518)
+        transforms.extend([v2.Resize(resize_size), v2.CenterCrop(input_size)])
 
     transforms.append(v2.ToDtype(torch.float32, scale=True))
     transforms.append(
@@ -207,12 +214,15 @@ if __name__ == "__main__":
         dir="/tmp",
         mode="disabled" if args.project is None else None,
     )
-    dloader = get_dloader(args, True)
-    print(f"Train dataset: {len(dloader.dataset):,} images")
 
     model = timm.create_model(
         args.model, pretrained=True, num_classes=45, **args.model_kwargs
     )
+    args.data_config = timm.data.resolve_model_data_config(model)
+
+    dloader = get_dloader(args, True)
+    print(f"Train dataset: {len(dloader.dataset):,} images")
+
     if args.checkpoint_activations:
         model.set_grad_checkpointing()
     if args.full_bf16:
