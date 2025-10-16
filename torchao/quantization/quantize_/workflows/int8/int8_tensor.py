@@ -146,6 +146,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
 
 implements = Int8Tensor.implements
+implements_torch_function = Int8Tensor.implements_torch_function
 
 
 @implements([aten.dequantize.self])
@@ -154,7 +155,8 @@ def _(func, types, args, kwargs):
     return args[0].dequantize()
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     """quantization: dynamic, static, weight-only int8 quantization"""
     activation_tensor, weight_tensor, bias = (
@@ -273,23 +275,6 @@ def _(func, types, args, kwargs):
             block_size,
             tensor.act_quant_kwargs,
             tensor.dtype,
-        ),
-    )
-
-
-@implements(aten.transpose.int)
-def _(func, types, args, kwargs):
-    self, dim0, dim1 = args
-    return return_and_correct_aliasing(
-        func,
-        args,
-        kwargs,
-        Int8Tensor(
-            self.qdata.transpose(dim0, dim1),
-            self.scale,
-            [self.block_size[dim1], self.block_size[dim0]],
-            self.act_quant_kwargs,
-            self.dtype,
         ),
     )
 
