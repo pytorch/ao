@@ -56,11 +56,6 @@ from torchao.quantization.smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
-from torchao.quantization.subclass import (
-    Int4WeightOnlyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-)
 from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
@@ -682,62 +677,6 @@ class TestSubclass(unittest.TestCase):
             f"{lin.weight.__class__.__name__} failed transpose on dtype={test_dtype}",
         )
 
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_dequantize_int8_dynamic_quant_subclass(self, device, dtype):
-        self._test_dequantize_impl(
-            Int8DynamicallyQuantizedLinearWeight.from_float,
-            device,
-            35,
-            test_dtype=dtype,
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_dequantize_int8_weight_only_quant_subclass(self, device, dtype):
-        self._test_dequantize_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-        if dtype != torch.bfloat16:
-            self.skipTest("Currently only supports bfloat16.")
-        for test_shape in [(16, 1024, 16)] + (
-            [(1, 1024, 8)] if device == "cuda" else []
-        ):
-            self._test_dequantize_impl(
-                Int4WeightOnlyQuantizedLinearWeight.from_float,
-                device,
-                15,
-                test_shape=test_shape,
-                test_dtype=dtype,
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-        if dtype != torch.bfloat16:
-            self.skipTest("Currently only supports bfloat16.")
-        m_shapes = [16, 256] + ([1] if device == "cuda" else [])
-        n_shapes = [16] + ([8, 13] if device == "cuda" else [])
-        for groupsize in [256, 128]:
-            for inner_k_tiles in [8, 4, 2]:
-                for m in m_shapes:
-                    for n in n_shapes:
-                        self._test_dequantize_impl(
-                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(
-                                w, groupsize, inner_k_tiles
-                            ),
-                            device,
-                            15,
-                            test_shape=[m, 256, n],
-                            test_dtype=dtype,
-                        )
-
     @run_supported_device_dtype
     def _test_lin_weight_subclass_impl(
         self,
@@ -771,22 +710,6 @@ class TestSubclass(unittest.TestCase):
                 min_sqnr,
                 f"{lin.weight.__class__.__name__} failed at compile with dtype={test_dtype}, (m, k, n)={test_shape}",
             )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_dynamic_quant_subclass(self, device, dtype):
-        self._test_lin_weight_subclass_impl(
-            Int8DynamicallyQuantizedLinearWeight.from_float,
-            device,
-            35,
-            test_dtype=dtype,
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_weight_only_quant_subclass(self, device, dtype):
-        undo_recommended_configs()
-        self._test_lin_weight_subclass_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
-        )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
@@ -891,46 +814,6 @@ class TestSubclass(unittest.TestCase):
             25,
             test_dtype=dtype,
         )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_int4_weight_only_quant_subclass(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        for test_shape in [(16, 1024, 16)] + (
-            [(1, 1024, 8)] if device == "cuda" else []
-        ):
-            self._test_lin_weight_subclass_impl(
-                Int4WeightOnlyQuantizedLinearWeight.from_float,
-                device,
-                10,
-                test_shape=test_shape,
-                test_dtype=dtype,
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    @unittest.skip("Skip to fix CI until we deprecate these APIs long term")
-    def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        m_shapes = [16, 256] + ([1] if device == "cuda" else [])
-        n_shapes = [16] + ([8, 13] if device == "cuda" else [])
-        for groupsize in [128, 64]:
-            for inner_k_tiles in [8, 4, 2]:
-                for m in m_shapes:
-                    for n in n_shapes:
-                        self._test_lin_weight_subclass_impl(
-                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(
-                                w, groupsize, inner_k_tiles
-                            ),
-                            device,
-                            10,
-                            test_shape=[m, 256, n],
-                            test_dtype=dtype,
-                        )
 
     @torch.no_grad()
     @run_supported_device_dtype
@@ -1121,7 +1004,6 @@ class TestDynamicQuant(unittest.TestCase):
 
         sqnr = compute_error(y_ref, y_test)
         self.assertGreater(sqnr, 40.0)
-        # self.assertTrue(isinstance(m[0], DynamicallyPerAxisQuantizedLinear))
 
 
 class TestWeightOnlyInt8Quant(unittest.TestCase):

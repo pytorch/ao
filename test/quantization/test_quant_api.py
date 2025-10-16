@@ -10,7 +10,6 @@ import copy
 import gc
 import tempfile
 import unittest
-import warnings
 from pathlib import Path
 
 import torch
@@ -59,10 +58,6 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.subclass import (
-    Int4WeightOnlyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-)
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import skip_if_rocm
@@ -147,14 +142,6 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
         )
 
     return _ref_change_linear_weights_to_woqtensors
-
-
-_ref_change_linear_weights_to_int8_woqtensors = (
-    _get_ref_change_linear_weights_to_woqtensors(Int8WeightOnlyQuantizedLinearWeight)
-)
-_ref_change_linear_weights_to_int4_woqtensors = (
-    _get_ref_change_linear_weights_to_woqtensors(Int4WeightOnlyQuantizedLinearWeight)
-)
 
 
 class TestQuantFlow(TestCase):
@@ -434,57 +421,6 @@ class TestQuantFlow(TestCase):
         ref = m_copy(*example_inputs)
         self.assertTrue(torch.equal(res, ref))
 
-    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
-    def test_quantized_tensor_subclass_int4(self):
-        for device in self.GPU_DEVICES:
-            # use 1024 so that we don't need padding
-            m = ToyTwoLinearModel(
-                1024, 1024, 1024, dtype=torch.bfloat16, device=device
-            ).eval()
-            m_copy = copy.deepcopy(m)
-            example_inputs = m.example_inputs()
-
-            group_size = 32
-            if device == "xpu":
-                quantize_(
-                    m,
-                    Int4WeightOnlyConfig(
-                        group_size=group_size, layout=Int4XPULayout(), version=1
-                    ),
-                )
-            else:
-                quantize_(m, Int4WeightOnlyConfig(group_size=group_size, version=1))
-            assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-            assert isinstance(m.linear2.weight, AffineQuantizedTensor)
-
-            # reference
-            _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
-
-            res = m(*example_inputs)
-            ref = m_copy(*example_inputs)
-
-            self.assertTrue(torch.equal(res, ref))
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_quantized_tensor_subclass_int8_wo(self):
-        m = ToyTwoLinearModel(
-            64, 32, 64, device=self.device, dtype=torch.bfloat16
-        ).eval()
-        m_copy = copy.deepcopy(m)
-        example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
-
-        quantize_(m, Int8WeightOnlyConfig())
-
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, AffineQuantizedTensor)
-
-        # reference
-        _ref_change_linear_weights_to_int8_woqtensors(m_copy)
-
-        res = m(*example_inputs)
-        ref = m_copy(*example_inputs)
-
-        self.assertTrue(torch.equal(res, ref))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load(self):
@@ -846,56 +782,6 @@ class TestQuantFlow(TestCase):
                 sd[k] = v.to("cuda")
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
-
-    def test_config_deprecation(self):
-        """
-        Test that old config functions like `int4_weight_only` trigger deprecation warnings.
-        """
-        from torchao.quantization import (
-            float8_dynamic_activation_float8_weight,
-            float8_static_activation_float8_weight,
-            float8_weight_only,
-            fpx_weight_only,
-            gemlite_uintx_weight_only,
-            int4_dynamic_activation_int4_weight,
-            int4_weight_only,
-            int8_dynamic_activation_int4_weight,
-            int8_dynamic_activation_int8_weight,
-            int8_weight_only,
-            uintx_weight_only,
-        )
-
-        # Reset deprecation warning state, otherwise we won't log warnings here
-        warnings.resetwarnings()
-
-        # Map from deprecated API to the args needed to instantiate it
-        deprecated_apis_to_args = {
-            float8_dynamic_activation_float8_weight: (),
-            float8_static_activation_float8_weight: (torch.randn(3)),
-            float8_weight_only: (),
-            fpx_weight_only: (3, 2),
-            gemlite_uintx_weight_only: (),
-            int4_dynamic_activation_int4_weight: (),
-            int4_weight_only: (),
-            int8_dynamic_activation_int4_weight: (),
-            int8_dynamic_activation_int8_weight: (),
-            int8_weight_only: (),
-            uintx_weight_only: (torch.uint4,),
-        }
-
-        with warnings.catch_warnings(record=True) as _warnings:
-            # Call each deprecated API twice
-            for cls, args in deprecated_apis_to_args.items():
-                cls(*args)
-                cls(*args)
-
-            # Each call should trigger the warning only once
-            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
-            for w in _warnings:
-                self.assertIn(
-                    "is deprecated and will be removed in a future release",
-                    str(w.message),
-                )
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)

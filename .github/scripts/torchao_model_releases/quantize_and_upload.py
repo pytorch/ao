@@ -15,9 +15,11 @@ from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
     AWQConfig,
 )
+from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
@@ -264,6 +266,42 @@ quantization_config = TorchAoConfig(quant_type=quant_config, include_input_outpu
 quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
+
+
+_smoothquant_int8_int8_quant_code = """
+from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+from torchao.prototype.smoothquant import SmoothQuantConfig
+
+from torchao._models._eval import TransformerEvalWrapper
+model = AutoModelForCausalLM.from_pretrained(
+    model_to_quantize,
+    device_map="auto",
+    torch_dtype=torch.bfloat16,
+)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+base_config = Int8DynamicActivationInt8WeightConfig()
+quant_config = SmoothQuantConfig(base_config, step="prepare")
+quantize_(
+    model,
+    quant_config,
+)
+TransformerEvalWrapper(
+    model=model,
+    tokenizer=tokenizer,
+    max_seq_length=max_seq_length,
+).run_eval(
+    tasks=tasks,
+    limit=calibration_limit,
+)
+quant_config = SmoothQuantConfig(base_config, step="convert")
+quantize_(model, quant_config)
+
+quantized_model = model
+quant_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+"""
+
 
 _awq_int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
@@ -647,6 +685,7 @@ def quantize_and_upload(
                 ),
             }
         ),
+        "SmoothQuant-INT8-INT8": Int8DynamicActivationInt8WeightConfig(),
     }
 
     quant_to_quant_code = {
@@ -655,6 +694,7 @@ def quantize_and_upload(
         "INT8-INT4": _int8_int4_quant_code,
         "INT8-INT4-HQQ": _int8_int4_hqq_quant_code,
         "AWQ-INT4": _awq_int4_quant_code,
+        "SmoothQuant-INT8-INT8": _smoothquant_int8_int8_quant_code,
     }
 
     # preparation
@@ -698,6 +738,35 @@ def quantize_and_upload(
         quantized_model = model
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
         quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+    elif quant == "SmoothQuant-INT8-INT8":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_to_quantize,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        base_config = Int8DynamicActivationInt8WeightConfig()
+        quant_config = SmoothQuantConfig(base_config, step="prepare")
+        quantize_(
+            model,
+            quant_config,
+        )
+        TransformerEvalWrapper(
+            model=model,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+        quant_config = SmoothQuantConfig(base_config, step="convert")
+        quantize_(model, quant_config)
+
+        quantized_model = model
+
+        load_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+        quantized_model.config.quantization_config = TorchAoConfig(load_config)
     else:
         # other quantization are integrated with `from_pretrained` in huggingface transformers
         assert quant in quant_to_config, f"Unsupported quant option: {quant}"
@@ -812,7 +881,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quant",
         type=str,
-        help="Quantization method. Options are FP8, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4",
+        help="Quantization method. Options are FP8, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4, SmoothQuant-INT8-INT8",
     )
     parser.add_argument(
         "--tasks",
@@ -824,8 +893,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--calibration_limit",
         type=int,
-        default=10,
-        help="Number of samples to use for calibration. Default is 10.",
+        default=128,
+        help="Number of samples to use for calibration. Default is 128.",
     )
     parser.add_argument(
         "--max_seq_length",

@@ -214,6 +214,7 @@ def run(
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
     * `gemm_cache_filename (optional)`: file to cache gemm benchmark results
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
+    * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
 
@@ -245,8 +246,12 @@ def run(
     bf16_gemm_time_sympy = get_gemm_time_sympy(
         M, K, N, torch.bfloat16, None, None, None
     )
+    lowp_input_dtype = torch.float8_e4m3fn
+    if mx_recipe_name == "mxfp4_cutlass":
+        lowp_input_dtype = torch.float4_e2m1fn_x2
+
     fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name, None
+        M, K, N, lowp_input_dtype, float8_recipe_name, mx_recipe_name, None
     )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
@@ -304,6 +309,8 @@ def run(
         rb_fp8_gemm_ratio = -1
 
         if do_benchmarks:
+            assert mx_recipe_name != "mxfp4_cutlass", "unsupported"
+
             # TODO(future): make the bf16 gemm times exactly match the e2e
             # benchmarks, there is a slight deviation, probably related to gemm
             # operand memory formats/transpositions below not exactly matching
