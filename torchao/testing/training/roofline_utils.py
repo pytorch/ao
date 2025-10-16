@@ -187,13 +187,52 @@ def get_tensor_memory_traffic_ovhd_s(
         else:
             assert False, "unsupported"
 
+    elif mx_recipe_name == "mxfp8_32x32_flexible_gemm_layout":
+        # modeling the following:
+        # 1. mxfp8 scaling with 32x32 everywhere, so the format makes sense
+        #    across dim0 and dim1
+        # 2. mxfp8 gemm with TN, NT, TT, NN formats supported (not in
+        #    PyTorch right now)
+        # x_bf16 = ...
+        # kernel 1:               x_bf16 -> x_mxfp8_dim0
+        if fuse_with_prev:
+            kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+        else:
+            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+        res_bytes = [kernel_1_rw]
+
+    elif mx_recipe_name == "mxfp8_32x32_weight":
+        # modeling the following:
+        # 1. mxfp8 scaling with 32x32 weights, so the format makes sense
+        #    across dim0 and dim1. input and grad_output still 1x32.
+
+        if tensor_role in ("input", "grad_output"):
+            # kernel 1: x_bf16 -> x_mxfp8_dim0
+            # kernel 2: x_bf16 -> x_mxfp8_dim1
+            if fuse_with_prev:
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+            else:
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+
+        elif tensor_role == "weight":
+            # kernel 1: x_bf16 -> x_mxfp8_dim0
+            # kernel 2: x_mxfp8_dim0 -> x_mxfp8_dim1
+            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            kernel_2_rw = BYTES_PER_EL_FLOAT8 * numel * 2
+
+        else:
+            assert False, "unsupported"
+
+        res_bytes = [kernel_1_rw, kernel_2_rw]
+
     else:
         assert mx_recipe_name in (
             "mxfp8_emulated",
             "mxfp8_cublas",
             "mxfp8_cublas_rceil",
             "mxfp4_cutlass",
-        ), "unsupported"
+        ), f"unsupported {mx_recipe_name=}"
         # For now, assume that we can't profitably fuse kernel 1 and kernel 2
         # x_bf16 = ...
         # kernel 1:               x_bf16 -> x_mxfp8_dim0
