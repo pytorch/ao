@@ -20,6 +20,10 @@ from torchao.quantization.linear_activation_scale import (
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
+)
+from torchao.quantization.utils import (
+    compute_error as SQNR,
 )
 from torchao.quantization.utils import (
     compute_error as SQNR,
@@ -85,7 +89,9 @@ class TestSmoothQuant(unittest.TestCase):
     )
     @common_utils.parametrize("device", device_list)
     @common_utils.parametrize("input_dtype", [torch.bfloat16])
-    def test_smoothquant_accuracy(self, alpha, base_config, device, input_dtype):
+    def test_smoothquant_dynamic_act_accuracy(
+        self, alpha, base_config, device, input_dtype
+    ):
         """Test if SmoothQuant achieves lower loss than basic quantization."""
         # Create linear layer
         m = ToyLinearModel().eval().to(device).to(input_dtype)
@@ -130,10 +136,65 @@ class TestSmoothQuant(unittest.TestCase):
         # Make sure the result is reasonable
         self.assertGreater(SQNR(out_ref, out_smoothquant), 20.0)
 
+    @common_utils.parametrize("alpha", [0.5, 0.25])
+    @common_utils.parametrize("device", device_list)
+    @common_utils.parametrize("input_dtype", [torch.bfloat16])
+    def test_smoothquant_static_act_accuracy(self, alpha, device, input_dtype):
+        """Test if SmoothQuant with static quantization achieves lower loss than basic quantization."""
+        m = ToyLinearModel().eval().to(device).to(input_dtype)
+        x = m.example_inputs(batch_size=16, dtype=input_dtype, device=device)
+
+        # Output without quantization
+        out_ref = m(*x)
+
+        # Step 1. Reference with alpha=0
+        m_ref = deepcopy(m)
+        base_config = Int8StaticActivationInt8WeightConfig()
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE,
+            alpha=0.0,
+        )
+        with torch.no_grad():
+            quantize_(m_ref, config)
+            m_ref(*x)  # calibration
+            config.step = SmoothQuantStep.CONVERT
+            quantize_(m_ref, config)
+            out_base = m_ref(*x)
+        loss_base = torch.nn.functional.mse_loss(out_base, out_ref).item()
+
+        # Step 2. SmoothQuant quantization
+        base_config = Int8StaticActivationInt8WeightConfig()
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=SmoothQuantStep.PREPARE,
+            alpha=alpha,
+        )
+        with torch.no_grad():
+            quantize_(m, config)
+            m(*x)  # calibration
+            config.step = SmoothQuantStep.CONVERT
+            quantize_(m, config)
+            out_sq = m(*x)
+        assert isinstance(
+            m.linear1.weight, WeightTensorWithLinearActivationScaleMetadata
+        )
+        assert isinstance(
+            m.linear2.weight, WeightTensorWithLinearActivationScaleMetadata
+        )
+        loss_smoothquant = torch.nn.functional.mse_loss(out_sq, out_ref).item()
+
+        assert loss_smoothquant < loss_base, (
+            f"SmoothQuant loss ({loss_smoothquant:.6f}) should not be higher than basic loss ({loss_base:.6f})"
+        )
+        # Make sure the result is reasonable
+        self.assertGreater(SQNR(out_ref, out_sq), 20.0)
+
     @common_utils.parametrize(
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
+            Int8StaticActivationInt8WeightConfig(),
             # TODO: Check more quantization APIs
         ],
     )
@@ -173,6 +234,7 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
+            Int8StaticActivationInt8WeightConfig(),
             # TODO: Check more quantization APIs
         ],
     )
