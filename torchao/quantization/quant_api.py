@@ -103,21 +103,36 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import Int4WeightOnlyGPTQQuantizer
-from .granularity import Granularity, PerAxis, PerGroup, PerRow, PerTensor
+from .GPTQ import (
+    Int4WeightOnlyGPTQQuantizer,
+)
+from .granularity import (
+    Granularity,
+    PerAxis,
+    PerGroup,
+    PerRow,
+    PerTensor,
+)
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .linear_quant_modules import Int4WeightOnlyQuantizer, Int8DynActInt4WeightQuantizer
-from .qat import intx_quantization_aware_training
+from .linear_quant_modules import (
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightQuantizer,
+)
+from .qat import (
+    intx_quantization_aware_training,
+)
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
     quantize_affine,
 )
-from .subclass import QuantizedLinearWeightBase
+from .subclass import (
+    QuantizedLinearWeightBase,
+)
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
