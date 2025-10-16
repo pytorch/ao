@@ -8,7 +8,6 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.utils import is_sm_version, torch_version_at_least
 
 # We need to skip before doing any imports which would use triton, since
@@ -29,6 +28,7 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,

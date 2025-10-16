@@ -852,8 +852,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
 
         # Clamp to exponents that can be represented in e8m0
+        # Add 1 to capture NaNs
         scale_e8m0_unbiased = tl.clamp(
-            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias
+            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
         )
 
         # Create the biased e8m0 representation and cast it to 8 bits
@@ -863,11 +864,14 @@ if torch_version_at_least("2.7.0") and has_triton():
         # TODO(future PR): add NaN handling here,
         # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
         # get proper NaN propagation working
-
         # Calculate the scale in floating point.
         scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
             tl.float32, bitcast=True
         )
+
+        fp32_exp_bias = 127.0
+        fp32_min_normal = tl.exp2(-fp32_exp_bias + 1)
+        scale_fp = tl.clamp(scale_fp, min=fp32_min_normal, max=float("inf"))
 
         return scale_fp, scale_e8m0_biased
 
