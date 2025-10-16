@@ -57,29 +57,29 @@ if bool(os.getenv("TORCHAO_SKIP_LOADING_SO_FILES", False)):
 elif not ("+git" in __version__) and not ("unknown" in __version__):
     # We know that torchao .so files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+. (see #2919)
     # The following code skips importing the .so files if incompatible torch version is detected,
-    # to avoid crashing the Python process with "Aborted (core
-    # dumped)".
-    torch_version = _parse_version(torch.__version__)
-    torchao_version = _parse_version(__version__)
+    # to avoid crashing the Python process with "Aborted (core dumped)".
+    torchao_pytorch_compatible_versions = [
+        # Built against torch 2.8.0
+        (_parse_version("0.13.0"), _parse_version("2.8.0")),
+        (_parse_version("0.13.0"), _parse_version("2.9.0.dev")),
+        (_parse_version("0.14.0"), _parse_version("2.8.0")),
+        (_parse_version("0.14.0"), _parse_version("2.9.0.dev")),
+        # Built against torch 2.9.0
+        (_parse_version("0.14.1"), _parse_version("2.9.0")),
+        (_parse_version("0.14.1"), _parse_version("2.10.0.dev")),
+        # Current torchao version
+        (_parse_version("0.15.0.dev"), _parse_version("2.9.0")),
+        (_parse_version("0.15.0.dev"), _parse_version("2.10.0.dev")),
+    ]
 
-    v2_8_0 = _parse_version("2.8.0")
-    v0_13_0 = _parse_version("0.13.0")
-    v2_9_0_dev = _parse_version("2.9.0.dev")
-    v0_14_0 = _parse_version("0.14.0")
-    v2_10_0_dev = _parse_version("2.10.0.dev")
-    v0_15_0_dev = _parse_version("0.15.0.dev")
+    current_torch_version = _parse_version(torch.__version__)
+    current_torchao_version = _parse_version(__version__)
 
-    if torch_version == v2_8_0 and torchao_version == v0_13_0:
-        # current torchao version and torch version, check here for clarity
-        skip_loading_so_files = False
-    elif torch_version == v2_9_0_dev and torchao_version == v0_14_0:
-        # .dev for nightlies since 2.9.0 and 0.14.0 has not been released
-        skip_loading_so_files = False
-    elif torch_version == v2_10_0_dev and torchao_version == v0_15_0_dev:
-        # .dev for nightlies since 2.10.0 and 0.15.0 has not been released
-        skip_loading_so_files = False
-    else:
-        skip_loading_so_files = True
+    skip_loading_so_files = True
+    for torchao_v, torch_v in torchao_pytorch_compatible_versions:
+        if current_torchao_version == torchao_v and current_torch_version == torch_v:
+            skip_loading_so_files = False
+            break
 
 
 if skip_loading_so_files:
