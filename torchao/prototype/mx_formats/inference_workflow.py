@@ -188,6 +188,8 @@ def _nvfp4_inference_linear_transform(
     if config.mm_config == NVFP4MMConfig.DYNAMIC:
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+            use_triton_kernel=config.use_triton_kernel,
+            is_swizzled_scales=True,
         )
 
     quantized_weight = NVFP4Tensor.to_nvfp4(
@@ -211,6 +213,7 @@ torch.serialization.add_safe_globals(
         NVFP4MMConfig,
         MXGemmKernelChoice,
         QuantizeTensorToMXKwargs,
+        QuantizeTensorToNVFP4Kwargs,
         ScaleCalculationMode,
     ]
 )

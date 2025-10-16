@@ -29,6 +29,7 @@ import sympy
 import torch
 import torch.nn as nn
 import tqdm
+from tabulate import tabulate
 from torch.profiler import ProfilerActivity, profile
 from utils import (
     get_gpu_kernel_gemm_time_s,
@@ -77,8 +78,11 @@ def get_gemm_times(
     K: int,
     N: int,
     fast_accum: bool,
-    float8_recipe_name: Optional[str],
+    recipe_name: Optional[str],
 ):
+    assert recipe_name in {"rowwise"}, (
+        "Only support real benchmarks for 'rowwise' recipe for now"
+    )
     device = torch.device("cuda")
 
     # bf16 time
@@ -100,7 +104,7 @@ def get_gemm_times(
         .contiguous()
         .t()
     )
-    if float8_recipe_name in ("rowwise"):
+    if recipe_name == "rowwise":
         scale_a = torch.ones(M, 1, device=device)
         scale_b = torch.ones(1, N, device=device)
     else:
@@ -118,26 +122,27 @@ def get_gemm_times(
 
 def run(
     outfile: str,
+    recipe_name: str,
     do_benchmarks: bool = True,
     shape_gen_name: str = "pow2",
     n_limit: Optional[int] = None,
-    float8_recipe_name: Optional[str] = None,
 ):
     """
     Args:
+    * `recipe_name`: quantization recipe (tensorwise, rowwise, mxfp8*, mxfp4*, nvfp4*)
     * `do_benchmarks`: if True, gemm and e2e fwd+bwd of LNLinearSigmoid are benchmarked
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
     """
-
-    assert float8_recipe_name is not None, "unsupported"
-
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-    print(f"torch version: {torch.__version__}")
-    print(f"torchao version: {torchao.__version__}")
-    print(f"do_benchmarks: {do_benchmarks}")
-    print(f"shape_gen_name: {shape_gen_name}")
-    print(f"float8_recipe_name: {float8_recipe_name}")
+    config_table = [
+        ["GPU", torch.cuda.get_device_name(0)],
+        ["torch version", torch.__version__],
+        ["torchao version", torchao.__version__],
+        ["recipe_name", recipe_name],
+        ["do_benchmarks", do_benchmarks],
+        ["shape_gen_name", shape_gen_name],
+    ]
+    print(tabulate(config_table, headers=["Parameter", "Value"], tablefmt="simple"))
 
     M, K, N = sympy.symbols("M K N")
 
@@ -145,14 +150,19 @@ def run(
         M,
         K,
         N,
-        float8_recipe_name,
+        recipe_name,
     )
-    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
-        M, K, N, torch.bfloat16, None, None
-    )
-    fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, float8_recipe_name, None
-    )
+    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(M, K, N, torch.bfloat16, None)
+
+    if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
+        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.float4_e2m1fn_x2, recipe_name
+        )
+    else:
+        gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
+        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.float8_e4m3fn, gemm_recipe_name
+        )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
     print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
@@ -219,7 +229,7 @@ def run(
                 K_val,
                 N_val,
                 True,
-                float8_recipe_name,
+                recipe_name,
             )
             b_bf16_gemm_time_s = bf16_g1
             b_fp8_gemm_time_s = f8_g1
@@ -261,6 +271,8 @@ def run(
             m_fp8_dyn = torch.compile(m_fp8_dyn)
             b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x)
 
+        r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
+
         results.append(
             [
                 M_val,
@@ -273,7 +285,7 @@ def run(
                 r_fp8_ovhd_time_s,
                 # roofline - gemm + overhead, and speedup
                 r_fp8_gemm_time_s + r_fp8_ovhd_time_s,
-                r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s),
+                r_speedup,
                 # benchmarks - gemm
                 b_bf16_gemm_time_s,
                 b_fp8_gemm_time_s,
