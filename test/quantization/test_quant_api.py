@@ -33,6 +33,7 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
+    Float8Tensor,
     Int4TilePackedTo4dTensor,
     IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
@@ -43,6 +44,7 @@ from torchao.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -52,6 +54,8 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
+    PerRow,
+    PerTensor,
     Quantizer,
     TwoStepQuantizer,
     UIntXWeightOnlyConfig,
@@ -744,12 +748,7 @@ class TestQuantFlow(TestCase):
         example_inputs = (indices,)
         model = TestHelperModules.EmbeddingConvLinearModule().eval()
         model(*example_inputs)
-        quantize_(
-            model,
-            config,
-            filter_fn=lambda x, fqn: isinstance(x, torch.nn.Linear)
-            or isinstance(x, torch.nn.Embedding),
-        )
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
 
         assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
@@ -788,6 +787,360 @@ class TestQuantFlow(TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
+class TestFqnToConfig(TestCase):
+    def test_quantize_param_fqn_exact(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+
+    def test_non_specified_unaffected(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear1 = torch.nn.Linear(128, 128)
+                self.linear2 = torch.nn.Linear(128, 128)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = TestModule().to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+
+        # ensure linear2 is not quantized
+        assert not isinstance(model.linear2.weight, Float8Tensor)
+
+    def test_precedence_pattern_order(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear1 = torch.nn.Linear(128, 128)
+                self.linear2 = torch.nn.Linear(128, 128)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = TestModule().to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+                "re:linear.*": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+                "linear1": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 128
+
+        model = TestModule().to(torch.bfloat16).cuda()
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+                "re:linear.*": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 128
+
+        model = TestModule().to(torch.bfloat16).cuda()
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 128
+
+        model = TestModule().to(torch.bfloat16).cuda()
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 128
+
+    def test_quantize_param_and_module_fqn(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        quant_config = FqnToConfig(
+            {
+                "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "shared_expert.gate_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+        assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
+        assert model.shared_expert.gate_proj.weight.scale.numel() == 1
+
+    def test_quantize_param_and_module_fqn_regex(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        quant_config = FqnToConfig(
+            {
+                "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "shared_expert.gate_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+        assert isinstance(model.shared_expert.gate_proj.weight, Float8Tensor)
+        assert model.shared_expert.gate_proj.weight.scale.numel() == 1
+
+    def test_quantize_model_exact_match_preference(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(128, 128)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = TestModule().to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                # only this config should be applied, as module fqn takes precedence
+                "linear": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+                "re:linear": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model.linear.weight, Float8Tensor)
+        assert model.linear.weight.scale.numel() == 128
+
+    def test_quantize_module_default_param_quant(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(128, 128)
+                self.param = torch.nn.Parameter(torch.randn(128, 128))
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = torch.nn.Sequential(TestModule()).to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                "0.param": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model[0].param, Float8Tensor)
+        assert model[0].param.scale.numel() == 1
+
+    def test_quantize_model_param_double_specified(self):
+        model = (
+            torch.nn.Sequential(
+                torch.nn.Linear(128, 128),
+                torch.nn.Linear(128, 128),
+            )
+            .to(torch.bfloat16)
+            .cuda()
+        )
+        quant_config = FqnToConfig(
+            {
+                "re:.*weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+                # only this config should be applied, as module fqn takes precedence
+                "0": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+        )
+
+        assert isinstance(model[0].weight, Float8Tensor)
+        assert model[0].weight.scale.numel() == 128
+
+    def test_unsupported_param_config_raises_not_implemented_error(self):
+        """Test that using an unsupported parameter config raises NotImplementedError."""
+        from dataclasses import dataclass
+
+        from torchao.core.config import AOBaseConfig
+
+        # Create a custom config that doesn't have a registered parameter handler
+        @dataclass
+        class UnsupportedParamConfig(AOBaseConfig):
+            some_value: int = 42
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "0.weight": UnsupportedParamConfig(),
+            }
+        )
+
+        # This should raise NotImplementedError
+        with self.assertRaises(NotImplementedError) as context:
+            quantize_(model, quant_config)
+
+        # Check that the error message contains the expected text
+        self.assertIn("Parameter quantization for", str(context.exception))
+        self.assertIn("not supported currently", str(context.exception))
+        self.assertIn("UnsupportedParamConfig", str(context.exception))
+
+    def test_filter_fn_and_fqn_to_config_error(self):
+        """Test that specifying non-default filter_fn and FqnToConfig raises ValueError."""
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        # This should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            quantize_(model, quant_config, filter_fn=lambda mod, fqn: True)
+
+        error_msg = "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None or filter_fn=_is_linear is supported when FqnToConfig is specified."
+        self.assertEqual(error_msg, str(context.exception))
+
+    def test_filter_fn_none_and_default_in_config(self):
+        """Test that specifying filter_fn=None and _default in FqnToConfig raises ValueError."""
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "_default": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        # This should raise ValueError
+        with self.assertRaises(ValueError) as context:
+            quantize_(model, quant_config, filter_fn=None)
+
+        error_msg = "Cannot use _default as a key in FqnToConfig when filter_fn=None. Please specify a filter_fn or remove _default from FqnToConfig"
+        self.assertEqual(error_msg, str(context.exception))
 
 
 if __name__ == "__main__":
