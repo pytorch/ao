@@ -207,6 +207,7 @@ def get_tensor_memory_traffic_ovhd_s(
         #    across dim0 and dim1. input and grad_output still 1x32.
 
         if tensor_role in ("input", "grad_output"):
+            # TODO(future): update all of the mx rooflines to just read once
             # kernel 1: x_bf16 -> x_mxfp8_dim0
             # kernel 2: x_bf16 -> x_mxfp8_dim1
             if fuse_with_prev:
