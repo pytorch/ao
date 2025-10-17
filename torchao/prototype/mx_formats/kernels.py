@@ -1441,6 +1441,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         N,
         USE_TENSOR_SCALE: tl.constexpr,
         MASK_SCALES: tl.constexpr,
+        ROW_TILE_SIZE: tl.constexpr,
+        COL_TILE_SIZE: tl.constexpr,
     ):
         F4_E2M1_MAX = 6.0
         F8E4M3_MAX = 448.0
@@ -1449,8 +1451,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         pid_m = tl.program_id(1)
         pid_n = tl.program_id(0)
 
-        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
-        offs_n = pid_n * 64 + tl.arange(0, 64)[None, :]
+        offs_m = pid_m * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)[:, None]
+        offs_n = pid_n * COL_TILE_SIZE + tl.arange(0, COL_TILE_SIZE)[None, :]
         if MASK_SCALES:
             mask = (offs_m < M) & (offs_n < N)
             other = 0.0
@@ -1460,10 +1462,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         x = tl.load(
             x_ptr + offs_m * stride_xm + offs_n * stride_xn, mask=mask, other=other
         )  # [128, 64]
-        x_blocks = x.to(tl.float32).reshape(128, 4, 16)  # [128, 4, 16]
+        x_blocks = x.to(tl.float32).reshape(ROW_TILE_SIZE, 4, 16)  # [-1, 4, 16]
 
         # Compute block-wise scales
-        block_amax = tl.max(x_blocks.abs(), axis=2)  # [128, 4]
+        block_amax = tl.max(x_blocks.abs(), axis=2)  # [-1, 4]
 
         if USE_TENSOR_SCALE:
             # Two-level scaling: quantize block scales with per-tensor scale
@@ -1513,9 +1515,13 @@ if torch_version_at_least("2.7.0") and has_triton():
         )
 
         # Convert to FP4
-        x_fp4x2 = convert_fp32_to_fp4_packed(x_blocks.reshape(128, 32, 2).split())
-        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
-        offs_n = pid_n * 32 + tl.arange(0, 32)[None, :]
+        x_fp4x2 = convert_fp32_to_fp4_packed(
+            x_blocks.reshape(ROW_TILE_SIZE, 32, 2).split()
+        )
+        offs_m = pid_m * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)[:, None]
+        offs_n = (
+            pid_n * (COL_TILE_SIZE // 2) + tl.arange(0, COL_TILE_SIZE // 2)[None, :]
+        )
         if MASK_SCALES:
             mask = (offs_m < M) & (offs_n < N // 2)
         else:
@@ -1537,7 +1543,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             Tuple[torch.Tensor, torch.Tensor]: Quantized tensor and scales tensor in swizzled layout.
 
         Note:
-            Since VLLM does not use dyanmo guards we need to make this a custom op
+            Since VLLM does not use dynamo guards we need to make this a custom op
             to avoid the triton kernel being invoked w/ the wrong use of `MASK_SCALES`
         """
         # reshape to 2d
@@ -1571,6 +1577,8 @@ if torch_version_at_least("2.7.0") and has_triton():
             tensor_scale_ptr = per_tensor_scale
             use_tensor_scale = True
 
+        ROW_TILE_SIZE = 128
+        COL_TILE_SIZE = 64
         quantize_nvfp4_triton_kernel[grid](
             x,
             tensor_scale_ptr,
@@ -1582,6 +1590,8 @@ if torch_version_at_least("2.7.0") and has_triton():
             N,
             USE_TENSOR_SCALE=use_tensor_scale,
             MASK_SCALES=MASK_SCALES,
+            ROW_TILE_SIZE=ROW_TILE_SIZE,
+            COL_TILE_SIZE=COL_TILE_SIZE,
         )
 
         # reshape back to original shape
