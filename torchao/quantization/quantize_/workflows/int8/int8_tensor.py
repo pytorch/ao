@@ -12,6 +12,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
     MappingType,
+    _maybe_expand_scale_to_tensor_shape,
     choose_qparams_affine,
     quantize_affine,
 )
@@ -104,16 +105,22 @@ class Int8Tensor(TorchAOBaseTensor):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
 
-        scale, zero_point = choose_qparams_affine(
-            input=w,
-            mapping_type=MappingType.SYMMETRIC,
-            block_size=tuple(block_size),
-            target_dtype=torch.int8,
-            quant_min=-128,
-            quant_max=127,
-            scale_dtype=w.dtype,
-            zero_point_dtype=torch.int8,
-        )
+        if act_quant_kwargs and act_quant_kwargs.static_scale is not None:
+            # INT8 × INT8 (static)
+            scale = act_quant_kwargs.static_scale
+            zero_point = torch.zeros_like(scale, dtype=torch.int8)
+        else:
+            # INT8 × INT8 (dynamic): compute scale at runtime
+            scale, zero_point = choose_qparams_affine(
+                input=w,
+                mapping_type=MappingType.SYMMETRIC,
+                block_size=tuple(block_size),
+                target_dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                scale_dtype=w.dtype,
+                zero_point_dtype=torch.int8,
+            )
 
         int_data = quantize_affine(
             w,
@@ -133,16 +140,13 @@ class Int8Tensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
-        dtype = output_dtype or self.dtype or self.scale.dtype
 
-        qdata_fp = self.qdata.to(dtype)
-        scale = self.scale.to(dtype)
-
-        # Reshape scale to broadcast
-        if scale.numel() > 1 and scale.shape != qdata_fp.shape:
-            scale = scale.view(*scale.shape, *[1] * (qdata_fp.ndim - scale.ndim))
-
-        return qdata_fp * scale
+        qdata_fp = self.qdata.to(output_dtype)
+        # Reshape scale to broadcast if granularity is block-wise
+        scale_expanded = _maybe_expand_scale_to_tensor_shape(
+            self.scale, self.qdata.shape
+        )
+        return qdata_fp * scale_expanded.to(output_dtype)
 
 
 implements = Int8Tensor.implements
@@ -171,34 +175,10 @@ def _(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is not None:
         if not isinstance(activation_tensor, Int8Tensor):
-            if weight_tensor.act_quant_kwargs.static_scale is not None:
-                # INT8 × INT8 (static): symmetric quantization only
-                static_scale = weight_tensor.act_quant_kwargs.static_scale
-
-                int_data = quantize_affine(
-                    activation_tensor,
-                    block_size=tuple(weight_tensor.act_quant_kwargs.block_size),
-                    scale=static_scale,
-                    zero_point=torch.zeros(
-                        activation_tensor.shape[0],
-                        1,
-                        dtype=torch.int8,
-                        device=activation_tensor.device,
-                    ),
-                    output_dtype=torch.int8,
-                )
-
-                activation_tensor = Int8Tensor(
-                    int_data,
-                    static_scale,
-                    list(weight_tensor.act_quant_kwargs.block_size),
-                    dtype=activation_tensor.dtype,
-                )
-            else:
-                # INT8 × INT8 (dynamic): compute scale at runtime
-                activation_tensor = _choose_quant_func_and_quantize_tensor(
-                    activation_tensor, weight_tensor.act_quant_kwargs
-                )
+            # Activation quantization
+            activation_tensor = _choose_quant_func_and_quantize_tensor(
+                activation_tensor, weight_tensor.act_quant_kwargs
+            )
 
         x_vals = activation_tensor.qdata
         x_scales = activation_tensor.scale

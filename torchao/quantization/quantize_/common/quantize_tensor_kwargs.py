@@ -57,7 +57,8 @@ def _choose_quant_func_and_quantize_tensor(
     elif isinstance(quant_kwargs, QuantizeTensorToInt8Kwargs):
         return Int8Tensor.from_hp(
             tensor,
-            quant_kwargs.block_size or [1, tensor.shape[-1]],
+            quant_kwargs.block_size,
+            act_quant_kwargs=quant_kwargs,
         )
 
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")

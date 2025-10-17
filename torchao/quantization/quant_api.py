@@ -1351,9 +1351,6 @@ def _int8_weight_only_quantize_tensor(weight, config):
         )
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
-        assert len(block_size) == 2, (
-            f"Int8 only works for 2D-Tensor, got: {len(block_size)}"
-        )
         block_size = [weight.shape[0], weight.shape[1]]
         new_weight = Int8Tensor.from_hp(weight, block_size=block_size)
     return new_weight
