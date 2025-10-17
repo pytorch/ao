@@ -362,6 +362,7 @@ def to_dtype(
     # unpacking and unscaling
     if is_transposed:
         data_lp = data_lp.t()
+        scale_e8m0 = scale_e8m0.t()
         assert data_lp.is_contiguous()
         orig_shape = (orig_shape[1], orig_shape[0])
 
@@ -688,7 +689,7 @@ def _addmm_mx_dispatch(
         assert b._block_size == 32, f"Invalid block size {b._block_size}"
 
         a_scale = a.scale.view(M, K // a._block_size)
-        b_scale = b.scale.view(N, K // b._block_size)
+        b_scale = b.scale.t().view(N, K // b._block_size)
         a_scale_block = to_blocked(a_scale)
         b_scale_block = to_blocked(b_scale)
 
@@ -759,7 +760,7 @@ def mx_t(func, types, args, kwargs):
     old = args[0]
     new = MXTensor(
         old.qdata.t(),
-        old.scale,
+        old.scale.t(),
         old._elem_dtype,
         old._block_size,
         old._orig_dtype,
