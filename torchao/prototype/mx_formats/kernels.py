@@ -1264,7 +1264,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         return (
             output_col_major.t(),
-            col_scale.view(torch.float8_e8m0fnu),
+            col_scale.view(torch.float8_e8m0fnu).squeeze(-1),
         )
 
     @register_sharding(torch.ops.torchao.triton_to_mxfp8_dim1.default)
@@ -1293,7 +1293,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
             x_hp_d1_normalized.t(),
-            scale_e8m0_dim1.unsqueeze(-1),
+            scale_e8m0_dim1,
         )
 
     @triton.jit
