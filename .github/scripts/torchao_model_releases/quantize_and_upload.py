@@ -117,7 +117,7 @@ model_to_quantize = "{untied_model}"
 USER_ID = "YOUR_USER_ID"
 MODEL_NAME = model_id.split("/")[-1]
 save_to = f"{{USER_ID}}/{{MODEL_NAME}}-{quant}"
-quantized_model.push_to_hub(save_to, safe_serialization=False)
+quantized_model.push_to_hub(save_to, safe_serialization=True)
 tokenizer.push_to_hub(save_to)
 
 # Manual Testing
@@ -836,12 +836,12 @@ def quantize_and_upload(
 
     # Push to hub
     if push_to_hub:
-        quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
+        quantized_model.push_to_hub(quantized_model_id, safe_serialization=True)
         tokenizer.push_to_hub(quantized_model_id)
         if populate_model_card_template:
             card.push_to_hub(quantized_model_id)
     else:
-        quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
+        quantized_model.save_pretrained(quantized_model_id, safe_serialization=True)
         tokenizer.save_pretrained(quantized_model_id)
 
     # Manual Testing
