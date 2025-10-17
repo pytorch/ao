@@ -41,11 +41,6 @@ from .granularity import (
     PerRow,
     PerTensor,
 )
-from .subclass import (  # noqa
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-    QuantizedLinearWeightBase,
-)
 
 __all__ = [
     "AutoQuantizableLinearWeight",
