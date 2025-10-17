@@ -492,8 +492,9 @@ def test_triton_mxfp8_dim1_randn(M, K):
 )
 @pytest.mark.parametrize("M", (256, 2048, 131072))
 @pytest.mark.parametrize("K", (256, 5120, 7168))
-def test_triton_mxfp8_dim0_randn(M, K):
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+@pytest.mark.parametrize("orig_dtype", (torch.float32, torch.bfloat16))
+def test_triton_mxfp8_dim0_randn(M, K, orig_dtype):
+    x = torch.randn(M, K, dtype=orig_dtype, device="cuda")
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
@@ -521,8 +522,9 @@ def test_triton_mxfp8_dim0_zeros():
 )
 @pytest.mark.parametrize("M", (256, 2048, 131072))
 @pytest.mark.parametrize("K", (256, 5120, 7168))
-def test_triton_mxfp8_dequant_dim0(M, K):
-    x = torch.zeros(M, K, dtype=torch.bfloat16, device="cuda")
+@pytest.mark.parametrize("orig_dtype", (torch.float32, torch.bfloat16))
+def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
+    x = torch.zeros(M, K, dtype=orig_dtype, device="cuda")
     block_size = 32
     x_data, x_scales = triton_to_mxfp8_dim0_reference(x, block_size=32)
     hp_ref = to_dtype(
@@ -530,9 +532,9 @@ def test_triton_mxfp8_dequant_dim0(M, K):
         x_scales,
         torch.float8_e4m3fn,
         block_size,
-        torch.bfloat16,
+        orig_dtype,
     )
-    hp_t = triton_mxfp8_dequant_dim0(x_data, x_scales, torch.bfloat16, block_size)
+    hp_t = triton_mxfp8_dequant_dim0(x_data, x_scales, orig_dtype, block_size)
     torch.testing.assert_close(hp_t, hp_ref, rtol=0, atol=0)
 
 
