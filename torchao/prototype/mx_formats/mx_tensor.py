@@ -17,6 +17,7 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
   * Zeros: N/A
 """
 
+import math
 from dataclasses import dataclass
 from typing import Optional, Union
 
@@ -62,7 +63,12 @@ from torchao.prototype.mx_formats.kernels import (
     triton_f6_e3m2_to_scaled_bf16,
     unpack_uint4,
 )
-from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.prototype.mx_formats.utils import (
+    _swizzle_aware_slice,
+    from_blocked,
+    hp_data_dims_to_swizzled_scale_dims_mx,
+    to_blocked,
+)
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
@@ -86,6 +92,7 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
     pack_fp6: bool = False
+    is_swizzled_scales: bool = False
 
 
 def _to_mx_rceil(
@@ -142,6 +149,7 @@ def to_mx(
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     pack_fp6: bool = False,
+    is_swizzled_scales: bool = False,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -321,13 +329,21 @@ def to_mx(
         # approach for fp4x2 in any case
         data_lp = data_lp.reshape(orig_shape)
         data_lp = f32_to_f4_unpacked(data_lp)
-        orig_shape = [*orig_shape[:-1], orig_shape[-1] // 2]
         data_lp = pack_uint4(data_lp)
     else:
         raise AssertionError("unsupported")
 
     scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
     scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
+
+    # if user requested scale swizzling, do it here
+    if is_swizzled_scales:
+        leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
+        scale_shape = (math.prod(leading_dims) * M, K // block_size)
+        scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+        scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
+
     return scale_e8m0_biased, data_lp
 
 
@@ -479,6 +495,7 @@ class MXTensor(TorchAOBaseTensor):
         "_gemm_kernel_choice",
         "_pack_fp6",
         "act_quant_kwargs",
+        "_is_swizzled_scales",
     ]
 
     def __new__(
@@ -491,6 +508,7 @@ class MXTensor(TorchAOBaseTensor):
         gemm_kernel_choice,
         pack_fp6,
         act_quant_kwargs,
+        is_swizzled_scales,
     ):
         new_size = qdata.size()
         if elem_dtype == torch.float4_e2m1fn_x2:
@@ -526,31 +544,6 @@ class MXTensor(TorchAOBaseTensor):
             torch.float8_e5m2,
             torch.uint8,
         ), "unsupported"
-        if elem_dtype in (
-            torch.float8_e4m3fn,
-            torch.float8_e5m2,
-        ):
-            target_numel = scale_e8m0_bits.numel() * block_size
-        elif elem_dtype == torch.float4_e2m1fn_x2:
-            assert qdata.dtype is torch.uint8  # fp4
-            target_numel = scale_e8m0_bits.numel() * block_size / 2
-        elif elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
-            assert qdata.dtype is torch.uint8  # fp4
-            target_numel = scale_e8m0_bits.numel() * block_size
-            if pack_fp6:
-                target_numel = 3 * target_numel // 4
-        else:
-            raise AssertionError("unsupported")
-        if not issubclass(
-            torch._subclasses.fake_tensor.FakeTensor,
-            type(qdata),
-        ):
-            # this check is sometimes broken for FakeTensor
-            # TODO investigate
-            assert target_numel == qdata.numel(), f"{target_numel} != {qdata.numel()}"
-
-        # `scale` has rank 1 and applies to a row-major memory layout of
-        # `qdata`
         self.qdata = qdata
         self.scale = scale_e8m0_bits
         self._elem_dtype = elem_dtype
@@ -559,11 +552,12 @@ class MXTensor(TorchAOBaseTensor):
         self._gemm_kernel_choice = gemm_kernel_choice
         self._pack_fp6 = pack_fp6
         self.act_quant_kwargs = act_quant_kwargs
+        self._is_swizzled_scales = is_swizzled_scales
         return self
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, _is_swizzled_scales={self._is_swizzled_scales}"  # noqa: E501
 
     def _quantization_type(self):
         return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
@@ -571,9 +565,25 @@ class MXTensor(TorchAOBaseTensor):
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
             output_dtype = self.dtype
+
+        scale = self.scale
+        if self._is_swizzled_scales:
+            is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
+            if is_transposed:
+                leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
+                scale = scale.transpose(-2, -1)
+            else:
+                leading_dims, M, K = self.shape[:-2], self.shape[-2], self.shape[-1]
+            scale = from_blocked(
+                scale, math.prod(leading_dims) * M, K // self._block_size
+            )
+            scale = scale.view(*leading_dims, M, K // self._block_size)
+            if is_transposed:
+                scale = scale.transpose(-2, -1)
+
         return to_dtype(
             self.qdata,
-            self.scale,
+            scale,
             self._elem_dtype,
             self._block_size,
             output_dtype,
@@ -591,9 +601,10 @@ class MXTensor(TorchAOBaseTensor):
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
         pack_fp6: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
+        is_swizzled_scales: bool = False,
     ):
         scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
+            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6, is_swizzled_scales
         )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
@@ -608,6 +619,7 @@ class MXTensor(TorchAOBaseTensor):
                 gemm_kernel_choice,
                 pack_fp6,
                 act_quant_kwargs,
+                is_swizzled_scales,
             )
             return DTensor.from_local(
                 inner_mx_tensor,
@@ -626,6 +638,7 @@ class MXTensor(TorchAOBaseTensor):
             gemm_kernel_choice,
             pack_fp6,
             act_quant_kwargs,
+            is_swizzled_scales,
         )
 
     # Do not force the MXTensor type on the returned tensor
@@ -676,6 +689,7 @@ def _addmm_mx_dispatch(
             k.scaling_mode,
             k.gemm_kernel_choice,
             k.pack_fp6,
+            k.is_swizzled_scales,
         )
 
     gemm_choice = _get_gemm_choice(a._gemm_kernel_choice, b._gemm_kernel_choice)
@@ -688,10 +702,17 @@ def _addmm_mx_dispatch(
         assert a._block_size == 32, f"Invalid block size {a._block_size}"
         assert b._block_size == 32, f"Invalid block size {b._block_size}"
 
-        a_scale = a.scale.view(M, K // a._block_size)
-        b_scale = b.scale.t().view(N, K // b._block_size)
-        a_scale_block = to_blocked(a_scale)
-        b_scale_block = to_blocked(b_scale)
+        if a._is_swizzled_scales:
+            a_scale_block = a.scale
+        else:
+            a_scale = a.scale.view(M, K // a._block_size)
+            a_scale_block = to_blocked(a_scale)
+
+        if b._is_swizzled_scales:
+            b_scale_block = b.scale.t()
+        else:
+            b_scale = b.scale.t().view(N, K // b._block_size)
+            b_scale_block = to_blocked(b_scale)
 
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
@@ -767,6 +788,7 @@ def mx_t(func, types, args, kwargs):
         old._gemm_kernel_choice,
         old._pack_fp6,
         old.act_quant_kwargs,
+        old._is_swizzled_scales,
     )
     return new
 
@@ -811,6 +833,7 @@ def mx_view_op(func, types, args, kwargs):
         args[0]._gemm_kernel_choice,
         args[0]._pack_fp6,
         args[0].act_quant_kwargs,
+        args[0]._is_swizzled_scales,
     )
 
 
@@ -821,41 +844,7 @@ def mx_slice(func, types, args, kwargs):
     if step != 1:
         raise ValueError("Only support aten.slice with step=1")
 
-    M, K = x.shape[0], x.shape[1]
-
-    # TODO why doesn't scale have shape?
-    scale_shaped = x.scale.view(M, K // x._block_size)
-
-    if dim == 0:
-        # Slicing along the first dimension (rows) TODO assuming that dim 1 is reduciton dim for now
-        sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step)
-        sliced_data = aten.slice.Tensor(x.qdata, dim, start, end, step).unsqueeze(-1)
-    elif dim == 1:
-        # Slicing along reduciton dim
-        if start is not None:
-            # Assert start is a multiple of block_size
-            assert start % x._block_size == 0, (
-                f"Start index {start} must be a multiple of block_size {x._block_size}"
-            )
-
-        if end is not None:
-            # Assert end is a multiple of block_size
-            assert end % x._block_size == 0, (
-                f"End index {end} must be a multiple of block_size {x._block_size}"
-            )
-
-        sliced_data = aten.slice.Tensor(x.qdata, dim, start, end, step)
-
-        # Calculate which scale elements to keep
-        start_block = 0 if start is None else start // x._block_size
-        end_block = -1 if end is None else end // x._block_size
-
-        # Slice the scale tensor accordingly
-        sliced_scale = aten.slice.Tensor(scale_shaped, 1, start_block, end_block, step)
-    else:
-        raise ValueError(
-            f"MXTensor only supports slicing along dimensions 0 and 1, got dim={dim}"
-        )
+    sliced_data, sliced_scale = _swizzle_aware_slice(x, dim, start, end, step)
 
     return return_and_correct_aliasing(
         func,
@@ -870,6 +859,7 @@ def mx_slice(func, types, args, kwargs):
             x._gemm_kernel_choice,
             x._pack_fp6,
             x.act_quant_kwargs,
+            x._is_swizzled_scales,
         ),
     )
 
@@ -894,6 +884,7 @@ def mx_select(func, types, args, kwargs):
     assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor.scale.shape), (
         "unsupported"
     )
+    assert not old_mx_tensor._is_swizzled_scales, "unsupported"
     new_mx_tensor = old_mx_tensor.__class__(
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],
@@ -903,5 +894,6 @@ def mx_select(func, types, args, kwargs):
         old_mx_tensor._gemm_kernel_choice,
         old_mx_tensor._pack_fp6,
         old_mx_tensor.act_quant_kwargs,
+        old_mx_tensor._is_swizzled_scales,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_mx_tensor)
