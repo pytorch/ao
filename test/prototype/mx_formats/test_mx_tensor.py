@@ -662,3 +662,57 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
         rtol=0.0,
         msg=f"Roundtrip failed for shape {shape} with use_triton_kernel={use_triton_kernel}",
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
+@pytest.mark.parametrize("transpose", [False, True])
+@pytest.mark.parametrize(
+    "shape",
+    (
+        (128, 64),
+        (1, 128, 64),
+    ),
+)
+def test_scale_shape_matches_qdata(transpose, shape):
+    if len(shape) == 3 and transpose:
+        pytest.skip("transpose not yet implemented for 3D MXTensor")
+
+    block_size = 32
+
+    x_hp = torch.randn(*shape, device="cuda")
+    x = MXTensor.to_mx(
+        x_hp,
+        torch.float8_e4m3fn,
+        block_size,
+        ScaleCalculationMode.FLOOR,
+    )
+
+    if len(shape) == 2:
+        m_dim, k_dim = 0, 1
+        if transpose:
+            x_hp = x_hp.t()
+            x = x.t()
+            m_dim, k_dim = 1, 0
+    else:
+        assert len(shape) == 3, "unsupported"
+        m_dim, k_dim = 1, 2
+        if transpose:
+            x_hp = x_hp.transpose(-2, -1)
+            x = x.transpose(-2, -1)
+            m_dim, k_dim = 2, 1
+
+    orig_m = x_hp.shape[m_dim]
+    expected_padded_m = orig_m
+    actual_padded_m = x.scale.shape[m_dim]
+    assert expected_padded_m == actual_padded_m, (
+        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x.scale.shape}"
+    )
+
+    orig_k = x_hp.shape[k_dim]
+    expected_padded_k = orig_k // block_size
+    actual_padded_k = x.scale.shape[k_dim]
+
+    assert expected_padded_k == actual_padded_k, (
+        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x.scale.shape}"
+    )
