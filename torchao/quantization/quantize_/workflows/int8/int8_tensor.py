@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -32,11 +32,11 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor (either activation or weight)
 
     Args:
-        block_size (list[int]): block size for quantization granularity
+        block_size (List[int]): block size for quantization granularity
         static_scale (Optional[torch.Tensor]): pre-computed scale for static quantization
     """
 
-    block_size: list[int]
+    block_size: List[int]
     static_scale: Optional[torch.Tensor] = None
 
 
@@ -64,7 +64,7 @@ class Int8Tensor(TorchAOBaseTensor):
         cls: type,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: list[int],
+        block_size: List[int],
         act_quant_kwargs=None,
         dtype=None,
     ):
@@ -73,13 +73,13 @@ class Int8Tensor(TorchAOBaseTensor):
             "dtype": dtype or scale.dtype,
             "requires_grad": False,
         }
-        return torch.Tensor._make_wrapper_subclass(cls, list(qdata.shape), **kwargs)
+        return torch.Tensor._make_wrapper_subclass(cls, List(qdata.shape), **kwargs)
 
     def __init__(
         self,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: list[int],
+        block_size: List[int],
         act_quant_kwargs=None,
         dtype=None,
     ):
@@ -99,7 +99,7 @@ class Int8Tensor(TorchAOBaseTensor):
     def from_hp(
         cls,
         w: torch.Tensor,
-        block_size: list[int],
+        block_size: List[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         if w.dim() != 2 or len(block_size) != 2:
@@ -240,7 +240,7 @@ def _(func, types, args, kwargs):
         sliced_scale = tensor.scale
 
     # adjust block_size since the shape has changed, block_size[i] should not be greater than shape[i]
-    block_size = list(tensor.block_size)
+    block_size = List(tensor.block_size)
 
     for i in range(len(block_size)):
         block_size[i] = min(block_size[i], sliced_qdata.shape[i])
