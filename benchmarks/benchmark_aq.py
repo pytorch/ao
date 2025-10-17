@@ -19,7 +19,6 @@ from torchao.quantization.quant_api import (
 from torchao.testing.model_architectures import ToySingleLinearModel
 
 
-
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
     def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
         """
@@ -59,7 +58,6 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     api(m, **kwargs)
 
     # reference
-    m_bf16 = copy.deepcopy(m)
     example_inputs = m.example_inputs()
 
     res = m(*example_inputs)
