@@ -1141,7 +1141,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         * `scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
         """
         assert x.is_contiguous(), "`x` must be contiguous"
-        assert inner_block_size <= 32
+        assert inner_block_size <= 32, "inner_block_size must be <= 32"
+        assert x.dtype == torch.bfloat16, "only bfloat16 inputs are supported"
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
@@ -1279,12 +1280,13 @@ if torch_version_at_least("2.7.0") and has_triton():
             scale_e8m0_dim1,
         )
 
+    @triton_op("torchao::triton_mxfp8_dequant_dim0", mutates_args={})
     def triton_mxfp8_dequant_dim0(
         e4m3_data: torch.Tensor,
         e8m0_scales: torch.Tensor,
         out_dtype: torch.dtype,
         scale_block_size: int = 32,
-    ) -> None:
+    ) -> torch.Tensor:
         assert scale_block_size == 32, "scale_block_size must be 32 for now"
         assert out_dtype in (torch.bfloat16, torch.float32), (
             "out_dtype must be bf16 or fp32"
@@ -1300,7 +1302,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             triton.cdiv(e4m3_data.shape[0], META["ROW_TILE_SIZE"]),
             triton.cdiv(e4m3_data.shape[1], META["COL_TILE_SIZE"]),
         )
-        _dequant_mxfp8_kernel[grid](
+        wrap_triton(_dequant_mxfp8_kernel)[grid](
             e4m3_data,
             e8m0_scales.to(torch.uint8),
             out_buffer,
@@ -1371,8 +1373,8 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     @triton.jit
     def _e8m0_to_fp32(scale_e8m0):
-        e8m0_exponent_bias = 127
         e8m0_nan_val = 255
+        e8m0_exponent_bias = 127
         s_offset = scale_e8m0.to(tl.int16) - e8m0_exponent_bias
         s_fp = tl.exp2(s_offset.to(tl.float32))
         s_fp = tl.where(scale_e8m0 != e8m0_nan_val, s_fp, float("nan"))
