@@ -45,7 +45,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
-        pip install .
+        pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         pytest test --verbose -s

@@ -39,7 +39,7 @@ jobs:
           pip install executorch
           pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
-          USE_CPP=1 TORCHAO_BUILD_KLEIDIAI=1 pip install .
+          USE_CPP=1 TORCHAO_BUILD_KLEIDIAI=1 pip install . --no-build-isolation
       - name: Install requirements linux
         if: runner.os == 'Linux'
         run: |
@@ -47,7 +47,7 @@ jobs:
           pip install coremltools
           pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
-          BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install .
+          BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install . --no-build-isolation
       - name: Run python tests
         run: |
           conda activate venv

@@ -1,0 +1,10 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    # TODO(future): consider declaring build-time dependencies such
+    # as `torch` here to enable PEP 517. For now, require the user to
+    # install `torch` in their environment before running the build,
+    # and only support builds with the `--no-build-isolation` flag.
+]
+build-backend = "setuptools.build_meta"
