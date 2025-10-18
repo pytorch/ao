@@ -25,6 +25,7 @@ from torchao.quantization import (
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
@@ -35,18 +36,6 @@ from torchao.utils import (
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
@@ -122,7 +111,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+            model = ToyTwoLinearModel(K, N, K, device="cuda", dtype=dtype).eval()
 
             quantized_model = copy.deepcopy(model)
 
@@ -231,7 +220,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype = torch.bfloat16
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         # Create a linear layer with bfloat16 dtype
-        model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+        model = ToyTwoLinearModel(K, N, K, device="cuda", dtype=dtype).eval()
 
         # reference kernel preference and results
         # we are using KerenelPreference.TORCH as the reference
