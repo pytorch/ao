@@ -502,7 +502,8 @@ def get_extensions():
         # Remove csrc/cpu/*.cpp
         excluded_sources = list(
             glob.glob(
-                os.path.join(extensions_dir, "cpu/aten_kernels/*.cpp"), recursive=False
+                os.path.join(extensions_dir, "cpu", "aten_kernels", "*.cpp"),
+                recursive=False,
             )
         )
         sources = [s for s in sources if s not in excluded_sources]
