@@ -94,8 +94,9 @@ pip install torchao
   pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
 
   # For developers
-  USE_CUDA=1 python setup.py develop
-  USE_CPP=0 python setup.py develop
+  # Note: the `--no-build-isolation` flag is required.
+  USE_CUDA=1 pip install -e . --no-build-isolation
+  USE_CPP=0 pip install -e . --no-build-isolation
   ```
 
 </details>
