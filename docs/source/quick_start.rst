@@ -9,7 +9,7 @@ First, install the latest stable torchao release::
 If you prefer to use the nightly release, you can install torchao using the following
 command instead::
 
-  pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu121
+  pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
 
 torchao is compatible with the latest 3 major versions of PyTorch, which you will also
 need to install (`detailed instructions <https://pytorch.org/get-started/locally/>`__)::
@@ -55,9 +55,8 @@ for efficient mixed dtype matrix multiplication:
 
 .. code:: py
 
-  # torch 2.4+ only
   from torchao.quantization import Int4WeightOnlyConfig, quantize_
-  quantize_(model, Int4WeightOnlyConfig(group_size=32, version=1))
+  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
 
 The quantized model is now ready to use! Note that the quantization
 logic is inserted through tensor subclasses, so there is no change
