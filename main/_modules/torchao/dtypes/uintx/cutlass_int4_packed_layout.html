@@ -532,7 +532,7 @@
                     <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
                 <span class="k">return</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mistach: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mismatch: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
