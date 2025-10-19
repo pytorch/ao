@@ -92,6 +92,7 @@ config = MXLinearConfig(
     scale_calculation_mode=scale_calculation_mode,
 )
 quantize_(m, config)
+m = torch.compile(m, fullgraph=True)
 
 # training loop (not shown)
 ```
