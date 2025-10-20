@@ -434,21 +434,8 @@
               
   <section id="quick-start-guide">
 <h1>Quick Start Guide<a class="headerlink" href="#quick-start-guide" title="Permalink to this heading">¶</a></h1>
-<p>In this quick start guide, we will explore how to perform basic quantization using torchao.
-First, install the latest stable torchao release:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">torchao</span>
-</pre></div>
-</div>
-<p>If you prefer to use the nightly release, you can install torchao using the following
-command instead:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">--</span><span class="n">pre</span> <span class="n">torchao</span> <span class="o">--</span><span class="n">index</span><span class="o">-</span><span class="n">url</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">download</span><span class="o">.</span><span class="n">pytorch</span><span class="o">.</span><span class="n">org</span><span class="o">/</span><span class="n">whl</span><span class="o">/</span><span class="n">nightly</span><span class="o">/</span><span class="n">cu121</span>
-</pre></div>
-</div>
-<p>torchao is compatible with the latest 3 major versions of PyTorch, which you will also
-need to install (<a class="reference external" href="https://pytorch.org/get-started/locally/">detailed instructions</a>):</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">torch</span>
-</pre></div>
-</div>
+<p>In this quick start guide, we will explore how to perform basic quantization using torchao.</p>
+<p>Follow <a class="reference external" href="https://github.com/pytorch/ao#-installation">torchao installation and compatibility guide</a> to install torchao and compatible pytorch.</p>
 <section id="first-quantization-example">
 <h2>First Quantization Example<a class="headerlink" href="#first-quantization-example" title="Permalink to this heading">¶</a></h2>
 <p>The main entry point for quantization in torchao is the <a class="reference external" href="https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">quantize_</a> API.
@@ -481,9 +468,8 @@ in the model to int4 inplace. More specifically, this applies uint4
 weight-only asymmetric per-group quantization, leveraging the
 <a class="reference external" href="https://github.com/pytorch/pytorch/blob/a8d6afb511a69687bbb2b7e88a3cf67917e1697e/aten/src/ATen/native/cuda/int4mm.cu#L1097">tinygemm int4mm CUDA kernel</a>
 for efficient mixed dtype matrix multiplication:</p>
-<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="c1"># torch 2.4+ only</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span> <span class="n">quantize_</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span> <span class="n">quantize_</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">int4_packing_format</span><span class="o">=</span><span class="s2">&quot;tile_packed_to_4d&quot;</span><span class="p">,</span> <span class="n">int4_choose_qparams_algorithm</span><span class="o">=</span><span class="s2">&quot;hqq&quot;</span><span class="p">))</span>
 </pre></div>
 </div>
 <p>The quantized model is now ready to use! Note that the quantization

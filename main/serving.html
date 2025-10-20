@@ -468,7 +468,7 @@
 <section id="post-training-quantization-with-huggingface">
 <h2><a class="toc-backref" href="#id1" role="doc-backlink">Post-training Quantization with HuggingFace</a><a class="headerlink" href="#post-training-quantization-with-huggingface" title="Permalink to this heading">¶</a></h2>
 <p>HuggingFace Transformers provides seamless integration with torchao quantization. The <code class="docutils literal notranslate"><span class="pre">TorchAoConfig</span></code> automatically applies torchao’s optimized quantization algorithms during model loading.
-Please check out our <a class="reference external" href="torchao_hf_integration.html">HF Integration Docs</a> for examples on how to use quantization and sparsity in Transformers and Diffusers.</p>
+Please check out our <a class="reference external" href="torchao_hf_integration.html">HF Integration Docs</a> for examples on how to use quantization and sparsity in Transformers and Diffusers and <a class="reference external" href="api_ref_quantization.html#inference-apis-for-quantize">TorchAOConfig Reference</a> for all available torchao configs to use.</p>
 </section>
 <section id="serving-and-inference">
 <h2><a class="toc-backref" href="#id2" role="doc-backlink">Serving and Inference</a><a class="headerlink" href="#serving-and-inference" title="Permalink to this heading">¶</a></h2>
@@ -476,17 +476,17 @@ Please check out our <a class="reference external" href="torchao_hf_integration.
 <h3><a class="toc-backref" href="#id3" role="doc-backlink">Serving and Inference with vLLM</a><a class="headerlink" href="#serving-and-inference-with-vllm" title="Permalink to this heading">¶</a></h3>
 <p>vLLM automatically leverages torchao’s optimized kernels when serving quantized models, providing significant throughput improvements.</p>
 <p>First, install vLLM with torchao support:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>vllm<span class="w"> </span>--pre<span class="w"> </span>--extra-index-url<span class="w"> </span>https://wheels.vllm.ai/nightly
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torchao<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu126
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>vllm<span class="w"> </span>--pre<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/vllm/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torchao<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu128
 </pre></div>
 </div>
 <p>To serve in vLLM, we’re using the model we quantized and pushed to Hugging Face hub in the previous step <a class="reference internal" href="#post-training-quantization-with-huggingface"><span class="std std-ref">Post-training Quantization with HuggingFace</span></a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Server</span>
-vllm<span class="w"> </span>serve<span class="w"> </span>pytorch/Phi-4-mini-instruct-float8dq<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>-O3
+vllm<span class="w"> </span>serve<span class="w"> </span>pytorch/Phi-4-mini-instruct-FP8<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>-O3
 
 <span class="c1"># Client</span>
 curl<span class="w"> </span>http://localhost:8000/v1/chat/completions<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
-<span class="s1">    &quot;model&quot;: &quot;pytorch/Phi-4-mini-instruct-float8dq&quot;,</span>
+<span class="s1">    &quot;model&quot;: &quot;pytorch/Phi-4-mini-instruct-FP8&quot;,</span>
 <span class="s1">    &quot;messages&quot;: [</span>
 <span class="s1">        {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;Give me a short introduction to large language models.&quot;}</span>
 <span class="s1">    ],</span>
@@ -702,8 +702,8 @@ python<span class="w"> </span>-m<span class="w"> </span>executorch.examples.mode
 <span class="c1"># Evaluate baseline model</span>
 lm_eval<span class="w"> </span>--model<span class="w"> </span>hf<span class="w"> </span>--model_args<span class="w"> </span><span class="nv">pretrained</span><span class="o">=</span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--tasks<span class="w"> </span>hellaswag<span class="w"> </span>--device<span class="w"> </span>cuda:0<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">8</span>
 
-<span class="c1"># Evaluate torchao-quantized model (float8dq)</span>
-lm_eval<span class="w"> </span>--model<span class="w"> </span>hf<span class="w"> </span>--model_args<span class="w"> </span><span class="nv">pretrained</span><span class="o">=</span>pytorch/Phi-4-mini-instruct-float8dq<span class="w"> </span>--tasks<span class="w"> </span>hellaswag<span class="w"> </span>--device<span class="w"> </span>cuda:0<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">8</span>
+<span class="c1"># Evaluate torchao-quantized model (FP8)</span>
+lm_eval<span class="w"> </span>--model<span class="w"> </span>hf<span class="w"> </span>--model_args<span class="w"> </span><span class="nv">pretrained</span><span class="o">=</span>pytorch/Phi-4-mini-instruct-FP8<span class="w"> </span>--tasks<span class="w"> </span>hellaswag<span class="w"> </span>--device<span class="w"> </span>cuda:0<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">8</span>
 </pre></div>
 </div>
 </section>
@@ -713,8 +713,8 @@ lm_eval<span class="w"> </span>--model<span class="w"> </span>hf<span class="w">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
 
-<span class="c1"># use &quot;microsoft/Phi-4-mini-instruct&quot; or &quot;pytorch/Phi-4-mini-instruct-float8dq&quot;</span>
-<span class="n">model_id</span> <span class="o">=</span> <span class="s2">&quot;pytorch/Phi-4-mini-instruct-float8dq&quot;</span>
+<span class="c1"># use &quot;microsoft/Phi-4-mini-instruct&quot; or &quot;pytorch/Phi-4-mini-instruct-FP8&quot;</span>
+<span class="n">model_id</span> <span class="o">=</span> <span class="s2">&quot;pytorch/Phi-4-mini-instruct-FP8&quot;</span>
 <span class="n">quantized_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_id</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
 <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_id</span><span class="p">)</span>
 
@@ -756,30 +756,16 @@ lm_eval<span class="w"> </span>--model<span class="w"> </span>hf<span class="w">
 <span class="go">Peak Memory Usage: 5.70 GB</span>
 </pre></div>
 </div>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Benchmark</p></th>
-<th class="head"><p>Phi-4 mini-instruct</p></th>
-<th class="head"><p>Phi-4-mini-instruct-float8dq</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Peak Memory (GB)</p></td>
-<td><p>8.91</p></td>
-<td><p>5.70 (36% reduction)</p></td>
-</tr>
-</tbody>
-</table>
 </section>
 <section id="performance-benchmarking">
 <h3><a class="toc-backref" href="#id14" role="doc-backlink">Performance Benchmarking</a><a class="headerlink" href="#performance-benchmarking" title="Permalink to this heading">¶</a></h3>
 <section id="latency-benchmarking">
 <h4>Latency Benchmarking<a class="headerlink" href="#latency-benchmarking" title="Permalink to this heading">¶</a></h4>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># baseline</span>
-python<span class="w"> </span>benchmarks/benchmark_latency.py<span class="w"> </span>--input-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--output-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--model<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">1</span>
+vllm<span class="w"> </span>bench<span class="w"> </span>latency<span class="w"> </span>--input-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--output-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--model<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">1</span>
 
-<span class="c1"># float8dq</span>
-<span class="nv">VLLM_DISABLE_COMPILE_CACHE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>python<span class="w"> </span>benchmarks/benchmark_latency.py<span class="w"> </span>--input-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--output-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--model<span class="w"> </span>pytorch/Phi-4-mini-instruct-float8dq<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">1</span>
+<span class="c1"># FP8</span>
+<span class="nv">VLLM_DISABLE_COMPILE_CACHE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>vllm<span class="w"> </span>bench<span class="w"> </span>latency<span class="w"> </span>--input-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--output-len<span class="w"> </span><span class="m">256</span><span class="w"> </span>--model<span class="w"> </span>pytorch/Phi-4-mini-instruct-FP8<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">1</span>
 </pre></div>
 </div>
 </section>
@@ -804,13 +790,13 @@ wget<span class="w"> </span>https://huggingface.co/datasets/anon8231489123/Share
 <span class="c1"># Server:</span>
 vllm<span class="w"> </span>serve<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>-O3
 <span class="c1"># Client:</span>
-python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </span>--backend<span class="w"> </span>vllm<span class="w"> </span>--dataset-name<span class="w"> </span>sharegpt<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--dataset-path<span class="w"> </span>./ShareGPT_V3_unfiltered_cleaned_split.json<span class="w"> </span>--model<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--num-prompts<span class="w"> </span><span class="m">1</span>
+vllm<span class="w"> </span>bench<span class="w"> </span>serve<span class="w"> </span>--backend<span class="w"> </span>vllm<span class="w"> </span>--dataset-name<span class="w"> </span>sharegpt<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--dataset-path<span class="w"> </span>./ShareGPT_V3_unfiltered_cleaned_split.json<span class="w"> </span>--model<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--num-prompts<span class="w"> </span><span class="m">1</span>
 
-<span class="c1"># For float8dq</span>
+<span class="c1"># For FP8</span>
 <span class="c1"># Server:</span>
-<span class="nv">VLLM_DISABLE_COMPILE_CACHE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>vllm<span class="w"> </span>serve<span class="w"> </span>pytorch/Phi-4-mini-instruct-float8dq<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>-O3
+<span class="nv">VLLM_DISABLE_COMPILE_CACHE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>vllm<span class="w"> </span>serve<span class="w"> </span>pytorch/Phi-4-mini-instruct-FP8<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>-O3
 <span class="c1"># Client:</span>
-python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </span>--backend<span class="w"> </span>vllm<span class="w"> </span>--dataset-name<span class="w"> </span>sharegpt<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--dataset-path<span class="w"> </span>./ShareGPT_V3_unfiltered_cleaned_split.json<span class="w"> </span>--model<span class="w"> </span>pytorch/Phi-4-mini-instruct-float8dq<span class="w"> </span>--num-prompts<span class="w"> </span><span class="m">1</span>
+vllm<span class="w"> </span>bench<span class="w"> </span>serve<span class="w"> </span>--backend<span class="w"> </span>vllm<span class="w"> </span>--dataset-name<span class="w"> </span>sharegpt<span class="w"> </span>--tokenizer<span class="w"> </span>microsoft/Phi-4-mini-instruct<span class="w"> </span>--dataset-path<span class="w"> </span>./ShareGPT_V3_unfiltered_cleaned_split.json<span class="w"> </span>--model<span class="w"> </span>pytorch/Phi-4-mini-instruct-FP8<span class="w"> </span>--num-prompts<span class="w"> </span><span class="m">1</span>
 </pre></div>
 </div>
 </section>

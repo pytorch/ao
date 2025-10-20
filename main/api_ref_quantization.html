@@ -441,9 +441,6 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_" title="torchao.quantization.quantize_"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_</span></code></a></p></td>
 <td><p>Convert the weight of linear modules in the model with <cite>config</cite>, model is modified inplace</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.autoquant.html#torchao.quantization.autoquant" title="torchao.quantization.autoquant"><code class="xref py py-obj docutils literal notranslate"><span class="pre">autoquant</span></code></a></p></td>
-<td><p>Autoquantization is a process which identifies the fastest way to quantize each layer of a model over some set of potential qtensor subclasses.</p></td>
-</tr>
 </tbody>
 </table>
 </section>
@@ -463,26 +460,14 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig" title="torchao.quantization.Float8WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8WeightOnlyConfig</span></code></a></p></td>
 <td><p>Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8StaticActivationFloat8WeightConfig.html#torchao.quantization.Float8StaticActivationFloat8WeightConfig" title="torchao.quantization.Float8StaticActivationFloat8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8StaticActivationFloat8WeightConfig</span></code></a></p></td>
-<td><p>Configuration for applying float8 static symmetric quantization to</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig" title="torchao.quantization.Int8DynamicActivationInt4WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig" title="torchao.quantization.Int8DynamicActivationInt4WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></a></p></td>
 <td><p>Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.GemliteUIntXWeightOnlyConfig.html#torchao.quantization.GemliteUIntXWeightOnlyConfig" title="torchao.quantization.GemliteUIntXWeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">GemliteUIntXWeightOnlyConfig</span></code></a></p></td>
-<td><p>applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig" title="torchao.quantization.Int8WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></a></p></td>
 <td><p>Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="torchao.quantization.Int8DynamicActivationInt8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></a></p></td>
 <td><p>Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.UIntXWeightOnlyConfig.html#torchao.quantization.UIntXWeightOnlyConfig" title="torchao.quantization.UIntXWeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">UIntXWeightOnlyConfig</span></code></a></p></td>
-<td><p>Configuration for applying uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where x is the number of bits specified by <cite>dtype</cite></p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.FPXWeightOnlyConfig.html#torchao.quantization.FPXWeightOnlyConfig" title="torchao.quantization.FPXWeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FPXWeightOnlyConfig</span></code></a></p></td>
-<td><p>Sub-byte floating point dtypes defined by <cite>ebits</cite>: exponent bits and <cite>mbits</cite>: mantissa bits e.g.</p></td>
 </tr>
 </tbody>
 </table>
@@ -527,27 +512,8 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.MappingType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MappingType</span></code></a></p></td>
 <td><p>How floating point number is mapped to integer number</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.ZeroPointDomain.html#torchao.quantization.ZeroPointDomain" title="torchao.quantization.ZeroPointDomain"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ZeroPointDomain</span></code></a></p></td>
-<td><p>Enum that indicate whether zero_point is in integer domain or floating point domain</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.TorchAODType.html#torchao.quantization.TorchAODType" title="torchao.quantization.TorchAODType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">TorchAODType</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.TorchAODType.html#torchao.quantization.TorchAODType" title="torchao.quantization.TorchAODType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">TorchAODType</span></code></a></p></td>
 <td><p>Placeholder for dtypes that do not exist in PyTorch core yet.</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="other">
-<h2>Other<a class="headerlink" href="#other" title="Permalink to this heading">¶</a></h2>
-<table class="autosummary longtable docutils align-default">
-<tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.to_linear_activation_quantized.html#torchao.quantization.to_linear_activation_quantized" title="torchao.quantization.to_linear_activation_quantized"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_linear_activation_quantized</span></code></a></p></td>
-<td><p></p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear" title="torchao.quantization.swap_linear_with_smooth_fq_linear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">swap_linear_with_smooth_fq_linear</span></code></a></p></td>
-<td><p>Replaces linear layers in the model with their SmoothFakeDynamicallyQuantizedLinear equivalents.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference" title="torchao.quantization.smooth_fq_linear_to_inference"><code class="xref py py-obj docutils literal notranslate"><span class="pre">smooth_fq_linear_to_inference</span></code></a></p></td>
-<td><p>Prepares the model for inference by calculating the smoothquant scale for each SmoothFakeDynamicallyQuantizedLinear layer.</p></td>
 </tr>
 </tbody>
 </table>
@@ -601,7 +567,6 @@
 <li><a class="reference internal" href="#main-quantization-apis">Main Quantization APIs</a></li>
 <li><a class="reference internal" href="#inference-apis-for-quantize">Inference APIs for quantize_</a></li>
 <li><a class="reference internal" href="#quantization-primitives">Quantization Primitives</a></li>
-<li><a class="reference internal" href="#other">Other</a></li>
 </ul>
 </li>
 </ul>
