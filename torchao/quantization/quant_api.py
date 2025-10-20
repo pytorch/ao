@@ -516,12 +516,6 @@ def quantize_(
             raise ValueError(
                 "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None is supported when FqnToConfig is specified."
             )
-
-        # if filter_fn is None and "_default" in config.fqn_to_config:
-        #     raise ValueError(
-        #         "Cannot use _default as a key in FqnToConfig when filter_fn=None. Please specify a filter_fn or remove _default from FqnToConfig"
-        #     )
-
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
             _fqn_to_config_handler,
@@ -532,6 +526,7 @@ def quantize_(
             extra_args=(config,),
         )
         return
+
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
@@ -542,6 +537,7 @@ def quantize_(
             device=device,
             extra_args=(config,),
         )
+
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
@@ -2544,21 +2540,6 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
             return handler(module, c)
     else:
         return module
-
-
-def _get_config_for_fqn(fqn: str, config: FqnToConfig):
-    """Helper function to get the config for a given fqn from an FqnToConfig object.
-
-    Args:
-        fqn (str): The fully qualified name to match against the config patterns.
-        config (FqnToConfig): The FqnToConfig object containing mapping of FQNs or regex patterns to quantization configs.
-
-    Returns:
-        c (AOBaseConfig): If fqn is specified exactly in FqnToConfig, then fqn_to_config[fqn] will be returned.
-                          Otherwise we will return the config of the first matching regex pattern in FqnToConfig.
-    """
-    found, c = False, None
-    return found, c
 
 
 def _filter_fn_and_param_in_fqn_config(
