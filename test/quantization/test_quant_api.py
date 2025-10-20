@@ -672,7 +672,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
@@ -686,7 +686,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
@@ -701,7 +701,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"re:linear.*": config1})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
@@ -718,7 +718,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"linear1": config1, "re:linear.*": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
@@ -737,7 +737,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"re:linear.*": config2, "linear1": config1})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
@@ -777,7 +777,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"re:linear.*": config2, "linear1": config1})
         model = M(dtype=torch.bfloat16, device="cuda")
         example_inputs = model.example_inputs()
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         # since fqn does not fully match `linear*`, it should not be quantized
@@ -820,7 +820,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
@@ -896,7 +896,7 @@ class TestFqnToConfig(TestCase):
                 ),
             }
         )
-        quantize_(model, quant_config)
+        quantize_(model, quant_config, filter_fn=None)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 1
 
@@ -1123,6 +1123,7 @@ class TestFqnToConfig(TestCase):
         quantize_(
             model,
             quant_config,
+            filter_fn=None,
         )
 
         assert isinstance(model[0].weight, Float8Tensor)
@@ -1151,7 +1152,7 @@ class TestFqnToConfig(TestCase):
 
         # This should raise NotImplementedError
         with self.assertRaises(NotImplementedError) as context:
-            quantize_(model, quant_config)
+            quantize_(model, quant_config, filter_fn=None)
 
         # Check that the error message contains the expected text
         self.assertIn("Parameter quantization for", str(context.exception))
@@ -1174,33 +1175,8 @@ class TestFqnToConfig(TestCase):
         )
 
         # This should raise ValueError
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValueError):
             quantize_(model, quant_config, filter_fn=lambda mod, fqn: True)
-
-        error_msg = "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None or filter_fn=_is_linear is supported when FqnToConfig is specified."
-        self.assertEqual(error_msg, str(context.exception))
-
-    def test_filter_fn_none_and_default_in_config(self):
-        """Test that specifying filter_fn=None and _default in FqnToConfig raises ValueError."""
-
-        # Create a simple model
-        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
-
-        # Create config with unsupported parameter handler
-        quant_config = FqnToConfig(
-            {
-                "_default": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                )
-            }
-        )
-
-        # This should raise ValueError
-        with self.assertRaises(ValueError) as context:
-            quantize_(model, quant_config, filter_fn=None)
-
-        error_msg = "Cannot use _default as a key in FqnToConfig when filter_fn=None. Please specify a filter_fn or remove _default from FqnToConfig"
-        self.assertEqual(error_msg, str(context.exception))
 
 
 if __name__ == "__main__":
