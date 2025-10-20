@@ -6,7 +6,7 @@
 
 ### PyTorch-Native Training-to-Serving Model Optimization
 - Pre-train Llama-3.1-70B **1.5x faster** with float8 training
-- Recover **77% of quantized perplexity degradation** on Llama-3.2-3B with QAT
+- Recover **67% of quantized accuracy degradation** on Gemma3-4B with QAT
 - Quantize Llama-3-8B to int4 for **1.89x faster** inference with **58% less memory**
 
 <div align="center">
@@ -106,6 +106,7 @@ Please see the [torchao compability table](https://github.com/pytorch/ao/issues/
 
 TorchAO is integrated into some of the leading open-source libraries including:
 
+* Unsloth for QAT, blog post coming soon!
 * HuggingFace transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
 * HuggingFace diffusers best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
 * vLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html), [detailed docs](https://docs.pytorch.org/ao/main/torchao_vllm_integration.html)
