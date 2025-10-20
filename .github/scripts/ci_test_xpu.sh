@@ -8,7 +8,7 @@ export CXX=/usr/bin/g++
 export SCCACHE_DISABLE=1
 
 python3 -m pip install torch torchvision torchaudio pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir 
-cd torchao && python3 setup.py install && cd ..
+cd torchao && pip install . --no-build-isolation && cd ..
 
 python3 -c "import torch; import torchao; print(f'Torch version: {torch.__version__}')"
 
