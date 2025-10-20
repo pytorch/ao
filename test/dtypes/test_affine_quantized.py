@@ -275,7 +275,7 @@ class TestAffineQuantized(TestCase):
 
         # copy should fail due to shape mismatch
         with self.assertRaisesRegex(
-            ValueError, "Not supported args for copy_ due to metadata mistach:"
+            ValueError, "Not supported args for copy_ due to metadata mismatch:"
         ):
             ql2.weight.copy_(ql.weight)
 

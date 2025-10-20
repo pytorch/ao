@@ -45,9 +45,12 @@ def _parse_version(version_string):
 
 
 skip_loading_so_files = False
-if bool(os.getenv("TORCHAO_SKIP_LOADING_SO_FILES", False)):
+force_skip_loading_so_files = (
+    os.getenv("TORCHAO_FORCE_SKIP_LOADING_SO_FILES", "0") == "1"
+)
+if force_skip_loading_so_files:
     # user override
-    # users can set env var TORCH_INCOMPATIBLE=1 to skip loading .so files
+    # users can set env var TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1 to skip loading .so files
     # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
     skip_loading_so_files = True
 # if torchao version has "+git", assume it's locally built and we don't know
@@ -83,10 +86,15 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
 
 
 if skip_loading_so_files:
-    logger.warning(
-        f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__} \
-        Please see GitHub issue #2919 for more info"
-    )
+    if force_skip_loading_so_files:
+        logger.warning(
+            "Skipping import of cpp extensions due to TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1"
+        )
+    else:
+        logger.warning(
+            f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__} \
+            Please see https://github.com/pytorch/ao/issues/2919 for more info"
+        )
 else:
     try:
         from pathlib import Path

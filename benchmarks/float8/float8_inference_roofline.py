@@ -38,6 +38,14 @@ from utils import (
 )
 
 import torchao
+from torchao.prototype.mx_formats.config import (
+    MXGemmKernelChoice,
+)
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXFPInferenceConfig,
+    NVFP4InferenceConfig,
+    NVFP4MMConfig,
+)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     PerRow,
@@ -52,7 +60,7 @@ from torchao.utils import is_MI300
 
 
 @torch.no_grad()
-def get_gpu_kernel_time(m, x):
+def get_gpu_kernel_time(m, x, trace_filename=None):
     # warm up
     for _ in range(2):
         __ = m(x)
@@ -64,6 +72,12 @@ def get_gpu_kernel_time(m, x):
         for _ in range(n_iter):
             __ = m(x)
             torch.cuda.synchronize()
+
+    # save a trace, if requested
+    if trace_filename is not None:
+        print(f"exporting trace to {trace_filename}")
+        prof.export_chrome_trace(trace_filename)
+
     # get the gpu kernel time and aggregate it
     num_leaf_tensors = 1 + len(list(m.parameters()))
     ref_times = profiler_output_to_filtered_time_by_kernel_name(
@@ -80,40 +94,67 @@ def get_gemm_times(
     fast_accum: bool,
     recipe_name: Optional[str],
 ):
-    assert recipe_name in {"rowwise"}, (
-        "Only support real benchmarks for 'rowwise' recipe for now"
-    )
     device = torch.device("cuda")
 
     # bf16 time
     x_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=device)
-    # w_bf16 = torch.randn(K, N, dtype=torch.bfloat16, device=device).t().contiguous().t()
     w_bf16 = torch.randn(K, N, dtype=torch.bfloat16, device=device)
 
     bf16_time_s = get_gpu_kernel_gemm_time_s(torch.mm, x_bf16, w_bf16)
 
-    e4m3_dtype = torch.float8_e4m3fn
-    if torch.version.hip and torch.cuda.is_available() and is_MI300():
-        e4m3_dtype = torch.float8_e4m3fnuz
-    d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
-    A = torch.randint(0, 255, (M, K), device=device, dtype=torch.uint8).view(d1)
-    B = (
-        torch.randint(0, 255, (K, N), device=device, dtype=torch.uint8)
-        .view(d2)
-        .t()
-        .contiguous()
-        .t()
-    )
+    if recipe_name in ("mxfp4_cutlass", "nvfp4"):
+        d1, d2, d3 = torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2, torch.bfloat16
+        A = torch.randint(0, 255, (M, K // 2), device=device, dtype=torch.uint8).view(
+            d1
+        )
+        B = (
+            torch.randint(0, 255, (K // 2, N), device=device, dtype=torch.uint8)
+            .t()
+            .contiguous()
+            .t()
+            .view(d2)
+        )
+    else:
+        e4m3_dtype = torch.float8_e4m3fn
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            e4m3_dtype = torch.float8_e4m3fnuz
+        d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
+        A = torch.randint(0, 255, (M, K), device=device, dtype=torch.uint8).view(d1)
+        B = (
+            torch.randint(0, 255, (K, N), device=device, dtype=torch.uint8)
+            .view(d2)
+            .t()
+            .contiguous()
+            .t()
+        )
+
     if recipe_name == "rowwise":
         scale_a = torch.ones(M, 1, device=device)
         scale_b = torch.ones(1, N, device=device)
+    elif recipe_name == "mxfp8_cublas":
+        scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+        scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+    elif recipe_name == "mxfp4_cutlass":
+        scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+        scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+    elif recipe_name == "nvfp4":
+        scale_a = torch.ones(M, K // 16, device=device, dtype=torch.float8_e4m3fn)
+        scale_b = torch.ones(N, K // 16, device=device, dtype=torch.float8_e4m3fn)
+
     else:
         assert False, "unsupported"
 
     def do_matmul(A, B):
-        return torch._scaled_mm(
-            A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
-        )
+        if recipe_name == "mxfp4_cutlass":
+            return torchao.ops.mx_fp4_bf16(A, B, scale_a, scale_b)
+        if recipe_name == "nvfp4":
+            return torch._scaled_mm(
+                A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=False
+            )
+        else:
+            return torch._scaled_mm(
+                A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
+            )
 
     f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
 
@@ -126,6 +167,7 @@ def run(
     do_benchmarks: bool = True,
     shape_gen_name: str = "pow2",
     n_limit: Optional[int] = None,
+    save_profile_traces: bool = False,
 ):
     """
     Args:
@@ -133,6 +175,7 @@ def run(
     * `do_benchmarks`: if True, gemm and e2e fwd+bwd of LNLinearSigmoid are benchmarked
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
+    # `save_profile_traces (optional)`: if True, saves profiling traces
     """
     config_table = [
         ["GPU", torch.cuda.get_device_name(0)],
@@ -254,22 +297,51 @@ def run(
             # get the bf16 gpu kernel time
             torch._dynamo.reset()
             m_bf16 = torch.compile(copy.deepcopy(m_orig))
-            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x)
+
+            bf16_trace_filename = None
+            if save_profile_traces:
+                bf16_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
+            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x, bf16_trace_filename)
 
             # get the float8 dynamic scaling gpu kernel time
             torch._dynamo.reset()
 
-            config = Float8DynamicActivationFloat8WeightConfig(
-                granularity=PerRow(),
-                # for now, use TORCH. In the future might be interesting
-                # to benchmark AUTO and FBGEMM.
-                kernel_preference=KernelPreference.TORCH,
-            )
+            if recipe_name == "rowwise":
+                config = Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                    # for now, use TORCH. In the future might be interesting
+                    # to benchmark AUTO and FBGEMM.
+                    kernel_preference=KernelPreference.TORCH,
+                )
+            elif recipe_name == "mxfp8_cublas":
+                config = MXFPInferenceConfig(
+                    activation_dtype=torch.float8_e4m3fn,
+                    weight_dtype=torch.float8_e4m3fn,
+                    gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                )
+            elif recipe_name == "mxfp4_cutlass":
+                config = MXFPInferenceConfig(
+                    activation_dtype=torch.float4_e2m1fn_x2,
+                    weight_dtype=torch.float4_e2m1fn_x2,
+                    gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+                )
+            elif recipe_name == "nvfp4":
+                config = NVFP4InferenceConfig(
+                    mm_config=NVFP4MMConfig.DYNAMIC,
+                    use_dynamic_per_tensor_scale=False,
+                )
+            else:
+                assert False, "unsupported"
+
             m_fp8_dyn = copy.deepcopy(m_orig)
             quantize_(m_fp8_dyn, config)
 
             m_fp8_dyn = torch.compile(m_fp8_dyn)
-            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x)
+
+            fp8_trace_filename = None
+            if save_profile_traces:
+                fp8_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
+            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, fp8_trace_filename)
 
         r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
 
