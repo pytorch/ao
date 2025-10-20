@@ -261,7 +261,7 @@ def _(func, types, args, kwargs):
     )
 
     act_quant_kwargs = weight_tensor.act_quant_kwargs
-    # quantizing activation, if `act_quant_kwargs` is specified
+    # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
         input_tensor = _choose_quant_func_and_quantize_tensor(
             input_tensor, act_quant_kwargs
@@ -416,6 +416,54 @@ def _(func, types, args, kwargs):
         )
 
     return res
+
+
+@implements(aten.convolution.default)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        transposed,
+        output_padding,
+        groups,
+    ) = args
+    assert isinstance(weight_tensor, Float8Tensor), (
+        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
+    )
+
+    assert input_tensor.dim() == 5 and weight_tensor.dim() == 5, (
+        "Only support 3D conv currently"
+    )
+    assert not transposed, "transposed conv is not supported currently"
+    assert tuple(output_padding) == (0, 0, 0), (
+        f"Only (0, 0, 0) is supported for `output_padding`, got: f{output_padding}"
+    )
+    assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
+    assert _is_fbgemm_gpu_genai_available(), (
+        "quantized fp8 conv3d requires fbgemm_gpu_genai to be available"
+    )
+    act_quant_kwargs = weight_tensor.act_quant_kwargs
+    # quantize activation, if `act_quant_kwargs` is specified
+    if act_quant_kwargs is not None:
+        input_tensor = _choose_quant_func_and_quantize_tensor(
+            input_tensor, act_quant_kwargs
+        )
+
+    act_scale = input_tensor.scale
+    weight_scale = weight_tensor.scale
+    output = torch.ops.fbgemm.f8f8bf16_conv(
+        input_tensor.qdata,
+        weight_tensor.qdata,
+        act_scale * weight_scale,
+        padding,
+        stride,
+        dilation,
+    )
+    return output
 
 
 @implements(aten.slice.Tensor)
