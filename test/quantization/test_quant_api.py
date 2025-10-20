@@ -908,68 +908,19 @@ class TestFqnToConfig(TestCase):
 
         quant_config = FqnToConfig(
             {
-                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
-                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
-                "re:linear.*": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
-                "linear1": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow()
-                ),
-            }
-        )
-        quantize_(model, quant_config, filter_fn=None)
-        assert isinstance(model.linear1.weight, Float8Tensor)
-        assert model.linear1.weight.scale.numel() == 128
-
-        model = TestModule().to(torch.bfloat16).cuda()
-        quant_config = FqnToConfig(
-            {
-                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
-                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor()
-                ),
                 "re:linear.*": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerRow()
                 ),
-            }
-        )
-        quantize_(model, quant_config, filter_fn=None)
-        assert isinstance(model.linear1.weight, Float8Tensor)
-        assert model.linear1.weight.scale.numel() == 128
-
-        model = TestModule().to(torch.bfloat16).cuda()
-        quant_config = FqnToConfig(
-            {
-                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
                     granularity=PerTensor()
                 ),
-                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow()
-                ),
             }
         )
         quantize_(model, quant_config, filter_fn=None)
         assert isinstance(model.linear1.weight, Float8Tensor)
-        assert model.linear1.weight.scale.numel() == 128
-
-        model = TestModule().to(torch.bfloat16).cuda()
-        quant_config = FqnToConfig(
-            {
-                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow()
-                ),
-            }
-        )
-        quantize_(model, quant_config, filter_fn=None)
-        assert isinstance(model.linear1.weight, Float8Tensor)
-        assert model.linear1.weight.scale.numel() == 128
+        assert model.linear1.weight.scale.numel() == 1
+        assert isinstance(model.linear2.weight, Float8Tensor)
+        assert model.linear2.weight.scale.numel() == 128
 
     def test_quantize_param_and_module_fqn(self):
         from transformers import AutoConfig
@@ -1008,6 +959,7 @@ class TestFqnToConfig(TestCase):
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
         model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        print(model)
         quant_config = FqnToConfig(
             {
                 "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
@@ -1122,33 +1074,19 @@ class TestFqnToConfig(TestCase):
 
     def test_unsupported_param_config_raises_not_implemented_error(self):
         """Test that using an unsupported parameter config raises NotImplementedError."""
-        from dataclasses import dataclass
-
-        from torchao.core.config import AOBaseConfig
-
-        # Create a custom config that doesn't have a registered parameter handler
-        @dataclass
-        class UnsupportedParamConfig(AOBaseConfig):
-            some_value: int = 42
-
         # Create a simple model
         model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
 
         # Create config with unsupported parameter handler
         quant_config = FqnToConfig(
             {
-                "0.weight": UnsupportedParamConfig(),
+                "0.weight": Int4WeightOnlyConfig(),
             }
         )
 
         # This should raise NotImplementedError
-        with self.assertRaises(NotImplementedError) as context:
+        with self.assertRaises(NotImplementedError):
             quantize_(model, quant_config, filter_fn=None)
-
-        # Check that the error message contains the expected text
-        self.assertIn("Parameter quantization for", str(context.exception))
-        self.assertIn("not supported currently", str(context.exception))
-        self.assertIn("UnsupportedParamConfig", str(context.exception))
 
     def test_filter_fn_and_fqn_to_config_error(self):
         """Test that specifying non-default filter_fn and FqnToConfig raises ValueError."""

@@ -2414,10 +2414,10 @@ class FqnToConfig(AOBaseConfig):
 
          Config key ordered by precedence:
            * fully qualified module name, e.g. `language.layers.0.q_proj`
+           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
              whichever regex fully matches the module fqn first will be applied
              (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
            * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
              The first regex that matches will be applied.
            * "_default", fallback if no match for all previous keys
@@ -2480,41 +2480,70 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     Raises:
         NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.
     """
-    # First we see if our module fqn matches with FqnToConfig, if so, we apply the appropriate transform
-    config_contains_match, c = _get_config_for_fqn(fqn, config)
-    if config_contains_match:
-        # special case to handle None in config
-        if c is not None:
-            handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-            return handler(module, c)
-        else:
-            return module
-
-    # If no config is found, we see if any of our top-level parameter FQNs matches with FqnToConfig
+    top_level_params = []
     for parameter_name, param in list(module.named_parameters()):
         if parameter_name in dir(module):
-            parameter_fqn = f"{fqn}.{parameter_name}" if fqn != "" else parameter_name
-            config_contains_match, c = _get_config_for_fqn(parameter_fqn, config)
-            if config_contains_match:
-                if c is not None:
-                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
-                        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                        return handler(module, c, parameter_name=parameter_name)
-                    else:
-                        raise NotImplementedError(
-                            f"Parameter quantization for {type(c)} not supported currently!"
-                        )
-                else:
-                    return module
+            parameter_fqn = (
+                f"{fqn}.{parameter_name}" if fqn is not None else parameter_name
+            )
+            top_level_params.append((parameter_name, param, parameter_fqn))
+
+    config_found = False
+    c = None
+    c_parameter_name = None
+    # First we see if our module fqn matches with FqnToConfig, if so, we apply the appropriate transform
+    if fqn in config.fqn_to_config:
+        c = config.fqn_to_config[fqn]
+        config_found = True
+
+    # then we see if we match parameters
+    if not config_found:
+        for parameter_name, param, parameter_fqn in top_level_params:
+            if parameter_fqn in config.fqn_to_config:
+                c = config.fqn_to_config[parameter_fqn]
+                config_found = True
+                c_parameter_name = parameter_name
+
+    # try to match regex on fqn
+    if not config_found:
+        for pattern in config.fqn_to_config:
+            if not pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(pattern[3:], fqn):
+                # we'll apply the config for first fully matched pattern
+                c = config.fqn_to_config[pattern]
+                config_found = True
+                break
+
+    # try to match regex on parameters
+    if not config_found:
+        for parameter_name, param, parameter_fqn in top_level_params:
+            for pattern in config.fqn_to_config:
+                if not pattern.startswith("re:"):
+                    continue
+                # we'll apply the config for first fully matched pattern
+                elif re.fullmatch(pattern[3:], parameter_fqn):
+                    c = config.fqn_to_config[pattern]
+                    config_found = True
+                    c_parameter_name = parameter_name
+                    break
 
     # If no module_fqn or parameter_fqn matches, then we apply _default
-    c = config.fqn_to_config.get("_default", None)
+    if not config_found:
+        c = config.fqn_to_config.get("_default", None)
+
+    # handle replacement
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-        return handler(module, c)
-
-    # Else return unmodified module
-    return module
+        if c_parameter_name is not None:
+            if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                return handler(module, c, parameter_name=c_parameter_name)
+            else:
+                raise NotImplementedError("Not implemented")
+        else:
+            return handler(module, c)
+    else:
+        return module
 
 
 def _get_config_for_fqn(fqn: str, config: FqnToConfig):
@@ -2529,22 +2558,6 @@ def _get_config_for_fqn(fqn: str, config: FqnToConfig):
                           Otherwise we will return the config of the first matching regex pattern in FqnToConfig.
     """
     found, c = False, None
-    if fqn in config.fqn_to_config:
-        assert not fqn.startswith("re:"), (
-            f"Error: Exact match but regex {fqn} specified."
-        )
-        # Maybe: we can add module type specific config in the future, if needed
-        c = config.fqn_to_config[fqn]
-        found = True
-    else:
-        for maybe_module_or_param_fqn_pattern in config.fqn_to_config:
-            if not maybe_module_or_param_fqn_pattern.startswith("re:"):
-                continue
-            elif re.fullmatch(maybe_module_or_param_fqn_pattern[3:], fqn):
-                # we'll apply the config for first fully matched pattern
-                c = config.fqn_to_config[maybe_module_or_param_fqn_pattern]
-                found = True
-                break
     return found, c
 
 
@@ -2570,11 +2583,20 @@ def _filter_fn_and_param_in_fqn_config(
             return False
 
     # filter_fn must be True
-    config_contains_fqn, _ = _get_config_for_fqn(fqn, config)
-    if config_contains_fqn or (
-        "_default" in config.fqn_to_config and _is_linear(module, fqn)
-    ):
+    if fqn in config.fqn_to_config:
+        assert not fqn.startswith("re:"), (
+            f"Error: Exact match but regex {fqn} specified."
+        )
         return True
+    else:
+        for maybe_module_or_param_fqn_pattern in config.fqn_to_config:
+            if not maybe_module_or_param_fqn_pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(maybe_module_or_param_fqn_pattern[3:], fqn):
+                return True
+    if "_default" in config.fqn_to_config and _is_linear(module, fqn):
+        return True
+
     for name, param in module.named_parameters():
         if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
             parameter_fqn = f"{fqn}.{name}" if fqn != "" else name
