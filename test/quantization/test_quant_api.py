@@ -421,7 +421,6 @@ class TestQuantFlow(TestCase):
         ref = m_copy(*example_inputs)
         self.assertTrue(torch.equal(res, ref))
 
-
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load(self):
         m = ToyTwoLinearModel(
