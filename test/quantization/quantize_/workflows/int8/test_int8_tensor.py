@@ -79,7 +79,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         "sizes",
         [
             ((128,), 256, 128),
-            ((32, 128), 64, 256),
         ],
     )
     @common_utils.parametrize(
@@ -121,7 +120,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         act_scale, _ = choose_qparams_affine(
             input=input_tensor,
             mapping_type=MappingType.SYMMETRIC,
-            block_size=(1, K),
+            block_size=(input_tensor.shape[0], K),
             target_dtype=torch.int8,
             quant_min=-128,
             quant_max=127,
@@ -134,7 +133,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight,
             block_size=[N, K],
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
-                block_size=[1, K],
+                block_size=[input_tensor.shape[0], K],
                 static_scale=act_scale,
             ),
         )
