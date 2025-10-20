@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
 from dataclasses import dataclass
 
 import torch
@@ -158,6 +159,9 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         group_size: int,
         num_bits: int,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
+        )
         self.int_data = int_data
         self.scale_and_zero = None
         self.scale = scale

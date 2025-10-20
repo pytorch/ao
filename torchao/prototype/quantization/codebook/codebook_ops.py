@@ -198,8 +198,8 @@ def choose_qparams_codebook(
             dim=(-1), keepdim=True
         ).values  # Shape: [*input_size[:-1], num_scale_blocks, 1]
     else:
-        scales = input.norm(
-            dim=(-1), keepdim=True
+        scales = torch.linalg.vector_norm(
+            input, dim=-1, keepdim=True
         )  # Shape: [*input_size[:-1], num_scale_blocks, 1]
     scales = torch.clamp(scales, min=1e-9)
 
@@ -228,12 +228,14 @@ def _kmeans_greedy_init(data: torch.Tensor, k: int) -> torch.Tensor:
     running_min_distances = torch.full(
         (data.shape[0],), torch.inf, device=data.device, dtype=data.dtype
     )
-    data_norm_squared = data.norm(p=2, dim=1).square()
+    data_norm_squared = torch.linalg.vector_norm(data, dim=1).square()
 
     for i in range(k):
         clusters[i] = data[running_min_distances.argmax()]
         distances_to_cluster_i = (
-            data_norm_squared - 2 * data @ clusters[i] + clusters[i].norm().square()
+            data_norm_squared
+            - 2 * data @ clusters[i]
+            + torch.linalg.vector_norm(clusters[i]).square()
         )
         running_min_distances = torch.minimum(
             running_min_distances, distances_to_cluster_i, out=running_min_distances

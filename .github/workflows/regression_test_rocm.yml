@@ -21,11 +21,11 @@ jobs:
       matrix:
         include:
           - name: ROCM Nightly
-            runs-on: linux.rocm.gpu.gfx942.2
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
+            runs-on: linux.rocm.gpu.gfx942.1
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm7.0'
             gpu-arch-type: "rocm"
-            gpu-arch-version: "6.3"
-            docker-image: pytorch/manylinux2_28-builder:rocm6.3
+            gpu-arch-version: "7.0"
+            docker-image: pytorch/manylinux2_28-builder:rocm7.0
 
     permissions:
       id-token: write
@@ -40,7 +40,7 @@ jobs:
       docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.9 -y
+        conda create -n venv python=3.10 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

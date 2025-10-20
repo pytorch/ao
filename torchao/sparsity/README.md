@@ -53,11 +53,10 @@ Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regress
 
 ```py
 from torchao.quantization.quant_api import quantize_, Int4WeightOnlyConfig
-from torchao.dtypes import MarlinSparseLayout
 
 # Your FP16 model
 model = model.cuda().half()
-quantize_(model, Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1))
+quantize_(model, Int4WeightOnlyConfig(int4_packing_format="marlin_sparse"))
 ```
 
 Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop

@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+from typing import List
 
 import torch
 from huggingface_hub import ModelCard, get_token, whoami
@@ -14,9 +15,11 @@ from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
     AWQConfig,
 )
+from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
@@ -35,7 +38,7 @@ def _get_username():
 
 def _untie_weights_and_save_locally(model_id):
     untied_model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="auto"
+        model_id, torch_dtype="auto", device_map="cuda:0"
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -206,9 +209,9 @@ Nothing contained in this Model Card should be interpreted as or deemed a restri
 
 _int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig
-quant_config = Int4WeightOnlyConfig(group_size=128, packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq", version=2)
+quant_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -216,7 +219,7 @@ _fp8_quant_code = """
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -230,18 +233,75 @@ from torchao.quantization.granularity import PerGroup, PerAxis
 embedding_config = IntxWeightOnlyConfig(
     weight_dtype=torch.int8,
     granularity=PerAxis(0),
-    version=2,
 )
 linear_config = Int8DynamicActivationIntxWeightConfig(
     weight_dtype=torch.int4,
     weight_granularity=PerGroup(32),
-    version=2,
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="auto", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
+
+_int8_int4_hqq_quant_code = """
+from torchao.quantization.quant_api import (
+    IntxWeightOnlyConfig,
+    Int8DynamicActivationIntxWeightConfig,
+    ModuleFqnToConfig,
+)
+from torchao.quantization.granularity import PerGroup, PerAxis
+embedding_config = IntxWeightOnlyConfig(
+    weight_dtype=torch.int8,
+    granularity=PerAxis(0),
+    intx_choose_qparams_algorithm="hqq_scale_only",
+)
+linear_config = Int8DynamicActivationIntxWeightConfig(
+    weight_dtype=torch.int4,
+    weight_granularity=PerGroup(32),
+    intx_choose_qparams_algorithm="hqq_scale_only",
+)
+quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
+quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+"""
+
+
+_smoothquant_int8_int8_quant_code = """
+from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+from torchao.prototype.smoothquant import SmoothQuantConfig
+
+from torchao._models._eval import TransformerEvalWrapper
+model = AutoModelForCausalLM.from_pretrained(
+    model_to_quantize,
+    device_map="auto",
+    torch_dtype=torch.bfloat16,
+)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+base_config = Int8DynamicActivationInt8WeightConfig()
+quant_config = SmoothQuantConfig(base_config, step="prepare")
+quantize_(
+    model,
+    quant_config,
+)
+TransformerEvalWrapper(
+    model=model,
+    tokenizer=tokenizer,
+    max_seq_length=max_seq_length,
+).run_eval(
+    tasks=tasks,
+    limit=calibration_limit,
+)
+quant_config = SmoothQuantConfig(base_config, step="convert")
+quantize_(model, quant_config)
+
+quantized_model = model
+quant_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+"""
+
 
 _awq_int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
@@ -251,12 +311,12 @@ from torchao.prototype.awq import (
 from torchao._models._eval import TransformerEvalWrapper
 model = AutoModelForCausalLM.from_pretrained(
     model_to_quantize,
-    device_map="auto",
+    device_map="cuda:0",
     torch_dtype=torch.bfloat16,
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-base_config = Int4WeightOnlyConfig(group_size=128, version=2)
+base_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
 quant_config = AWQConfig(base_config, step="prepare")
 quantize_(
     model,
@@ -334,7 +394,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     torch_dtype="auto",
-    device_map="auto"
+    device_map="cuda:0"
 )
 
 # prepare the model input
@@ -395,7 +455,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 # use "{base_model}" or "{quantized_model}"
 model_id = "{quantized_model}"
-quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda:0", torch_dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 torch.cuda.reset_peak_memory_stats()
@@ -439,7 +499,8 @@ _server_model_performance = """
 | Benchmark (Latency)              |                |                          |
 |----------------------------------|----------------|--------------------------|
 |                                  | {base_model}   | {quantized_model}        |
-| latency (batch_size=1)           | ?s          | ?s (?x speedup)    |
+| latency (batch_size=1)           | ?s             | ?s (?x speedup)          |
+| latency (batch_size=256)         | ?s             | ?s (?x speedup)          |
 
 <details>
 <summary> Reproduce Model Performance Results </summary>
@@ -471,48 +532,6 @@ python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model 
 export MODEL={quantized_model}
 VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model $MODEL --batch-size 1
 ```
-
-## benchmark_serving
-
-We benchmarked the throughput in a serving environment.
-
-Download sharegpt dataset:
-
-```Shell
-wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
-```
-
-
-
-Other datasets can be found in: https://github.com/vllm-project/vllm/tree/main/benchmarks
-
-Note: you can change the number of prompts to be benchmarked with `--num-prompts` argument for `benchmark_serving` script.
-
-### baseline
-Server:
-```Shell
-export MODEL={base_model}
-vllm serve $MODEL --tokenizer $MODEL -O3
-```
-
-Client:
-```Shell
-export MODEL={base_model}
-python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer $MODEL --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model $MODEL --num-prompts 1
-```
-
-### {quant}
-Server:
-```Shell
-export MODEL={quantized_model}
-VLLM_DISABLE_COMPILE_CACHE=1 vllm serve $MODEL --tokenizer $MODEL -O3 --pt-load-map-location cuda:0
-```
-
-Client:
-```Shell
-export MODEL={quantized_model}
-python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer $MODEL --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model $MODEL --num-prompts 1
-```
 </details>
 """
 
@@ -539,7 +558,7 @@ from transformers import (
 import torch
 
 model_id = "{base_model}"
-untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
+untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 print(untied_model)
@@ -585,76 +604,102 @@ We can run the quantized model on a mobile phone using [ExecuTorch](https://gith
 Once ExecuTorch is [set-up](https://pytorch.org/executorch/main/getting-started.html), exporting and running the model on device is a breeze.
 
 ExecuTorch's LLM export scripts require the checkpoint keys and parameters have certain names, which differ from those used in Hugging Face.
-So we first use a conversion script that converts the Hugging Face checkpoint key names to ones that ExecuTorch expects:
+So we first use a script that converts the Hugging Face checkpoint key names to ones that ExecuTorch expects:
+The following script does this for you.
 
 [TODO: fix command below where necessary]
 ```Shell
 python -m executorch.examples.models.qwen3.convert_weights $(hf download {quantized_model}) pytorch_model_converted.bin
 ```
 
-Once we have the checkpoint, we export it to ExecuTorch with the XNNPACK backend as follows.
-(ExecuTorch LLM export script requires config.json have certain key names.  The correct config to use for the LLM export script is located at [TODO: fill in, e.g., examples/models/qwen3/config/4b_config.json] within the ExecuTorch repo.)
+Once we have the checkpoint, we export it to ExecuTorch with a max_seq_length/max_context_length of 1024 to the XNNPACK backend as follows.
+
+[TODO: fix config path in note where necessary]
+(Note: ExecuTorch LLM export script requires config.json have certain key names. The correct config to use for the LLM export script is located at examples/models/qwen3/config/4b_config.json within the ExecuTorch repo.)
 
 [TODO: fix command below where necessary]
 ```Shell
 python -m executorch.examples.models.llama.export_llama \
-    --model "qwen3_4b" \
-	--checkpoint pytorch_model_converted.bin \
-	--params examples/models/qwen3/config/4b_config.json \
-	--output_name="model.pte" \
-	-kv \
-	--use_sdpa_with_kv_cache \
-	-X \
-	--xnnpack-extended-ops \
-	--max_context_length 1024 \
-	--max_seq_length 1024 \
-	--dtype fp32 \
-	--metadata '{{"get_bos_id":199999, "get_eos_ids":[200020,199999]}}'
+  --model "qwen3_4b" \
+  --checkpoint pytorch_model_converted.bin \
+  --params examples/models/qwen3/config/4b_config.json \
+  --output_name model.pte \
+  -kv \
+  --use_sdpa_with_kv_cache \
+  -X \
+  --xnnpack-extended-ops \
+  --max_context_length 1024 \
+  --max_seq_length 1024 \
+  --dtype fp32 \
+  --metadata '{{"get_bos_id":199999, "get_eos_ids":[200020,199999]}}'
 ```
 
 After that you can run the model in a mobile app (see [Running in a mobile app](#running-in-a-mobile-app)).
+
+(We try to keep these instructions up-to-date, but if you find they do not work, check out our [CI test in ExecuTorch](https://github.com/pytorch/executorch/blob/main/.ci/scripts/test_torchao_huggingface_checkpoints.sh) for the latest source of truth, and let us know we need to update our model card.)
 """
 
 
 def quantize_and_upload(
-    model_id, quant, tasks, calibration_limit, max_seq_length, push_to_hub
+    model_id: str,
+    quant: str,
+    tasks: List[str],
+    calibration_limit: int,
+    max_seq_length: int,
+    push_to_hub: bool,
+    push_to_user_id: str,
+    populate_model_card_template: bool,
 ):
-    _int8_int4_linear_config = Int8DynamicActivationIntxWeightConfig(
-        weight_dtype=torch.int4,
-        weight_granularity=PerGroup(32),
-        version=2,
-    )
-    _int8_int4_embedding_config = IntxWeightOnlyConfig(
-        weight_dtype=torch.int8,
-        granularity=PerAxis(0),
-        version=2,
-    )
+    is_mobile = quant in ["INT8-INT4", "INT8-INT4-HQQ"]
+
     quant_to_config = {
         "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
         "INT4": Int4WeightOnlyConfig(
             group_size=128,
-            packing_format="tile_packed_to_4d",
+            int4_packing_format="tile_packed_to_4d",
             int4_choose_qparams_algorithm="hqq",
-            version=2,
         ),
         "INT8-INT4": ModuleFqnToConfig(
             {
-                "_default": _int8_int4_linear_config,
-                "model.embed_tokens": _int8_int4_embedding_config,
+                "_default": Int8DynamicActivationIntxWeightConfig(
+                    weight_dtype=torch.int4,
+                    weight_granularity=PerGroup(32),
+                ),
+                "model.embed_tokens": IntxWeightOnlyConfig(
+                    weight_dtype=torch.int8,
+                    granularity=PerAxis(0),
+                ),
             }
         ),
+        "INT8-INT4-HQQ": ModuleFqnToConfig(
+            {
+                "_default": Int8DynamicActivationIntxWeightConfig(
+                    weight_dtype=torch.int4,
+                    weight_granularity=PerGroup(32),
+                    intx_choose_qparams_algorithm="hqq_scale_only",
+                ),
+                "model.embed_tokens": IntxWeightOnlyConfig(
+                    weight_dtype=torch.int8,
+                    granularity=PerAxis(0),
+                    intx_choose_qparams_algorithm="hqq_scale_only",
+                ),
+            }
+        ),
+        "SmoothQuant-INT8-INT8": Int8DynamicActivationInt8WeightConfig(),
     }
 
     quant_to_quant_code = {
         "FP8": _fp8_quant_code,
         "INT4": _int4_quant_code,
         "INT8-INT4": _int8_int4_quant_code,
+        "INT8-INT4-HQQ": _int8_int4_hqq_quant_code,
         "AWQ-INT4": _awq_int4_quant_code,
+        "SmoothQuant-INT8-INT8": _smoothquant_int8_int8_quant_code,
     }
 
     # preparation
     model_to_quantize = model_id
-    if quant == "INT8-INT4":
+    if is_mobile:
         model_to_quantize = _untie_weights_and_save_locally(model_to_quantize)
 
     # quantization
@@ -664,12 +709,16 @@ def quantize_and_upload(
         assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
-            device_map="auto",
+            device_map="cuda:0",
             torch_dtype=torch.bfloat16,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        base_config = Int4WeightOnlyConfig(group_size=128, version=2)
+        base_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+        )
         quant_config = AWQConfig(base_config, step="prepare")
         quantize_(
             model,
@@ -689,13 +738,42 @@ def quantize_and_upload(
         quantized_model = model
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
         quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+    elif quant == "SmoothQuant-INT8-INT8":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_to_quantize,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        base_config = Int8DynamicActivationInt8WeightConfig()
+        quant_config = SmoothQuantConfig(base_config, step="prepare")
+        quantize_(
+            model,
+            quant_config,
+        )
+        TransformerEvalWrapper(
+            model=model,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        ).run_eval(
+            tasks=tasks,
+            limit=calibration_limit,
+        )
+        quant_config = SmoothQuantConfig(base_config, step="convert")
+        quantize_(model, quant_config)
+
+        quantized_model = model
+
+        load_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+        quantized_model.config.quantization_config = TorchAoConfig(load_config)
     else:
         # other quantization are integrated with `from_pretrained` in huggingface transformers
         assert quant in quant_to_config, f"Unsupported quant option: {quant}"
         quant_config = quant_to_config[quant]
 
         torchao_config_kwargs = {}
-        if "INT8-INT4" in quant:
+        if is_mobile:
             torchao_config_kwargs["modules_to_not_convert"] = []
             torchao_config_kwargs["include_input_output_embeddings"] = True
 
@@ -704,7 +782,7 @@ def quantize_and_upload(
         )
         quantized_model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
-            device_map="auto",
+            device_map="cuda:0",
             torch_dtype=torch.bfloat16,
             quantization_config=quantization_config,
         )
@@ -713,9 +791,10 @@ def quantize_and_upload(
     username = _get_username()
 
     MODEL_NAME = model_id.split("/")[-1]
-    save_to = f"{username}/{MODEL_NAME}-{quant}"
+
+    save_to_user_id = username if push_to_user_id is None else push_to_user_id
+    save_to = f"{save_to_user_id}/{MODEL_NAME}-{quant}"
     untied_model_path = 'f"{{MODEL_NAME}}-untied-weights"'
-    is_mobile = quant == "INT8-INT4"
     quantized_model_id = save_to
     # model card
     content = MODEL_CARD.format(
@@ -759,7 +838,8 @@ def quantize_and_upload(
     if push_to_hub:
         quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
         tokenizer.push_to_hub(quantized_model_id)
-        card.push_to_hub(quantized_model_id)
+        if populate_model_card_template:
+            card.push_to_hub(quantized_model_id)
     else:
         quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
         tokenizer.save_pretrained(quantized_model_id)
@@ -801,7 +881,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quant",
         type=str,
-        help="Quantization method. Options are FP8, INT4, INT8-INT4, AWQ-INT4",
+        help="Quantization method. Options are FP8, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4, SmoothQuant-INT8-INT8",
     )
     parser.add_argument(
         "--tasks",
@@ -813,8 +893,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--calibration_limit",
         type=int,
-        default=10,
-        help="Number of samples to use for calibration. Default is 10.",
+        default=128,
+        help="Number of samples to use for calibration. Default is 128.",
     )
     parser.add_argument(
         "--max_seq_length",
@@ -828,6 +908,18 @@ if __name__ == "__main__":
         default=False,
         help="Flag to indicate whether push to huggingface hub or not",
     )
+    parser.add_argument(
+        "--push_to_user_id",
+        type=str,
+        default=None,
+        help="The user_id to use for pushing the quantized model, only used when --push_to_hub is set",
+    )
+    parser.add_argument(
+        "--populate_model_card_template",
+        action="store_true",
+        default=False,
+        help="Flag to indicate whether push model card to huggingface hub or not",
+    )
     args = parser.parse_args()
     quantize_and_upload(
         args.model_id,
@@ -836,4 +928,6 @@ if __name__ == "__main__":
         args.calibration_limit,
         args.max_seq_length,
         args.push_to_hub,
+        args.push_to_user_id,
+        args.populate_model_card_template,
     )

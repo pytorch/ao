@@ -22,9 +22,9 @@ from torchao._models.utils import (
 from torchao.dtypes import SemiSparseLayout
 from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.quantization import (
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     autoquant,
-    int4_weight_only,
-    int8_dynamic_activation_int8_weight,
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
@@ -362,7 +362,9 @@ def run(
         return isinstance(mod, torch.nn.Linear) and "mlp" in name
 
     if compress == "int8_dynamic_quant":
-        quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
+        quantize_(
+            predictor.model.image_encoder, Int8DynamicActivationInt8WeightConfig()
+        )
     elif compress == "sparse_mlp_only":
 
         def mlp_only(mod, name):
@@ -381,12 +383,12 @@ def run(
 
         quantize_(
             predictor.model.image_encoder,
-            int8_dynamic_activation_int8_weight(),
+            Int8DynamicActivationInt8WeightConfig(),
             attn_only,
         )
         quantize_(
             predictor.model.image_encoder,
-            int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()),
+            Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
@@ -397,12 +399,12 @@ def run(
 
         quantize_(
             predictor.model.image_encoder,
-            int8_dynamic_activation_int8_weight(),
+            Int8DynamicActivationInt8WeightConfig(),
             attn_only,
         )
         quantize_(
             predictor.model.image_encoder,
-            int4_weight_only(layout=MarlinSparseLayout(), version=1),
+            Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1),
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)

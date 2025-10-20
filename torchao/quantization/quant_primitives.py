@@ -32,6 +32,7 @@ __all__ = [
     "_choose_qparams_affine_dont_preserve_zero",
     "_choose_qparams_affine_floatx",
     "_choose_qparams_and_quantize_affine_hqq",
+    "_choose_qparams_and_quantize_scale_only_hqq",
     "_choose_qparams_and_quantize_affine_qqq",
     "_choose_scale_float8",
     "_choose_qparams_gguf",
@@ -2125,6 +2126,99 @@ def _choose_qparams_and_quantize_affine_hqq(
     return W_q, scale, zero, shape
 
 
+@torch.no_grad()
+def _choose_qparams_and_quantize_scale_only_hqq(
+    hp_tensor: torch.Tensor,
+    block_size: List[int],
+    qmin: int,
+    qmax: int,
+    *,
+    iters: int = 20,
+    stochastic: bool = False,
+    early_stop_tol: float = 1e-5,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Half-Quadratic Quantization (scale-only, symmetric) for 2D weights with row-wise blocks.
+    - hp_tensor: [out, in] (bf16/fp16/fp32 accepted; promoted to fp32 internally)
+    - block_size: must be [1, group_size]; groups along the last dim
+    - qmin, qmax: integer range (e.g., -8, 7 for signed 4-bit)
+    Returns:
+      qdata: int32, same shape as hp_tensor
+      scale: hp_tensor.dtype, shape [out, in // group_size] (one scale per row-wise block)
+    """
+    # --- strict interface guarantees ---
+    assert hp_tensor.ndim == 2, "hp_tensor must be 2D [out, in]"
+    assert isinstance(block_size, (list, tuple)) and len(block_size) == 2, (
+        "block_size must be a 2-element list/tuple"
+    )
+    assert block_size[0] == 1 and block_size[1] >= 1, (
+        "block_size must be [1, group_size] with group_size >= 1"
+    )
+    assert qmin < qmax, "qmin must be < qmax"
+
+    # Promote to fp32 for stable math
+    compute_dtype = torch.float32
+    compute_eps = torch.finfo(compute_dtype).eps
+
+    n, k = hp_tensor.shape
+    group_size = int(block_size[1])
+    assert k % group_size == 0, (
+        f"in_features={k} must be divisible by group_size={group_size}"
+    )
+
+    def round_det(x: torch.Tensor) -> torch.Tensor:
+        # ties-to-even; fine for PTQ
+        return x.round()
+
+    def round_stoch(x: torch.Tensor) -> torch.Tensor:
+        # unbiased stochastic rounding
+        return torch.floor(x + torch.rand_like(x))
+
+    _r = round_stoch if stochastic else round_det
+
+    # Reshape Wg into [n, n_groups, group_size]
+    W = hp_tensor.to(compute_dtype).contiguous()
+    n_groups = k // group_size
+    Wg = W.view(n, n_groups, group_size)
+
+    # Initialize per-block scales as max-abs / qabs
+    # scale.shape = [n, n_groups]
+    qabs = max(abs(qmin), abs(qmax)) or 1
+    scale = (Wg.abs().amax(dim=2) / qabs).clamp_min(compute_eps)
+    prev_scale = scale.clone()
+
+    # Iterate HQQ updates
+    for _ in range(max(1, iters)):
+        # Quantize using current scale
+        # Qg.shape = [n, n_groups, group_size]
+        Qg = _r(Wg / scale.unsqueeze(-1)).clamp(qmin, qmax)
+
+        # Solve least-square problem min_{s} ||Wg - s * Qg||^2 and project
+        # solution onto positive space, or take previous value
+        num = (Wg * Qg).sum(dim=2, dtype=torch.float32)  # [n, n_groups]
+        den = (Qg * Qg).sum(dim=2, dtype=torch.float32)  # [n, n_groups]
+        scale = torch.where(den > 0, num / den, prev_scale)
+        scale = scale.clamp_min(
+            compute_eps
+        ).abs()  # project LS solution onto [eps, inf]
+
+        rel = ((scale - prev_scale).abs() / prev_scale.clamp_min(compute_eps)).max()
+        if rel < early_stop_tol:
+            break
+        prev_scale = scale
+
+    # Quantize using final scale
+    Qg = _r(Wg / scale.unsqueeze(-1)).clamp(qmin, qmax)
+
+    # Restore shapes
+    qdata = Qg.view(n, k).contiguous().to(torch.int32)
+
+    out_dtype = hp_tensor.dtype
+    scale = scale.to(out_dtype)
+
+    return qdata, scale
+
+
 def _choose_qparams_affine_floatx(
     tensor: torch.Tensor, ebits: int, mbits: int
 ) -> torch.Tensor:
@@ -2310,8 +2404,6 @@ def _quantize_affine_float8(
     return _RoundToFloat8.apply(tensor_clamped, float8_dtype)
 
 
-# TODO: don't register as custom op?
-@_register_custom_op(quant_lib, False)
 def _dequantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
@@ -2329,7 +2421,48 @@ def _dequantize_affine_float8(
     return hp_tensor.to(output_dtype)
 
 
-@_register_meta_op(quant_lib, "dequantize_affine_float8")
+@_register_custom_op(quant_lib, False)
+def _quantize_affine_float8_non_decomposed(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    """
+    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
+    """
+    return _quantize_affine_float8(
+        tensor=tensor,
+        scale=scale,
+        float8_dtype=float8_dtype,
+    )
+
+
+@_register_meta_op(quant_lib, "quantize_affine_float8_non_decomposed")
+def _quantize_affine_float8_meta(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    return torch.empty_like(tensor, dtype=float8_dtype)
+
+
+@_register_custom_op(quant_lib, False)
+def _dequantize_affine_float8_non_decomposed(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """
+    Dequantizes the float8 tensor to high precision tensor.
+    """
+    return _dequantize_affine_float8(
+        tensor=tensor,
+        scale=scale,
+        output_dtype=output_dtype,
+    )
+
+
+@_register_meta_op(quant_lib, "dequantize_affine_float8_non_decomposed")
 def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,

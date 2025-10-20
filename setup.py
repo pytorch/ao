@@ -16,7 +16,7 @@ from setuptools import Extension, find_packages, setup
 
 current_date = datetime.now().strftime("%Y%m%d")
 
-PY3_9_HEXCODE = "0x03090000"
+min_supported_cpython_hexcode = "0x030A0000"  # Python 3.10 hexcode
 
 
 def get_git_commit_id():
@@ -398,7 +398,7 @@ def get_extensions():
 
     extra_link_args = []
     extra_compile_args = {
-        "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
+        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"],
         "nvcc": nvcc_args if use_cuda else rocm_args,
     }
 
@@ -677,7 +677,11 @@ def get_extensions():
                     ],
                     extra_compile_args={
                         "cxx": ["-std=c++17", "-O3"],
-                        "nvcc": nvcc_args,
+                        "nvcc": nvcc_args
+                        + [
+                            "-gencode=arch=compute_100,code=sm_100",
+                            "-gencode=arch=compute_120,code=compute_120",
+                        ],
                     },
                 ),
             )
@@ -777,5 +781,5 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": TorchAOBuildExt},
-    options={"bdist_wheel": {"py_limited_api": "cp39"}},
+    options={"bdist_wheel": {"py_limited_api": "cp310"}},
 )
