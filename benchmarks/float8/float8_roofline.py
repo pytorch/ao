@@ -180,7 +180,7 @@ def get_gemm_times(
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         else:
-            assert False, "TODO add cutlass mx gemm here"
+            assert False, f"unsupported {float8_recipe_name=} {mx_recipe_name=}"
 
         def do_matmul(A, B):
             return torch._scaled_mm(
@@ -232,6 +232,20 @@ def run(
     print(f"float8_recipe_name: {float8_recipe_name}")
     print(f"mx_recipe_name: {mx_recipe_name}")
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
+
+    assert mx_recipe_name in (
+        # real mxfp8_cublas recipe
+        "mxfp8_cublas",
+        # real mxfp8_cublas_rceil recipe
+        "mxfp8_cublas_rceil",
+        # modeling of what mxfp8 with 32x32 block size and without gemm
+        # operand layout restrictions would look like
+        "mxfp8_32x32_flexible_gemm_layout",
+        # modeling of what mxfp8 with 32x32 block size for weight
+        "mxfp8_32x32_weight",
+        # real mxfp4_cutlass recipe
+        "mxfp4_cutlass",
+    ), f"unsupported {mx_recipe_name=}"
 
     M, K, N = sympy.symbols("M K N")
 
@@ -309,7 +323,11 @@ def run(
         rb_fp8_gemm_ratio = -1
 
         if do_benchmarks:
-            assert mx_recipe_name != "mxfp4_cutlass", "unsupported"
+            assert mx_recipe_name not in (
+                "mxfp4_cutlass",
+                "mxfp8_32x32_flexible_gemm_layout",
+                "mxfp8_32x32_weight",
+            ), f"do_benchmarks unsupported with {mx_recipe_name=}"
 
             # TODO(future): make the bf16 gemm times exactly match the e2e
             # benchmarks, there is a slight deviation, probably related to gemm

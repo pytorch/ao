@@ -361,7 +361,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                     getattr(self, tensor_name).copy_(getattr(src, tensor_name))
                 return
             raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+                f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
             )
 
         if func in [aten.select.int, aten.index.Tensor]:
