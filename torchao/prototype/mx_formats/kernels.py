@@ -1437,6 +1437,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         s_ptr,
         stride_xm,
         stride_xn,
+        stride_sm,
+        stride_sn,
         M,
         N,
         USE_TENSOR_SCALE: tl.constexpr,
@@ -1444,9 +1446,18 @@ if torch_version_at_least("2.7.0") and has_triton():
         ROW_TILE_SIZE: tl.constexpr,
         COL_TILE_SIZE: tl.constexpr,
     ):
+        """
+        1. single block of data is shaped [128, 64] unpacked or [128, 32] packed
+        2. corresponding single unswizzled block of scales is shaped [128, 4]
+        3. corresponding single swizzles block of scales is shaped [32, 16]
+        """
+
         F4_E2M1_MAX = 6.0
         F8E4M3_MAX = 448.0
         E4M3_EPS = 1.5258789e-05
+
+        NUM_ROW_INNER_TILES: tl.constexpr = ROW_TILE_SIZE // 128
+        NUM_COL_INNER_TILES: tl.constexpr = COL_TILE_SIZE // 64  
 
         pid_m = tl.program_id(1)
         pid_n = tl.program_id(0)
@@ -1461,7 +1472,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             other = None
         x = tl.load(
             x_ptr + offs_m * stride_xm + offs_n * stride_xn, mask=mask, other=other
-        )  # [128, 64]
+        )  # [ROW_TILE_SIZE, COL_TILE_SIZE]
         x_blocks = x.to(tl.float32).reshape(ROW_TILE_SIZE, 4, 16)  # [-1, 4, 16]
 
         # Compute block-wise scales
@@ -1503,15 +1514,27 @@ if torch_version_at_least("2.7.0") and has_triton():
                 scales,
                 0.0,
             )
-        packed_scales = scales.reshape(4, 32, 4).permute(1, 0, 2).reshape(32, 16)
-        offs_m = tl.arange(0, 32)[:, None]
-        offs_n = tl.arange(0, 16)[None, :]
+        # packed_scales = scales.reshape(4, 32, 4).permute(1, 0, 2).reshape(32, 16)
+        packed_scales = scales.reshape(NUM_ROW_INNER_TILES, 4, 32, 4).permute(0, 2, 1, 3).reshape(NUM_ROW_INNER_TILES * 32, 16)
+        scale_offs_m = tl.arange(0, 32 * NUM_ROW_INNER_TILES)[:, None]
+        scale_offs_n = tl.arange(0, 16)[None, :]
+        # packed_scales = tl.arange(0, 32 * NUM_ROW_INNER_TILES * 16 * NUM_COL_INNER_TILES).reshape(NUM_ROW_INNER_TILES * 32, NUM_COL_INNER_TILES * 16).to(tl.float32)
+
+        # TODO write me
+        scale_elements_per_outer_tile = (min(ROW_TILE_SIZE, M) // 128 * 32) * 16
+
+        # scale_offs = (scale_offs_m * 16 + scale_offs_n)
+        # TODO(next): debug here, offsets or masks are probably not correct here
+        scale_offs = (scale_offs_m * 16 + scale_offs_n)
         tl.store(
             s_ptr
-            + (pid_m * tl.num_programs(0) + pid_n) * (32 * 16)
-            + offs_m * 16
-            + offs_n,
+            # + (pid_m * tl.num_programs(0) + pid_n) * (NUM_ROW_INNER_TILES * 32 * 16)
+            # + (pid_m * tl.num_programs(0) + pid_n) * (NUM_ROW_INNER_TILES * 32 * 16)
+            # + (pid_m * tl.num_programs(0) + pid_n) * (1 * 32 * 16)
+            + (pid_m * tl.num_programs(0) + pid_n) * scale_elements_per_outer_tile
+            + scale_offs,
             packed_scales,
+            mask=(scale_offs < scale_elements_per_outer_tile),
         )
 
         # Convert to FP4
@@ -1563,11 +1586,16 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # mask out scales to 0 if we are not aligned to 128 x 64
         MASK_SCALES = M % 128 != 0 or N % 64 != 0
+        # MASK_SCALES = True
 
         xq = x.new_empty(M, N // 2, dtype=torch.uint8)
         scales = x.new_empty(padded_rows, padded_cols, dtype=torch.float8_e4m3fn)
+        # scales.view(torch.uint8).fill_(45)
 
-        grid = (triton.cdiv(N, 64), triton.cdiv(M, 128))
+        ROW_TILE_SIZE = 128 * 2
+        COL_TILE_SIZE = 64
+
+        grid = (triton.cdiv(N, COL_TILE_SIZE), triton.cdiv(M, ROW_TILE_SIZE))
 
         if per_tensor_scale is None:
             # Don't allocate tensor, we just steal this since it won't be used in kernel
@@ -1577,8 +1605,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             tensor_scale_ptr = per_tensor_scale
             use_tensor_scale = True
 
-        ROW_TILE_SIZE = 128
-        COL_TILE_SIZE = 64
         quantize_nvfp4_triton_kernel[grid](
             x,
             tensor_scale_ptr,
@@ -1586,6 +1612,8 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales,
             x.stride(0),
             x.stride(1),
+            scales.stride(0),
+            scales.stride(1),
             M,
             N,
             USE_TENSOR_SCALE=use_tensor_scale,
