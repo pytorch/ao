@@ -32,7 +32,7 @@ from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
-    _scaled_grouped_mm,
+    _quantize_then_scaled_grouped_mm,
 )
 from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_colwise,
@@ -73,7 +73,7 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     b_t = b.contiguous().transpose(-2, -1).requires_grad_(True)
 
     # Compute output.
-    out = _scaled_grouped_mm(
+    out = _quantize_then_scaled_grouped_mm(
         a,
         b_t,
         offs=offs,
@@ -142,7 +142,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
 
     # Compute output.
     with pytest.raises(AssertionError):
-        _scaled_grouped_mm(
+        _quantize_then_scaled_grouped_mm(
             a,
             b_t,
             offs=offs,
@@ -199,7 +199,7 @@ def compute_reference_forward(
         result_list.append(result[start : offs_cpu[i]])
         start = offs_cpu[i]
 
-    # Validate each actual result group from the _scaled_grouped_mm is equal to:
+    # Validate each actual result group from the _quantize_then_scaled_grouped_mm is equal to:
     # 1. A manual _scaled_mm for the group.
     # 2. A matmul_with_hp_or_float8_args for the group (which is differentiable, and thus used to validate gradients).
     outputs = []

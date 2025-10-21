@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+from functools import partial
 from typing import Optional
 
 import torch
@@ -38,7 +39,7 @@ from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-def _scaled_grouped_mm(
+def _quantize_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
@@ -46,7 +47,7 @@ def _scaled_grouped_mm(
     scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
 ) -> torch.Tensor:
     """
-    This function performs dynamic float8 quantization with row-wise scaling
+    This function performs dynamic quantization with the given recipe
     on the input tensors A and B, then performs a scaled grouped GEMM and returns the results.
 
     Args:
@@ -78,6 +79,15 @@ def _scaled_grouped_mm(
         raise ValueError(f"Unsupported scaling type {scaling_type}")
 
 
+# Aliases for convenience/clarity
+_to_mxfp8_then_scaled_grouped_mm = partial(
+    _quantize_then_scaled_grouped_mm, scaling_type=MoEScalingType.MXFP8
+)
+_to_fp8_rowwise_then_scaled_grouped_mm = partial(
+    _quantize_then_scaled_grouped_mm, scaling_type=MoEScalingType.FP8_ROWWISE
+)
+
+
 class _Float8GroupedMM(torch.autograd.Function):
     """Differentiable implementation of grouped GEMM with dynamic float8 quantization."""
 
@@ -89,7 +99,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         offs: Optional[torch.Tensor] = None,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
     ) -> torch.Tensor:
-        # torchao _scaled_grouped_mm only supports A=2D|3D and B=3D.
+        # torchao _quantize_then_scaled_grouped_mm only supports A=2D|3D and B=3D.
         assert A.ndim == 2 or A.ndim == 3, "A must be 2D or 3D"
         assert B_t.ndim == 3, "B must be 3D"
 
@@ -113,7 +123,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Assert A and B dims are compatible for a scaled grouped GEMM.
         assert A.size(-1) == B_t.size(-2), (
-            f"shape {A.shape} and {B_t.shape} are not compatible for _scaled_grouped_mm"
+            f"shape {A.shape} and {B_t.shape} are not compatible for _quantize_then_scaled_grouped_mm"
         )
 
         # The left operand in the scaled grouped GEMM must be row-major due to hardware requirements.
@@ -295,7 +305,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         emulated: bool = False,
     ) -> torch.Tensor:
-        # torchao _scaled_grouped_mm only supports A=2D and B=3D.
+        # torchao _quantize_then_scaled_grouped_mm only supports A=2D and B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
         assert block_size == 32, "Only block_size=32 is supported"
