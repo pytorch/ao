@@ -1559,6 +1559,26 @@
     <span class="k">return</span> <span class="n">out</span>
 
 
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">view_as</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">function_view_as</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle view_as for NF4Tensor.</span>
+
+<span class="sd">    When view_as is called (typically by autograd internals), we need to return</span>
+<span class="sd">    a fresh NF4Tensor without autograd metadata to avoid conflicts.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="c1"># Create a new NF4Tensor with detached inner tensors to avoid autograd conflicts</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">tensor_attrs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">tensor_attrs</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="c1"># Detach to create a fresh tensor without autograd metadata</span>
+        <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
 <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">allow_in_graph</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">nf4_constructor</span><span class="p">(</span>
     <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">SubclassTensorArgs</span><span class="p">,</span>
