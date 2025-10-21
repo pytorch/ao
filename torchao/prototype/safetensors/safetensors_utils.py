@@ -209,7 +209,7 @@ def is_metadata_torchao(metadata: Dict[str, Any]):
 
         # returns None if _type not in tensor_dict
         tensor_type = tensor_dict.get("_type")
-        if tensor_type not in ALLOWED_TENSORS_SUBCLASSES or tensor_type != "Tensor":
+        if tensor_type not in ALLOWED_TENSORS_SUBCLASSES and tensor_type != "Tensor":
             return False
 
     return True
