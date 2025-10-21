@@ -67,11 +67,11 @@ Example code (the output below is generated automatically):
 
  .. code-block:: none
 
-    tensor([[0.7682, 0.6706, 0.9257],
-            [0.6133, 0.0321, 0.6956],
-            [0.8146, 0.1740, 0.8256],
-            [0.6433, 0.5089, 0.0284],
-            [0.7807, 0.8322, 0.7462]])
+    tensor([[0.8697, 0.6771, 0.5526],
+            [0.9151, 0.0796, 0.2299],
+            [0.1084, 0.8845, 0.6610],
+            [0.6953, 0.4614, 0.8885],
+            [0.0297, 0.0183, 0.6261]])
 
 
 
@@ -101,7 +101,7 @@ Further Reading
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.003 seconds)
+   **Total running time of the script:** (0 minutes 0.004 seconds)
 
 
 .. _sphx_glr_download_tutorials_template_tutorial.py:
