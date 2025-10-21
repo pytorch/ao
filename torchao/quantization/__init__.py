@@ -94,7 +94,6 @@ from .quantize_.workflows import (
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
     Int4PlainInt32Tensor,
-    Int4PlainInt32TensorNPU,
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,

@@ -35,7 +35,7 @@ def get_config(group_size):
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.xpu.is_available(), "XPU not available")
-class Int4PlainInt32Tensor(TestCase):
+class Int4PlainInt32TensorXPU(TestCase):
     @parametrize(
         "sizes",
         [
@@ -98,8 +98,75 @@ class Int4PlainInt32Tensor(TestCase):
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
 
-instantiate_parametrized_tests(Int4PlainInt32Tensor)
+@unittest.skipIf(not torch_version_at_least("2.7.1"), "Need pytorch 2.7.1+")
+@unittest.skipIf(
+    torch.accelerator.current_accelerator().type != "npu"
+    or not torch.accelerator.is_available(),
+    "NPU not available",
+)
+class Int4PlainInt32TensorNPU(TestCase):
 
+    @parametrize("device", ["npu"])
+    @parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 512, 128),
+            ((2, 32, 128), 256, 128),
+        ],
+    )
+    @parametrize("dtype", [torch.float16, torch.bfloat16])
+    @parametrize("group_size", [32, 64])
+    def test_linear(self, device, sizes, dtype, group_size):
+        M, N, K = sizes
+        input = torch.randn(*M, K, dtype=dtype, device=device)
+        linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
+        orig_output = linear(input)
+        quantize_(linear, get_config(group_size))
+        quantized_output = linear(input)
+        self.assertTrue(compute_error(orig_output, quantized_output) > 10)
+
+    @parametrize("device", ["npu"])
+    @parametrize("dtype", [torch.float16, torch.bfloat16])
+    def test_module_path(self, device, dtype):
+        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        quantize_(linear, get_config(group_size=64))
+        self.assertEqual(
+            str(type(linear.weight)),
+            "<class 'torchao.quantization.Int4PlainInt32Tensor'>",
+        )
+
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(linear.state_dict(), f)
+            f.seek(0)
+            state_dict = torch.load(f)
+            self.assertEqual(
+                str(type(state_dict["weight"])),
+                "<class 'torchao.quantization.Int4PlainInt32Tensor'>",
+            )
+
+    @parametrize("device", ["npu"])
+    @parametrize("dtype", [torch.float16, torch.bfloat16])
+    def test_activation_prescaling(self, device, dtype):
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, get_config(64))
+        qw = linear.weight
+        assert isinstance(
+            qw, SupportsActivationPreScaling
+        ), "Expected int4 tensor supports activation prescaling"
+        assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
+        _ACT_PRE_SCALE = 2
+        qw.act_pre_scale = _ACT_PRE_SCALE
+        quantized = linear(input)
+
+        # making sure activation pre scaling is successfully applied to the activation
+        self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 10)
+
+
+instantiate_parametrized_tests(Int4PlainInt32TensorXPU)
+instantiate_parametrized_tests(Int4PlainInt32TensorNPU)
 
 if __name__ == "__main__":
     run_tests()
