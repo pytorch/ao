@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from functools import partial
 from typing import Optional
 
 import torch
@@ -34,6 +33,7 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
+from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -77,15 +77,6 @@ def _quantize_then_scaled_grouped_mm(
         )
     else:
         raise ValueError(f"Unsupported scaling type {scaling_type}")
-
-
-# Aliases for convenience/clarity
-_to_mxfp8_then_scaled_grouped_mm = partial(
-    _quantize_then_scaled_grouped_mm, scaling_type=MoEScalingType.MXFP8
-)
-_to_fp8_rowwise_then_scaled_grouped_mm = partial(
-    _quantize_then_scaled_grouped_mm, scaling_type=MoEScalingType.FP8_ROWWISE
-)
 
 
 class _Float8GroupedMM(torch.autograd.Function):
@@ -304,6 +295,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         emulated: bool = False,
+        use_triton_for_dim0_cast: bool = False,
     ) -> torch.Tensor:
         # torchao _quantize_then_scaled_grouped_mm only supports A=2D and B=3D.
         assert A.ndim == 2, "A must be 2D"
@@ -313,17 +305,28 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # A_data shape: (M, K)
         # A_scale shape: (M, K//block_size)
-        A_data, A_scale = triton_to_mxfp8_dim0(
-            A,
-            inner_block_size=block_size,
-        )
-
-        # B_data shape: (E, N, K)
-        # B_scale shape: (E, N, K//block_size)
-        B_data, B_scales = triton_to_mxfp8_dim0(
-            B_t.transpose(-2, -1),
-            inner_block_size=block_size,
-        )
+        if use_triton_for_dim0_cast:
+            A_data, A_scale = triton_to_mxfp8_dim0(
+                A,
+                inner_block_size=block_size,
+            )
+            # B_data shape: (E, N, K)
+            # B_scale shape: (E, N, K//block_size)
+            B_data, B_scales = triton_to_mxfp8_dim0(
+                B_t.transpose(-2, -1),
+                inner_block_size=block_size,
+            )
+        else:
+            A_scale, A_data = to_mx(
+                A,
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+            )
+            B_scales, B_data = to_mx(
+                B_t.transpose(-2, -1),
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+            )
 
         # Convert scales to blocked format for 2d-3d grouped mm
         _, blocked_scales_group_offsets_2d3d = (
@@ -351,6 +354,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ctx.block_size = block_size
         ctx.out_dtype = out_dtype
         ctx.emulated = emulated
+        ctx.use_triton_for_dim0_cast = use_triton_for_dim0_cast
         return out
 
     @staticmethod
@@ -358,12 +362,20 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         A, B_t, offs, blocked_scales_group_offsets_2d3d = ctx.saved_tensors
         block_size = ctx.block_size
         out_dtype = ctx.out_dtype
+        use_triton_for_dim0_cast = ctx.use_triton_for_dim0_cast
 
         # grad_out_data shape: (M, N)
         # grad_out_scale shape: (M, N//block_size)
-        grad_out_data, grad_out_scale = triton_to_mxfp8_dim0(
-            grad_out, inner_block_size=block_size
-        )
+        if use_triton_for_dim0_cast:
+            grad_out_data, grad_out_scale = triton_to_mxfp8_dim0(
+                grad_out, inner_block_size=block_size
+            )
+        else:
+            grad_out_scale, grad_out_data = to_mx(
+                grad_out,
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+            )
 
         # Quantize 3d expert weights along N (contraction dimension for next grouped gemm)
         # (E, K, N) -> (E, N, K)
@@ -449,7 +461,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         )
         # grad_B_t shape =  (E,K,N)
         grad_B_t = grad_B.transpose(-2, -1)
-        return grad_A, grad_B_t, None, None, None
+        return grad_A, grad_B_t, None, None, None, None
 
 
 def _to_mxfp8_dim1_3d(
@@ -659,3 +671,8 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
 
 def round_up(x, y):
     return ((x + y - 1) // y) * y
+
+
+# Aliases for convenience/clarity
+_to_mxfp8_then_scaled_grouped_mm = _MXFP8GroupedMM.apply
+_to_fp8_rowwise_then_scaled_grouped_mm = _Float8GroupedMM.apply
