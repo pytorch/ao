@@ -72,6 +72,8 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
+    Float8OpaqueTensor,
+    Float8PackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
@@ -1723,6 +1725,22 @@ def _input_activation_quant_func_fp8(
     return activation
 
 
+def _input_activation_quant_cpu_fp8(
+    x: torch.Tensor,
+    activation_granularity: FP8Granularity,
+    activation_dtype: torch.dtype,
+):
+    """Dynamic quantize activation to fp8 for CPU."""
+    block_size = get_block_size(x.shape, activation_granularity)
+    return to_affine_quantized_floatx(
+        input_float=x,
+        block_size=block_size,
+        target_dtype=activation_dtype,
+        scale_dtype=torch.float32,
+        _layout=PlainLayout(),
+    )
+
+
 def _fp8_mm_compat(weight: torch.Tensor) -> bool:
     """
     Check if a weight tensor meets float8 quantization requirements.
@@ -1781,6 +1799,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
+    float8_packing_format: Float8PackingFormat = Float8PackingFormat.PLAIN
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1788,8 +1807,16 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         )
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
+        supported_granularities = ()
+        if self.float8_packing_format == Float8PackingFormat.PLAIN:
+            supported_granularities = (PerTensor, PerRow)
+        elif self.float8_packing_format == Float8PackingFormat.OPAQUE:
+            supported_granularities = (PerTensor, PerRow, PerGroup)
+        support_different_granularities = (
+            self.float8_packing_format == Float8PackingFormat.OPAQUE
+        )
         activation_granularity, weight_granularity = _normalize_granularity(
-            self.granularity
+            self.granularity, supported_granularities, support_different_granularities
         )
         self.granularity = [activation_granularity, weight_granularity]
 
@@ -1808,17 +1835,12 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     kernel_preference = config.kernel_preference
+    float8_packing_format = config.float8_packing_format
 
     # Ensure works on device
-    _check_hardware_support(granularity)
     activation_granularity, weight_granularity = granularity
 
-    if not _fp8_mm_compat(weight):
-        # TODO(future PR): this should really throw an exception instead of silently
-        # not doing what the user asked
-        return weight
-
-    if isinstance(weight_granularity, PerRow):
+    if weight.device.type != "cpu" and isinstance(weight_granularity, PerRow):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
@@ -1827,6 +1849,12 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         warnings.warn(
             "Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
         )
+
+        _check_hardware_support(granularity)
+        if not _fp8_mm_compat(weight):
+            # TODO(future PR): this should really throw an exception instead of silently
+            # not doing what the user asked
+            return weight
 
         block_size = get_block_size(weight.shape[-2:], weight_granularity)
         if weight.dim() == 3:
@@ -1858,14 +1886,26 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             kernel_preference=kernel_preference,
         )
 
-        quantized_weight = Float8Tensor.from_hp(
-            weight,
-            float8_dtype=weight_dtype,
-            granularity=weight_granularity,
-            mm_config=mm_config,
-            kernel_preference=kernel_preference,
-            act_quant_kwargs=act_quant_kwargs,
-        )
+        if float8_packing_format == Float8PackingFormat.PLAIN:
+            quantized_weight = Float8Tensor.from_hp(
+                weight,
+                float8_dtype=weight_dtype,
+                granularity=weight_granularity,
+                mm_config=mm_config,
+                kernel_preference=kernel_preference,
+                act_quant_kwargs=act_quant_kwargs,
+            )
+        elif float8_packing_format == Float8PackingFormat.OPAQUE:
+            block_size = get_block_size(weight.shape, weight_granularity)
+            quantized_weight = Float8OpaqueTensor.from_hp(
+                weight,
+                block_size=block_size,
+                act_quant_kwargs=act_quant_kwargs,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported float8 packing format: {float8_packing_format}"
+            )
 
     return quantized_weight
 
@@ -1874,12 +1914,6 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
     assert hasattr(module, "weight"), (
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
