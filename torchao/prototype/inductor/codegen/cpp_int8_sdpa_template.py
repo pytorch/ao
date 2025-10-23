@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import List, Optional
 
 import torch
@@ -239,12 +245,12 @@ inline void sub_exp_sum_div_quant_sum_fusion_kernel(
       long col = 0;
       for (; col < vec_size * (kvBlockSize / vec_size); col += vec_size) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
-        auto tmp1 = tmp0 * vec_sum_scale;
-        auto tmp2 = tmp1.round();
-        auto tmp3 = tmp2 + vec_beta1;
+        auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
+        auto tmp3 = tmp1.round();
         auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
-        store(tmp_out + col, tmp4);
         auto tmp6 = at::vec::convert<int32_t>(tmp4);
+        auto tmp7 = at::vec::convert<scalar_t>(tmp6);
+        tmp7.store(tmp_out + col, vec_size);
         vec_tmp_sum += tmp6;
       }
       if (col < kvBlockSize) {
@@ -341,9 +347,8 @@ inline void sub_exp_sum_div_quant_fusion_kernel(
       long col = 0;
       for (; col < vec_size * (kvBlockSize / vec_size); col += vec_size) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
-        auto tmp1 = tmp0 * vec_sum_scale;
-        auto tmp2 = tmp1.round();
-        auto tmp3 = tmp2 + vec_beta1;
+        auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
+        auto tmp3 = tmp1.round();
         auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
         store(tmp_out + col, tmp4);
       }
@@ -406,9 +411,8 @@ inline void dequant_quant_fusion_kernel(
       auto tmp2 = tmp1 - vec_sum_a;
       auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
-      auto tmp5 = tmp4 * vec_alpha;
-      auto tmp6 = tmp5.round();
-      auto tmp7 = tmp6 + vec_beta2;
+      auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
+      auto tmp7 = tmp5.round();
       auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
       store(tmp_out + col, tmp8);
     }
@@ -463,9 +467,8 @@ inline void dequant_quant_fusion_kernel(
       auto tmp3 = tmp1 - vec_sum_a;
       // auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
-      auto tmp5 = tmp4 * vec_alpha;
-      auto tmp6 = tmp5.round();
-      auto tmp7 = tmp6 + vec_beta2;
+      auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
+      auto tmp7 = tmp5.round();
       auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
       store(tmp_out + col, tmp8);
     }
@@ -1384,7 +1387,7 @@ extern "C"
             q_sum_ptr, static_cast<int32_t>(0), qSplitSize);
 {%- endif %}
           const int64_t rkvSlice = (num_keys - 1) / kvSplitSize + 1;
-          
+
           for (int64_t l = 0; l < rkvSlice; l++) {
             int64_t n = l * kvSplitSize;
             int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
