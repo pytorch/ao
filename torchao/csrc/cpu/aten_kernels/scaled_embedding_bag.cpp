@@ -6,38 +6,38 @@
 #include <c10/util/Unroll.h>
 #include <torch/all.h>
 
-#define QTYPE_DISPATCH(TYPE, NAME, ...)                                          \
-  [&]() {                                                                        \
-    switch (TYPE) {                                                              \
-      case c10::ScalarType::Float8_e4m3fn: {                                     \
-        using data_t = at::Float8_e4m3fn;                                        \
-        return __VA_ARGS__();                                                    \
-      }                                                                          \
-      case c10::ScalarType::Char: {                                              \
-        using data_t = int8_t;                                                   \
-        return __VA_ARGS__();                                                    \
-      }                                                                          \
-      default:                                                                   \
-        std::cerr << NAME << " unsupported qtype " << int(TYPE) << std::endl;    \
-        exit(1);                                                                 \
-    }                                                                            \
+#define QTYPE_DISPATCH(TYPE, NAME, ...)                                        \
+  [&]() {                                                                      \
+    switch (TYPE) {                                                            \
+    case c10::ScalarType::Float8_e4m3fn: {                                     \
+      using data_t = at::Float8_e4m3fn;                                        \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    case c10::ScalarType::Char: {                                              \
+      using data_t = int8_t;                                                   \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    default:                                                                   \
+      std::cerr << NAME << " unsupported qtype " << int(TYPE) << std::endl;    \
+      exit(1);                                                                 \
+    }                                                                          \
   }()
 
-#define OUTTYPE_DISPATCH(TYPE, NAME, ...)                                        \
-  [&]() {                                                                        \
-    switch (TYPE) {                                                              \
-      case c10::ScalarType::Float: {                                             \
-        using output_t = float;                                                  \
-        return __VA_ARGS__();                                                    \
-      }                                                                          \
-      case c10::ScalarType::Char: {                                              \
-        using output_t = int8_t;                                                 \
-        return __VA_ARGS__();                                                    \
-      }                                                                          \
-      default:                                                                   \
-        std::cerr << NAME << " unsupported out_type " << int(TYPE) << std::endl; \
-        exit(1);                                                                 \
-    }                                                                            \
+#define OUTTYPE_DISPATCH(TYPE, NAME, ...)                                      \
+  [&]() {                                                                      \
+    switch (TYPE) {                                                            \
+    case c10::ScalarType::Float: {                                             \
+      using output_t = float;                                                  \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    case c10::ScalarType::Char: {                                              \
+      using output_t = int8_t;                                                 \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    default:                                                                   \
+      std::cerr << NAME << " unsupported out_type " << int(TYPE) << std::endl; \
+      exit(1);                                                                 \
+    }                                                                          \
   }()
 
 namespace torchao {
@@ -135,11 +135,9 @@ static inline void save_chunk(int8_t *output, CHUNK chunk) {
 }
 #endif
 
-static inline void save_elem(float& out, float input) {
-  out = input;
-}
+static inline void save_elem(float &out, float input) { out = input; }
 
-static inline void save_elem(int8_t& out, float input) {
+static inline void save_elem(int8_t &out, float input) {
   float rounded = std::round(input);
   float clamped = std::max(-128.0f, std::min(127.0f, rounded));
   int32_t int32_value = static_cast<int32_t>(clamped);
@@ -242,31 +240,22 @@ void _scaled_embedding_bag(output_t *o_ptr, data_t *w_ptr, index_t *indices_ptr,
 
 template <typename index_t, typename data_t, typename output_t>
 void _scaled_embedding_bag_dispatch_dtype(
-    const at::Tensor &qweight,
-    const at::Tensor &indices,
-    const at::Tensor &offsets,
-    const at::Tensor &output,
-    int64_t batch_size,
-    int64_t emb_dim,
-    index_t last_offset,
-    double w_scale,
-    double o_scale) {
+    const at::Tensor &qweight, const at::Tensor &indices,
+    const at::Tensor &offsets, const at::Tensor &output, int64_t batch_size,
+    int64_t emb_dim, index_t last_offset, double w_scale, double o_scale) {
   data_t *qweight_ptr = qweight.data_ptr<data_t>();
   index_t *indices_ptr = indices.data_ptr<index_t>();
   index_t *offsets_ptr = offsets.data_ptr<index_t>();
   output_t *output_ptr = output.data_ptr<output_t>();
   _scaled_embedding_bag<index_t, data_t, output_t>(
-      output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size,
-      emb_dim, last_offset, w_scale, o_scale);
+      output_ptr, qweight_ptr, indices_ptr, offsets_ptr, batch_size, emb_dim,
+      last_offset, w_scale, o_scale);
 }
 
-at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
-                                      const at::Tensor &indices,
-                                      const at::Tensor &offsets,
-                                      const at::Tensor &w_scales,
-                                      double o_scale, const int64_t mode,
-                                      bool include_last_offset,
-                                      at::ScalarType output_dtype) {
+at::Tensor _scaled_embedding_bag_impl(
+    const at::Tensor &qweight, const at::Tensor &indices,
+    const at::Tensor &offsets, const at::Tensor &w_scales, double o_scale,
+    const int64_t mode, bool include_last_offset, at::ScalarType output_dtype) {
   // Only support include_last_offset == True and mode ==
   // at::native::EmbeddingBagMode::SUM
   // TODO: Support more case
@@ -292,21 +281,21 @@ at::Tensor _scaled_embedding_bag_impl(const at::Tensor &qweight,
   TORCH_CHECK(qweight.dim() == 2,
               "_scaled_embedding_bag: only accept weight with dim == 2");
   TORCH_CHECK(qtype == c10::ScalarType::Float8_e4m3fn ||
-              qtype == c10::ScalarType::Char,
+                  qtype == c10::ScalarType::Char,
               "_scaled_embedding_bag: only support e4m3fn and int8 weight")
   // handle last offsets
   int64_t last_offset = indices.numel();
 
   at::Tensor output =
-    at::empty({batch_size, emb_dim}, qweight.options().dtype(output_dtype));
+      at::empty({batch_size, emb_dim}, qweight.options().dtype(output_dtype));
   OUTTYPE_DISPATCH(output_dtype, "_scaled_embedding_bag", [&] {
     QTYPE_DISPATCH(qtype, "_scaled_embedding_bag", [&] {
       AT_DISPATCH_INDEX_TYPES(
-        indices.scalar_type(), "_scaled_embedding_bag", [&] {
-          _scaled_embedding_bag_dispatch_dtype<index_t, data_t, output_t>(
-            qweight, indices, offsets, output, batch_size,
-            emb_dim, last_offset, w_scale, o_scale);
-        });
+          indices.scalar_type(), "_scaled_embedding_bag", [&] {
+            _scaled_embedding_bag_dispatch_dtype<index_t, data_t, output_t>(
+                qweight, indices, offsets, output, batch_size, emb_dim,
+                last_offset, w_scale, o_scale);
+          });
     });
   });
   return output;

@@ -911,7 +911,7 @@ def _test_scaled_embedding_bag_cpu_helper(
             out_dtype,
         )
         torch.testing.assert_close(refe_out, test_out, atol=1e-5, rtol=1e-5)
-        
+
 
 @pytest.mark.skipif(
     "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
