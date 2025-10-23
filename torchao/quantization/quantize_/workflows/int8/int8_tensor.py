@@ -141,6 +141,9 @@ class Int8Tensor(TorchAOBaseTensor):
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
 
+        if output_dtype is None:
+            output_dtype = self.dtype
+
         qdata_fp = self.qdata.to(output_dtype)
         # Reshape scale to broadcast if granularity is block-wise
         scale_expanded = _maybe_expand_scale_to_tensor_shape(
@@ -151,12 +154,6 @@ class Int8Tensor(TorchAOBaseTensor):
 
 implements = Int8Tensor.implements
 implements_torch_function = Int8Tensor.implements_torch_function
-
-
-@implements([aten.dequantize.self])
-def _(func, types, args, kwargs):
-    """dequantization: int8 -> float"""
-    return args[0].dequantize()
 
 
 @implements(aten.linear.default)
