@@ -135,6 +135,17 @@ static inline void save_chunk(int8_t *output, CHUNK chunk) {
 }
 #endif
 
+static inline void save_elem(float& out, float input) {
+  out = input;
+}
+
+static inline void save_elem(int8_t& out, float input) {
+  float rounded = std::round(input);
+  float clamped = std::max(-128.0f, std::min(127.0f, rounded));
+  int32_t int32_value = static_cast<int32_t>(clamped);
+  out = static_cast<int8_t>(int32_value);
+}
+
 template <typename index_t, typename data_t, typename output_t>
 inline void _scaled_embedding_bag_krnl(
     const int64_t bs_begin, const int64_t bs_end, const int64_t num_emb,
@@ -200,7 +211,7 @@ inline void _scaled_embedding_bag_krnl(
         value += float(weight[idx + d]);
       }
       value = value * scale;
-      result[d] = value;
+      save_elem(result[d], value);
     }
     result += num_emb * emb_dim;
   }

@@ -894,6 +894,10 @@ def _test_scaled_embedding_bag_cpu_helper(
     m.weight.data = qweight.to(m.weight.dtype)
 
     out_scale = 1
+    atol, rtol = 1e-5, 1e-5
+    if out_dtype == torch.int8:
+        atol, rtol = 5e-2, 5e-2
+        out_scale = 2
 
     with torch.no_grad():
         refe_out = m.forward(indices, offsets) * weight_scale
@@ -911,10 +915,10 @@ def _test_scaled_embedding_bag_cpu_helper(
             include_last_offset,
             out_dtype,
         )
-        if not torch.allclose(refe_out.float()*out_scale, test_out.float()*out_scale, atol=5e-2, rtol=5e-2):
-            import pdb
-            pdb.set_trace()
-        torch.testing.assert_close(refe_out.float()*out_scale, test_out.float()*out_scale, atol=5e-2, rtol=5e-2)
+        if out_dtype == torch.int8:
+            refe_out = refe_out.float() * out_scale
+            test_out = test_out.float() * out_scale
+        torch.testing.assert_close(refe_out, test_out, atol=atol, rtol=rtol)
 
 
 @pytest.mark.skipif(
@@ -927,8 +931,7 @@ def _test_scaled_embedding_bag_cpu_helper(
     ids=str,
 )
 def test_scaled_embedding_bag_int8_cpu(multi_hot, batch_size, vector_size, index_type):
-    #for out_dtype in [torch.float, torch.int8]:
-    for out_dtype in [torch.int8]:
+    for out_dtype in [torch.float, torch.int8]:
         _test_scaled_embedding_bag_cpu_helper(
             multi_hot, batch_size, vector_size, index_type, torch.int8, out_dtype,
         )
