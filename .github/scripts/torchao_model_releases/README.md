@@ -51,8 +51,7 @@ By default, we release FP8, INT4, INT8-INT4 checkpoints, with model card pre-fil
 
 Examples:
 ```
-# Note: first login with `huggingface-cli login`, the quantized model will be uploaded to
-# the logged in user
+# Note: first login with `hf auth login`, the quantized model will be uploaded to the logged in user
 
 # release with default quant options (FP8, INT4, INT8-INT4)
 ./release.sh --model_id Qwen/Qwen3-8B --push_to_hub
@@ -63,8 +62,17 @@ Examples:
 
 Note: for initial release, please include `--populate_model_card_template` to populate model card template.
 
+### SmoothQuant-INT8-INT8
+[SmoothQuant](https://arxiv.org/abs/2211.10438) smooths activation outliers by migrating quantization difficulty from activations to weights through a mathematically equivalent per-channel scaling transformation. That means SmoothQuant observes activation distribution before applying quantization.
+
+Examples:
+```
+# release SmoothQuant-INT8-INT8 model, calibrated with a specific task
+python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SmoothQuant-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
+```
+
 ### AWQ-INT4
-[AWQ](https://arxiv.org/abs/2306.00978) is a technique to improve accuracy for weight only quantization. It improves accuracy by preserving "salient" weight channels that has high impact on the accuracy of output, through multiplying the weight channel by a scale, and do the reverse for the correspnoding activation, since activation is not quantized, there is no additional loss from activation, while the quantization loss from weight can be reduced.
+Similar to SmoothQuant, [AWQ](https://arxiv.org/abs/2306.00978) improves accuracy by preserving "salient" weight channels that has high impact on the accuracy of output. The notable point is that AWQ uses activation distribution to find salient weights, not weight distribution, multiplying the weight channel by a scale, and doing the reverse for the corresponding activation. Since activation is not quantized, there is no additional loss from activation, while the quantization loss from weight can be reduced.
 
 After eval for INT4 checkpoint is done, we might find some task have a large accuracy drop compared to high precision baseline, in that case we can do a calibration for that task, with a few samples, tasks are selected from [lm-eval](https://github.com/EleutherAI/lm-eval\uation-harness/blob/main/lm_eval/tasks/README.md). You can follow [new task guide](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/new_task_guide.md) to add new tasks to lm-eval.
 
@@ -132,12 +140,36 @@ After environment is setup, we can run eval:
 sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag mmlu
 ```
 
+See https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks for all supported tasks.
+
 Note: you can pass in `--use_cache` if the eval task failed during the middle of the run
-and you don't want to re-run all evals.
+and you don't want to re-run all evals and there is no change to the model checkpoint.
 ```
 sh eval.sh --eval_type quality --model_ids Qwen/Qwen3-8B --tasks hellaswag mmlu --use_cache
 ```
 
+#### Multi-modal Model Quality Eval
+For multi-modal model quality eval, we need to install lmms-eval
+```
+uv pip install git+https://github.com/EvolvingLMMs-Lab/lmms-eval.git
+```
+After environment is setup, we can run eval:
+```
+sh eval.sh --eval_type mm_quality --model_ids google/gemma-3-12b-it --mm_tasks chartqa --model_type gemma3 --mm_eval_batch_size 32
+```
+
+See https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/models/simple for supported model types.
+See https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/tasks for supported multi-modal tasks.
+
+Note: larger mm_eval_batch_size could speedup eval but may cause OOM, when that happens, please reduce the number
+
+Note: you can pass in `--use_cache` if the eval task failed during the middle of the run
+and you don't want to re-run all evals and there is no change to model checkpoint.
+```
+sh eval.sh --eval_type mm_quality --model_ids google/gemma-3-12b-it --mm_tasks chartqa --model_type gemma3 --mm_eval_batch_size 32 --use_cache
+```
+
+Alternatively, please feel free to use the example scripts directly from llms-eval repo: https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/examples/models to run the evaluation.
 
 #### Summarize results
 After we have finished all evals for each model, we can summarize the results with:

@@ -2,17 +2,11 @@
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
 ## Benchmarks
-Benchmarks and evaluation are gathered using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B.
+Benchmarks and evaluation are gathered using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data on the meta-llama/Meta-Llama-3-8B model.
+
 ### CUDA backend |  NVIDIA-A100-80GB GPU
 | Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)         | 12.212              |  107.38       | 1418.93                 | 13.88            | 13.21           |
-|             | int8dq                  | 12.262              |    9.61       |   63.67                 |  8.61            |  6.62           |
-|             | int8wo                  | 12.204              |  170.83       | 1131.18                 |  8.95            |  6.62           |
-|             | fp6                     | 12.369              |  117.89       |  584.57                 |  6.52            |  4.96           |
-|             | int4wo-64               | 12.843              |  201.14       |  751.42                 |  4.87            |  3.74           |
-|             | int4wo-64-GPTQ          | 12.527              |  201.14       |  751.42                 |  4.87            |  3.74           |
-|             | autoquant-int4hqq       | 12.825              |  209.19       |  804.32                 |  4.89            |  3.84           |
 | Llama-3-8B  | Base (bfloat16)         |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
 |             | int8dq                  |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
 |             | int8wo                  |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
@@ -20,14 +14,6 @@ Benchmarks and evaluation are gathered using the scripts for [generation](../_mo
 |             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
-### XPU backend
-| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)         | NA              |  42.20       | 557.71                 | 13.89            | 13.21           |
-|             | int8dq                  | NA              |    9.87       |   65.35                 |  14.60            |  6.62           |
-|             | int8wo                  | NA              |  66.24       | 438.61                 |  14.60            |  6.62
-
-
 
 ### CUDA backend | NVIDIA-H100 GPU
 | Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |

@@ -262,9 +262,11 @@ def _register_aqt_quantized_linear_dispatches():
 _register_aqt_quantized_linear_dispatches()
 
 implements = AffineQuantizedTensor.implements
+implements_torch_function = AffineQuantizedTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -296,7 +298,7 @@ def _(func, types, args, kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-@implements(torch.nn.functional.embedding)
+@implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
     if _embedding_q_dq_check(args, kwargs):
         return _embedding_q_dq_impl(args, kwargs)

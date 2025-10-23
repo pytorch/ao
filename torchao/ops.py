@@ -1123,8 +1123,6 @@ def _(
     # Only support include_last_offset == True
     assert include_last_offset == True
     batch_size = offsets.shape[0] - 1
-    # Only support out_dtype == torch.float32
-    # Next setp: support more out_dtype
     return qweight.new_empty(batch_size, qweight.shape[1], dtype=out_dtype)
 
 

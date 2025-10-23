@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Tuple
+
 import torch
 from torch.distributed._tensor import DTensor
 
@@ -97,6 +99,22 @@ def from_blocked(
     padded = padded_view.reshape(n_row_blocks * 128, n_col_blocks * 4)
 
     return padded[:original_rows, :original_cols]
+
+
+def hp_data_dims_to_swizzled_scale_dims_nvfp4(
+    hp_data_M,
+    hp_data_K,
+) -> Tuple[int, int]:
+    """
+    Given the `M` and `K` dimensions of a high precision contiguous tensor,
+    returns a 2d tuple of the dims of the swizzled nvfp4 scale corresponding to
+    that tensor.
+    """
+    # a 128x64 unpacked or 128x32 packed qdata tile corresponds
+    # to a swizzled 32x16 scale tile
+    scale_M = ceil_div(hp_data_M, 128) * 32
+    scale_K = ceil_div(hp_data_K, 64) * 16
+    return scale_M, scale_K
 
 
 def _to_blocked_single(scales: Tensor) -> Tensor:

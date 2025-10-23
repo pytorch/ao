@@ -142,10 +142,10 @@ if has_triton():
         Output: a tensor of bfloat16 values
         """
 
-        # low-bits: original location 0:3
-        # high-bits: original location 4:7
-        x_low_bits = x_packed >> 4
-        x_high_bits = x_packed & 0xF
+        # high-bits: original location 0:3
+        # low-bits: original location 4:7
+        x_high_bits = x_packed >> 4
+        x_low_bits = x_packed & 0xF
         x = tl.interleave(x_low_bits, x_high_bits)
 
         # cast logic below
@@ -735,8 +735,8 @@ def unpack_uint4(uint8_data) -> torch.Tensor:
     #   verified that we get a single triton kernel, but that is even slower
     #   than the two kernels before this PR
     # * TODO add a microbenchmark of just the cast and profile this
-    first_elements = (uint8_data >> 4).to(torch.uint8)
-    second_elements = (uint8_data & 0b1111).to(torch.uint8)
+    first_elements = (uint8_data & 0b1111).to(torch.uint8)
+    second_elements = (uint8_data >> 4).to(torch.uint8)
     unpacked = torch.stack([first_elements, second_elements], dim=-1).view(
         up_size(shape)
     )
@@ -758,7 +758,7 @@ def pack_uint4(uint8_data: torch.Tensor) -> torch.Tensor:
     shape = uint8_data.shape
     assert shape[-1] % 2 == 0
     uint8_data = uint8_data.contiguous().view(-1)
-    return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
+    return (uint8_data[::2] | uint8_data[1::2] << 4).view(down_size(shape))
 
 
 # PyTorch implementation of fp6 packing for reference purposes
@@ -1250,8 +1250,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         Returns:
             Packed tensor with shape [...] (last dimension removed) where each
             element is an int8 containing 2 FP4 values:
-            - First value of pair → high nibble (bits 4-7)
-            - Second value of pair → low nibble (bits 0-3)
+            - First value of pair → low nibble (bits 0-3)
+            - Second value of pair → high nibble (bits 4-7)
 
         Example:
             Input:  [128, 32, 2] containing FP32 pairs
@@ -1263,10 +1263,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             asm="""
             {
             .reg .b8 byte0, byte1, byte2, byte3;
-            cvt.rn.satfinite.e2m1x2.f32 byte0, $1, $5;
-            cvt.rn.satfinite.e2m1x2.f32 byte1, $2, $6;
-            cvt.rn.satfinite.e2m1x2.f32 byte2, $3, $7;
-            cvt.rn.satfinite.e2m1x2.f32 byte3, $4, $8;
+            cvt.rn.satfinite.e2m1x2.f32 byte0, $5, $1;
+            cvt.rn.satfinite.e2m1x2.f32 byte1, $6, $2;
+            cvt.rn.satfinite.e2m1x2.f32 byte2, $7, $3;
+            cvt.rn.satfinite.e2m1x2.f32 byte3, $8, $4;
             mov.b32 $0, {byte0, byte1, byte2, byte3};
             }
             """,
@@ -1391,6 +1391,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             Since VLLM does not use dyanmo guards we need to make this a custom op
             to avoid the triton kernel being invoked w/ the wrong use of `MASK_SCALES`
         """
+        # reshape to 2d
+        orig_leading_dims, _orig_M, orig_N = x.shape[:-2], x.shape[-2], x.shape[-1]
+        x = x.reshape(-1, orig_N)
+
         M, N = x.shape
         # assert M % 128 == 0 and N % 64 == 0
         assert N % 16 == 0, "N must be divisible by 16 for NVFP4 quantization"
@@ -1430,6 +1434,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             USE_TENSOR_SCALE=use_tensor_scale,
             MASK_SCALES=MASK_SCALES,
         )
+
+        # reshape back to original shape
+        scales = scales.view(*orig_leading_dims, -1, padded_cols)
+        xq = xq.view(*orig_leading_dims, -1, N // 2)
 
         return scales, xq.view(torch.uint8)
 

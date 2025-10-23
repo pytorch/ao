@@ -426,7 +426,12 @@ def tensor_size_hp_to_fp4x2(orig_size, is_contiguous):
     if is_contiguous:
         new_size = [*list(new_size[:-1]), new_size[-1] // 2]
     else:
-        new_size = [new_size[0] // 2, *list(new_size[1:])]
+        if len(orig_size) == 2:
+            new_size = [new_size[0] // 2, *list(new_size[1:])]
+        else:
+            assert len(orig_size) == 3, "unsupported"
+            # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
+            new_size = [new_size[0], new_size[2] // 2, new_size[1]]
     return new_size
 
 
@@ -435,10 +440,16 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
     if is_contiguous:
         new_size = [*list(new_size[:-1]), new_size[-1] * 2]
     else:
-        new_size = [new_size[0] * 2, *list(new_size[1:])]
+        if len(orig_size) == 2:
+            new_size = [new_size[0] * 2, *list(new_size[1:])]
+        else:
+            assert len(orig_size) == 3, "unsupported"
+            # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
+            new_size = [new_size[0], new_size[2] * 2, new_size[1]]
     return new_size
 
 
+# TODO(future PR): fix this function for rank 3 and add tests
 def tensor_size_hpx3_to_fp6x4(orig_size, is_contiguous):
     new_size = orig_size
     if is_contiguous:
@@ -448,6 +459,7 @@ def tensor_size_hpx3_to_fp6x4(orig_size, is_contiguous):
     return new_size
 
 
+# TODO(future PR): fix this function for rank 3 and add tests
 def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
     new_size = orig_size
     if is_contiguous:
@@ -458,7 +470,7 @@ def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
 
 
 class MXTensor(TorchAOBaseTensor):
-    tensor_data_names = ["qdata", "_scale_e8m0"]
+    tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = [
         "_elem_dtype",
         "_block_size",
@@ -536,10 +548,10 @@ class MXTensor(TorchAOBaseTensor):
             # TODO investigate
             assert target_numel == qdata.numel(), f"{target_numel} != {qdata.numel()}"
 
-        # `_scale_e8m0` has rank 1 and applies to a row-major memory layout of
+        # `scale` has rank 1 and applies to a row-major memory layout of
         # `qdata`
         self.qdata = qdata
-        self._scale_e8m0 = scale_e8m0_bits
+        self.scale = scale_e8m0_bits
         self._elem_dtype = elem_dtype
         self._block_size = block_size
         self._orig_dtype = orig_dtype
@@ -550,18 +562,20 @@ class MXTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self._scale_e8m0}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}"  # noqa: E501
 
     def _quantization_type(self):
         return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
 
-    def to_dtype(self, target_dtype):
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        if output_dtype is None:
+            output_dtype = self.dtype
         return to_dtype(
             self.qdata,
-            self._scale_e8m0,
+            self.scale,
             self._elem_dtype,
             self._block_size,
-            target_dtype,
+            output_dtype,
             self._pack_fp6,
         )
 
@@ -673,8 +687,8 @@ def _addmm_mx_dispatch(
         assert a._block_size == 32, f"Invalid block size {a._block_size}"
         assert b._block_size == 32, f"Invalid block size {b._block_size}"
 
-        a_scale = a._scale_e8m0.view(M, K // a._block_size)
-        b_scale = b._scale_e8m0.view(N, K // b._block_size)
+        a_scale = a.scale.view(M, K // a._block_size)
+        b_scale = b.scale.view(N, K // b._block_size)
         a_scale_block = to_blocked(a_scale)
         b_scale_block = to_blocked(b_scale)
 
@@ -706,8 +720,8 @@ def _addmm_mx_dispatch(
 
     else:
         # emulated MX gemm
-        a_hp = a.to_dtype(a._orig_dtype)
-        b_hp = b.to_dtype(b._orig_dtype)
+        a_hp = a.dequantize(a._orig_dtype)
+        b_hp = b.dequantize(b._orig_dtype)
         # assert memory layout we expect to be required in hardware
         assert a_hp.is_contiguous()
         assert b_hp.t().is_contiguous()
@@ -745,7 +759,7 @@ def mx_t(func, types, args, kwargs):
     old = args[0]
     new = MXTensor(
         old.qdata.t(),
-        old._scale_e8m0,
+        old.scale,
         old._elem_dtype,
         old._block_size,
         old._orig_dtype,
@@ -768,7 +782,7 @@ def mx_cast_up_op(func, types, args, kwargs):
 
     def unwrap(x):
         if isinstance(x, MXTensor):
-            return x.to_dtype(x._orig_dtype)
+            return x.dequantize(x._orig_dtype)
         return x
 
     new_args = tree_map(unwrap, args)
@@ -789,7 +803,7 @@ def mx_view_op(func, types, args, kwargs):
     new_data = func(data, new_size, *args[2:], **kwargs)
     return MXTensor(
         new_data,
-        args[0]._scale_e8m0,
+        args[0].scale,
         args[0]._elem_dtype,
         args[0]._block_size,
         args[0]._orig_dtype,
@@ -809,7 +823,7 @@ def mx_slice(func, types, args, kwargs):
     M, K = x.shape[0], x.shape[1]
 
     # TODO why doesn't scale have shape?
-    scale_shaped = x._scale_e8m0.view(M, K // x._block_size)
+    scale_shaped = x.scale.view(M, K // x._block_size)
 
     if dim == 0:
         # Slicing along the first dimension (rows) TODO assuming that dim 1 is reduciton dim for now
@@ -836,9 +850,7 @@ def mx_slice(func, types, args, kwargs):
         end_block = -1 if end is None else end // x._block_size
 
         # Slice the scale tensor accordingly
-        sliced_scale = aten.slice.Tensor(
-            scale_shaped, 1, start_block, end_block, step
-        ).unsqueeze(-1)
+        sliced_scale = aten.slice.Tensor(scale_shaped, 1, start_block, end_block, step)
     else:
         raise ValueError(
             f"MXTensor only supports slicing along dimensions 0 and 1, got dim={dim}"
@@ -861,20 +873,6 @@ def mx_slice(func, types, args, kwargs):
     )
 
 
-@implements([aten.copy_.default])
-def mx_copy_(func, types, args, kwargs):
-    self = args[0]
-    src = args[1]
-    if MXTensor._same_metadata(self, src):
-        self_tensors = self.__tensor_flatten__()[0]
-        for tensor_name in self_tensors:
-            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
-        return
-    raise ValueError(
-        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
-    )
-
-
 @implements([aten.clone.default])
 def mx_clone(func, types, args, kwargs):
     self = args[0]
@@ -892,12 +890,12 @@ def mx_clone(func, types, args, kwargs):
 def mx_select(func, types, args, kwargs):
     old_mx_tensor, dim, index = args
     assert dim == 0, f"MXTensor aten.select.int with {dim=} is not yet supported"
-    assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor._scale_e8m0.shape), (
+    assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor.scale.shape), (
         "unsupported"
     )
     new_mx_tensor = old_mx_tensor.__class__(
         old_mx_tensor.qdata[index],
-        old_mx_tensor._scale_e8m0[index],
+        old_mx_tensor.scale[index],
         old_mx_tensor._elem_dtype,
         old_mx_tensor._block_size,
         old_mx_tensor._orig_dtype,
