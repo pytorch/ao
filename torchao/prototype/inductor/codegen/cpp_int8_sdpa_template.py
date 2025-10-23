@@ -255,12 +255,12 @@ inline void sub_exp_sum_div_quant_sum_fusion_kernel(
       }
       if (col < kvBlockSize) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, kvBlockSize - col);
-        auto tmp1 = tmp0 * vec_sum_scale;
-        auto tmp2 = tmp1.round();
-        auto tmp3 = tmp2 + vec_beta1;
+        auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
+        auto tmp3 = tmp1.round();
         auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
-        store(tmp_out + col, tmp4, kvBlockSize - col);
         auto tmp6 = at::vec::convert<int32_t>(tmp4);
+        auto tmp7 = at::vec::convert<scalar_t>(tmp6);
+        tmp7.store(tmp_out + col, kvBlockSize - col);
         vec_tmp_sum = at::vec::Vectorized<int32_t>::set(vec_tmp_sum, vec_tmp_sum + tmp6, kvBlockSize - col);
       }
       sum_a_ptr[row] += vec_tmp_sum.reduce_add() * beta2;
@@ -354,9 +354,8 @@ inline void sub_exp_sum_div_quant_fusion_kernel(
       }
       if (col < kvBlockSize) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, kvBlockSize - col);
-        auto tmp1 = tmp0 * vec_sum_scale;
-        auto tmp2 = tmp1.round();
-        auto tmp3 = tmp2 + vec_beta1;
+        auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
+        auto tmp3 = tmp1.round();
         auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
         store(tmp_out + col, tmp4, kvBlockSize - col);
       }
@@ -423,9 +422,8 @@ inline void dequant_quant_fusion_kernel(
       auto tmp2 = tmp1 - vec_sum_a;
       auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
-      auto tmp5 = tmp4 * vec_alpha;
-      auto tmp6 = tmp5.round();
-      auto tmp7 = tmp6 + vec_beta2;
+      auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
+      auto tmp7 = tmp5.round();
       auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
       store(tmp_out + col, tmp8, N - col);
     }
@@ -476,9 +474,8 @@ inline void dequant_quant_fusion_kernel(
       auto tmp1 = at::vec::Vectorized<int32_t>::loadu(tmp_in + col, N - col);
       auto tmp3 = tmp1 - vec_sum_a;
       auto tmp4 = at::vec::convert<float>(tmp3);
-      auto tmp5 = tmp4 * vec_alpha;
-      auto tmp6 = tmp5.round();
-      auto tmp7 = tmp6 + vec_beta2;
+      auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
+      auto tmp7 = tmp5.round();
       auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
       store(tmp_out + col, tmp8, N - col);
     }
