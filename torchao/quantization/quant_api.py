@@ -2409,13 +2409,13 @@ class FqnToConfig(AOBaseConfig):
          to the config that we want to apply to the module/param or None
 
          Config key ordered by precedence:
-           * fully qualified module name, e.g. `language.layers.0.q_proj`
            * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
+           * fully qualified module name, e.g. `language.layers.0.q_proj`
+           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+             The first regex that matches will be applied.
            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
              whichever regex fully matches the module fqn first will be applied
              (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
-             The first regex that matches will be applied.
            * "_default", fallback if no match for all previous keys
              (Note, when using `_default`, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
@@ -2442,12 +2442,16 @@ class FqnToConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
 
         # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
-        self.module_fqn_to_config = self.fqn_to_config
+        if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) == 0:
+            self.fqn_to_config = self.module_fqn_to_config
+
+        if len(self.fqn_to_config) > 0 and len(self.module_fqn_to_config) == 0:
+            self.module_fqn_to_config = self.fqn_to_config
 
         # TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`
         if "_default" in self.fqn_to_config:
             warnings.warn(
-                "Config Deprecation: _default is deprecated and will no longer be supported in a future release."
+                "Config Deprecation: _default is deprecated and will no longer be supported in a future release. Please see https://github.com/pytorch/ao/issues/3229 for more details."
             )
 
 
@@ -2476,70 +2480,73 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     Raises:
         NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.
     """
+    parameter_config_found = False
     top_level_params = []
-    for parameter_name, param in list(module.named_parameters()):
+    for i, (parameter_name, param) in enumerate(list(module.named_parameters())):
         if parameter_name in dir(module):
             parameter_fqn = (
                 f"{fqn}.{parameter_name}" if fqn is not None else parameter_name
             )
-            top_level_params.append((parameter_name, param, parameter_fqn))
+            top_level_params.append((i, parameter_name, param, parameter_fqn))
 
-    config_found = False
-    c = None
-    c_parameter_name = None
-    # First we see if our module fqn matches with FqnToConfig, if so, we apply the appropriate transform
-    if fqn in config.fqn_to_config:
+    # First we see if any parameter fqn matches with FqnToConfig, if so, we apply the appropriate transform
+    for i, parameter_name, param, parameter_fqn in list(top_level_params):
+        if parameter_fqn in config.fqn_to_config:
+            parameter_config_found = True
+            c = config.fqn_to_config[parameter_fqn]
+            # if None, remove from subsequent regex check
+            if c is None:
+                top_level_params.pop(i)
+            else:
+                handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                    # may be more than one param specified, so don't return prematurely
+                    module = handler(module, c, parameter_name=parameter_name)
+                else:
+                    raise NotImplementedError("Not implemented")
+
+    # then we see if we match module_fqn exactly
+    if not parameter_config_found and fqn in config.fqn_to_config:
         c = config.fqn_to_config[fqn]
-        config_found = True
+        if c is not None:
+            handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+            return handler(module, c)
+        else:
+            return module
 
-    # then we see if we match parameters
-    if not config_found:
-        for parameter_name, param, parameter_fqn in top_level_params:
-            if parameter_fqn in config.fqn_to_config:
-                c = config.fqn_to_config[parameter_fqn]
-                config_found = True
-                c_parameter_name = parameter_name
-
-    # try to match regex on fqn
-    if not config_found:
+    # Next try to match parameters on regex patterns
+    for i, parameter_name, param, parameter_fqn in top_level_params:
         for pattern in config.fqn_to_config:
-            if not pattern.startswith("re:"):
-                continue
-            elif re.fullmatch(pattern[3:], fqn):
-                # we'll apply the config for first fully matched pattern
+            if pattern.startswith("re:") and re.fullmatch(pattern[3:], parameter_fqn):
+                parameter_config_found = True
                 c = config.fqn_to_config[pattern]
-                config_found = True
-                break
+                if c is not None:
+                    handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                        # may be more than one param specified, so don't return prematurely
+                        module = handler(module, c, parameter_name=parameter_name)
+                    else:
+                        raise NotImplementedError("Not implemented")
 
-    # try to match regex on parameters
-    if not config_found:
-        for parameter_name, param, parameter_fqn in top_level_params:
-            for pattern in config.fqn_to_config:
-                if not pattern.startswith("re:"):
-                    continue
-                # we'll apply the config for first fully matched pattern
-                elif re.fullmatch(pattern[3:], parameter_fqn):
-                    c = config.fqn_to_config[pattern]
-                    config_found = True
-                    c_parameter_name = parameter_name
-                    break
+    # try to match regex on module fqn
+    if not parameter_config_found:
+        for pattern in config.fqn_to_config:
+            # we'll apply the config for first fully matched pattern
+            if pattern.startswith("re:") and re.fullmatch(pattern[3:], fqn):
+                c = config.fqn_to_config[pattern]
+                if c is not None:
+                    handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+                    return handler(module, c)
 
     # If no module_fqn or parameter_fqn matches, then we apply _default
-    if not config_found:
+    if not parameter_config_found:
         c = config.fqn_to_config.get("_default", None)
-
-    # handle replacement
-    if c is not None:
-        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-        if c_parameter_name is not None:
-            if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
-                return handler(module, c, parameter_name=c_parameter_name)
-            else:
-                raise NotImplementedError("Not implemented")
-        else:
+        if c is not None:
+            handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+            # safe to return here as at most only one module will match
             return handler(module, c)
-    else:
-        return module
+
+    return module
 
 
 def _filter_fn_and_param_in_fqn_config(
@@ -2571,9 +2578,9 @@ def _filter_fn_and_param_in_fqn_config(
         return True
     else:
         for maybe_module_or_param_fqn_pattern in config.fqn_to_config:
-            if not maybe_module_or_param_fqn_pattern.startswith("re:"):
-                continue
-            elif re.fullmatch(maybe_module_or_param_fqn_pattern[3:], fqn):
+            if maybe_module_or_param_fqn_pattern.startswith("re:") and re.fullmatch(
+                maybe_module_or_param_fqn_pattern[3:], fqn
+            ):
                 return True
     if "_default" in config.fqn_to_config and _is_linear(module, fqn):
         return True
