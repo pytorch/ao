@@ -857,7 +857,12 @@ EMBEDINGBAG_TEST_PARAMS = list(
 
 
 def _test_scaled_embedding_bag_cpu_helper(
-    multi_hot, batch_size, vector_size, index_type, qtype, out_dtype=torch.float,
+    multi_hot,
+    batch_size,
+    vector_size,
+    index_type,
+    qtype,
+    out_dtype=torch.float,
 ):
     include_last_offset = True
     mode = "sum"
@@ -920,7 +925,12 @@ def _test_scaled_embedding_bag_cpu_helper(
 def test_scaled_embedding_bag_int8_cpu(multi_hot, batch_size, vector_size, index_type):
     for out_dtype in [torch.float, torch.int8]:
         _test_scaled_embedding_bag_cpu_helper(
-            multi_hot, batch_size, vector_size, index_type, torch.int8, out_dtype,
+            multi_hot,
+            batch_size,
+            vector_size,
+            index_type,
+            torch.int8,
+            out_dtype,
         )
 
 
