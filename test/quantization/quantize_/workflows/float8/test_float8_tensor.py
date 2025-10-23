@@ -15,9 +15,11 @@ from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import run_tests
 
+from torchao.float8.inference import Float8MMConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
+    Granularity,
     PerRow,
     PerTensor,
     quantize_,
@@ -82,7 +84,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype: torch.dtype,
         mode: str,
         compile: bool,
-        granularity,
+        granularity: Granularity,
         kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
@@ -147,6 +149,61 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             assert compute_error(output_original, output_quantized) > 20, (
                 f"Quantization error is too high got a SQNR of {error}"
             )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "kernel_preference",
+        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+    )
+    # Inputs are (M,..), K, N
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    def test_fp8_matmul_variants(
+        self,
+        dtype: torch.dtype,
+        granularity: Granularity,
+        kernel_preference: KernelPreference,
+        sizes: Tuple,
+    ):
+        if (
+            isinstance(granularity, PerTensor)
+            and kernel_preference == KernelPreference.FBGEMM
+        ):
+            return unittest.skip(
+                "per tensor with fbgemm kernel preferece does not work yet"
+            )
+        M, N, K = sizes
+        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
+        weight_tensor = torch.randn(N, K, dtype=dtype, device="cuda")
+        mm_config = Float8MMConfig()
+        input_tensor_fp8 = Float8Tensor.from_hp(
+            input_tensor,
+            granularity=granularity,
+            mm_config=mm_config,
+            kernel_preference=kernel_preference,
+        )
+        weight_tensor_fp8 = Float8Tensor.from_hp(
+            weight_tensor,
+            granularity=granularity,
+            mm_config=mm_config,
+            kernel_preference=kernel_preference,
+        )
+        output_tensor = torch.matmul(input_tensor, weight_tensor.t())
+        output_tensor_fp8 = torch.matmul(input_tensor_fp8, weight_tensor_fp8.t())
+        error = compute_error(output_tensor, output_tensor_fp8)
+        assert compute_error(output_tensor, output_tensor_fp8) > 20, (
+            f"Quantization error is too high got a SQNR of {error}"
+        )
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(
@@ -652,6 +709,38 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sliced_dequantized = sliced_tensor.dequantize()
 
         self.assertEqual(sliced_dequantized, sliced_original)
+
+    def test_to_dtype_layout(self):
+        x = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        y_fp8 = torch.ops.aten.to.dtype_layout(
+            x_fp8, dtype=x_fp8.dtype, layout=x_fp8.layout, device="cpu"
+        )
+        self.assertEqual(y_fp8.dtype, x_fp8.dtype)
+        self.assertEqual(y_fp8.layout, x_fp8.layout)
+        self.assertEqual(y_fp8.device, torch.device("cpu"))
+
+    def test_has_compatible_shallow_copy_type(self):
+        x1 = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x2 = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x3 = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+        x1_fp8 = Float8Tensor.from_hp(x1)
+        x2_fp8 = Float8Tensor.from_hp(x2)
+        x3_fp8 = Float8Tensor.from_hp(x3)
+        self.assertFalse(torch._has_compatible_shallow_copy_type(x1, x2_fp8))
+        self.assertFalse(torch._has_compatible_shallow_copy_type(x1_fp8, x2))
+        self.assertTrue(torch._has_compatible_shallow_copy_type(x1_fp8, x2_fp8))
+        # Wrong shape
+        self.assertFalse(torch._has_compatible_shallow_copy_type(x1_fp8, x3_fp8))
+
+    def test_transpose(self):
+        x = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        x_fp8_t = x_fp8.t()
+        torch.testing.assert_close(x_fp8_t.qdata, x_fp8.qdata.t(), atol=0, rtol=0)
+        torch.testing.assert_close(x_fp8_t.scale, x_fp8.scale.t(), atol=0, rtol=0)
+        self.assertEqual(x_fp8.block_size, (1, 512), atol=0, rtol=0)
+        self.assertEqual(x_fp8_t.block_size, (512, 1), atol=0, rtol=0)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
