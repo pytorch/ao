@@ -33,6 +33,7 @@
 #endif
 
 #define OPERATOR_NAME "rowwise_scaled_linear_sparse_cutlass"
+#define PAD_TO_MULTIPLE_OF_16(x) (((x) + 15) / 16 * 16)
 
 namespace torchao {
 
@@ -448,7 +449,7 @@ check_inputs(
   // W_meta may be padded, thus expected shape calculations for this
   // tensor are as follows.
   const auto W_meta_size_0_expected = std::max((int)Wq_sizes[0], 64);
-  const auto W_meta_size_1_expected = std::max((int)Wq_sizes[1] / 4, 16);
+  const auto W_meta_size_1_expected = std::max(PAD_TO_MULTIPLE_OF_16((int)Wq_sizes[1]/4), 16);
   TORCH_CHECK(W_meta.size(0) == W_meta_size_0_expected, OPERATOR_NAME,
               " : Expected Wq meta argument to have ", W_meta_size_0_expected,
               " rows, got ", W_meta.size(0), " rows");
