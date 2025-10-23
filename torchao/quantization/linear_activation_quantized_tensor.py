@@ -226,7 +226,7 @@ def _(func, types, args, kwargs):
         return
 
     raise ValueError(
-        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+        f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
     )
 
 

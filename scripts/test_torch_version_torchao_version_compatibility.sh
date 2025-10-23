@@ -63,7 +63,7 @@ pip uninstall torchao
 # Install specific compatible version of torch (nightly 2.9.0dev)
 pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu129
 # Build torchao from source
-python setup.py develop
+pip install . --no-build-isolation
 # Should import successfully without warning
 check_torchao_import "false" ""
 ## prev torch, torchao from source (do not rebuild), env var = True

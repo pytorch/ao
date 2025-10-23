@@ -102,7 +102,7 @@ class Int4PackedTensorImpl(AQTTensorImpl):
                     getattr(self, tensor_name).copy_(getattr(src, tensor_name))
                 return
             raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+                f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
             )
 
         raise NotImplementedError(

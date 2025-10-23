@@ -392,7 +392,7 @@ def main(
             gemm_kernel_choice=config.gemm_kernel_choice,
         )
         m, k = x_hp.shape
-        scale_blocked = to_blocked(x_mx._scale_e8m0.reshape(m, k // config.block_size))
+        scale_blocked = to_blocked(x_mx.scale.reshape(m, k // config.block_size))
         return x_mx._data, scale_blocked
 
     # this function is used for cast_only_dim0_dim1
