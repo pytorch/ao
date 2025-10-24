@@ -1073,6 +1073,22 @@ class TestFqnToConfig(TestCase):
         with self.assertRaises(ValueError):
             quantize_(model, quant_config, filter_fn=lambda mod, fqn: True)
 
+    def test_top_level_param(self):
+        model = torch.nn.Linear(16, 16).cuda().bfloat16()
+
+        quant_config = FqnToConfig(
+            {
+                "weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        quantize_(model, quant_config, filter_fn=None)
+
+        assert isinstance(model.weight, Float8Tensor)
+        assert model.weight.scale.numel() == 1
+
 
 if __name__ == "__main__":
     unittest.main()

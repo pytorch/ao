@@ -1889,8 +1889,8 @@ def _float8_dynamic_activation_float8_weight_transform(
         torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert hasattr(module, parameter_name), (
-        "applying float8 dynamic activation quant requires module to have parameter {parameter_name} attribute"
-        + f"but {module} does not have one"
+        f"applying float8 dynamic activation quant requires module to have parameter {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
@@ -2485,7 +2485,7 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     for i, (parameter_name, param) in enumerate(list(module.named_parameters())):
         if parameter_name in dir(module):
             parameter_fqn = (
-                f"{fqn}.{parameter_name}" if fqn is not None else parameter_name
+                f"{fqn}.{parameter_name}" if len(fqn) > 0 else parameter_name
             )
             top_level_params.append((i, parameter_name, param, parameter_fqn))
 
