@@ -281,7 +281,7 @@ at::Tensor _scaled_embedding_bag_impl(
   TORCH_CHECK(qweight.dim() == 2,
               "_scaled_embedding_bag: only accept weight with dim == 2");
   TORCH_CHECK(qtype == c10::ScalarType::Float8_e4m3fn ||
-                  qtype == c10::ScalarType::Char,
+              qtype == c10::ScalarType::Char,
               "_scaled_embedding_bag: only support e4m3fn and int8 weight")
   // handle last offsets
   int64_t last_offset = indices.numel();
