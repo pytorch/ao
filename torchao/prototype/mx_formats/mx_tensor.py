@@ -775,6 +775,27 @@ def mx_addmm(func, types, args, kwargs):
     return _addmm_mx_dispatch(a, b, func, bias=bias)
 
 
+@implements([aten.linear.default])
+def mx_linear(func, types, args, kwargs):
+    assert isinstance(args[0], torch.Tensor) and isinstance(args[1], MXTensor)
+    a = args[0]
+
+    # make a 2d
+    orig_a_shape = a.shape
+    a_2d = a.view(-1, orig_a_shape[-1])
+
+    b = args[1].t()
+    if len(args) > 2:
+        bias = args[2]
+        res = _addmm_mx_dispatch(a_2d, b, aten.addmm.default, bias)
+    else:
+        res = _addmm_mx_dispatch(a_2d, b, aten.mm.default)
+
+    # reshape back to original shape
+    res = res.view(*orig_a_shape[:-1], res.shape[-1])
+    return res
+
+
 @implements([aten.t.default])
 def mx_t(func, types, args, kwargs):
     # For now, only transpose(input, 0, 1) is supported.
