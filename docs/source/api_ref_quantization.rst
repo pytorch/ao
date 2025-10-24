@@ -14,7 +14,6 @@ Main Quantization APIs
     :nosignatures:
 
     quantize_
-    autoquant
 
 Inference APIs for quantize\_
 -------------------------------
@@ -27,14 +26,9 @@ Inference APIs for quantize\_
     Float8DynamicActivationInt4WeightConfig
     Float8DynamicActivationFloat8WeightConfig
     Float8WeightOnlyConfig
-    Float8StaticActivationFloat8WeightConfig
     Int8DynamicActivationInt4WeightConfig
-    GemliteUIntXWeightOnlyConfig
     Int8WeightOnlyConfig
     Int8DynamicActivationInt8WeightConfig
-    UIntXWeightOnlyConfig
-    FPXWeightOnlyConfig
-    FqnToConfig
 
 .. currentmodule:: torchao.quantization
 
@@ -52,19 +46,4 @@ Quantization Primitives
     safe_int_mm
     int_scaled_matmul
     MappingType
-    ZeroPointDomain
     TorchAODType
-
-..
-  TODO: delete these?
-
-Other
------
-
-.. autosummary::
-    :toctree: generated/
-    :nosignatures:
-
-    to_linear_activation_quantized
-    swap_linear_with_smooth_fq_linear
-    smooth_fq_linear_to_inference

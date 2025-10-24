@@ -27,7 +27,7 @@ This prototype provides:
 import torch
 from torch.nn import functional as F
 from torchao.prototype.moe_training import (
-    _scaled_grouped_mm as torchao_scaled_grouped_mm
+    _quantize_then_scaled_grouped_mm as torchao_scaled_grouped_mm
 )
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
