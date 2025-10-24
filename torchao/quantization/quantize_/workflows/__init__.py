@@ -24,6 +24,10 @@ from .int4.int4_tensor import (
     Int4Tensor,
 )
 from .int4.int4_tile_packed_to_4d_tensor import Int4TilePackedTo4dTensor
+from .int8.int8_tensor import (
+    Int8Tensor,
+    QuantizeTensorToInt8Kwargs,
+)
 from .intx.intx_choose_qparams_algorithm import IntxChooseQParamsAlgorithm
 from .intx.intx_opaque_tensor import (
     IntxOpaqueTensor,
@@ -42,6 +46,8 @@ __all__ = [
     "Int4PlainInt32Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8OpaqueTensor",
+    "Int8Tensor",
+    "QuantizeTensorToInt8Kwargs",
     "Float8Tensor",
     "Float8PackingFormat",
     "QuantizeTensorToFloat8Kwargs",
