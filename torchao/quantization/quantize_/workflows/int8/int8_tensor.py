@@ -133,7 +133,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
         if tuple(block_size) == w.shape:
             # per-tensor
-            scale = scale.expand(w.shape)
+            pass
         elif len(scale.shape) == 1:
             # per-row, 1D -> 2D
             scale = scale.unsqueeze(-1)
@@ -190,22 +190,38 @@ def _(func, types, args, kwargs):
         w_vals_t = weight_tensor.qdata.contiguous().t()
         w_scales = weight_tensor.scale
 
-        tmp = x_vals.reshape(-1, x_vals.shape[-1])
-        x_scales_dtype = x_scales.dtype
+        tmp_shape = (-1, x_vals.shape[-1])
+        tmp = x_vals.view(tmp_shape)
 
         # Cast fp16 scale to float
         intermediate_dtype = (
-            torch.float if x_scales_dtype == torch.half else x_scales_dtype
+            torch.float if x_scales.dtype == torch.half else x_scales.dtype
         )
         # Note: CUDA doesn't support int32/int64 matmul, so we convert to float
         # Error message is NotImplementedError: "addmm_cuda" not implemented for 'Int'
         # This may introduce minor numerical differences compared to int arithmetic
         y_dot = torch.mm(tmp.to(intermediate_dtype), w_vals_t.to(intermediate_dtype))
-        y_dot_scaled = y_dot * x_scales.reshape(-1, 1).to(intermediate_dtype)
 
-        result = (y_dot_scaled * w_scales).reshape(
-            *x_vals.shape[:-1], y_dot_scaled.shape[-1]
-        )
+        # Apply activation scale
+        is_per_tensor_act = x_scales.numel() == 1
+        if is_per_tensor_act:
+            y_dot.mul_(x_scales.to(intermediate_dtype))
+        else:
+            # For block-wise activation scale, reshape to match y_dot
+            x_scales_reshaped = x_scales.view(y_dot.shape[0], -1)
+            y_dot.mul_(x_scales_reshaped.to(intermediate_dtype))
+
+        # Apply weight scale
+        is_per_tensor_weight = w_scales.numel() == 1
+        if is_per_tensor_weight:
+            result = y_dot.mul_(w_scales.to(intermediate_dtype))
+        else:
+            # Per-row weight scale - transpose and broadcast
+            w_scales_broadcast = w_scales.t().expand_as(y_dot)
+            result = y_dot.mul_(w_scales_broadcast.to(intermediate_dtype))
+
+        # Reshape back to original shape
+        result = result.view(*x_vals.shape[:-1], result.shape[-1])
         result = result.to(activation_tensor.dtype)
     else:
         # FP × INT8 (weight-only)
