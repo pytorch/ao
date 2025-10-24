@@ -259,7 +259,7 @@ def is_nvcc_available():
     try:
         subprocess.check_output(["nvcc", "--version"], stderr=subprocess.STDOUT)
         return True
-    except:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return False
 
 
@@ -784,7 +784,11 @@ def get_extensions():
 
         spec = importlib.util.find_spec("torch")
         if spec is None or spec.origin is None:
-            raise RuntimeError("Unable to locate 'torch' package for CMake config")
+            raise RuntimeError(
+                "Unable to locate 'torch' package for CMake config. "
+                "Please ensure PyTorch is installed in your environment: "
+                "pip install torch"
+            )
         torch_pkg_dir = os.path.dirname(spec.origin)
         torch_dir = os.path.join(torch_pkg_dir, "share", "cmake", "Torch")
 

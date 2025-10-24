@@ -12,7 +12,11 @@ set -eux
 if [[ "$CU_VERSION" == cu* ]]; then
     pushd dist
     # Determine the original wheel produced by build (there should be exactly one)
-    ORIG_WHEEL=$(ls -1 *.whl | head -n 1)
+    ORIG_WHEEL=$(ls -1 *.whl 2>/dev/null | head -n 1)
+    if [ -z "$ORIG_WHEEL" ]; then
+        echo "Error: No wheel files found in dist/"
+        exit 1
+    fi
     manylinux_plat=manylinux_2_28_x86_64
     # Only run auditwheel if the wheel contains at least one shared object (.so)
     if unzip -l "$ORIG_WHEEL" | awk '{print $4}' | grep -E '\\.so($|\.)' >/dev/null 2>&1; then
@@ -26,6 +30,8 @@ if [[ "$CU_VERSION" == cu* ]]; then
     --exclude libcuda.so.* \
     --exclude libcudart.so.* \
         "${ORIG_WHEEL}"
+        # Clean up the original non-portable wheel after successful repair
+        rm "${ORIG_WHEEL}"
     else
         echo "No shared libraries detected in wheel ${ORIG_WHEEL}; skipping auditwheel."
     fi
