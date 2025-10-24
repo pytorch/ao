@@ -6,7 +6,7 @@
 #include <c10/util/Unroll.h>
 #include <torch/all.h>
 
-#define QTYPE_DISPATCH(TYPE, NAME, ...)                                        \
+#define QTYPE_DISPATCH(TYPE, ...)                                              \
   [&]() {                                                                      \
     switch (TYPE) {                                                            \
     case c10::ScalarType::Float8_e4m3fn: {                                     \
@@ -18,12 +18,11 @@
       return __VA_ARGS__();                                                    \
     }                                                                          \
     default:                                                                   \
-      std::cerr << NAME << " unsupported qtype " << int(TYPE) << std::endl;    \
-      exit(1);                                                                 \
+      TORCH_CHECK(false, "scaled_embeding_bag: unsupport qtype");              \
     }                                                                          \
   }()
 
-#define OUTTYPE_DISPATCH(TYPE, NAME, ...)                                      \
+#define OUTTYPE_DISPATCH(TYPE, ...)                                            \
   [&]() {                                                                      \
     switch (TYPE) {                                                            \
     case c10::ScalarType::Float: {                                             \
@@ -35,8 +34,7 @@
       return __VA_ARGS__();                                                    \
     }                                                                          \
     default:                                                                   \
-      std::cerr << NAME << " unsupported out_type " << int(TYPE) << std::endl; \
-      exit(1);                                                                 \
+      TORCH_CHECK(false, "scaled_embeding_bag: unsupport output type");        \
     }                                                                          \
   }()
 
@@ -88,7 +86,7 @@ static inline CHUNK load_chunk(const int8_t *x) {
   return {x0, x1, x2, x3, x4, x5, x6, x7};
 }
 
-static inline void save_chunk(float *output, CHUNK chunk) {
+static inline void store_chunk(float *output, CHUNK chunk) {
   __m512 x0, x1, x2, x3, x4, x5, x6, x7;
   std::tie(x0, x1, x2, x3, x4, x5, x6, x7) = chunk;
   _mm512_store_ps(output, x0);
@@ -101,7 +99,7 @@ static inline void save_chunk(float *output, CHUNK chunk) {
   _mm512_store_ps(output + 112, x7);
 }
 
-static inline void save_chunk(int8_t *output, CHUNK chunk) {
+static inline void store_chunk(int8_t *output, CHUNK chunk) {
   __m512i x00, x64;
   __m512i y0, y1, y2, y3, y4, y5, y6, y7;
   __m512 f0, f1, f2, f3, f4, f5, f6, f7;
@@ -135,9 +133,11 @@ static inline void save_chunk(int8_t *output, CHUNK chunk) {
 }
 #endif
 
-static inline void save_elem(float &out, float input) { out = input; }
+static inline void store_elem(float &out, float input) {
+  out = input;
+}
 
-static inline void save_elem(int8_t &out, float input) {
+static inline void store_elem(int8_t &out, float input) {
   float rounded = std::round(input);
   float clamped = std::max(-128.0f, std::min(127.0f, rounded));
   int32_t int32_value = static_cast<int32_t>(clamped);
@@ -189,7 +189,7 @@ inline void _scaled_embedding_bag_krnl(
         x6 = _mm512_mul_ps(x6, scale_v);
         x7 = _mm512_mul_ps(x7, scale_v);
         // store
-        save_chunk(block_result, {x0, x1, x2, x3, x4, x5, x6, x7});
+        store_chunk(block_result, {x0, x1, x2, x3, x4, x5, x6, x7});
       }
       result += num_emb * emb_dim;
     }
@@ -209,7 +209,7 @@ inline void _scaled_embedding_bag_krnl(
         value += float(weight[idx + d]);
       }
       value = value * scale;
-      save_elem(result[d], value);
+      store_elem(result[d], value);
     }
     result += num_emb * emb_dim;
   }
@@ -288,8 +288,8 @@ at::Tensor _scaled_embedding_bag_impl(
 
   at::Tensor output =
       at::empty({batch_size, emb_dim}, qweight.options().dtype(output_dtype));
-  OUTTYPE_DISPATCH(output_dtype, "_scaled_embedding_bag", [&] {
-    QTYPE_DISPATCH(qtype, "_scaled_embedding_bag", [&] {
+  OUTTYPE_DISPATCH(output_dtype, [&] {
+    QTYPE_DISPATCH(qtype, [&] {
       AT_DISPATCH_INDEX_TYPES(
           indices.scalar_type(), "_scaled_embedding_bag", [&] {
             _scaled_embedding_bag_dispatch_dtype<index_t, data_t, output_t>(
