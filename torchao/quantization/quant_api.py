@@ -1522,6 +1522,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
+    granularity: Optional[Union[PerRow, PerTensor]] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
 
@@ -1555,9 +1556,6 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     mapping_type = MappingType.SYMMETRIC
     weight_zero_point_domain = ZeroPointDomain.NONE
 
-    def get_weight_block_size(x):
-        return tuple([1 for _ in range(x.dim() - 1)] + [x.shape[-1]])
-
     target_dtype = torch.int8
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int64
@@ -1571,7 +1569,13 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         else:
             input_quant_func = _int8_asymm_per_token_quant
 
-    block_size = get_weight_block_size(weight)
+    if isinstance(config.granularity, PerTensor):
+        # Tensor granularity
+        block_size = weight.shape
+    else:
+        # Per row granularity
+        block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
+
     if config.version == 1:
         warnings.warn(
             "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"

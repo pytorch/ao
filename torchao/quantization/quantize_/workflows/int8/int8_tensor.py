@@ -5,11 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.quantization.quant_primitives import (
     MappingType,
     _maybe_expand_scale_to_tensor_shape,
@@ -20,7 +21,7 @@ from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 __all__ = ["Int8Tensor", "QuantizeTensorToInt8Kwargs"]
 
@@ -32,11 +33,11 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor (either activation or weight)
 
     Args:
-        block_size (List[int]): block size for quantization granularity
+        block_size (list[int]): block size for quantization granularity
         static_scale (Optional[torch.Tensor]): pre-computed scale for static quantization
     """
 
-    block_size: List[int]
+    block_size: list[int]
     static_scale: Optional[torch.Tensor] = None
 
 
@@ -64,7 +65,7 @@ class Int8Tensor(TorchAOBaseTensor):
         cls: type,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: List[int],
+        block_size: list[int],
         act_quant_kwargs=None,
         dtype=None,
     ):
@@ -73,13 +74,13 @@ class Int8Tensor(TorchAOBaseTensor):
             "dtype": dtype or scale.dtype,
             "requires_grad": False,
         }
-        return torch.Tensor._make_wrapper_subclass(cls, List(qdata.shape), **kwargs)
+        return torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
 
     def __init__(
         self,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: List[int],
+        block_size: list[int],
         act_quant_kwargs=None,
         dtype=None,
     ):
@@ -99,13 +100,13 @@ class Int8Tensor(TorchAOBaseTensor):
     def from_hp(
         cls,
         w: torch.Tensor,
-        block_size: List[int],
+        block_size: list[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
 
-        if act_quant_kwargs and act_quant_kwargs.static_scale is not None:
+        if act_quant_kwargs is not None and act_quant_kwargs.static_scale is not None:
             # INT8 × INT8 (static)
             scale = act_quant_kwargs.static_scale
             zero_point = torch.zeros_like(scale, dtype=torch.int8)
@@ -114,7 +115,7 @@ class Int8Tensor(TorchAOBaseTensor):
             scale, zero_point = choose_qparams_affine(
                 input=w,
                 mapping_type=MappingType.SYMMETRIC,
-                block_size=tuple(block_size),
+                block_size=block_size,
                 target_dtype=torch.int8,
                 quant_min=-128,
                 quant_max=127,
@@ -124,11 +125,18 @@ class Int8Tensor(TorchAOBaseTensor):
 
         int_data = quantize_affine(
             w,
-            block_size=tuple(block_size),
+            block_size=block_size,
             scale=scale,
             zero_point=zero_point,
             output_dtype=torch.int8,
         )
+
+        if tuple(block_size) == w.shape:
+            # per-tensor
+            scale = scale.expand(w.shape)
+        elif len(scale.shape) == 1:
+            # per-row, 1D -> 2D
+            scale = scale.unsqueeze(-1)
 
         return cls(
             int_data,
@@ -208,37 +216,32 @@ def _(func, types, args, kwargs):
     return result + bias if bias is not None else result
 
 
-@implements([aten.slice.Tensor])
+@implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     """Slice operation for Int8Tensor"""
-    tensor, dim, start, end, step = (
-        args[0],
-        args[1],
-        args[2],
-        args[3],
-        args[4] if len(args) > 4 else 1,
-    )
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
 
-    assert dim in (0, 1), f"Only dim 0 or 1 supported, got {dim}"
+    if step != 1:
+        raise NotImplementedError("Slicing with step > 1 is not supported")
 
-    if end >= tensor.shape[dim]:
-        end = tensor.shape[dim]
+    if end >= self.shape[dim]:
+        end = self.shape[dim]
 
-    # Always slice the qdata
-    sliced_qdata = func(tensor.qdata, dim, start, end, step)
+    sliced_qdata = aten.slice.Tensor(self.qdata, dim, start, end, step)
 
-    if tensor.scale.numel() == 1:
+    if self.scale.numel() == 1:
         # Per-tensor quantization - scale doesn't change
-        sliced_scale = tensor.scale
-    elif dim < tensor.scale.ndim and tensor.scale.shape[dim] > 1:
+        sliced_scale = self.scale
+    elif dim < self.scale.ndim and self.scale.shape[dim] > 1:
         # Block-wise quantization - need to slice the scale appropriately
-        sliced_scale = func(tensor.scale, dim, start, end, step)
+        sliced_scale = aten.slice.Tensor(self.scale, dim, start, end, step)
     else:
-        sliced_scale = tensor.scale
+        # Block-wise quantization - need to slice the scale appropriately
+        sliced_scale = _slice_scale_for_dimension(
+            self.scale, self.qdata.shape, dim, start, end, step
+        )
 
-    # adjust block_size since the shape has changed, block_size[i] should not be greater than shape[i]
-    block_size = List(tensor.block_size)
-
+    block_size = list(self.block_size)
     for i in range(len(block_size)):
         block_size[i] = min(block_size[i], sliced_qdata.shape[i])
 
@@ -250,8 +253,8 @@ def _(func, types, args, kwargs):
             sliced_qdata,
             sliced_scale,
             block_size,
-            tensor.act_quant_kwargs,
-            tensor.dtype,
+            self.act_quant_kwargs,
+            dtype=self.dtype,
         ),
     )
 

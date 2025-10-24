@@ -111,12 +111,16 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         assert error > 20, f"Quantization error is too high got a SQNR of {error}"
 
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_static_quantization(self, dtype):
-        """Test static quantization with pre-computed scale"""
+    def test_static_dynamic_quantization(self, dtype):
+        """Test static and dynamic quantization"""
         K, N = 128, 64
         weight = torch.randn(N, K, dtype=dtype, device="cuda")
         input_tensor = torch.randn(32, K, dtype=dtype, device="cuda")
 
+        # Dynamic quantization (runtime scale computation)
+        dynamic_tensor = Int8Tensor.from_hp(weight, block_size=[N, K])
+
+        # Static quantization (pre-computed scale)
         act_scale, _ = choose_qparams_affine(
             input=input_tensor,
             mapping_type=MappingType.SYMMETRIC,
@@ -128,8 +132,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             zero_point_dtype=torch.int8,
         )
 
-        # Create weight with static quantization
-        weight_int8 = Int8Tensor.from_hp(
+        # Static quantization (with pre-computed scale)
+        static_tensor = Int8Tensor.from_hp(
             weight,
             block_size=[N, K],
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
@@ -138,9 +142,13 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             ),
         )
 
-        output = torch.nn.functional.linear(input_tensor, weight_int8)
-        self.assertEqual(output.shape, (32, N))
-        self.assertEqual(output.dtype, dtype)
+        dynamic_output = torch.nn.functional.linear(input_tensor, dynamic_tensor)
+        static_output = torch.nn.functional.linear(input_tensor, static_tensor)
+
+        self.assertEqual(dynamic_output.shape, (32, N))
+        self.assertEqual(static_output.shape, (32, N))
+        self.assertEqual(dynamic_output.dtype, dtype)
+        self.assertEqual(static_output.dtype, dtype)
 
     @unittest.skip("granularity parameter not supported in current API")
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
@@ -190,6 +198,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             # PerTensor: scale unchanged by slicing
             self.assertEqual(weight1.scale, dummy.weight.scale)
             self.assertEqual(weight2.scale, dummy.weight.scale)
+        with self.assertRaises(NotImplementedError):
+            _ = dummy.weight[::2]
 
     def test_index_select(self):
         """test that `x_0 = x[0]` works when `x` is a 2D `Int8Tensor`."""
@@ -212,7 +222,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         test_data = torch.tensor([[1.0, -1.0]], dtype=torch.bfloat16)
         tensor = Int8Tensor.from_hp(test_data, [1, 2])
 
-        dequantized = torch.ops.aten.dequantize.self(tensor)
+        dequantized = tensor.dequantize()
         self.assertEqual(dequantized.shape, test_data.shape)
         self.assertLess(torch.abs(dequantized - test_data).max().item(), 0.1)
 
