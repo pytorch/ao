@@ -6,6 +6,8 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch.testing._internal.common_utils import (
     TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
     run_tests,
 )
 
@@ -15,10 +17,13 @@ from torchao.prototype.safetensors.safetensors_support import (
     unflatten_tensor_state_dict,
 )
 from torchao.quantization.granularity import PerRow
-from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig
-from torchao.utils import (
-    is_sm_at_least_89,
+from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationIntxWeightConfig,
+    IntxWeightOnlyConfig,
 )
+from torchao.utils import is_sm_at_least_89
 
 
 def load_data(file_path: str, device: str):
@@ -36,13 +41,27 @@ def load_data(file_path: str, device: str):
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
 class TestSafeTensors(TestCase):
-    def test_safetensors(self):
-        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+    @parametrize(
+        "config, act_pre_scale",
+        [
+            (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
+            (Int4WeightOnlyConfig(), False),
+            (Int4WeightOnlyConfig(), True),
+            (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
+            (IntxWeightOnlyConfig(), False),
+            (Int8DynamicActivationIntxWeightConfig(), False),
+        ],
+    )
+    def test_safetensors(self, config, act_pre_scale=False):
         model = torch.nn.Sequential(
-            torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         )
         quantize_(model, config)
-        example_inputs = (torch.randn(2, 32, dtype=torch.bfloat16, device="cuda"),)
+        if act_pre_scale:
+            model[0].weight.act_pre_scale = torch.ones(
+                (1), dtype=torch.bfloat16, device="cuda"
+            )
+        example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device="cuda"),)
         ref_output = model(*example_inputs)
 
         with tempfile.NamedTemporaryFile() as f:
@@ -54,12 +73,14 @@ class TestSafeTensors(TestCase):
             )
 
         model = torch.nn.Sequential(
-            torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         )
         model.load_state_dict(reconstructed_dict, assign=True)
         output = model(*example_inputs)
         assert torch.equal(output, ref_output)
 
+
+instantiate_parametrized_tests(TestSafeTensors)
 
 if __name__ == "__main__":
     run_tests()

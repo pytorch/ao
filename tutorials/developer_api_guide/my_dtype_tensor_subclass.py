@@ -364,6 +364,7 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
 #####################################################
 
 implements = MyDTypeTensor.implements
+implements_torch_function = MyDTypeTensor.implements_torch_function
 
 
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
@@ -374,7 +375,7 @@ def _quantized_linear_op(input_tensor, weight_tensor, bias):
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-@implements(torch.nn.functional.linear)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],

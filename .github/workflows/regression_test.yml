@@ -45,12 +45,12 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.9 -y
+        conda create -n venv python=3.10 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
-        pip install .
+        pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         pytest test --verbose -s
@@ -105,7 +105,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.9 -y
+        conda create -n venv python=3.10 -y
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
         dnf install -y gcc-toolset-10-binutils
@@ -114,7 +114,7 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
         pip install -r dev-requirements.txt
-        pip install .
+        pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         pytest test --verbose -s

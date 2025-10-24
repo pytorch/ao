@@ -434,25 +434,6 @@ def main(
                 model,
                 Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1),
             )
-        elif "fbgemm" in quantization and "int4" in quantization:
-            from torchao.quantization import FbgemmConfig
-
-            _, precision, group_size = quantization.split("-")
-            group_size = int(group_size)
-            block_size = [1, group_size]
-            assert precision == "int4", f"FbegemmConfig({precision=}) not supported yet"
-            quantize_(
-                model,
-                FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, block_size),
-            )
-        elif "fbgemm" in quantization and "fp8" in quantization:
-            from torchao.float8.config import e4m3_dtype
-            from torchao.quantization import FbgemmConfig
-
-            quantize_(
-                model,
-                FbgemmConfig(e4m3_dtype, e4m3_dtype, torch.bfloat16),
-            )
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 

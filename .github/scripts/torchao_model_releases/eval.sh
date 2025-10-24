@@ -9,17 +9,21 @@ set -e
 source eval_env_checks.sh
 
 usage() {
-  echo "Usage: $0 --eval_type <all|memory|latency|quality> --model_ids <model1> <model2> ... [--batch_sizes <batch_sizes>] [--tasks <tasks>]"
+  echo "Usage: $0 --model_ids <model1> <model2> ... [--eval_type <all|memory|latency|quality>] [--batch_sizes <batch_sizes>] [--tasks <tasks>] [--use_cache]"
   echo "Defaults:"
   echo "  batch_sizes: 1 256"
   echo "  tasks: mmlu"
   exit 1
 }
-EVAL_TYPE=""
 MODEL_ID_ARRAY=()
+EVAL_TYPE="all"
 # these will be parsed in the other scripts
 BATCH_SIZES="1 256"    # Default for latency eval
+MM_EVAL_BATCH_SIZE=1   # Default batch size for mm quality eval
 TASKS="mmlu"           # Default for quality eval
+MM_TASKS="chartqa"     # Default for multi-modal quality eval (not included in all)
+MODEL_TYPE=""
+USE_CACHE=false      # default: do not use cache
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,6 +53,10 @@ while [[ $# -gt 0 ]]; do
       BATCH_SIZES="$1"
       shift
       ;;
+    --mm_eval_batch_size)
+      MM_EVAL_BATCH_SIZE="$2"
+      shift 2
+      ;;
     --tasks)
       shift
       if [[ $# -eq 0 ]]; then
@@ -58,14 +66,36 @@ while [[ $# -gt 0 ]]; do
       TASKS="$1"
       shift
       ;;
+    --model_type)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "Error: --model_type requires a value"
+        exit 1
+      fi
+      MODEL_TYPE="$1"
+      shift
+      ;;
+    --mm_tasks)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "Error: --mm_tasks requires a value"
+        exit 1
+      fi
+      MM_TASKS="$1"
+      shift
+      ;;
+    --use_cache)
+      USE_CACHE=true
+      shift
+      ;;
     *)
       echo "Unknown argument: $1"
       usage
       ;;
   esac
 done
-if [[ -z "$EVAL_TYPE" || ${#MODEL_ID_ARRAY[@]} -eq 0 ]]; then
-  echo "Error: --eval_type and --model_ids are required"
+if [[ ${#MODEL_ID_ARRAY[@]} -eq 0 ]]; then
+  echo "Error: --model_ids is required"
   usage
 fi
 
@@ -82,7 +112,21 @@ run_latency() {
 run_quality() {
   check_lm_eval
   local model_id="$1"
-  sh eval_quality.sh --model_ids "$model_id" --tasks $TASKS
+  if $USE_CACHE; then
+    sh eval_quality.sh --model_ids "$model_id" --tasks $TASKS --use_cache
+  else
+    sh eval_quality.sh --model_ids "$model_id" --tasks $TASKS
+  fi
+}
+run_mm_quality() {
+  check_lmms_eval
+  local model_id="$1"
+  echo "run_mm_quality" $model_id $MODEL_TYPE
+  if $USE_CACHE; then
+    sh eval_mm_quality.sh --model_ids "$model_id" --tasks $MM_TASKS --model_type $MODEL_TYPE --batch_size $MM_EVAL_BATCH_SIZE --use_cache
+  else
+    sh eval_mm_quality.sh --model_ids "$model_id" --tasks $MM_TASKS --model_type $MODEL_TYPE --batch_size $MM_EVAL_BATCH_SIZE
+  fi
 }
 for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
   case "$EVAL_TYPE" in
@@ -95,10 +139,13 @@ for MODEL_ID in "${MODEL_ID_ARRAY[@]}"; do
     quality)
       run_quality "$MODEL_ID"
       ;;
+    mm_quality)
+      run_mm_quality "$MODEL_ID"
+      ;;
     all)
+      run_quality "$MODEL_ID"
       run_memory "$MODEL_ID"
       run_latency "$MODEL_ID"
-      run_quality "$MODEL_ID"
       ;;
     *)
       echo "Unknown eval_type: $EVAL_TYPE"

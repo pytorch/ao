@@ -12,13 +12,8 @@ check_torch() {
 }
 
 check_vllm() {
-  # Check if VLLM_DIR is set
-  if [ -z "$VLLM_DIR" ]; then
-    echo "Error: VLLM_DIR environment variable is not set. Please set it before running this script."
-    exit 1
-  fi
   if ! pip show vllm > /dev/null 2>&1; then
-    echo "Error: vllm package is NOT installed. please install from source: https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html#set-up-using-python-only-build-without-compilation" >&2
+    echo "Error: vllm package is NOT installed. please install with `pip install vllm`" >&2
     exit 1
   fi
 }
@@ -26,6 +21,13 @@ check_vllm() {
 check_lm_eval() {
   if ! pip show lm_eval > /dev/null 2>&1; then
     echo "Error: lm_eval package is NOT installed. please install with `pip install lm_eval`" >&2
+    exit 1
+  fi
+}
+
+check_lmms_eval() {
+  if ! pip show lmms_eval > /dev/null 2>&1; then
+    echo "Error: lmms_eval package is NOT installed. please install with `uv pip install git+https://github.com/EvolvingLMMs-Lab/lmms-eval.git`" >&2
     exit 1
   fi
 }

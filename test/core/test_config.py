@@ -24,7 +24,6 @@ from torchao.prototype.awq import (
     AWQStep,
 )
 from torchao.quantization.quant_api import (
-    FbgemmConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
@@ -92,7 +91,6 @@ configs = [
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step=AWQStep.PREPARE_FOR_LOADING),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
-    FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256]),
 ]
 
 

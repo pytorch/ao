@@ -13,7 +13,7 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.kernels.mxfp8_blocked_scales import (
+from torchao.prototype.moe_training.kernels.mxfp8 import (
     torch_to_blocked_per_group_3d,
     triton_mx_block_rearrange_per_group_3d,
 )

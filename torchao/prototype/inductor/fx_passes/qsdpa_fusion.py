@@ -136,14 +136,14 @@ def _generate_dequant_pattern(
         assert zp is None, "Fp8 dequantization does not support zero point"
         if is_reduced_type:
             return CallFunction(
-                torch.ops.torchao.dequantize_affine_float8.default,
+                torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
                 input_pattern,
                 KeywordArg(scale),
                 Arg(),
             )
         else:
             return CallFunction(
-                torch.ops.torchao.dequantize_affine_float8.default,
+                torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
                 input_pattern,
                 KeywordArg(scale),
             )
@@ -164,7 +164,7 @@ def _generate_quant_pattern(input_pattern, qtype, scale: str, zp: str = None):
     else:
         assert zp is None, "Fp8 quantization does not support zero point"
         return CallFunction(
-            torch.ops.torchao.quantize_affine_float8.default,
+            torch.ops.torchao.quantize_affine_float8_non_decomposed.default,
             input_pattern,
             KeywordArg(scale),
         )

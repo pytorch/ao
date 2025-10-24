@@ -86,7 +86,7 @@ def main(args):
     with torch.no_grad():
         model_name_or_path = args.model_name_or_path
         model, tokenizer, decoder_cls = ar_utils.get_float_model_info(
-            model_name_or_path, torch_dtype=torch.bfloat16
+            model_name_or_path, dtype=torch.bfloat16
         )
         model.eval()
         model_device = args.model_device
