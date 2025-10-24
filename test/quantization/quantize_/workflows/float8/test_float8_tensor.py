@@ -49,6 +49,26 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+class ToyConvModel(torch.nn.Module):
+    def __init__(
+        self, dim, in_channels, out_channels, kernel_size, bias, padding, dtype, device
+    ):
+        super().__init__()
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        self.conv = convs[dim](
+            in_channels,
+            out_channels,
+            kernel_size,
+            bias=bias,
+            padding=padding,
+            dtype=dtype,
+            device=device,
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -147,6 +167,90 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             assert compute_error(output_original, output_quantized) > 20, (
                 f"Quantization error is too high got a SQNR of {error}"
             )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("granularity", [PerTensor()])
+    @common_utils.parametrize(
+        "kernel_preference",
+        [KernelPreference.AUTO],
+    )
+    # only test for 3D conv for now
+    # Inputs are (N, C_in, C_out, D, H, W)
+    @common_utils.parametrize(
+        "sizes",
+        [
+            (4, 16, 16, 32, 32, 32),
+        ],
+    )
+    def test_fp8_conv_variants(
+        self,
+        dtype: torch.dtype,
+        compile: bool,
+        granularity,
+        kernel_preference: KernelPreference,
+        sizes: Tuple,
+    ):
+        if (
+            isinstance(granularity, PerTensor)
+            and kernel_preference == KernelPreference.FBGEMM
+        ):
+            return unittest.skip(
+                "per tensor with fbgemm kernel preferece does not work yet"
+            )
+
+        if kernel_preference == KernelPreference.FBGEMM and (
+            (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_90())
+        ):
+            return unittest.skip(
+                "Requires fbgemm_gpu_genai to run fbgemm kernel preference test"
+            )
+
+        dim = 3
+        N, C_in, C_out, D, H, W = sizes
+        kernel_size = 3
+
+        input_tensor = torch.randn(N, C_in, D, H, W, dtype=dtype, device="cuda")
+
+        # Create a linear layer with bfloat16 dtype
+        model = ToyConvModel(
+            dim,
+            C_in,
+            C_out,
+            kernel_size,
+            bias=False,
+            padding=0,
+            dtype=dtype,
+            device="cuda",
+        ).eval()
+
+        quantized_model = copy.deepcopy(model)
+
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+            kernel_preference=kernel_preference,
+        )
+
+        _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+
+        quantize_(quantized_model, config, filter_fn=_is_conv3d)
+
+        print("quantizd model:", quantized_model)
+
+        if compile:
+            quantized_model = torch.compile(quantized_model, fullgraph=True)
+
+        output_original = model(input_tensor)
+        output_quantized = quantized_model(input_tensor)
+
+        error = compute_error(output_original, output_quantized)
+        assert compute_error(output_original, output_quantized) > 20, (
+            f"Quantization error is too high got a SQNR of {error}"
+        )
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(
