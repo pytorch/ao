@@ -891,9 +891,9 @@ def _test_scaled_embedding_bag_cpu_helper(
         qweight = m.weight.data.to(qtype)
     m.weight.data = qweight.to(m.weight.dtype)
 
-    out_scale = 1
+    out_scale = 1.0
     if out_dtype == torch.int8:
-        out_scale = 2
+        out_scale = 2.0
 
     with torch.no_grad():
         refe_out = m.forward(indices, offsets) * weight_scale
