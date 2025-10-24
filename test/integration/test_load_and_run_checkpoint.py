@@ -239,6 +239,8 @@ class TestLoadAndRunCheckpoint(TestCase):
         with open(downloaded_output, "rb") as f:
             ref_generated_ids = torch.load(f)
 
+        print(generated_ids)
+        print(ref_generated_ids)
         self.assertTrue(torch.equal(generated_ids, ref_generated_ids))
 
         # make sure can successfully decode
