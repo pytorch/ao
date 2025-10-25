@@ -73,8 +73,12 @@ if torch.xpu.is_available():
 device_to_base_configs = {
     "cuda": [
         Int4WeightOnlyConfig(group_size=128),
-        # Note: the functionality unit test doesn't work for hqq
         Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d"),
+        Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+        ),
     ],
     "cpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="opaque")],
     "xpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="plain_int32")],
