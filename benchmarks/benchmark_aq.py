@@ -16,32 +16,7 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     quantize_,
 )
-
-
-class ToyLinearModel(torch.nn.Module):
-    """Single linear for m * k * n problem size"""
-
-    def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
-    ):
-        super().__init__()
-        self.m = m
-        self.dtype = dtype
-        self.device = device
-        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
-            dtype=self.dtype, device=self.device
-        )
-
-    def example_inputs(self):
-        return (
-            torch.randn(
-                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear(x)
-        return x
+from torchao.testing.model_architectures import ToySingleLinearModel
 
 
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
@@ -69,14 +44,26 @@ torch._dynamo.config.cache_size_limit = 50000
 
 
 @torch.no_grad
-def _bench_quantized_tensor_subclass_perf(api, config, M, N, K):
-    m = ToyLinearModel(
+def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
+    if kwargs is None:
+        kwargs = {}
+
+    m = ToySingleLinearModel(
         M, N, K, has_bias=True, dtype=torch.bfloat16, device="cuda"
     ).eval()
     m_bf16 = copy.deepcopy(m)
+    m_ref = copy.deepcopy(m)
+    example_inputs = m.example_inputs(batch_size=M)
+
+    api(m, **kwargs)
+
+    # reference
     example_inputs = m.example_inputs()
 
-    api(m, config)  # Pass both model and config
+    res = m(*example_inputs)
+    ref = m_ref(*example_inputs)
+
+    assert torch.equal(res, ref)
 
     # perf comparison
     from torchao.utils import benchmark_model
@@ -94,6 +81,11 @@ def _bench_quantized_tensor_subclass_perf(api, config, M, N, K):
     m = torch.compile(m, mode="max-autotune", fullgraph=True)
     benchmark_model(m, WARMUP, example_inputs)
     elapsed_time = benchmark_model(m, RUNS, example_inputs)
+
+    torch._dynamo.reset()
+    m_bf16 = torch.compile(m_bf16, mode="max-autotune", fullgraph=True)
+    benchmark_model(m_bf16, WARMUP, example_inputs)
+    bf16_elapsed_time = benchmark_model(m_bf16, RUNS, example_inputs)
 
     print(
         f"{(M, N, K)}: elapsed time: {elapsed_time}, bf16 elapsed time: {bf16_elapsed_time}"
