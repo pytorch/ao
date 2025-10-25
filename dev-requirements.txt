@@ -3,6 +3,7 @@ pytest
 unittest-xml-reporting
 parameterized
 packaging
+accelerate
 transformers
 hypothesis # Avoid test derandomization warning
 sentencepiece # for gpt-fast tokenizer
