@@ -71,11 +71,20 @@ def cuda_kernel_profiler(kernel_pattern):
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
 @pytest.mark.parametrize("emulate", [True, False])
+@pytest.mark.parametrize("use_inference_mode", [True, False])
+@pytest.mark.parametrize("x_rank", [2, 3])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
 )  # TODO(future): deploy gfx950 in ROCM CI
-def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: bool):
+def test_inference_workflow_mx(
+    elem_dtype,
+    bias: bool,
+    compile: bool,
+    emulate: bool,
+    use_inference_mode: bool,
+    x_rank: int,
+):
     """
     Smoke test for inference compile
     """
@@ -112,8 +121,15 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
         m_mx = torch.compile(m_mx, fullgraph=True)
 
     x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    if x_rank == 3:
+        x = x.unsqueeze(0)
+
     y_ref = m(x)
-    y_mx = m_mx(x)
+    if use_inference_mode:
+        with torch.inference_mode():
+            y_mx = m_mx(x)
+    else:
+        y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
     SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
     assert sqnr >= SQNR_THRESHOLD, (
