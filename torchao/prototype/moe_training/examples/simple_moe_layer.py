@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -5,13 +11,16 @@ from torch.nn import functional as F
 # this feature requires CUDA and SM89+
 assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
+from torchao.prototype.moe_training.conversion_utils import (
+    MoEScalingType,
+    MoETrainingConfig,
+)
 from torchao.quantization.quant_api import quantize_
 
 # this example uses torchtitan llama4 MoE, see
 try:
-    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
-    from torchtitan.experiments.llama4.model.moe import MoE
+    from torchtitan.models.moe import MoE, MoEArgs
+    from torchtitan.models.moe.utils import set_token_group_alignment_size_m
 except ImportError as e:
     raise ImportError(
         "torchtitan not installed, see installation instructions at https://github.com/pytorch/torchtitan"
@@ -20,12 +29,10 @@ except ImportError as e:
 
 # initialize model
 device = torch.device("cuda")
-model_args = TransformerModelArgs(
-    moe_enabled=True,
-    num_experts=8,
-    dim=256,
-)
-model = MoE(model_args).to(torch.bfloat16).to(device)
+model_args = MoEArgs(num_experts=8, top_k=2, use_grouped_mm=True)
+dim = 256
+hidden_dim = dim * 4
+model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).to(device)
 init_std = 0.02
 model.init_weights(init_std, device)
 
@@ -40,14 +47,17 @@ def moe_module_filter_fn(mod: nn.Module, cur_fqn: str) -> bool:
     return False
 
 
-# quantize the model
+# quantize the model, by default it is rowwise fp8
 config = MoETrainingConfig()
 quantize_(model, config=config, filter_fn=moe_module_filter_fn)
+
+alignment_size = 32 if config.scaling_type == MoEScalingType.MXFP8 else 16
+set_token_group_alignment_size_m(alignment_size)
 
 # training loop
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 for step in range(10):
-    batch, seq, dim = 8, 2048, 256
+    batch, seq, dim = 8, 2048, dim
     x = torch.randn(
         batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
     )
