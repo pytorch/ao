@@ -5,9 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import unittest
-from torchao.quantization.quantize_.workflows.float8.float8_semi_sparse_tensor import Float8SemiSparseTensor
-from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
-from torchao.float8.inference import Float8MMConfig
+
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -15,6 +13,12 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+
+from torchao.float8.inference import Float8MMConfig
+from torchao.quantization.quantize_.workflows.float8.float8_semi_sparse_tensor import (
+    Float8SemiSparseTensor,
+)
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_sm_at_least_90
@@ -44,19 +48,24 @@ class TestFloat8SemiSparseTensor(TestCase):
         linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
 
         apply_fake_sparsity(linear)
-        
+
         mm_config = Float8MMConfig(use_fast_accum=True)
-        input_fp8 = Float8Tensor.from_hp(input, float8_dtype=torch.float8_e4m3fn, mm_config=mm_config)
-        
-        weight_fp8 = Float8Tensor.from_hp(linear.weight.data, float8_dtype=torch.float8_e4m3fn, mm_config=mm_config)
-        dense_output = torch.nn.functional.linear(input_fp8, weight_fp8, linear.bias)
-        
-        weight_sparse_fp8 = Float8SemiSparseTensor.from_hp(linear.weight.data, [1, K])
-        sparse_output = torch.nn.functional.linear(input_fp8, weight_sparse_fp8, linear.bias)
-        
-        torch.testing.assert_close(
-            dense_output, sparse_output, atol=3e-1, rtol=3e-1
+        input_fp8 = Float8Tensor.from_hp(
+            input, float8_dtype=torch.float8_e4m3fn, mm_config=mm_config
         )
+
+        weight_fp8 = Float8Tensor.from_hp(
+            linear.weight.data, float8_dtype=torch.float8_e4m3fn, mm_config=mm_config
+        )
+        dense_output = torch.nn.functional.linear(input_fp8, weight_fp8, linear.bias)
+
+        weight_sparse_fp8 = Float8SemiSparseTensor.from_hp(linear.weight.data, [1, K])
+        sparse_output = torch.nn.functional.linear(
+            input_fp8, weight_sparse_fp8, linear.bias
+        )
+
+        torch.testing.assert_close(dense_output, sparse_output, atol=3e-1, rtol=3e-1)
+
 
 instantiate_parametrized_tests(TestFloat8SemiSparseTensor)
 

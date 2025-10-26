@@ -256,7 +256,7 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    
+
     # If weight is not Float8Tensor, return NotImplemented to allow weight's dispatch to handle it
     if not isinstance(weight_tensor, Float8Tensor):
         return NotImplemented

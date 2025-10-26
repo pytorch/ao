@@ -86,7 +86,7 @@ implements_torch_function = Float8SemiSparseTensor.implements_torch_function
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     from torch.utils._python_dispatch import return_and_correct_aliasing
-    
+
     self = args[0]
     new = Float8SemiSparseTensor(
         sparse=self.sparse,
@@ -98,8 +98,10 @@ def _(func, types, args, kwargs):
 
 def _linear_fp8_semi_sparse(input_tensor, weight_tensor, bias):
     from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
-    from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
-    
+    from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+        Float8Tensor,
+    )
+
     if isinstance(input_tensor, Float8Tensor):
         input = input_tensor.qdata
         input_scale = input_tensor.scale
@@ -108,16 +110,16 @@ def _linear_fp8_semi_sparse(input_tensor, weight_tensor, bias):
         input = input_tensor.qdata
         input_scale = input_tensor.scale
         out_dtype = input_tensor.dtype
-    
+
     weight = weight_tensor.sparse
     weight_meta = weight_tensor.meta
     weight_scale = weight_tensor.scale
-    
+
     # Reshape input_scale if needed: kernel expects scale to match input shape minus last dim
     # For input [B, K], scale should be [B] not [B, 1]
     if input_scale.dim() > input.dim() - 1:
         input_scale = input_scale.squeeze(-1)
-    
+
     return rowwise_scaled_linear_sparse_cutlass_f8f8(
         input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
     )
@@ -130,7 +132,7 @@ def _(func, types, args, kwargs):
     else:  # aten.mm.default
         input_tensor, weight_tensor = args
         bias = None
-    
+
     return _linear_fp8_semi_sparse(input_tensor, weight_tensor, bias)
 
 
