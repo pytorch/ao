@@ -32,4 +32,3 @@ class PackingFormat(str, Enum):
     needed for the rest of the system to understand the specific format that's adopted.
     """
     OPAQUE = "opaque"
-    # todo: add semi-sparse
