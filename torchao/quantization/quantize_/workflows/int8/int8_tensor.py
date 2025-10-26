@@ -125,10 +125,6 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=torch.int8,
         )
 
-        if tuple(block_size) != w.shape and len(scale.shape) == 1:
-            # per-row
-            pass
-
         return cls(
             int_data,
             scale,
@@ -158,7 +154,7 @@ implements_torch_function = Int8Tensor.implements_torch_function
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
-    """quantization: dynamic, weight-only int8 quantization"""
+    """INT8 quantization: dynamic activation or weight-only"""
     activation_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -220,24 +216,9 @@ def _(func, types, args, kwargs):
         end = self.shape[dim]
 
     sliced_qdata = aten.slice.Tensor(self.qdata, dim, start, end, step)
-
-    if self.scale.numel() == 1:
-        # Per-tensor quantization - scale doesn't change
-        sliced_scale = self.scale
-    elif self.scale.ndim == 1:
-        # Per-row: 1D scale - only slice if dim=0
-        if dim == 0:
-            sliced_scale = aten.slice.Tensor(self.scale, 0, start, end, step)
-        else:
-            sliced_scale = self.scale
-    elif dim < self.scale.ndim and self.scale.shape[dim] > 1:
-        # Block-wise quantization - need to slice the scale appropriately
-        sliced_scale = aten.slice.Tensor(self.scale, dim, start, end, step)
-    else:
-        # Block-wise quantization with different dimensions
-        sliced_scale = _slice_scale_for_dimension(
-            self.scale, self.qdata.shape, dim, start, end, step
-        )
+    sliced_scale = _slice_scale_for_dimension(
+        self.scale, self.qdata.shape, dim, start, end, step
+    )
 
     block_size = list(self.block_size)
     for i in range(len(block_size)):
