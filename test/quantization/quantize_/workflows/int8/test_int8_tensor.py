@@ -13,14 +13,10 @@ from torch.testing._internal import common_utils
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
-    PerRow,
-    PerTensor,
     quantize_,
 )
-from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
     Int8Tensor,
-    QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -62,8 +58,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.test_shape = (4, 3)
         self.dtype = torch.bfloat16
         self.batch_size = 32
-        self.int8_min = -128
-        self.int8_max = 127
 
         torch.manual_seed(42)
         self.weight_fp = torch.randn(*self.test_shape, dtype=self.dtype)
@@ -78,8 +72,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(tensor.shape, self.test_shape)
         self.assertEqual(tensor.qdata.dtype, torch.int8)
         self.assertTrue(
-            torch.all(tensor.qdata >= self.int8_min)
-            and torch.all(tensor.qdata <= self.int8_max)
+            torch.all(tensor.qdata >= -128) and torch.all(tensor.qdata <= 127)
         )
 
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
@@ -122,66 +115,42 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_quantization_shapes(self, dtype):
-        """Test static and dynamic quantization output shapes"""
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8WeightOnlyConfig(version=2),
+        ],
+    )
+    def test_per_row_scale_shape(self, dtype, config):
+        """Test per-row quantization maintains 1D scale"""
+        N, K = 64, 128
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
+        quantize_(linear, config)
+
+        # Dynamic: per-row (1D scale [N]), Weight-only: per-tensor (scalar)
+        if isinstance(config, Int8DynamicActivationInt8WeightConfig):
+            self.assertEqual(linear.weight.scale.shape, (N,))
+            self.assertEqual(linear.weight.scale.ndim, 1)
+        else:
+            self.assertEqual(linear.weight.scale.numel(), 1)
+
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    @common_utils.parametrize("has_bias", [True, False])
+    def test_weight_only_linear_with_bias(self, dtype, has_bias):
+        """Test weight-only quantization with and without bias"""
         K, N = 128, 64
-        weight = torch.randn(N, K, dtype=dtype, device="cuda")
+        linear = torch.nn.Linear(K, N, bias=has_bias, dtype=dtype, device="cuda")
         input_tensor = torch.randn(self.batch_size, K, dtype=dtype, device="cuda")
 
-        # Dynamic quantization (runtime scale computation)
-        dynamic_tensor = Int8Tensor.from_hp(weight, block_size=[N, K])
+        output_fp = linear(input_tensor)
 
-        # Static quantization (pre-computed scale)
-        act_scale, _ = choose_qparams_affine(
-            input=input_tensor,
-            mapping_type=MappingType.SYMMETRIC,
-            block_size=(input_tensor.shape[0], K),
-            target_dtype=torch.int8,
-            quant_min=self.int8_min,
-            quant_max=self.int8_max,
-            scale_dtype=dtype,
-            zero_point_dtype=torch.int8,
-        )
+        quantize_(linear, Int8WeightOnlyConfig(version=2))
+        output_q = linear(input_tensor)
 
-        # Static quantization (with pre-computed scale)
-        static_tensor = Int8Tensor.from_hp(
-            weight,
-            block_size=[N, K],
-            act_quant_kwargs=QuantizeTensorToInt8Kwargs(
-                block_size=[input_tensor.shape[0], K],
-                static_scale=act_scale,
-            ),
-        )
-
-        dynamic_output = torch.nn.functional.linear(input_tensor, dynamic_tensor)
-        static_output = torch.nn.functional.linear(input_tensor, static_tensor)
-
-        expected_shape = (self.batch_size, N)
-        self.assertEqual(dynamic_output.shape, expected_shape)
-        self.assertEqual(static_output.shape, expected_shape)
-        self.assertEqual(dynamic_output.dtype, dtype)
-        self.assertEqual(static_output.dtype, dtype)
-
-    @unittest.skip("granularity parameter not supported in current API")
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    def test_slice_preserves_aliasing(self, granularity):
-        slice_size = 512
-        tensor_size = 1024
-
-        config = Int8DynamicActivationInt8WeightConfig(
-            granularity=granularity, version=2
-        )
-        l = torch.nn.Linear(tensor_size, tensor_size).to("cuda").to(torch.bfloat16)
-        l.weight = torch.nn.Parameter(
-            torch.zeros(tensor_size, tensor_size, dtype=torch.bfloat16, device="cuda")
-        )
-        quantize_(l, config)
-        param = l.weight
-        param_data = param.data
-        param_data = param_data.narrow(0, 0, slice_size)
-        # Making sure the aliasing is preserved in sliced quantized Tensor
-        assert param.data.qdata.data_ptr() == param_data.qdata.data_ptr()
-        assert param.data.scale.data_ptr() == param_data.scale.data_ptr()
+        self.assertEqual(output_q.shape, output_fp.shape)
+        error = compute_error(output_fp, output_q)
+        self.assertGreater(error, 20)
 
     @common_utils.parametrize(
         "config",

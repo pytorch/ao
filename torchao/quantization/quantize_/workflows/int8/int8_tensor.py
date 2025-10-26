@@ -11,6 +11,7 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
+from torchao.kernel import int_scaled_matmul
 from torchao.quantization.quant_primitives import (
     MappingType,
     _maybe_expand_scale_to_tensor_shape,
@@ -34,11 +35,10 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     Args:
         block_size (list[int]): block size for quantization granularity
-        static_scale (Optional[torch.Tensor]): pre-computed scale for static quantization
+        # TODO: Static quantization support using `static_scale`, `static_zero_point`
     """
 
     block_size: list[int]
-    static_scale: Optional[torch.Tensor] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -51,7 +51,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
     Non-Tensor Attributes:
         block_size: block size for quantization granularity
-        act_quant_kwargs: flags for static/dynamic activation quantization
+        act_quant_kwargs: flags for dynamic activation quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -106,22 +106,16 @@ class Int8Tensor(TorchAOBaseTensor):
         if w.dim() != 2 or len(block_size) != 2:
             raise ValueError("Expected 2D tensor and block_size length 2")
 
-        if act_quant_kwargs is not None and act_quant_kwargs.static_scale is not None:
-            # INT8 × INT8 (static)
-            scale = act_quant_kwargs.static_scale
-            zero_point = torch.zeros_like(scale, dtype=torch.int8)
-        else:
-            # INT8 × INT8 (dynamic): compute scale at runtime
-            scale, zero_point = choose_qparams_affine(
-                input=w,
-                mapping_type=MappingType.SYMMETRIC,
-                block_size=block_size,
-                target_dtype=torch.int8,
-                quant_min=-128,
-                quant_max=127,
-                scale_dtype=w.dtype,
-                zero_point_dtype=torch.int8,
-            )
+        scale, zero_point = choose_qparams_affine(
+            input=w,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            scale_dtype=w.dtype,
+            zero_point_dtype=torch.int8,
+        )
 
         int_data = quantize_affine(
             w,
@@ -131,12 +125,9 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=torch.int8,
         )
 
-        if tuple(block_size) == w.shape:
-            # per-tensor
+        if tuple(block_size) != w.shape and len(scale.shape) == 1:
+            # per-row
             pass
-        elif len(scale.shape) == 1:
-            # per-row, 1D -> 2D
-            scale = scale.unsqueeze(-1)
 
         return cls(
             int_data,
@@ -167,7 +158,7 @@ implements_torch_function = Int8Tensor.implements_torch_function
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
-    """quantization: dynamic, static, weight-only int8 quantization"""
+    """quantization: dynamic, weight-only int8 quantization"""
     activation_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -190,44 +181,29 @@ def _(func, types, args, kwargs):
         w_vals_t = weight_tensor.qdata.contiguous().t()
         w_scales = weight_tensor.scale
 
-        tmp_shape = (-1, x_vals.shape[-1])
-        tmp = x_vals.view(tmp_shape)
-
-        # Cast fp16 scale to float
+        tmp = x_vals.reshape(-1, x_vals.shape[-1])
         intermediate_dtype = (
             torch.float if x_scales.dtype == torch.half else x_scales.dtype
         )
-        # Note: CUDA doesn't support int32/int64 matmul, so we convert to float
-        # Error message is NotImplementedError: "addmm_cuda" not implemented for 'Int'
-        # This may introduce minor numerical differences compared to int arithmetic
-        y_dot = torch.mm(tmp.to(intermediate_dtype), w_vals_t.to(intermediate_dtype))
 
-        # Apply activation scale
-        is_per_tensor_act = x_scales.numel() == 1
-        if is_per_tensor_act:
-            y_dot.mul_(x_scales.to(intermediate_dtype))
-        else:
-            # For block-wise activation scale, reshape to match y_dot
-            x_scales_reshaped = x_scales.view(y_dot.shape[0], -1)
-            y_dot.mul_(x_scales_reshaped.to(intermediate_dtype))
+        y_dot_scaled = int_scaled_matmul(
+            tmp, w_vals_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
+        )
+        y_dot_scaled = y_dot_scaled.to(x_scales.dtype)
 
-        # Apply weight scale
-        is_per_tensor_weight = w_scales.numel() == 1
-        if is_per_tensor_weight:
-            result = y_dot.mul_(w_scales.to(intermediate_dtype))
-        else:
-            # Per-row weight scale - transpose and broadcast
-            w_scales_broadcast = w_scales.t().expand_as(y_dot)
-            result = y_dot.mul_(w_scales_broadcast.to(intermediate_dtype))
-
-        # Reshape back to original shape
-        result = result.view(*x_vals.shape[:-1], result.shape[-1])
+        result = (y_dot_scaled * w_scales).reshape(
+            *x_vals.shape[:-1], y_dot_scaled.shape[-1]
+        )
         result = result.to(activation_tensor.dtype)
     else:
         # FP × INT8 (weight-only)
-        result = func(
-            activation_tensor, weight_tensor.dequantize(activation_tensor.dtype), None
+        w_vals_int8_t = weight_tensor.qdata.t()
+        m = torch.mm(
+            activation_tensor.reshape(-1, activation_tensor.shape[-1]),
+            w_vals_int8_t.to(activation_tensor.dtype),
         )
+        result = m * weight_tensor.scale.to(m.dtype)
+        result = result.reshape(*activation_tensor.shape[:-1], result.shape[-1])
 
     return result + bias if bias is not None else result
 
@@ -248,11 +224,17 @@ def _(func, types, args, kwargs):
     if self.scale.numel() == 1:
         # Per-tensor quantization - scale doesn't change
         sliced_scale = self.scale
+    elif self.scale.ndim == 1:
+        # Per-row: 1D scale - only slice if dim=0
+        if dim == 0:
+            sliced_scale = aten.slice.Tensor(self.scale, 0, start, end, step)
+        else:
+            sliced_scale = self.scale
     elif dim < self.scale.ndim and self.scale.shape[dim] > 1:
         # Block-wise quantization - need to slice the scale appropriately
         sliced_scale = aten.slice.Tensor(self.scale, dim, start, end, step)
     else:
-        # Block-wise quantization - need to slice the scale appropriately
+        # Block-wise quantization with different dimensions
         sliced_scale = _slice_scale_for_dimension(
             self.scale, self.qdata.shape, dim, start, end, step
         )
