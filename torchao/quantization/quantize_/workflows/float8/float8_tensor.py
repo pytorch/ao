@@ -256,9 +256,10 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    assert isinstance(weight_tensor, Float8Tensor), (
-        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
-    )
+    
+    # If weight is not Float8Tensor, return NotImplemented to allow weight's dispatch to handle it
+    if not isinstance(weight_tensor, Float8Tensor):
+        return NotImplemented
 
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantizing activation, if `act_quant_kwargs` is specified

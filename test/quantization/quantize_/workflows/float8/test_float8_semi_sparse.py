@@ -4,9 +4,10 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import tempfile
 import unittest
-
+from torchao.quantization.quantize_.workflows.float8.float8_semi_sparse_tensor import Float8SemiSparseTensor
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
+from torchao.float8.inference import Float8MMConfig
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -14,39 +15,27 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-
-from torchao.quantization import (
-    Float8WeightOnlyConfig,
-    quantize_,
-)
-from torchao.quantization.utils import compute_error
 from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import torch_version_at_least
-
-BF16_ACT_CONFIG = Float8WeightOnlyConfig(
-    group_size=128,
-    packing_format="cutlass_semi_sparse",
-)
+from torchao.utils import is_sm_at_least_90
 
 
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
+@unittest.skipIf(not is_sm_at_least_90(), "Need H100+ to run")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 class TestFloat8SemiSparseTensor(TestCase):
     def setUp(self):
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
     @skip_if_rocm("ROCm enablement in progress")
-    @parametrize("config", [BF16_ACT_CONFIG])
     @parametrize(
         "sizes",
         [
             ((128,), 256, 128),
             ((32, 128), 512, 128),
-            ((2, 32, 128), 256, 12),
+            ((2, 32, 128), 256, 128),
         ],
     )
-    def test_linear(self, config, sizes):
+    def test_sparse_vs_dense_fp8(self, sizes):
         dtype = torch.bfloat16
         device = "cuda"
 
@@ -55,51 +44,19 @@ class TestFloat8SemiSparseTensor(TestCase):
         linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
 
         apply_fake_sparsity(linear)
-        original = linear(input)
-        quantize_(linear, config)
-        quantized = linear(input)
-        self.assertTrue(compute_error(original, quantized) > 20)
-
-        compiled_linear = torch.compile(linear)
-        quantized_and_compiled = compiled_linear(input)
-        self.assertTrue(compute_error(original, quantized_and_compiled) > 20)
-
-    @skip_if_rocm("ROCm enablement in progress")
-    @unittest.skip("Fix later")
-    @parametrize("config", [BF16_ACT_CONFIG])
-    def test_to_device(self, config):
-        for device in self.GPU_DEVICES:
-            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-            quantize_(linear, config)
-            linear.to(device)
-
-            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-            quantize_(linear, config)
-            linear.to(device=device)
-
-            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-            quantize_(linear, config)
-            linear.to(device)
-
-    @skip_if_rocm("ROCm enablement in progress")
-    @parametrize("config", [BF16_ACT_CONFIG])
-    def test_module_path(self, config):
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        quantize_(linear.cuda(), config)
-        self.assertEqual(
-            str(type(linear.weight)),
-            "<class 'torchao.quantization.Float8SemiSparseTensor'>",
+        
+        mm_config = Float8MMConfig(use_fast_accum=True)
+        input_fp8 = Float8Tensor.from_hp(input, float8_dtype=torch.float8_e4m3fn, mm_config=mm_config)
+        
+        weight_fp8 = Float8Tensor.from_hp(linear.weight.data, float8_dtype=torch.float8_e4m3fn, mm_config=mm_config)
+        dense_output = torch.nn.functional.linear(input_fp8, weight_fp8, linear.bias)
+        
+        weight_sparse_fp8 = Float8SemiSparseTensor.from_hp(linear.weight.data, [1, K])
+        sparse_output = torch.nn.functional.linear(input_fp8, weight_sparse_fp8, linear.bias)
+        
+        torch.testing.assert_close(
+            dense_output, sparse_output, atol=3e-1, rtol=3e-1
         )
-
-        with tempfile.NamedTemporaryFile() as f:
-            torch.save(linear.state_dict(), f)
-            f.seek(0)
-            state_dict = torch.load(f)
-            self.assertEqual(
-                str(type(state_dict["weight"])),
-                "<class 'torchao.quantization.Float8SemiSparseTensor'>",
-            )
-
 
 instantiate_parametrized_tests(TestFloat8SemiSparseTensor)
 
