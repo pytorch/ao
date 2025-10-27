@@ -1388,16 +1388,23 @@ def _int8_weight_only_quantize_tensor(weight, config):
 
 
 @register_quantize_module_handler(Int8WeightOnlyConfig)
-def _int8_weight_only_transform(module: torch.nn.Module, config: Int8WeightOnlyConfig):
+def _int8_weight_only_transform(
+    module: torch.nn.Module,
+    config: Int8WeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
+):
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying int8 weight only quant requires module to have weight attribute"
+    assert hasattr(module, parameter_name), (
+        "applying int8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
-    new_weight = _int8_weight_only_quantize_tensor(module.weight, config)
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    new_weight = _int8_weight_only_quantize_tensor(
+        getattr(module, parameter_name), config
+    )
+    setattr(module, parameter_name, torch.nn.Parameter(new_weight, requires_grad=False))
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -1667,22 +1674,31 @@ def _float8_weight_only_quant_tensor(weight, config):
 
 @register_quantize_module_handler(Float8WeightOnlyConfig)
 def _float8_weight_only_transform(
-    module: torch.nn.Module, config: Float8WeightOnlyConfig
+    module: torch.nn.Module,
+    config: Float8WeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying int8 weight only quant requires module to have weight attribute"
+    assert hasattr(module, parameter_name), (
+        "applying float8 weight only quant requires module to have {parametr_name} attribute"
         + " but {module} does not have one"
     )
 
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-    new_weight = _float8_weight_only_quant_tensor(module.weight, config)
+    new_weight = _float8_weight_only_quant_tensor(
+        getattr(module, parameter_name), config
+    )
 
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -2462,6 +2478,8 @@ ModuleFqnToConfig = FqnToConfig
 # Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
 CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS = {
     Float8DynamicActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
+    Int8WeightOnlyConfig,
 }
 
 
