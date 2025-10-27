@@ -30,6 +30,7 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor_from_qparams,
 )
 from torchao.utils import (
+    auto_detect_device,
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
@@ -37,6 +38,8 @@ from torchao.utils import (
 
 _SEED = 1234
 torch.manual_seed(_SEED)
+
+_DEVICE = auto_detect_device()
 
 
 # Helper function to run a function twice
@@ -575,7 +578,7 @@ class TestQuantPrimitives(unittest.TestCase):
     )
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
-        weight = torch.randn(1024, 1024).to(device="cuda")
+        weight = torch.randn(1024, 1024).to(device=_DEVICE)
         original_mem_use = torch.cuda.memory_allocated()
         n_bit = 4
         groupsize = 128
