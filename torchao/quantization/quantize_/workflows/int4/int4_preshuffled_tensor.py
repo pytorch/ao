@@ -5,13 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import importlib.util
 from typing import List, Optional
 
 import torch
 
+from torchao.quantization.quantize_.workflows.int4.int4_tensor import Int4Tensor
 from torchao.utils import (
     TorchAOBaseTensor,
+    _is_fbgemm_gpu_genai_available,
 )
 
 __all__ = [
@@ -21,12 +22,10 @@ __all__ = [
 aten = torch.ops.aten
 
 
-if (
-    importlib.util.find_spec("fbgemm_gpu") is None
-    or importlib.util.find_spec("fbgemm_gpu.experimental") is None
-):
+if not _is_fbgemm_gpu_genai_available():
     quantize_int4_preshuffle = None
     quantize_fp8_row = None
+    pack_int4 = None
 else:
     from fbgemm_gpu.experimental.gen_ai.quantize import (
         quantize_fp8_row,
@@ -75,17 +74,17 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "group_scale"]
-    optional_tensor_data_names = ["group_zero", "row_scale"]
     tensor_attribute_names = ["block_size", "shape"]
+    optional_tensor_data_names = ["group_zero", "row_scale"]
 
     def __new__(
         cls,
-        qdata,
-        group_scale,
-        group_zero,
-        row_scale,
-        block_size,
-        shape,
+        qdata: torch.Tensor,
+        group_scale: torch.Tensor,
+        block_size: List[int],
+        shape: List[int],
+        group_zero: Optional[torch.Tensor] = None,
+        row_scale: Optional[torch.Tensor] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -97,19 +96,20 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         self,
         qdata: torch.Tensor,
         group_scale: torch.Tensor,
-        group_zero: Optional[torch.Tensor],
-        row_scale: Optional[torch.Tensor],
         block_size: List[int],
         shape: List[int],
+        group_zero: Optional[torch.Tensor] = None,
+        row_scale: Optional[torch.Tensor] = None,
     ):
+        super().__init__()
         # one and only one of group_scale and group_zero should be None
         assert group_zero is None or row_scale is None
         assert not (group_zero is not None and row_scale is not None)
         self.qdata = qdata
-        self.group_scale = group_scale
-        self.group_zero = group_zero
         self.row_scale = row_scale
         self.block_size = block_size
+        self.group_scale = group_scale
+        self.group_zero = group_zero
 
     def _quantization_type(self):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
@@ -178,17 +178,51 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         return Int4PreshuffledTensor(
             qdata=wq,
             group_scale=group_scale,
-            group_zero=group_zero,
-            row_scale=row_scale,
             block_size=block_size,
             shape=original_shape,
+            group_zero=group_zero,
+            row_scale=row_scale,
+        )
+
+    @classmethod
+    def from_int4_tensor(
+        cls,
+        tensor: Int4Tensor,
+    ):
+        assert isinstance(tensor, Int4Tensor), (
+            f"Only conversion from Int4Tensor is supportd, got: {tensor}"
+        )
+        # currently Int4Tensor only supports weight only, we can extend it to fp8-int4 a bit later
+        qdata = tensor.qdata
+        group_scale = tensor.scale
+        group_zero = tensor.zero_point
+        block_size = tensor.block_size
+        original_shape = tensor.shape
+        row_scale = None
+
+        # Set scales to activation type.
+        group_scale = group_scale.to(torch.bfloat16)
+        group_zero = group_zero.to(torch.bfloat16)
+        # pack weights and scales into efficient preshuffled format
+        preshuffled_qdata, group_scale = torch.ops.fbgemm.preshuffle_i4(
+            qdata, group_scale
+        )
+        return Int4PreshuffledTensor(
+            qdata=preshuffled_qdata,
+            group_scale=group_scale,
+            block_size=block_size,
+            shape=original_shape,
+            group_zero=group_zero,
+            row_scale=row_scale,
         )
 
 
 implements = Int4PreshuffledTensor.implements
+implements_torch_function = Int4PreshuffledTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -221,7 +255,7 @@ def _(func, types, args, kwargs):
     return res
 
 
-@implements(torch.bmm)
+@implements_torch_function(torch.bmm)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = (
         args[0],

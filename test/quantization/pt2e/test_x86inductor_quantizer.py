@@ -35,7 +35,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     QUANT_ANNOTATION_KEY,
     X86InductorQuantizer,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 class NodePosType(Enum):
@@ -703,7 +703,7 @@ class X86InductorQuantTestCase(QuantizationTestCase):
 
 
 @skipIfNoInductorSupport
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
     @skipIfNoX86
     def test_conv2d(self):

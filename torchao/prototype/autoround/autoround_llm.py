@@ -88,7 +88,7 @@ def main(args):
     # Get the model, tokenizer, and decoder_cls
     model_name_or_path = args.model_name_or_path
     model, tokenizer, decoder_cls = ar_utils.get_float_model_info(
-        model_name_or_path, torch_dtype=torch.bfloat16
+        model_name_or_path, dtype=torch.bfloat16
     )
     # Disable the `use_cache` for calibration stage.
     model.config.use_cache = False

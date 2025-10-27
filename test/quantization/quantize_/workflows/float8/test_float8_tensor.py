@@ -10,10 +10,10 @@ from contextlib import nullcontext
 from typing import Tuple
 
 import torch
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
-from torch.testing._internal.common_utils import (
-    run_tests,
-)
+from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -23,13 +23,14 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_8,
-    _is_fbgemm_genai_gpu_available,
+    _is_fbgemm_gpu_genai_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 # Needed since changing args to function causes recompiles
@@ -49,7 +50,7 @@ class ToyLinearModel(torch.nn.Module):
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Need pytorch 2.8+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
@@ -85,6 +86,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
+        if (
+            isinstance(granularity, PerTensor)
+            and kernel_preference == KernelPreference.FBGEMM
+        ):
+            return unittest.skip(
+                "per tensor with fbgemm kernel preferece does not work yet"
+            )
+
         error_message = None
         if isinstance(granularity, PerRow):
             if mode == "dynamic" and dtype != torch.bfloat16:
@@ -96,7 +105,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             )
 
         if kernel_preference == KernelPreference.FBGEMM and (
-            (not _is_fbgemm_genai_gpu_available()) or (not is_sm_at_least_90())
+            (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_90())
         ):
             return unittest.skip(
                 "Requires fbgemm_gpu_genai to run fbgemm kernel preference test"
@@ -237,7 +246,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         other_kernel_preferences = [
             KernelPreference.AUTO,
         ]
-        if _is_fbgemm_genai_gpu_available() and is_sm_at_least_90():
+        if (
+            _is_fbgemm_gpu_genai_available()
+            and is_sm_at_least_90()
+            and not isinstance(granularity, PerTensor)
+        ):
             other_kernel_preferences.append(KernelPreference.FBGEMM)
 
         quantized_outputs = {}
@@ -398,6 +411,247 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         granularity = PerRow()
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         self._test_moe_weight_reshape_ops(config)
+
+    # TODO: we have some other tests living in https://github.com/pytorch/ao/blob/4ecc89edd7b5cfc12e6f80854c85d04c472a0eb0/test/dtypes/test_affine_quantized_float.py#L743
+    # that should be moved here after v1 config is deprecated:
+    # https://github.com/pytorch/ao/issues/2649
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    def test_expected_gpu_kernel_fbgemm(self):
+        """Making sure KernelPreference.FBGEMM calls correct quantize and gemm kernels
+        and the bias add happens in the gemm kernel for per row quantization
+        """
+        torch.compiler.reset()
+
+        M, K, N = 128, 256, 512
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+        )
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(),
+            kernel_preference=KernelPreference.FBGEMM,
+        )
+        quantize_(m, config)
+        m = torch.compile(m)
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        out, code = run_and_get_code(m, x)
+
+        # 1. check at least one occurrence of the quantize op and rowwise gemm op
+        # 2. check that there are no additional kernels like `triton_poi_fused_add_0`
+        # are run, since the bias add should happen in the `f8f8bf16_rowwise.default`
+        # op instead of separately
+        FileCheck().check_count(
+            "torch.ops.triton.quantize_fp8_row.default(", 1
+        ).check_count("torch.ops.fbgemm.f8f8bf16_rowwise.default(", 1).check_not(
+            ".run("
+        ).run(code[0])
+
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    def test_index_select(self):
+        """
+        test that `x_0 = x[0]` works when `x` is a 3D `Float8Tensor`. This is
+        useful when stitching checkpoints of `num_experts` 2D parameters into
+        a single 3D parameter when converting between model definitions that
+        use 2D and 3D parameters for their expert weights.
+        """
+
+        E, K, N = 128, 256, 512
+        x = torch.randn(E, N, K, device="cuda", dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        x_fp8_1 = x_fp8[1]
+        torch.testing.assert_close(
+            x_fp8.dequantize()[1], x_fp8_1.dequantize(), atol=0, rtol=0
+        )
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    def test_unsqueeze_operation(self, granularity, sizes):
+        """Test aten.unsqueeze.default operation on Float8Tensor"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+        M, N, K = sizes
+
+        # Create a linear layer and quantize it
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+
+        original_weight = linear.weight
+        original_shape = original_weight.shape
+
+        # Test unsqueeze operation at dim=0 (only supported dimension)
+        unsqueezed_weight = original_weight.unsqueeze(0)
+
+        # Verify the unsqueezed tensor has correct shape
+        expected_shape = [1] + list(original_shape)
+        self.assertEqual(unsqueezed_weight.shape, torch.Size(expected_shape))
+
+        # Verify qdata and scale shapes
+        expected_qdata_shape = [1] + list(original_weight.qdata.shape)
+        expected_scale_shape = [1] + list(original_weight.scale.shape)
+
+        self.assertEqual(
+            unsqueezed_weight.qdata.shape, torch.Size(expected_qdata_shape)
+        )
+        self.assertEqual(
+            unsqueezed_weight.scale.shape, torch.Size(expected_scale_shape)
+        )
+
+        # Verify block_size is correctly updated
+        expected_block_size = []
+        for i in range(len(expected_shape)):
+            expected_block_size.append(expected_shape[i] // expected_scale_shape[i])
+
+        self.assertEqual(unsqueezed_weight.block_size, expected_block_size)
+
+        # Test that metadata is preserved
+        self.assertEqual(unsqueezed_weight.mm_config, original_weight.mm_config)
+        self.assertEqual(
+            unsqueezed_weight.act_quant_kwargs, original_weight.act_quant_kwargs
+        )
+        self.assertEqual(
+            unsqueezed_weight.kernel_preference, original_weight.kernel_preference
+        )
+        self.assertEqual(unsqueezed_weight.dtype, original_weight.dtype)
+
+        # Test numerical correctness
+        original_dequant = original_weight.dequantize()
+        unsqueezed_dequant = unsqueezed_weight.dequantize()
+        expected_dequant = original_dequant.unsqueeze(0)
+
+        self.assertEqual(unsqueezed_dequant, expected_dequant)
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_unsqueeze_error_cases(self, granularity):
+        """Test error cases for aten.unsqueeze.default operation"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        # Create a linear layer and quantize it
+        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+
+        weight = linear.weight
+
+        # Test that unsqueezing on unsupported dimensions raises an error
+        with self.assertRaisesRegex(AssertionError, "Only dim == 0 is supported"):
+            weight.unsqueeze(1)  # dim=1 should not be supported
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize("slice_dim", [0, 1, 2])
+    @common_utils.parametrize(
+        "tensor_shape",
+        [
+            (8, 128, 256),  # 3D tensor: batch, seq_len, hidden_dim
+            (4, 64, 128),  # smaller 3D tensor
+        ],
+    )
+    def test_slice_3d_operation(self, granularity, slice_dim, tensor_shape):
+        """Test slicing operations on 3D Float8Tensor across all dimensions"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        B, S, H = tensor_shape
+
+        # Create a 3D tensor and quantize it (simulating a batched weight tensor)
+        original_tensor = torch.randn(B, S, H, dtype=dtype, device=device)
+
+        # Create Float8Tensor from the 3D high-precision tensor
+        float8_tensor = Float8Tensor.from_hp(
+            original_tensor,
+            granularity=granularity,
+            mm_config=config.mm_config,
+        )
+
+        slice_size = tensor_shape[slice_dim]
+        start_idx = 1
+        end_idx = slice_size - 1
+
+        # Perform slicing on the specified dimension
+        if slice_dim == 0:
+            sliced_tensor = float8_tensor[start_idx:end_idx, :, :]
+            expected_qdata = float8_tensor.qdata[start_idx:end_idx, :, :]
+            expected_scale = float8_tensor.scale[start_idx:end_idx, :]
+        elif slice_dim == 1:
+            sliced_tensor = float8_tensor[:, start_idx:end_idx, :]
+            expected_qdata = float8_tensor.qdata[:, start_idx:end_idx, :]
+            expected_scale = float8_tensor.scale[:, start_idx:end_idx]
+        elif slice_dim == 2:
+            sliced_tensor = float8_tensor[:, :, start_idx:end_idx]
+            expected_qdata = float8_tensor.qdata[:, :, start_idx:end_idx]
+            expected_scale = float8_tensor.scale[:, :]
+
+        if isinstance(granularity, PerTensor):
+            # Per-tensor quantization: scale should remain scalar
+            expected_scale = float8_tensor.scale
+
+        # Verify the sliced tensor shape
+        expected_shape = list(tensor_shape)
+        expected_shape[slice_dim] = end_idx - start_idx
+        self.assertEqual(sliced_tensor.shape, torch.Size(expected_shape))
+
+        # Verify qdata shape matches
+        self.assertEqual(sliced_tensor.qdata.shape, torch.Size(expected_shape))
+        self.assertEqual(sliced_tensor.qdata, expected_qdata)
+
+        # Verify scale shape is correct based on granularity and slice dimension
+        if isinstance(granularity, PerTensor):
+            # Per-tensor quantization: scale should remain scalar
+            self.assertEqual(sliced_tensor.scale.numel(), 1)
+        else:
+            # Per-row quantization: scale shape depends on which dimension we sliced
+            if slice_dim == 0:
+                # Slicing batch dimension affects scale
+                expected_scale_shape = list(float8_tensor.scale.shape)
+                expected_scale_shape[0] = end_idx - start_idx
+                self.assertEqual(
+                    sliced_tensor.scale.shape, torch.Size(expected_scale_shape)
+                )
+            elif slice_dim == 1:
+                # Slicing sequence dimension affects scale
+                expected_scale_shape = list(float8_tensor.scale.shape)
+                expected_scale_shape[1] = end_idx - start_idx
+                self.assertEqual(
+                    sliced_tensor.scale.shape, torch.Size(expected_scale_shape)
+                )
+            else:
+                # Slicing hidden dimension (dim=2) typically doesn't affect scale in per-row quantization
+                self.assertEqual(sliced_tensor.scale.shape, float8_tensor.scale.shape)
+
+        self.assertEqual(sliced_tensor.scale, expected_scale)
+
+        # Verify block_size is correctly updated
+        self.assertEqual(len(sliced_tensor.block_size), len(expected_shape))
+        for i in range(len(expected_shape)):
+            expected_block_dim = min(float8_tensor.block_size[i], expected_shape[i])
+            self.assertEqual(sliced_tensor.block_size[i], expected_block_dim)
+
+        # Test that metadata is preserved
+        self.assertEqual(sliced_tensor.mm_config, float8_tensor.mm_config)
+        self.assertEqual(sliced_tensor.act_quant_kwargs, float8_tensor.act_quant_kwargs)
+        self.assertEqual(
+            sliced_tensor.kernel_preference, float8_tensor.kernel_preference
+        )
+        self.assertEqual(sliced_tensor.dtype, float8_tensor.dtype)
+
+        # Test numerical correctness by comparing dequantized results
+        original_dequantized = float8_tensor.dequantize()
+        if slice_dim == 0:
+            sliced_original = original_dequantized[start_idx:end_idx, :, :]
+        elif slice_dim == 1:
+            sliced_original = original_dequantized[:, start_idx:end_idx, :]
+        elif slice_dim == 2:
+            sliced_original = original_dequantized[:, :, start_idx:end_idx]
+        sliced_dequantized = sliced_tensor.dequantize()
+
+        self.assertEqual(sliced_dequantized, sliced_original)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

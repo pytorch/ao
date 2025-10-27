@@ -163,21 +163,21 @@ def torch_to_3d_rowwise_float8_transpose_rhs(
         Scales shape: (E, 1, K
     """
     assert _is_column_major(input_hp_t), "input tensor must be column-major"
-    input_hp = input_hp_t.transpose(-2, -1)  # (E, N, K)
     scales = tensor_to_scale(
-        input_hp,
+        input_hp_t,
         target_dtype,
         scaling_granularity=ScalingGranularity.AXISWISE,
-        axiswise_dim=-2,
+        axiswise_dim=-1,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
-    )  # (E, 1, K)
+    )  # (E, K, 1)
 
     # Apply scales to tensor and convert to float8.
-    tensor_scaled = input_hp.to(torch.float32) * scales
+    tensor_scaled = input_hp_t.to(torch.float32) * scales
     float8_tensor = to_fp8_saturated(tensor_scaled, target_dtype)
 
     # To column major
-    float8_tensor = float8_tensor.transpose(-2, -1).contiguous().transpose(-2, -1)
+    float8_tensor = float8_tensor.contiguous().transpose(-2, -1)
+    scales = scales.transpose(-2, -1)
     return float8_tensor, scales
 
 
@@ -290,7 +290,21 @@ def _is_column_major(x: torch.Tensor) -> bool:
         A boolean indicating whether the input tensor is column-major.
     """
     assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
-    return x.stride(-2) == 1 and x.stride(-1) > 1
+    return x.stride(-2) == 1
+
+
+def _is_row_major(x: torch.Tensor) -> bool:
+    """
+    This function checks if the input tensor is row-major.
+
+    Args:
+        x (torch.Tensor): The input tensor to be checked.
+
+    Returns:
+        A boolean indicating whether the input tensor is row-major.
+    """
+    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
+    return x.stride(-1) == 1
 
 
 def generate_jagged_offs(E, M, multiple_of=16, dtype=torch.int32, device="cuda"):

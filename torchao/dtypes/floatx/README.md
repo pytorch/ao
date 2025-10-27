@@ -9,7 +9,7 @@ This kernel was originally designed for FP16, but was extended to work for BF16 
 ```python
 from torchao.quantization import (
     quantize_,
-    fpx_weight_only,
+    FPXWeightOnlyConfig,
 )
 
 model = ...
@@ -17,7 +17,7 @@ model = ...
 
 # for generic Floatx EyMz where x = 1 + y + z
 # fp6 with ebits = 3 and mbits = 2
-quantize_(model, fpx_weight_only(3, 2))
+quantize_(model, FPXWeightOnlyConfig(3, 2))
 
 # fully compatible with torch.compile()
 model.compile(mode="max-autotune", fullgraph=True)

@@ -525,7 +525,11 @@ def get_new_attr_name_with_prefix(prefix: str) -> Callable:
 
 
 def create_getattr_from_value(
-    module: torch.nn.Module, graph: Graph, prefix: str, value: Any
+    module: torch.nn.Module,
+    graph: Graph,
+    prefix: str,
+    value: Any,
+    device: Optional[torch.device] = None,
 ) -> Node:
     """
     Given a value of any type, creates a getattr node corresponding to the value and
@@ -533,7 +537,8 @@ def create_getattr_from_value(
     """
     get_new_attr_name = get_new_attr_name_with_prefix(prefix)
     attr_name = get_new_attr_name(module)
-    device = _assert_and_get_unique_device(module)
+    if device is None:
+        device = _assert_and_get_unique_device(module)
     new_value = (
         value.detach().clone()
         if isinstance(value, torch.Tensor)
@@ -671,6 +676,7 @@ def fold_bn_weights_into_conv_node(
     conv_bias_node: Optional[Node],
     bn_node: Node,
     m: GraphModule,
+    fake_fuse: bool = False,  # removes the BN nodes but doesn't change the conv weights
 ) -> None:
     # conv args: input, weight, bias, stride, padding, dilation, ...
     conv_w = _get_tensor_constant_from_node(conv_weight_node, m)
@@ -702,6 +708,16 @@ def fold_bn_weights_into_conv_node(
     # filling in the default bias argument
     if len(conv_args) == 2:
         conv_args.append(None)
+
+    if fake_fuse:
+        fused_weight, fused_bias = (
+            torch.nn.Parameter(conv_w, conv_w.requires_grad),
+            torch.nn.Parameter(conv_b, conv_b.requires_grad),
+        )
+    else:
+        fused_weight, fused_bias = fuse_conv_bn_weights(
+            conv_w, conv_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b, transpose=transpose
+        )
 
     # calling data since the fused_weight and fused_bias are nn.Parameter
     weight_attr_name = conv_weight_node.target
@@ -767,6 +783,9 @@ def _fuse_conv_bn_(m: GraphModule) -> None:
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
     if not has_bn:
         return
+
+    # track which conv weights have been fused to avoid double fusing
+    fused_convs_weight_nodes = set()
     for n in m.graph.nodes:
         if n.op != "call_function" or n.target not in (
             torch.ops.aten._native_batch_norm_legit_no_training.default,
@@ -781,9 +800,14 @@ def _fuse_conv_bn_(m: GraphModule) -> None:
         conv_weight_node = conv_node.args[1]
         conv_bias_node = conv_node.args[2] if len(conv_node.args) > 2 else None
         fold_bn_weights_into_conv_node(
-            conv_node, conv_weight_node, conv_bias_node, bn_node, m
+            conv_node,
+            conv_weight_node,
+            conv_bias_node,
+            bn_node,
+            m,
+            (conv_weight_node in fused_convs_weight_nodes),
         )
-
+        fused_convs_weight_nodes.add(conv_weight_node)
     m.graph.eliminate_dead_code()
     m.recompile()
 

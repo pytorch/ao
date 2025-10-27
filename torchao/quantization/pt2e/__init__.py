@@ -5,6 +5,15 @@ from typing import Callable, Optional, Union
 import torch
 from torch import Tensor
 
+from torchao.quantization import (
+    Granularity,
+    PerAxis,
+    PerBlock,
+    PerGroup,
+    PerRow,
+    PerTensor,
+    PerToken,
+)
 from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
     FROM_NODE_KEY,
@@ -32,6 +41,7 @@ from torchao.quantization.pt2e.graph_utils import (
     get_equivalent_types,
     update_equivalent_types_dict,
 )
+from torchao.quantization.utils import get_block_size
 
 from .fake_quantize import (
     FakeQuantize,
@@ -45,10 +55,14 @@ from .fake_quantize import (
     enable_fake_quant,
     enable_observer,
 )
+from .learnable_fake_quantize import (
+    LearnableFakeQuantize,
+    disable_range_learning,
+    enable_range_learning,
+)
 from .observer import (
     AffineQuantizedObserverBase,
     FixedQParamsObserver,
-    Granularity,
     HistogramObserver,
     MappingType,
     MinMaxObserver,
@@ -57,20 +71,13 @@ from .observer import (
     NoopObserver,
     ObserverBase,
     PartialWrapper,
-    PerAxis,
-    PerBlock,
     PerChannelMinMaxObserver,
-    PerGroup,
-    PerRow,
-    PerTensor,
-    PerToken,
     PlaceholderObserver,
     RecordingObserver,
     ReuseInputObserver,
     TorchAODType,
     UniformQuantizationObserverBase,
     ZeroPointDomain,
-    get_block_size,
 )
 
 for _f in [
@@ -101,6 +108,7 @@ __all__ = [
     "FusedMovingAvgObsFakeQuantize",
     # old observers
     "HistogramObserver",
+    "LearnableFakeQuantize",
     "MinMaxObserver",
     "MovingAverageMinMaxObserver",
     "MovingAveragePerChannelMinMaxObserver",
@@ -119,6 +127,8 @@ __all__ = [
     "enable_observer",
     "disable_fake_quant",
     "disable_observer",
+    "enable_range_learning",
+    "disable_range_learning",
     # export_utils
     "move_exported_model_to_eval",
     "move_exported_model_to_train",

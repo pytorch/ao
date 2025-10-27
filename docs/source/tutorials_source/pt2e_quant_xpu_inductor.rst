@@ -40,7 +40,7 @@ The high-level architecture of this flow could look like this:
     —--------------------------------------------------------
                                 |
                         FX Graph in ATen
-                                |            X86InductorQuantizer
+                                |            XPUInductorQuantizer
                                 |                 /
     —--------------------------------------------------------
     |                      prepare_pt2e                     |

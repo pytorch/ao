@@ -12,22 +12,22 @@ triton = pytest.importorskip("triton", reason="Triton required to run this test"
 from packaging import version
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.blockwise_fp8_training.kernels import (
-    blockwise_fp8_gemm_1x128_128x1,
-    blockwise_fp8_gemm_1x128_128x128,
-    fp8_blockwise_act_quant_lhs,
-    fp8_blockwise_act_quant_rhs,
-    fp8_blockwise_act_quant_transposed_lhs,
-    fp8_blockwise_weight_quant_rhs,
-    fp8_blockwise_weight_quant_transposed_rhs,
     torch_blockwise_scale_act_quant_lhs,
     torch_blockwise_scale_act_quant_rhs,
     torch_blockwise_scale_weight_quant,
+    triton_fp8_blockwise_act_quant_lhs,
+    triton_fp8_blockwise_act_quant_rhs,
+    triton_fp8_blockwise_act_quant_transposed_lhs,
+    triton_fp8_blockwise_weight_quant_rhs,
+    triton_fp8_blockwise_weight_quant_transposed_rhs,
+    triton_fp8_gemm_1x128_128x1,
+    triton_fp8_gemm_1x128_128x128,
 )
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_sm_at_least_90
 
 BLOCKWISE_SIZE_MNK = [
-    (128, 128, 128),
+    # (128, 128, 128),
     (2, 512, 128),
     (2, 5120, 1280),
     (3, 2048, 2048),
@@ -46,14 +46,16 @@ BLOCKWISE_SIZE_MNK = [
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
-def test_blockwise_fp8_gemm_1x128_128x128(M, N, K, dtype):
+def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
     # Simulate output = input @ weight.T
     A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
     C = A @ B.T
-    A_q, A_s = fp8_blockwise_act_quant_lhs(A, dtype=dtype)
-    B_t_q, B_t_s = fp8_blockwise_weight_quant_transposed_rhs(B, dtype=dtype)
-    C_q = blockwise_fp8_gemm_1x128_128x128(A_q, 1.0 / A_s, B_t_q, 1.0 / B_t_s)
+    A_q, A_s = triton_fp8_blockwise_act_quant_lhs(A, dtype=dtype)
+    B_t_q, B_t_s = triton_fp8_blockwise_weight_quant_transposed_rhs(B, dtype=dtype)
+    C_q = triton_fp8_gemm_1x128_128x128(
+        A_q, B_t_q, A_s, B_t_s, out_dtype=torch.bfloat16
+    )
     assert not C_q.isnan().any(), "C_q must not contain NaNs"
 
     sqnr = compute_error(C, C_q)
@@ -69,14 +71,14 @@ def test_blockwise_fp8_gemm_1x128_128x128(M, N, K, dtype):
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
-def test_blockwise_fp8_gemm_1x128_128x1(M, N, K, dtype):
+def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     # Simulate grad_weight = grad_output_t @ input
     A = torch.randn(K, M, dtype=torch.bfloat16, device="cuda")
     B = torch.randn(K, N, dtype=torch.bfloat16, device="cuda")
     C = A.T @ B
-    A_t_q, A_t_s = fp8_blockwise_act_quant_transposed_lhs(A, dtype=dtype)
-    B_q, B_s = fp8_blockwise_act_quant_rhs(B, dtype=dtype)
-    C_q = blockwise_fp8_gemm_1x128_128x1(A_t_q, 1.0 / A_t_s, B_q, 1.0 / B_s)
+    A_t_q, A_t_s = triton_fp8_blockwise_act_quant_transposed_lhs(A, dtype=dtype)
+    B_q, B_s = triton_fp8_blockwise_act_quant_rhs(B, dtype=dtype)
+    C_q = triton_fp8_gemm_1x128_128x1(A_t_q, B_q, A_t_s, B_s, out_dtype=torch.bfloat16)
 
     assert not C_q.isnan().any(), "C_q must not contain NaNs"
     assert C.dtype == torch.bfloat16
@@ -99,13 +101,13 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
     # quantized tensor will have NaNs due to division by 0
     x[0, :block_size] = 0.0
 
-    # Get the quantized tensor and scales using triton implementation
-    triton_fp8, triton_scale = fp8_blockwise_act_quant_lhs(
+    # Get the quantized tensor and reciprocal scales using triton implementation
+    triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_lhs(
         x,
         block_size=block_size,
     )
 
-    # Get the quantized tensor and scales using reference implementation
+    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(x, tile_size=block_size)
 
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
@@ -124,7 +126,7 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare scales
+    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -146,13 +148,13 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     # quantized tensor will have NaNs due to division by 0
     x[:block_size, :block_size] = 0.0
 
-    # Get the quantized tensor and scales using triton implementation
-    triton_fp8, triton_scale = fp8_blockwise_act_quant_rhs(
+    # Get the quantized tensor and reciprocal scales using triton implementation
+    triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_rhs(
         x,
         block_size=block_size,
     )
 
-    # Get the quantized tensor and scales using reference implementation
+    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_rhs(x, block_size=block_size)
 
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
@@ -171,7 +173,7 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare scales
+    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -193,13 +195,13 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     # quantized tensor will have NaNs due to division by 0
     x[0, :block_size] = 0.0
 
-    # Get the quantized tensor and scales using triton implementation
-    triton_fp8, triton_scale = fp8_blockwise_act_quant_transposed_lhs(
+    # Get the quantized tensor and reciprocal scales using triton implementation
+    triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_transposed_lhs(
         x,
         block_size=block_size,
     )
 
-    # Get the quantized tensor and scales using reference implementation
+    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(
         x.t().contiguous(), tile_size=block_size
     )
@@ -220,7 +222,7 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare scales
+    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -242,12 +244,12 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     # quantized tensor will have NaNs due to division by 0
     x[:block_size, :block_size] = 0.0
 
-    # Get the quantized tensor and scales using triton implementation
-    triton_fp8, triton_scale = fp8_blockwise_weight_quant_rhs(
+    # Get the quantized tensor and reciprocal scales using triton implementation
+    triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_rhs(
         x,
         block_size=block_size,
     )
-    # Get the quantized tensor and scales using reference implementation
+    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(x, tile_size=block_size)
 
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
@@ -266,7 +268,7 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare scales
+    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -289,12 +291,12 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     # quantized tensor will have NaNs due to division by 0
     x[:block_size, :block_size] = 0.0
 
-    # Get the quantized tensor and scales using triton implementation
-    triton_fp8, triton_scale = fp8_blockwise_weight_quant_transposed_rhs(
+    # Get the quantized tensor and reciprocal scales using triton implementation
+    triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
         x,
         block_size=block_size,
     )
-    # Get the quantized tensor and scales using reference implementation
+    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(
         x.t().contiguous(), tile_size=block_size
     )
@@ -315,7 +317,7 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare scales
+    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,

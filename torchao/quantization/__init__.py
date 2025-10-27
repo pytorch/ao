@@ -19,7 +19,9 @@ from .GPTQ import (
     MultiTensorInputRecorder,
 )
 from .granularity import (
+    Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -43,7 +45,6 @@ from .observer import (
 )
 from .quant_api import (
     CutlassInt4PackedLayout,
-    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -90,8 +91,14 @@ from .quant_primitives import (
 )
 from .quantize_.workflows import (
     Float8Tensor,
+    Int4MarlinSparseTensor,
+    Int4OpaqueTensor,
+    Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int4TilePackedTo4dTensor,
+    IntxOpaqueTensor,
+    IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -101,13 +108,11 @@ from .smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
-from .subclass import *  # noqa: F403
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
 )
-from .weight_only import WeightOnlyInt8QuantLinear
 
 # TODO: remove after migration of APIs are done
 AOPerModuleConfig = ModuleFqnToConfig
@@ -155,11 +160,16 @@ __all__ = [
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
     "ModuleFqnToConfig",
-    "FbgemmConfig",
     # tensor subclasses
     "Int4Tensor",
+    "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
+    "Int4MarlinSparseTensor",
+    "IntxOpaqueTensor",
+    "IntxUnpackedToInt8Tensor",
+    "Int4TilePackedTo4dTensor",
     "Float8Tensor",
+    "Int4OpaqueTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -187,8 +197,10 @@ __all__ = [
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "Granularity",
     "PerTensor",
     "PerAxis",
+    "PerBlock",
     "PerGroup",
     "PerRow",
     "PerToken",
@@ -196,7 +208,6 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
-    "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
     # Layouts for quant_api

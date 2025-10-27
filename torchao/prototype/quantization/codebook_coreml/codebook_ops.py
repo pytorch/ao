@@ -57,65 +57,83 @@ def choose_qparams_and_quantize_codebook_coreml(
     assert code_dtype in list(_SUB_BYTE_UINT_BOUNDS.keys()) + [torch.uint8]
     nbits = _DTYPE_TO_BIT_WIDTH[code_dtype]
     assert nbits >= 1 and nbits <= 8, f"nbits must be in [1, 8], got {nbits}"
-
-    assert len(block_size) == input_tensor.dim()
-    block_size = block_size.copy()
-    for i in range(len(block_size)):
-        if block_size[i] == -1:
-            block_size[i] = input_tensor.shape[i]
-        assert block_size[i] >= 1 and input_tensor.shape[i] % block_size[i] == 0, (
-            "block_size[i] must divide input_tensor.shape[i]"
-        )
-
     assert input_tensor.dim() == 2, "Currently only rank 2 tensors are supported"
-    assert block_size[0] == input_tensor.shape[0], (
-        "Currently only support per-grouped channel granularity"
-    )
     assert cluster_dim == 1, (
         f"only cluster_dim == 1 is supported right now, got {cluster_dim}"
     )
 
-    num_lut = input_tensor.shape[1] // block_size[1]
-    group_size = block_size[1]
-
-    # for converting to numpy
-    input_tensor = input_tensor.detach()
     original_shape = input_tensor.shape
+    N, K = original_shape
+    input_tensor = input_tensor.detach()
 
-    # reshape to (N, K // group_size, group_size)
-    input_tensor = input_tensor.reshape(input_tensor.shape[0], num_lut, group_size)
+    # --- Process block_size ---
+    assert len(block_size) == 2
+    processed_block_size = block_size.copy()
+    if processed_block_size[0] == -1:
+        processed_block_size[0] = N
+    if processed_block_size[1] == -1:
+        processed_block_size[1] = K
+
+    row_block_size, col_block_size = processed_block_size
+    assert N % row_block_size == 0, (
+        f"Tensor rows ({N}) not divisible by row block size ({row_block_size})"
+    )
+    assert K % col_block_size == 0, (
+        f"Tensor cols ({K}) not divisible by col block size ({col_block_size})"
+    )
+
+    # --- Determine and execute grouping strategy ---
+    assert row_block_size == N or col_block_size == K
+    is_col_grouping = row_block_size == N
+
+    res_lut_list = []
     from coremltools.models.neural_network.quantization_utils import (
         _get_kmeans_lookup_table_and_weight,
     )
 
-    res_lut = []
-    # each res_w[:, i, :] will use the same lookup table
-    # res_w: (N, K // group_size, group_size)
-    res_w = torch.zeros_like(input_tensor, dtype=torch.uint8)
-    for i in range(num_lut):
-        # lut: (2**nbits, 1)
-        # w: (N * group_size)
-        lut, w = _get_kmeans_lookup_table_and_weight(
-            nbits, input_tensor[:, i, :], force_kmeans1d, cluster_dim, vector_axis
-        )
-        res_lut.append(torch.from_numpy(lut))
-        res_w[:, i, :] = torch.from_numpy(w.reshape(input_tensor.shape[0], group_size))
+    if is_col_grouping:
+        # STRATEGY 1: Group by COLUMNS
+        num_luts = K // col_block_size
+        reshaped_tensor = input_tensor.reshape(N, num_luts, col_block_size)
+        res_codes = torch.zeros_like(reshaped_tensor, dtype=torch.uint8)
 
-    # directly stack all lookup tables along dim 0
-    # res_lut: (K // group_size, 2 ** nbits)
-    res_lut = torch.stack(res_lut, dim=0)
+        for i in range(num_luts):
+            block_to_quantize = reshaped_tensor[:, i, :]
+            lut, w = _get_kmeans_lookup_table_and_weight(
+                nbits, block_to_quantize, force_kmeans1d, cluster_dim, vector_axis
+            )
+            res_lut_list.append(torch.from_numpy(lut))
+            res_codes[:, i, :] = torch.from_numpy(w.reshape(N, col_block_size))
 
-    # The final LUT should have dimension equal to input_tensor.dim() + 2
-    # The first input_tensor.dim() dimensions index over the tables,
-    # input_tensor.dim() + 1 indexes over the nbit indices
-    # input_tensor.dim() + 2 are the look up values (shape = 1 for scalar)
-    # res_lut: (N, K // group_size, 2 ** nbits, group_size)
-    res_lut = res_lut.reshape(1, num_lut, 2**nbits, 1)
+        # Shape to match CoreML spec: (1, num_luts, 2**nbits, 1)
+        final_luts = torch.stack(res_lut_list, dim=0).reshape(1, num_luts, 2**nbits, 1)
 
-    # reshape back to (N, K)
-    res_w = res_w.reshape(*original_shape)
+    else:  # is_row_grouping
+        # STRATEGY 2: Group by ROWS
+        num_luts = N // row_block_size
+        reshaped_tensor = input_tensor.reshape(num_luts, row_block_size, K)
+        res_codes = torch.zeros_like(reshaped_tensor, dtype=torch.uint8)
 
-    return res_lut, res_w
+        for i in range(num_luts):
+            block_to_quantize = reshaped_tensor[i, :, :]
+            lut, w = _get_kmeans_lookup_table_and_weight(
+                nbits, block_to_quantize, force_kmeans1d, cluster_dim, vector_axis
+            )
+            res_lut_list.append(torch.from_numpy(lut))
+            res_codes[i, :, :] = torch.from_numpy(w.reshape(row_block_size, K))
+
+        final_luts_stacked = torch.stack(
+            res_lut_list, dim=0
+        )  # Shape: (num_luts, 2**nbits, 1)
+
+        # Reshape to the consistent 4D format
+        # The shape is (num_row_groups, 1, 2**nbits, 1)
+        final_luts = final_luts_stacked.reshape(num_luts, 1, 2**nbits, 1)
+
+    # Reshape codes back to the original tensor shape
+    final_codes = res_codes.reshape(*original_shape)
+
+    return final_luts, final_codes
 
 
 @register_custom_op

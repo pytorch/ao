@@ -24,8 +24,8 @@ from torchao.prototype.awq import (
     AWQStep,
 )
 from torchao.quantization.quant_api import (
-    FbgemmConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
@@ -49,9 +49,16 @@ configs = [
         weight_dtype=torch.float8_e4m3fn,
     ),
     UIntXWeightOnlyConfig(dtype=torch.uint1),
+    Float8DynamicActivationInt4WeightConfig(),
     Int4DynamicActivationInt4WeightConfig(),
     Int4WeightOnlyConfig(
         group_size=32,
+    ),
+    Int4WeightOnlyConfig(
+        group_size=128,
+        int4_packing_format="tile_packed_to_4d",
+        int4_choose_qparams_algorithm="hqq",
+        version=2,
     ),
     Int8DynamicActivationInt4WeightConfig(
         group_size=64,
@@ -84,7 +91,6 @@ configs = [
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step=AWQStep.PREPARE_FOR_LOADING),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
-    FbgemmConfig(torch.bfloat16, torch.int4, torch.bfloat16, [1, 1, 256]),
 ]
 
 

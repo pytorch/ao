@@ -70,7 +70,7 @@ def compute_v_per_channel(p: Tensor, dim: Optional[int] = None, ternary: bool = 
     r = r.sub(v * binary_sign(r))
 
     # compute least squares error, then select the `v` minimizes it
-    costs = r.norm(dim=dim)
+    costs = torch.linalg.vector_norm(r, dim=dim)
     indices = costs.argmin(dim=dim, keepdim=True)
     v_best = v_cands.gather(1, indices)
     return v_best
@@ -196,10 +196,10 @@ class LSBQuantizer(Quantizer):
                 V1V2.append((v1, v2))
         assert len(V1V2) > 0, "LSBQ 2-bit optimal: No solution found."
         # find the best solution with least-square quantization error
-        min_error = p.norm()
+        min_error = torch.linalg.vector_norm(p)
         for v1v2 in V1V2:
             r = binary_quant_residue(p, v1v2)
-            error = r.norm()
+            error = torch.linalg.vector_norm(r)
             if error < min_error:
                 min_error = error
                 q = p - r
@@ -244,14 +244,14 @@ class LSBQuantizer(Quantizer):
                 v_feasible.append(v)
         assert len(v_feasible) > 0, "LSBQ ternary optimal: No solution found."
         # find the best solution with least-square quantization error
-        min_error = p.norm()
+        min_error = torch.linalg.vector_norm(p)
         q_best = torch.zeros_like(p)
         v_best = torch.zeros_like(v)
         for v in v_feasible:
             Q = v * torch.tensor([-1.0, 0.0, 1.0], device=p.device)
             boundaries = v * torch.tensor([-0.5, 0.5], device=p.device)
             q = Q[torch.bucketize(p, boundaries)]
-            error = torch.linalg.norm(p - q)
+            error = torch.linalg.vector_norm(p - q)
             if error < min_error:
                 min_error = error
                 q_best = q

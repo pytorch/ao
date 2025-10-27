@@ -20,3 +20,8 @@ from .quant import (  # noqa: F401
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
+from .quant.config_torchao import StretchedIntxWeightConfig
+
+__all__ = [
+    "StretchedIntxWeightConfig",
+]

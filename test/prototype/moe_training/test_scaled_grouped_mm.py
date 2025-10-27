@@ -8,12 +8,12 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import is_sm_version, torch_version_at_least
 
 # We need to skip before doing any imports which would use triton, since
 # triton won't be available on CPU builds and torch < 2.5
 if not (
-    TORCH_VERSION_AT_LEAST_2_7
+    torch_version_at_least("2.7.0")
     and torch.cuda.is_available()
     and torch.cuda.get_device_capability()[0] >= 9
 ):
@@ -28,10 +28,12 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
-    _scaled_grouped_mm,
+    _quantize_then_scaled_grouped_mm,
+    _to_mxfp8_then_scaled_grouped_mm,
 )
 from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_colwise,
@@ -43,10 +45,15 @@ from torchao.testing.utils import skip_if_rocm
 
 
 @skip_if_rocm("ROCm not supported")
-def test_valid_scaled_grouped_mm_2d_3d():
+@pytest.mark.parametrize("m", [131072])
+@pytest.mark.parametrize("n", [8192])
+@pytest.mark.parametrize("k", [5120])
+@pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
+def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
+    if not is_sm_version(9, 0):
+        pytest.skip("Skipping FP8 rowwise test, requires sm90")
     out_dtype = torch.bfloat16
     device = "cuda"
-    m, n, k, n_groups = 16, 32, 16, 4
     a = torch.randn(
         m * n_groups,
         k,
@@ -67,11 +74,12 @@ def test_valid_scaled_grouped_mm_2d_3d():
     b_t = b.contiguous().transpose(-2, -1).requires_grad_(True)
 
     # Compute output.
-    out = _scaled_grouped_mm(
+    out = _quantize_then_scaled_grouped_mm(
         a,
         b_t,
         offs=offs,
         out_dtype=out_dtype,
+        scaling_type=MoEScalingType.FP8_ROWWISE,
     )
 
     # Validate result.
@@ -135,7 +143,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
 
     # Compute output.
     with pytest.raises(AssertionError):
-        _scaled_grouped_mm(
+        _quantize_then_scaled_grouped_mm(
             a,
             b_t,
             offs=offs,
@@ -192,7 +200,7 @@ def compute_reference_forward(
         result_list.append(result[start : offs_cpu[i]])
         start = offs_cpu[i]
 
-    # Validate each actual result group from the _scaled_grouped_mm is equal to:
+    # Validate each actual result group from the _quantize_then_scaled_grouped_mm is equal to:
     # 1. A manual _scaled_mm for the group.
     # 2. A matmul_with_hp_or_float8_args for the group (which is differentiable, and thus used to validate gradients).
     outputs = []
@@ -230,25 +238,26 @@ def compute_reference_forward(
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
     offs = generate_jagged_offs(num_experts, M)
-    x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
+    x_ref, w_ref, offs_ref = x.clone(), w.clone(), offs.clone()
 
     # Quantize inputs to mxpf8 for emulated mxfp8 scaled grouped mm
     block_size = 32
-    x_scale, x_mx = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+    x_scale, x_fp8 = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
 
     # To cast B_t per-expert to mxfp8 across dim1, we transpose the experts, cast along dim -1, then untranspose.
-    w_scale, w_mx = to_mx(
-        w_t.transpose(-2, -1).contiguous(),
+    w_scale, w_fp8 = to_mx(
+        w,
         elem_dtype=torch.float8_e4m3fn,
         block_size=block_size,
     )
-    w_t_scale, w_t_mx = w_scale.transpose(-2, -1), w_mx.transpose(-2, -1)
 
-    ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
+    ref_out = torch._grouped_mm(
+        x_ref, w_ref.transpose(-2, -1), offs=offs_ref, out_dtype=torch.bfloat16
+    )
     out = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
-        x_mx, x_scale, w_t_mx, w_t_scale, offs=offs, out_dtype=torch.bfloat16
+        x_fp8, x_scale, w_fp8, w_scale, offs=offs, out_dtype=torch.bfloat16
     )
 
     sqnr = compute_error(ref_out, out)
@@ -305,18 +314,24 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 
 
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
-@pytest.mark.parametrize("num_experts", (1, 8, 16))
-def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):
-    from torchao.prototype.moe_training.scaled_grouped_mm import (
-        _MXFP8GroupedMM,
-    )
-
+@pytest.mark.parametrize(
+    "M,K,N", [(16640, 5120, 8192), (131072, 5120, 8192), (131072, 8192, 5120)]
+)
+@pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
+@pytest.mark.parametrize("use_triton_for_dim0_cast", (True, False))
+def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
+    M, K, N, num_experts, use_triton_for_dim0_cast
+):
     block_size = 32
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    w_t = torch.randn(
-        num_experts, K, N, dtype=torch.bfloat16, device="cuda", requires_grad=True
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
     )
+    w_t = w.transpose(-2, -1).requires_grad_(True)
     offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
     x_ref, w_t_ref, offs_ref = (
         x.clone().detach().requires_grad_(True),
@@ -325,7 +340,9 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(M, K, N, num_experts):
     )
 
     # Forward
-    out = _MXFP8GroupedMM.apply(x, w_t, offs, block_size, torch.bfloat16)
+    out = _to_mxfp8_then_scaled_grouped_mm(
+        x, w_t, offs, block_size, torch.bfloat16, use_triton_for_dim0_cast
+    )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)
     min_sqnr = 27.0

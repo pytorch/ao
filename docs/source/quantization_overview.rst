@@ -21,7 +21,7 @@ Any quantization algorithm will be using some components from the above stack, f
 
 Basic DTypes
 ~~~~~~~~~~~~
-`dtype <https://en.wikipedia.org/wiki/Data_type>`__ is a bit of overloaded term, by basic dtype, we mean the dtypes that makes sense without any extra metadata (e.g. makes sense when people call ``torch.empty(.., dtype)``), for more details please check out `this post <dev-discuss.pytorch.org/t/supporting-new-dtypes-in-pytorch/1833>`__.
+`dtype <https://en.wikipedia.org/wiki/Data_type>`__ is a bit of overloaded term, by basic dtype, we mean the dtypes that makes sense without any extra metadata (e.g. makes sense when people call ``torch.empty(.., dtype)``), for more details please check out `this post <https://dev-discuss.pytorch.org/t/supporting-new-dtypes-in-pytorch/1833>`__.
 
 No matter what quantization we are doing, in the end we will be using some low precision dtypes to represent the quantized data or quantization parameters, the low precision dtypes relevant for torchao are:
 

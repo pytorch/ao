@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -237,6 +238,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         transposed: bool,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
+        )
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False
@@ -357,7 +361,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                     getattr(self, tensor_name).copy_(getattr(src, tensor_name))
                 return
             raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+                f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
             )
 
         if func in [aten.select.int, aten.index.Tensor]:

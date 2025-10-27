@@ -10,10 +10,10 @@ from dataclasses import dataclass
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
 from torchao.quantization.quant_api import (
     _linear_extra_repr,
 )
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
@@ -105,7 +105,12 @@ def _awq_transform(
     dummy_mod = DummyModule(observed_linear.weight * equalization_scale)
     quant_mod = base_config_handler(dummy_mod, config.base_config)
     qw = quant_mod.weight
-    qw = to_weight_tensor_with_linear_activation_scale_metadata(qw, equalization_scale)
+    assert isinstance(qw, SupportsActivationPreScaling), (
+        "weight must support activation scaling through implementing `SupportsActivationPreScaling`"
+    )
+    # since we want to do `act` * `act_pre_scale` during runtime for speed, we'll save the
+    # reciprocal of the `equalization_scale`
+    qw.act_pre_scale = 1.0 / equalization_scale
 
     linear = torch.nn.Linear(
         observed_linear.in_features,

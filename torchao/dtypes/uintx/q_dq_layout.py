@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import warnings
 
 import torch
 
@@ -95,6 +96,9 @@ class QDQTensorImpl(AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
+        warnings.warn(
+            "Models quantized with version 1 of IntxWeightOnlyConfig/Int8DynamicActivationIntxWeightConfig are deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2967 for more details"
+        )
         self.int_data = int_data
         self.scale = scale
         self.zero_point = zero_point
@@ -159,7 +163,7 @@ class QDQTensorImpl(AQTTensorImpl):
                     getattr(self, tensor_name).copy_(getattr(src, tensor_name))
                 return
             raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+                f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
             )
 
         elif func is aten.t.default:

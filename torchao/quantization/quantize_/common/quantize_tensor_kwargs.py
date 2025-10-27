@@ -22,7 +22,7 @@ class QuantizeTensorKwargs(abc.ABC):
 
     class Float8Tensor(...)
         @classmethod
-        def to_float8(cls, tensor, quant_kwargs: QuantizeTensorKwargs)
+        def from_hp(cls, tensor, quant_kwargs: QuantizeTensorKwargs)
             ...
     """
 
@@ -43,7 +43,7 @@ def _choose_quant_func_and_quantize_tensor(
     )
 
     if isinstance(quant_kwargs, QuantizeTensorToFloat8Kwargs):
-        return Float8Tensor.to_float8(
+        return Float8Tensor.from_hp(
             tensor,
             quant_kwargs.float8_dtype,
             quant_kwargs.granularity,

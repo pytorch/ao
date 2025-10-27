@@ -3,6 +3,8 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import torch
+
 from .base_structured_sparsifier import BaseStructuredSparsifier
 
 
@@ -26,7 +28,9 @@ class SaliencyPruner(BaseStructuredSparsifier):
             raise Exception(
                 "Structured pruning can only be applied to a 2+dim weight tensor!"
             )
-        saliency = -weights.norm(dim=tuple(range(1, weights.dim())), p=1)
+        saliency = -torch.linalg.vector_norm(
+            weights, dim=tuple(range(1, weights.dim())), ord=1
+        )
         assert saliency.shape == mask.shape
 
         num_to_pick = int(len(mask) * kwargs["sparsity_level"])

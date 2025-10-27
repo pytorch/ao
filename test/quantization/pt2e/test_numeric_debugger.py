@@ -18,16 +18,17 @@ from torchao.quantization.pt2e import (
     prepare_for_propagation_comparison,
 )
 from torchao.testing.pt2e.utils import PT2ENumericDebuggerTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import torch_version_at_least
 
 # Increase cache size limit to avoid FailOnRecompileLimitHit error when running multiple tests
 # that use torch.export.export, which causes many dynamo recompilations
-if TORCH_VERSION_AT_LEAST_2_8:
+if torch_version_at_least("2.8.0"):
     torch._dynamo.config.cache_size_limit = 128
 
 
 @unittest.skipIf(
-    not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8 and above, including nightly"
+    not torch_version_at_least("2.8.0"),
+    "Requires torch 2.8 and above, including nightly",
 )
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
 class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):

@@ -49,9 +49,7 @@ from torch.ao.quantization.fx.qconfig_mapping_utils import (
 )
 from torch.ao.quantization.fx.utils import (
     _get_module,
-    assert_and_get_unique_device,
     collect_producer_nodes,
-    create_getattr_from_value,
     graph_module_from_producer_nodes,
     node_arg_is_weight,
 )
@@ -74,6 +72,8 @@ from torch.nn.utils.parametrize import type_before_parametrizations
 
 from torchao.quantization.pt2e import FROM_NODE_KEY
 from torchao.quantization.pt2e.observer import _is_activation_post_process
+from torchao.quantization.pt2e.utils import create_getattr_from_value
+from torchao.utils import _assert_and_get_unique_device
 
 __all__ = [
     "convert",
@@ -129,6 +129,7 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
     modules: dict[str, torch.nn.Module],
     node_name_to_scope: dict[str, tuple[str, type]],
     node_name_to_qconfig: dict[str, QConfigAny],
+    model_device: Optional[torch.device] = None,
 ) -> None:
     """Replace activation_post_process module call node with quantize and
     dequantize node working with decomposed Tensor
@@ -255,7 +256,11 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
                     # sure that the default overload can be used.
                     # TODO: maybe need more complex attr name here
                     qparam_node = create_getattr_from_value(
-                        model, graph, module_path + prefix + key, value_or_node
+                        model,
+                        graph,
+                        module_path + prefix + key,
+                        value_or_node,
+                        model_device,
                     )
                     quantize_op_inputs.append(qparam_node)
                 else:
@@ -402,6 +407,7 @@ def _replace_observer_with_quantize_dequantize_node(
     modules: dict[str, torch.nn.Module],
     node_name_to_scope: dict[str, tuple[str, type]],
     node_name_to_qconfig: dict[str, QConfigAny],
+    model_device: Optional[torch.device] = None,
 ) -> None:
     """Replace activation_post_process module call node with quantize and
     dequantize node
@@ -482,7 +488,11 @@ def _replace_observer_with_quantize_dequantize_node(
                     # For scale and zero_point values we register them as buffers in the root module.
                     # TODO: maybe need more complex attr name here
                     qparam_node = create_getattr_from_value(
-                        model, graph, module_path + prefix + key, value_or_node
+                        model,
+                        graph,
+                        module_path + prefix + key,
+                        value_or_node,
+                        model_device,
                     )
                     quantize_op_inputs.append(qparam_node)
                 else:
@@ -780,6 +790,7 @@ def convert_weighted_module(
     backend_config: BackendConfig,
     is_decomposed: bool = False,
     is_reference: bool = False,
+    model_device: Optional[torch.device] = None,
 ) -> None:
     """Convert a weighted module to reference quantized module in the model
     If the QConfig of a QAT module is not set, the module will still be converted to
@@ -868,7 +879,10 @@ def convert_weighted_module(
         is_ptq = weight_post_process is None
         if is_ptq:
             weight_post_process = qconfig.weight()  # type: ignore[union-attr, operator]
-            device = assert_and_get_unique_device(float_module)
+            if model_device is not None:
+                device = model_device
+            else:
+                device = _assert_and_get_unique_device(float_module)
             if device:
                 weight_post_process.to(device)
 
@@ -1071,6 +1085,7 @@ def convert(
     root_module_classes = tuple(root_module_to_quantized_reference_module.keys())
     qat_module_classes = get_qat_module_classes(backend_config)
     fused_module_classes = get_fused_module_classes(backend_config)
+    model_device = _assert_and_get_unique_device(model)
 
     for node in list(model.graph.nodes):
         if node.op == "placeholder":
@@ -1118,6 +1133,7 @@ def convert(
                         modules,
                         node_name_to_scope,
                         node_name_to_qconfig,
+                        model_device,
                     )
                 else:
                     _replace_observer_with_quantize_dequantize_node(
@@ -1126,6 +1142,7 @@ def convert(
                         modules,
                         node_name_to_scope,
                         node_name_to_qconfig,
+                        model_device,
                     )
             elif isinstance(mod, DeQuantStub):
                 _replace_observer_or_dequant_stub_with_dequantize_node(
@@ -1155,6 +1172,7 @@ def convert(
                     backend_config,
                     is_decomposed,
                     is_reference,
+                    model_device,
                 )
 
     # remove deadcode after converting observers to quant/dequant ops

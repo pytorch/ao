@@ -16,7 +16,7 @@ class PackingFormat(str, Enum):
 
     """
     plain means the format that quantized Tensor data lays out elements in Tensor sequentially,
-    for example:                                                                                                                                                                                                          for a Tensor of shape (4, 6):
+    for example:                                                                                                                                                                                          for a Tensor of shape (4, 6):
     a_0_0, a_0_1, ..., a_0_5,
     ...
     a_3_0, a_3_1, ..., a_3_5
@@ -27,6 +27,8 @@ class PackingFormat(str, Enum):
     PLAIN = "plain"
 
     """
-    preshuffled is referring to the preshuffled format used by fbgemm kernels
+    Opaque packing format that's used for tensors that does not have a predefined packing format
+    (that may be decided on hardware, tensor shape, library availability etc.) and it's not
+    needed for the rest of the system to understand the specific format that's adopted.
     """
-    PRESHUFFLED = "preshuffled"
+    OPAQUE = "opaque"

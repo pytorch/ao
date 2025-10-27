@@ -166,6 +166,8 @@ def get_gemm_times(
         if torch.version.hip and torch.cuda.is_available() and is_MI300():
             e4m3_dtype = torch.float8_e4m3fnuz
         d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
+        # TODO(future PR): create more realistic tensors here for more accurate
+        # gemm benchmarking
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
         if float8_recipe_name == "tensorwise":
@@ -178,7 +180,7 @@ def get_gemm_times(
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         else:
-            assert False, "TODO add cutlass mx gemm here"
+            assert False, f"unsupported {float8_recipe_name=} {mx_recipe_name=}"
 
         def do_matmul(A, B):
             return torch._scaled_mm(
@@ -212,6 +214,7 @@ def run(
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
     * `gemm_cache_filename (optional)`: file to cache gemm benchmark results
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
+    * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
 
@@ -230,6 +233,20 @@ def run(
     print(f"mx_recipe_name: {mx_recipe_name}")
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
 
+    assert mx_recipe_name in (
+        # real mxfp8_cublas recipe
+        "mxfp8_cublas",
+        # real mxfp8_cublas_rceil recipe
+        "mxfp8_cublas_rceil",
+        # modeling of what mxfp8 with 32x32 block size and without gemm
+        # operand layout restrictions would look like
+        "mxfp8_32x32_flexible_gemm_layout",
+        # modeling of what mxfp8 with 32x32 block size for weight
+        "mxfp8_32x32_weight",
+        # real mxfp4_cutlass recipe
+        "mxfp4_cutlass",
+    ), f"unsupported {mx_recipe_name=}"
+
     M, K, N = sympy.symbols("M K N")
 
     fp8_ovhd_time_sympy = get_float8_mem_sympy(
@@ -243,8 +260,12 @@ def run(
     bf16_gemm_time_sympy = get_gemm_time_sympy(
         M, K, N, torch.bfloat16, None, None, None
     )
+    lowp_input_dtype = torch.float8_e4m3fn
+    if mx_recipe_name == "mxfp4_cutlass":
+        lowp_input_dtype = torch.float4_e2m1fn_x2
+
     fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name, None
+        M, K, N, lowp_input_dtype, float8_recipe_name, mx_recipe_name, None
     )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
@@ -302,6 +323,12 @@ def run(
         rb_fp8_gemm_ratio = -1
 
         if do_benchmarks:
+            assert mx_recipe_name not in (
+                "mxfp4_cutlass",
+                "mxfp8_32x32_flexible_gemm_layout",
+                "mxfp8_32x32_weight",
+            ), f"do_benchmarks unsupported with {mx_recipe_name=}"
+
             # TODO(future): make the bf16 gemm times exactly match the e2e
             # benchmarks, there is a slight deviation, probably related to gemm
             # operand memory formats/transpositions below not exactly matching

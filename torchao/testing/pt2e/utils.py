@@ -29,7 +29,7 @@ from torchao.quantization.pt2e.quantize_pt2e import (
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 class PT2EQuantizationTestCase(QuantizationTestCase):
@@ -132,7 +132,7 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
         return m
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class PT2ENumericDebuggerTestCase(TestCase):
     """
     Base test case class for PT2E numeric debugger tests containing common utility functions
@@ -143,6 +143,22 @@ class PT2ENumericDebuggerTestCase(TestCase):
         def _assert_node_has_from_node_source(node):
             if node.op == "placeholder" or node.op == "output":
                 return
+
+            # Handle guard nodes that don't have from_node metadata in newer PyTorch versions
+            if FROM_NODE_KEY not in node.meta or node.meta[FROM_NODE_KEY] is None:
+                # Guard nodes (like _guards_fn) created by newer PyTorch versions might not have from_node metadata
+                # Skip these nodes as they are not part of the original user graph
+                return
+
+            # Check for nodes that are not part of the ExportedProgram.module().graph
+            if (
+                node.meta[FROM_NODE_KEY][-1].pass_name
+                == "ExportedProgram.module().unlift()"
+            ):
+                # This node is not part of the ExportedProgram.module().graph, so it doesn't need debug info
+                return
+
+            # All other nodes should have from_node metadata
             self.assertIn(
                 FROM_NODE_KEY,
                 node.meta,

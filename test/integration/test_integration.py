@@ -39,11 +39,11 @@ from torchao.quantization.autoquant import (
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt4WeightConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
     _replace_with_custom_fn_if_matches_filter,
-    int4_weight_only,
-    int8_dynamic_activation_int4_weight,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
@@ -55,11 +55,6 @@ from torchao.quantization.smoothquant import (
     get_scale,
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
-)
-from torchao.quantization.subclass import (
-    Int4WeightOnlyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.utils import (
     LoggingTensorMode,
@@ -76,13 +71,13 @@ from torchao.quantization.utils import (
 )
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_7,
     benchmark_model,
     check_cpu_version,
     check_xpu_version,
     is_fbcode,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -109,12 +104,14 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 
 def _int8wo_api(mod):
-    quantize_(mod, int8_weight_only(set_inductor_config=False))
+    quantize_(mod, Int8WeightOnlyConfig(set_inductor_config=False))
 
 
 def _int8wo_groupwise_api(mod):
     group_size = 32
-    quantize_(mod, int8_weight_only(group_size=group_size, set_inductor_config=False))
+    quantize_(
+        mod, Int8WeightOnlyConfig(group_size=group_size, set_inductor_config=False)
+    )
 
 
 def _int8da_int8w_api(
@@ -123,7 +120,7 @@ def _int8da_int8w_api(
 ):
     quantize_(
         mod,
-        int8_dynamic_activation_int8_weight(
+        Int8DynamicActivationInt8WeightConfig(
             act_mapping_type=act_mapping_type,
             set_inductor_config=False,
         ),
@@ -134,22 +131,28 @@ def _int4wo_api(mod, use_hqq=False):
     if check_cpu_version(next(mod.parameters()).device):
         quantize_(
             mod,
-            int4_weight_only(
-                layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
+            Int4WeightOnlyConfig(
+                layout=Int4CPULayout(),
+                use_hqq=use_hqq,
+                set_inductor_config=False,
+                version=1,
             ),
         )
         unwrap_tensor_subclass(mod)
     elif check_xpu_version(next(mod.parameters()).device):
         quantize_(
-            mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
+            mod,
+            Int4WeightOnlyConfig(
+                layout=Int4XPULayout(), set_inductor_config=False, version=1
+            ),
         )
         unwrap_tensor_subclass(mod)
     else:
-        quantize_(mod, int4_weight_only(set_inductor_config=False))
+        quantize_(mod, Int4WeightOnlyConfig(set_inductor_config=False, version=1))
 
 
 def _int8da_int4w_api(mod):
-    quantize_(mod, int8_dynamic_activation_int4_weight(set_inductor_config=False))
+    quantize_(mod, Int8DynamicActivationInt4WeightConfig(set_inductor_config=False))
 
 
 # TODO: use this to reduce the number of tests
@@ -548,6 +551,11 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl("cuda", dtype)
 
+    @unittest.skipIf(not torch.xpu.is_available(), "XPU not available")
+    def test_quantize_per_token_xpu(self):
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            self._test_quantize_per_token_impl("xpu", dtype)
+
     def _test_per_token_linear_impl(self, device, dtype):
         x = torch.randn(2, 16, 8, device=device, dtype=dtype)
         w = torch.randn(16, 8, device=device, dtype=dtype)
@@ -668,62 +676,6 @@ class TestSubclass(unittest.TestCase):
             f"{lin.weight.__class__.__name__} failed transpose on dtype={test_dtype}",
         )
 
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_dequantize_int8_dynamic_quant_subclass(self, device, dtype):
-        self._test_dequantize_impl(
-            Int8DynamicallyQuantizedLinearWeight.from_float,
-            device,
-            35,
-            test_dtype=dtype,
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_dequantize_int8_weight_only_quant_subclass(self, device, dtype):
-        self._test_dequantize_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-        if dtype != torch.bfloat16:
-            self.skipTest("Currently only supports bfloat16.")
-        for test_shape in [(16, 1024, 16)] + (
-            [(1, 1024, 8)] if device == "cuda" else []
-        ):
-            self._test_dequantize_impl(
-                Int4WeightOnlyQuantizedLinearWeight.from_float,
-                device,
-                15,
-                test_shape=test_shape,
-                test_dtype=dtype,
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-        if dtype != torch.bfloat16:
-            self.skipTest("Currently only supports bfloat16.")
-        m_shapes = [16, 256] + ([1] if device == "cuda" else [])
-        n_shapes = [16] + ([8, 13] if device == "cuda" else [])
-        for groupsize in [256, 128]:
-            for inner_k_tiles in [8, 4, 2]:
-                for m in m_shapes:
-                    for n in n_shapes:
-                        self._test_dequantize_impl(
-                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(
-                                w, groupsize, inner_k_tiles
-                            ),
-                            device,
-                            15,
-                            test_shape=[m, 256, n],
-                            test_dtype=dtype,
-                        )
-
     @run_supported_device_dtype
     def _test_lin_weight_subclass_impl(
         self,
@@ -757,22 +709,6 @@ class TestSubclass(unittest.TestCase):
                 min_sqnr,
                 f"{lin.weight.__class__.__name__} failed at compile with dtype={test_dtype}, (m, k, n)={test_shape}",
             )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_dynamic_quant_subclass(self, device, dtype):
-        self._test_lin_weight_subclass_impl(
-            Int8DynamicallyQuantizedLinearWeight.from_float,
-            device,
-            35,
-            test_dtype=dtype,
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_weight_only_quant_subclass(self, device, dtype):
-        undo_recommended_configs()
-        self._test_lin_weight_subclass_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
-        )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
@@ -878,46 +814,6 @@ class TestSubclass(unittest.TestCase):
             test_dtype=dtype,
         )
 
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_int4_weight_only_quant_subclass(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        for test_shape in [(16, 1024, 16)] + (
-            [(1, 1024, 8)] if device == "cuda" else []
-        ):
-            self._test_lin_weight_subclass_impl(
-                Int4WeightOnlyQuantizedLinearWeight.from_float,
-                device,
-                10,
-                test_shape=test_shape,
-                test_dtype=dtype,
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
-    @unittest.skip("Skip to fix CI until we deprecate these APIs long term")
-    def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        m_shapes = [16, 256] + ([1] if device == "cuda" else [])
-        n_shapes = [16] + ([8, 13] if device == "cuda" else [])
-        for groupsize in [128, 64]:
-            for inner_k_tiles in [8, 4, 2]:
-                for m in m_shapes:
-                    for n in n_shapes:
-                        self._test_lin_weight_subclass_impl(
-                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(
-                                w, groupsize, inner_k_tiles
-                            ),
-                            device,
-                            10,
-                            test_shape=[m, 256, n],
-                            test_dtype=dtype,
-                        )
-
     @torch.no_grad()
     @run_supported_device_dtype
     def _test_lin_weight_subclass_api_impl(
@@ -1019,9 +915,10 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not has_gemlite, "gemlite not available")
     def test_gemlite_layout(self, device, dtype):
+        from torchao.quantization import GemliteUIntXWeightOnlyConfig
+
         if dtype != torch.float16:
             self.skipTest("gemlite only works for fp16 dtype")
-        from torchao.quantization import gemlite_uintx_weight_only
 
         if device == "cpu":
             self.skipTest(f"gemlite is for cuda, not {device}")
@@ -1030,7 +927,7 @@ class TestSubclass(unittest.TestCase):
                 for group_size in [64, 32, None] if bit_width == 4 else [None]:
                     api = lambda mod: quantize_(
                         mod,
-                        gemlite_uintx_weight_only(
+                        GemliteUIntXWeightOnlyConfig(
                             group_size, bit_width, packing_bitwidth
                         ),
                     )
@@ -1052,7 +949,7 @@ class TestSubclass(unittest.TestCase):
 
         # test that shapes with non divisible by 128 shapes aren't causing errors
         self._test_lin_weight_subclass_api_impl(
-            lambda mod: quantize_(mod, gemlite_uintx_weight_only(None, 4, 32)),
+            lambda mod: quantize_(mod, GemliteUIntXWeightOnlyConfig(None, 4, 32)),
             device,
             15,
             test_shape=[1, 1025, 513],
@@ -1077,13 +974,13 @@ class TestSubclass(unittest.TestCase):
         ):
             for groupsize in [64, 32]:
                 for layout in layout_list:
-                    kwargs = {"groupsize": groupsize, "layout": layout}
+                    kwargs = {"groupsize": groupsize, "layout": layout, "version": 1}
 
                     def api(mod):
                         kwargs_copy = kwargs.copy()
                         kwargs_copy["group_size"] = groupsize
                         del kwargs_copy["groupsize"]
-                        quantize_(mod, int4_weight_only(**kwargs_copy))
+                        quantize_(mod, Int4WeightOnlyConfig(**kwargs_copy))
 
                     self._test_lin_weight_subclass_api_impl(
                         api,
@@ -1101,12 +998,11 @@ class TestDynamicQuant(unittest.TestCase):
         m = nn.Sequential(nn.Linear(K, N))
 
         y_ref = m(x)
-        quantize_(m, int8_dynamic_activation_int8_weight())
+        quantize_(m, Int8DynamicActivationInt8WeightConfig())
         y_test = m(x)
 
         sqnr = compute_error(y_ref, y_test)
         self.assertGreater(sqnr, 40.0)
-        # self.assertTrue(isinstance(m[0], DynamicallyPerAxisQuantizedLinear))
 
 
 class TestWeightOnlyInt8Quant(unittest.TestCase):
@@ -1141,7 +1037,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
         quantize_(
             m,
-            int8_weight_only(group_size=group_size),
+            Int8WeightOnlyConfig(group_size=group_size),
             filter_fn=lambda x, *args: isinstance(x, nn.Embedding),
         )
         y_q = m(input)
@@ -1883,7 +1779,7 @@ class TestAOTI(unittest.TestCase):
         model(x)
 
         api(model)
-        if not TORCH_VERSION_AT_LEAST_2_7:
+        if not torch_version_at_least("2.7.0"):
             unwrap_tensor_subclass(model)
 
         # running model
@@ -1942,7 +1838,7 @@ class TestExport(unittest.TestCase):
         model(x)
 
         api(model)
-        if not TORCH_VERSION_AT_LEAST_2_7:
+        if not torch_version_at_least("2.7.0"):
             unwrap_tensor_subclass(model)
 
         # running model

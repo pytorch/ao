@@ -92,7 +92,9 @@ class FakeQuantizedLinear(torch.nn.Linear):
 
         # initialize weight fake quantizer
         if weight_config is not None:
-            if isinstance(weight_config.granularity, PerGroup):
+            if isinstance(weight_config, IntxFakeQuantizeConfig) and isinstance(
+                weight_config.granularity, PerGroup
+            ):
                 group_size = weight_config.group_size
                 if group_size is not None and in_features % group_size != 0:
                     raise ValueError(

@@ -36,7 +36,7 @@ from torchao.quantization.pt2e.quantizer.arm_inductor_quantizer import (
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     QUANT_ANNOTATION_KEY,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 def skipIfNoArm(fn):
@@ -348,7 +348,7 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
 
 
 @skipIfNoInductorSupport
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
     @skipIfNoArm
     def test_conv2d(self):

@@ -34,16 +34,12 @@ from torchao.utils import (
     TorchAOBaseTensor,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    torch_version_at_least,
 )
 
 from .granularity import (
     PerRow,
     PerTensor,
-)
-from .subclass import (  # noqa
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-    QuantizedLinearWeightBase,
 )
 
 __all__ = [
@@ -343,9 +339,17 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        res = benchmarker.benchmark_gpu(
-            lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-        )
+        if torch_version_at_least("2.9.0.dev"):
+            from statistics import median
+
+            res = benchmarker.benchmark_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="all"
+            )
+            res = median(res)
+        else:
+            res = benchmarker.benchmark_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+            )
     return res
 
 
@@ -824,7 +828,8 @@ class Float32Tensor(TorchAOBaseTensor):
         return cls(weight)
 
 
-@Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
+@Float32Tensor.implements_torch_function(torch.nn.functional.linear)
+@Float32Tensor.implements(aten.linear.default)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
