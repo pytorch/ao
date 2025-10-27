@@ -254,7 +254,7 @@ If you believe there's other CUDA kernels we should be taking a closer look at p
 
 TorchAO is integrated into some of the leading open-source libraries including:
 
-* Unsloth for QAT, blog post coming soon!
+* Unsloth now supports QAT: [Read Blog](https://docs.unsloth.ai/new/quantization-aware-training-qat) and [Guide](https://docs.unsloth.ai/new/quantization-aware-training-qat#qat--lora-finetuning).
 * HuggingFace transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
 * HuggingFace diffusers best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
 * vLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html), [detailed docs](https://docs.pytorch.org/ao/main/torchao_vllm_integration.html)
