@@ -40,11 +40,6 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
-from torchao.quantization.subclass import (  # noqa
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-    QuantizedLinearWeightBase,
-)
 from torchao.quantization.utils import _quantize_activation_per_token_absmax
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -80,7 +75,6 @@ def _is_linear(mod, *args):
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeightV1)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
@@ -847,7 +841,8 @@ class Float32Tensor(TorchAOBaseTensor):
         return cls(weight)
 
 
-@Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
+@Float32Tensor.implements(aten.linear.default)
+@Float32Tensor.implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],

@@ -4,23 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 ######################################################################
-#
-# To run these benchmarks, use the following command:
-#
-# torchrun --nproc-per-node=8 --local-ranks-filter=0 benchmarks/prototype/moe_training/benchmark_moe_layer_fsdp.py
-#
-#######################################################################
 
 import argparse
 import copy
 import logging
-import os
+import sys
 
-import pytest
 import torch
-from torch import distributed as dist
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard
 from torch.nn import functional as F
 
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
@@ -37,12 +28,30 @@ try:
         set_token_group_alignment_size_m,
     )
 except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
+    logging.warning(
+        "please pip install torchtitan to run this benchmark: https://github.com/pytorch/torchtitan"
     )
+    sys.exit(0)
 
 
-def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile: bool):
+def bench_moe_training_fsdp(args: argparse.Namespace):
+    (
+        recipe_name,
+        enable_profile,
+        local_num_experts,
+        local_batch_size,
+        seq_len,
+        dim,
+        hidden_dim,
+    ) = (
+        args.recipe,
+        args.profile,
+        args.local_num_experts,
+        args.local_batch_size,
+        args.seq_len,
+        args.dim,
+        args.hidden_dim,
+    )
     assert torch.cuda.is_available()
     assert recipe_name in ["fp8_rowwise", "mxfp8"]
     recipe = MoEScalingType[recipe_name.upper()]
@@ -64,13 +73,10 @@ def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile:
         )
         return
 
-    # setup distributed for fsdp
-    setup_distributed()
-
     # define model args
     target_fqns = ["experts"]
     model_args = MoEArgs(
-        num_experts=16,
+        num_experts=local_num_experts,
         num_shared_experts=1,
         _debug_force_load_balance=True,
     )
@@ -78,7 +84,6 @@ def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile:
     device = torch.device("cuda")
 
     # reference bf16 MoE using llama4 shapes
-    dim, hidden_dim = 5120, 8192
     ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
@@ -105,60 +110,76 @@ def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile:
     config = MoETrainingConfig(scaling_type=recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
-    # FSDP2
-    fully_shard(model)
-    fully_shard(ref_model)
-
-    # inputs (llama4 shapes)
-    batch, seq = 1, 16640
+    # inputs
     ref_x = torch.randn(
-        batch, seq, dim, dtype=torch.bfloat16, requires_grad=True, device=device
+        local_batch_size,
+        seq_len,
+        dim,
+        dtype=torch.bfloat16,
+        requires_grad=True,
+        device=device,
     )
     x = ref_x.detach().clone().requires_grad_(True)
 
-    def warmup(model, input):
+    def warmup(model, input, labels):
         for _ in range(3):
             out = model(input)
-            loss = F.mse_loss(out, torch.ones_like(out))
+            loss = F.mse_loss(out, labels)
             loss.backward()
             torch.cuda.synchronize()
 
     labels = torch.ones_like(x)
 
-    # TODO: bench with fullgraph=True if/when it is supported
+    # Warmup bf16
+    warmup(ref_model, ref_x, labels)
+
+    # Bench bf16
     bf16_us = bench_fwd_bwd_microseconds(
         ref_model,
         ref_x,
         labels=labels,
-        use_compile=use_compile,
+        use_compile=True,
         fullgraph=False,
     )
-    print(f"BF16 time: {bf16_us} us")
+    bf16_ms = bf16_us / 1e3
     if enable_profile:
         print("Profiling bf16 training")
-        profile_fwd_bwd(ref_model, ref_x, labels=labels, profile_name="bf16_profile")
+        profile_fwd_bwd(
+            ref_model,
+            ref_x,
+            labels=labels,
+            use_compile=True,
+            fullgraph=False,
+            profile_name="bf16_profile",
+        )
 
+    # Warmup quantized
+    warmup(model, x, labels)
+
+    # Bench quantized
     scaled_us = bench_fwd_bwd_microseconds(
         model,
         x,
         labels=labels,
-        use_compile=use_compile,
+        use_compile=True,
         fullgraph=False,
     )
-    print(f"Scaled time: {scaled_us} us")
+    scaled_ms = scaled_us / 1e3
     if enable_profile:
         print("Profiling quantized training")
-        profile_fwd_bwd(model, x, labels=labels, profile_name=f"{recipe_name}_profile")
+        profile_fwd_bwd(
+            model,
+            x,
+            labels=labels,
+            use_compile=True,
+            fullgraph=False,
+            profile_name=f"{recipe_name}_profile",
+        )
 
-    print(f"Speedup: {bf16_us / scaled_us:.3f}x")
-    dist.destroy_process_group()
-
-
-def setup_distributed():
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
+    print(f"total_M: {local_batch_size * seq_len}, N: {hidden_dim}, K: {dim}")
+    print(f"bf16 time: {bf16_ms:.3f} ms")
+    print(f"{recipe_name} time: {scaled_ms:.3f} ms")
+    print(f"speedup: {bf16_us / scaled_us:.3f}x")
 
 
 if __name__ == "__main__":
@@ -172,13 +193,30 @@ if __name__ == "__main__":
         "--recipe", type=str, help="[fp8_rowwise, mxfp8]", required=True
     )
     parser.add_argument(
-        "--compile",
-        action="store_true",
-        help="use torch.compile",
+        "--local_num_experts",
+        type=int,
+        default=8,
     )
+    parser.add_argument(
+        "--seq_len",
+        type=int,
+        default=8192,
+    )
+    parser.add_argument(
+        "--local_batch_size",
+        type=int,
+        default=12,
+    )
+    parser.add_argument(
+        "--hidden_dim",
+        type=int,
+        default=8192,
+    )
+    parser.add_argument(
+        "--dim",
+        type=int,
+        default=5120,
+    )
+
     args = parser.parse_args()
-    bench_moe_training_fsdp(
-        recipe_name=args.recipe,
-        enable_profile=args.profile,
-        use_compile=args.compile,
-    )
+    bench_moe_training_fsdp(args)

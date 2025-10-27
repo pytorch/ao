@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 # Testing compatibility
 # We know that torchao .so files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+. (see #2919)
 # If the version of torch is not compatible with the version of torchao,
@@ -57,7 +63,7 @@ pip uninstall torchao
 # Install specific compatible version of torch (nightly 2.9.0dev)
 pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu129
 # Build torchao from source
-python setup.py develop
+pip install . --no-build-isolation
 # Should import successfully without warning
 check_torchao_import "false" ""
 ## prev torch, torchao from source (do not rebuild), env var = True

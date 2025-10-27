@@ -16,10 +16,13 @@ and mixed GEMM kernels
 """
 
 import logging
+import re
 import types
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import OrderedDict as OrderedDictType
 
 import torch
 import torch.nn as nn
@@ -127,9 +130,6 @@ from .quant_primitives import (
     ZeroPointDomain,
     quantize_affine,
 )
-from .subclass import (
-    QuantizedLinearWeightBase,
-)
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
@@ -200,12 +200,6 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-    if isinstance(model, Float8Linear):
-        with torch.device("meta"):
-            new_module = nn.Linear(model.in_features, model.out_features)
-        new_module.weight = model.weight
-        new_module.bias = model.bias
-        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -246,12 +240,6 @@ def _replace_with_custom_fn_if_matches_filter_with_name(
     Returns:
         None
     """
-    if isinstance(model, Float8Linear):
-        with torch.device("meta"):
-            new_module = nn.Linear(model.in_features, model.out_features)
-        new_module.weight = model.weight
-        new_module.bias = model.bias
-        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -286,7 +274,6 @@ def _is_linear(mod, *args):
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
@@ -1684,6 +1671,10 @@ def _float8_weight_only_transform(
         "applying int8 weight only quant requires module to have weight attribute"
         + " but {module} does not have one"
     )
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
+
     new_weight = _float8_weight_only_quant_tensor(module.weight, config)
 
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
@@ -1893,6 +1884,9 @@ def _float8_dynamic_activation_float8_weight_transform(
         "applying float8 dynamic activation quant requires module to have weight attribute"
         + f"but {module} does not have one"
     )
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
+
     quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
         module.weight, config
     )
@@ -1927,6 +1921,9 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
 ):
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
 
     weight = module.weight
     weight_dtype = config.weight_dtype
@@ -1991,6 +1988,9 @@ def _float8_static_activation_float8_weight_transform(
     assert is_sm_at_least_89() or is_MI300(), (
         "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     )
+
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
 
     scale = config.scale
     activation_dtype = config.activation_dtype
@@ -2361,6 +2361,9 @@ def _fpx_weight_only_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
+    if isinstance(module, Float8Linear):
+        module = _unwrap_float8_linear(module)
+
     from torchao.dtypes import to_affine_quantized_fpx
     from torchao.dtypes.floatx import FloatxTensorCoreLayout
 
@@ -2383,18 +2386,31 @@ def _fpx_weight_only_transform(
 
 @dataclass
 class ModuleFqnToConfig(AOBaseConfig):
-    """Per module configurations for torchao quantize_ API
+    r"""Per module configurations for torchao quantize_ API
 
     Args:
-        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
-         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
-         Also has a special key: "_default", if "_default" is present in the dictionary,
-         the config for "_default" will be applied to all the remaining modules that does not have
-         per module configuration specified.
+        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
+         ordered dictionary from
+             (1). fully qualified name (fqn) of module or
+             (2). regex of fully qualified name (in python `re` module regex format), should
+                  start with prefix "re:" or
+             (3). "_default"
+         to the config that we want to apply to the module or None
+
+         Config key ordered by precedence:
+           * fully qualified module name, e.g. `language.layers.0.q_proj`
+           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+             whiever regex fully matches the module fqn first will be applied
+             (order of keys for dictionary are kept consistent since we are using OrderedDict)
+           * "_default", fallback for **all modules** if no match for all previous keys
+             (Note, when using `_default`, the config is applied to all modules, to apply
+              it to only a subset of modules, e.g. with some types, it's better to filter
+              the modules that we don't want to quantize before hand and configure them to
+              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`)
     """
 
-    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
-        default_factory=dict
+    module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
+        default_factory=OrderedDict
     )
 
     def __post_init__(self):
@@ -2409,14 +2425,37 @@ def _module_fqn_to_config_handler(
         # Maybe: we can add module type specific config in the future, in needed
         c = config.module_fqn_to_config[module_fqn]
     else:
-        # fallback to use default if no module specific config is provided
-        c = config.module_fqn_to_config.get("_default", None)
+        for maybe_module_fqn_pattern in config.module_fqn_to_config:
+            if not maybe_module_fqn_pattern.startswith("re:"):
+                continue
+            elif re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
+                # we'll apply the config for first fully matched pattern
+                c = config.module_fqn_to_config[maybe_module_fqn_pattern]
+                break
+        else:
+            # fallback to use default if no module specific config is provided
+            c = config.module_fqn_to_config.get("_default", None)
 
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
         return handler(module, c)
 
     return module
+
+
+def _unwrap_float8_linear(module: Float8Linear) -> nn.Linear:
+    """
+    Unwrap a torchao Float8Linear by returning a nn.Linear with the same weights and bias.
+
+    Torchao inference quantization techniques are generally only applicable to nn.Linear
+    layers, so this helper is useful for unwrapping models trained with torchao float8 training,
+    which replaces nn.Linear layers with Float8Linear layers.
+    """
+    with torch.device("meta"):
+        new_module = nn.Linear(module.in_features, module.out_features)
+    new_module.weight = module.weight
+    new_module.bias = module.bias
+    return new_module
 
 
 torch.serialization.add_safe_globals(

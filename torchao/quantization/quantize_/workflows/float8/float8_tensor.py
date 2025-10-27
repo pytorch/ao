@@ -245,9 +245,11 @@ class Float8Tensor(TorchAOBaseTensor):
 
 
 implements = Float8Tensor.implements
+implements_torch_function = Float8Tensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -359,7 +361,7 @@ def _(func, types, args, kwargs):
         )
 
 
-@implements(torch.bmm)
+@implements_torch_function(torch.bmm)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = (
         args[0],
@@ -418,10 +420,10 @@ def _(func, types, args, kwargs):
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
-    """Only supports slicing for dim == 1 and dim == 2
-    original tensor shape has dimension (N, K)
-    qdata has dimension (N, K)
-    scale (per row quantization) has dimension: (N,)
+    """Supports slicing for 1d, 2d, and 3d tensors
+    original tensor shape has dimension (N, K), or (E, N, K)
+    qdata has dimension (N, K) or (E, N, K)
+    scale (per row quantization) has dimension: (N,) or (E, N)
 
     since qdata has the same dimension as original tensor, we can directly slice that
     for scale, we'll do a slice when dim is 0, and don't need to do anything for dim 1
@@ -431,12 +433,14 @@ def _(func, types, args, kwargs):
     """
     self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
     assert step == 1
-    assert dim == 0 or dim == 1, f"Only dim==0 or 1 are supported, got: {dim}"
+    assert dim == 0 or dim == 1 or dim == 2, (
+        f"Only dim==0,1,2 are supported, got: dim={dim}"
+    )
     if end >= self.shape[dim]:
         end = self.shape[dim]
 
-    assert self.qdata.ndim == 2, (
-        f"Expected packed weight to have dim 2, got {self.qdata.dim}"
+    assert self.qdata.ndim == 2 or self.qdata.ndim == 3, (
+        f"Expected packed weight to have dim==2,3 got: dim={self.qdata.ndim}"
     )
 
     # Always slice the qdata
@@ -637,6 +641,28 @@ def _(func, types, args, kwargs):
         old_float8_tensor.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_float8_tensor)
+
+
+@implements(aten.unsqueeze.default)
+def _(func, types, args, kwargs):
+    self, dim = args
+    assert dim == 0, f"Only dim == 0 is supported, got: {dim}"
+    qdata = self.qdata.unsqueeze(dim=dim)
+    scale = self.scale.unsqueeze(dim=dim)
+    block_size = []
+    for i in range(len(qdata.shape)):
+        block_size.append(qdata.shape[i] // scale.shape[i])
+
+    new = self.__class__(
+        qdata,
+        scale,
+        block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
 
 
 Float8Tensor.__module__ = "torchao.quantization"

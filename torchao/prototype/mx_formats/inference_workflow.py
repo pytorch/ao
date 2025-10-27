@@ -111,6 +111,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         gemm_kernel_choice=config.gemm_kernel_choice,
         pack_fp6=False,
+        is_swizzled_scales=True,
     )
 
     # Convert weight to MX Tensor
@@ -121,6 +122,7 @@ def _mx_inference_linear_transform(
         gemm_kernel_choice=config.gemm_kernel_choice,
         pack_fp6=False,  # TODO
         act_quant_kwargs=act_quant_kwargs,
+        is_swizzled_scales=True,
     )
 
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
@@ -168,9 +170,9 @@ def _nvfp4_inference_linear_transform(
 
     weight = module.weight
 
-    if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+    if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
-            f"NVFP4 only supports weight shape divisible by 16, got {weight.shape}"
+            f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
     if module.bias is not None and weight.dtype == torch.float32:
@@ -188,6 +190,8 @@ def _nvfp4_inference_linear_transform(
     if config.mm_config == NVFP4MMConfig.DYNAMIC:
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+            use_triton_kernel=config.use_triton_kernel,
+            is_swizzled_scales=True,
         )
 
     quantized_weight = NVFP4Tensor.to_nvfp4(
@@ -211,6 +215,7 @@ torch.serialization.add_safe_globals(
         NVFP4MMConfig,
         MXGemmKernelChoice,
         QuantizeTensorToMXKwargs,
+        QuantizeTensorToNVFP4Kwargs,
         ScaleCalculationMode,
     ]
 )

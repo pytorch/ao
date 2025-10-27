@@ -129,9 +129,11 @@ def _same_metadata(
 
 
 implements = LinearActivationQuantizedTensor.implements
+implements_torch_function = LinearActivationQuantizedTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor = kwargs.get("input", args[0] if len(args) > 0 else None)
     weight_tensor = kwargs.get("weight", args[1] if len(args) > 1 else None)
@@ -224,7 +226,7 @@ def _(func, types, args, kwargs):
         return
 
     raise ValueError(
-        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+        f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
     )
 
 

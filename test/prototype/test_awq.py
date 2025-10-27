@@ -20,21 +20,35 @@ from torchao.utils import _is_fbgemm_gpu_genai_available, torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=512, n=256, k=128):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
-        self.linear3 = torch.nn.Linear(k, 64, bias=False)
-
-    def example_inputs(
-        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
+    def __init__(
+        self,
+        m=512,
+        n=256,
+        k=128,
+        dtype=None,
+        device=None,
     ):
-        return [
-            torch.randn(
-                1, sequence_length, self.linear1.in_features, dtype=dtype, device=device
-            )
-            for j in range(batch_size)
-        ]
+        super().__init__()
+        self.dtype = dtype
+        self.device = device
+        self.linear1 = torch.nn.Linear(m, n, bias=False, device=device, dtype=dtype)
+        self.linear2 = torch.nn.Linear(n, k, bias=False, device=device, dtype=dtype)
+        self.linear3 = torch.nn.Linear(k, 64, bias=False, device=device, dtype=dtype)
+
+    def example_inputs(self, batch_size, sequence_length=10):
+        # For AWQ tests, we intentionally insert some outliers to input features
+        x = torch.randn(
+            batch_size,
+            sequence_length,
+            self.linear1.in_features,
+            dtype=self.dtype,
+            device=self.device,
+        )
+        n_outliers = max(1, int(x.size(-1) * 0.1))
+        # Randomly select outlier features
+        outlier_indices = torch.randperm(x.size(-1))[:n_outliers]
+        x[:, :, outlier_indices] *= 10.0
+        return (x,)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -92,14 +106,12 @@ class TestAWQ(TestCase):
         base_configs = device_to_base_configs[device]
 
         for base_config in base_configs:
-            m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            m = ToyLinearModel(l1, l2, l3, device=device, dtype=original_dtype).eval()
             m_baseline = copy.deepcopy(m)
 
             dataset = m.example_inputs(
                 dataset_size,
                 sequence_length=sequence_length,
-                dtype=original_dtype,
-                device=device,
             )
             # for test, we use calibration_data = dataset so that awq is
             # guranteed to be better than baseline
@@ -142,12 +154,10 @@ class TestAWQ(TestCase):
         base_configs = device_to_base_configs[device]
 
         for base_config in base_configs:
-            m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            m = ToyLinearModel(l1, l2, l3, device=device, dtype=original_dtype).eval()
             dataset = m.example_inputs(
                 dataset_size,
                 sequence_length=sequence_length,
-                dtype=original_dtype,
-                device=device,
             )
             # for test purpose, we don't need to get a subset
             calibration_data = dataset
@@ -171,9 +181,9 @@ class TestAWQ(TestCase):
                 f.seek(0)
                 state_dict = torch.load(f)
 
-            loaded_model = (
-                ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
-            )
+            loaded_model = ToyLinearModel(
+                l1, l2, l3, device=device, dtype=original_dtype
+            ).eval()
             loaded_model.load_state_dict(state_dict, assign=True)
 
             m = torch.compile(m, fullgraph=True)
@@ -203,12 +213,10 @@ class TestAWQ(TestCase):
         base_configs = device_to_base_configs[device]
 
         for base_config in base_configs:
-            m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
+            m = ToyLinearModel(l1, l2, l3, device=device, dtype=original_dtype).eval()
             dataset = m.example_inputs(
                 dataset_size,
                 sequence_length=sequence_length,
-                dtype=original_dtype,
-                device=device,
             )
             # for test purpose, we don't need to get a subset
             calibration_data = dataset
@@ -231,9 +239,9 @@ class TestAWQ(TestCase):
                 f.seek(0)
                 state_dict = torch.load(f)
 
-            loaded_model = (
-                ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
-            )
+            loaded_model = ToyLinearModel(
+                l1, l2, l3, device=device, dtype=original_dtype
+            ).eval()
             quant_config = AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
             quantize_(loaded_model, quant_config)
 
