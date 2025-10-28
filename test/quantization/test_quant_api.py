@@ -714,7 +714,7 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
-        config2 = Float8DynamicActivationFloat8WeightConfig()
+        config2 = Float8WeightOnlyConfig()
         config = ModuleFqnToConfig(
             {
                 "re:linear.*": config2,
