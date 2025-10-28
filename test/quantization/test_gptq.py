@@ -188,7 +188,7 @@ class TestMultiTensorInputRecorder(TestCase):
 
         args = input_recorder.get_recorded_inputs()
 
-        if _DEVICE == "xpu":
+        if _DEVICE.type == "xpu":
             from torchao.dtypes import Int4XPULayout
 
             quantizer = Int4WeightOnlyGPTQQuantizer(
