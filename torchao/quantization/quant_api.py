@@ -224,45 +224,6 @@ def _replace_with_custom_fn_if_matches_filter(
         return model
 
 
-def _replace_with_custom_fn_if_matches_filter_with_name(
-    model,
-    replacement_fn,
-    filter_fn,
-    cur_fqn="",
-    device=None,
-    extra_args: Optional[Tuple[Any, ...]] = (),
-) -> None:
-    """
-    A variant of _replace_with_custom_fn_if_matches_filter where replacement_fn takes module name as well
-        ...
-        replacement_fn (Callable[[torch.nn.Module, str], torch.nn.Module]): The function to replace matching modules.
-        ...
-
-    Returns:
-        None
-    """
-    if filter_fn(model, cur_fqn[:-1]):
-        if device is not None:
-            model.to(device=device)  # move to device before quantization
-        model = replacement_fn(model, cur_fqn[:-1], *extra_args)
-    # For parameter quantization, filter_fn(model, cur_fqn) no longer is terminal, as a module may contain both a parameter we want to quantize and subsequent submodules.
-    named_children_list = list(model.named_children())
-    for name, child in named_children_list:
-        new_child = _replace_with_custom_fn_if_matches_filter_with_name(
-            child,
-            replacement_fn,
-            filter_fn,
-            f"{cur_fqn}{name}.",
-            device,
-            extra_args,
-        )
-        if new_child is not child:
-            setattr(model, name, new_child)
-    if device is not None:
-        model.to(device=device)  # move parent module to device
-    return model
-
-
 def _is_linear(mod, *args):
     # avoid circular dependencies
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
@@ -526,7 +487,7 @@ def quantize_(
                 module_name = (
                     module_fqn.rsplit(".", 1) if "." in module_fqn else module_fqn
                 )
-                # this should replace inplace, so no need to reassign
+                # this replaces inplace, so no need to reassign
                 _fqn_to_config_handler(module, module_name, config, device)
         return
     if isinstance(config, AOBaseConfig):
