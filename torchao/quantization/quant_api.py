@@ -96,7 +96,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    TorchAOBaseTensor,
     _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
@@ -201,7 +200,7 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-    if filter_fn is None or filter_fn(model, cur_fqn[:-1]):
+    if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
         model = replacement_fn(model, *extra_args)
@@ -491,6 +490,7 @@ def quantize_(
                 _fqn_to_config_handler(module, module_name, config, device)
         return
     if isinstance(config, AOBaseConfig):
+        filter_fn = _is_linear if filter_fn is None else filter_fn
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
         _replace_with_custom_fn_if_matches_filter(
@@ -2582,7 +2582,7 @@ def _module_param_matches_fqn_config(
         bool: True if the module contains top-level parameters that match the fqn or regex pattern specified in FqnTo
     """
     for name, param in module.named_parameters():
-        if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
+        if name in dir(module):
             parameter_fqn = f"{fqn}.{name}" if len(fqn) > 0 else name
             if _fqn_matches_fqn_config(parameter_fqn, config):
                 return True
