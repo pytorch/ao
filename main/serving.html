@@ -611,7 +611,7 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">IntxWeightOnlyConfig</span><span class="p">,</span>
     <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">,</span>
-    <span class="n">ModuleFqnToConfig</span><span class="p">,</span>
+    <span class="n">FqnToConfig</span><span class="p">,</span>
     <span class="n">quantize_</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="n">PerGroup</span><span class="p">,</span> <span class="n">PerAxis</span>
@@ -634,7 +634,7 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
     <span class="n">weight_granularity</span><span class="o">=</span><span class="n">PerGroup</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span>
     <span class="n">weight_scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="n">quant_config</span> <span class="o">=</span> <span class="n">ModuleFqnToConfig</span><span class="p">({</span><span class="s2">&quot;_default&quot;</span><span class="p">:</span> <span class="n">linear_config</span><span class="p">,</span> <span class="s2">&quot;model.embed_tokens&quot;</span><span class="p">:</span> <span class="n">embedding_config</span><span class="p">})</span>
+<span class="n">quant_config</span> <span class="o">=</span> <span class="n">FqnToConfig</span><span class="p">({</span><span class="s2">&quot;_default&quot;</span><span class="p">:</span> <span class="n">linear_config</span><span class="p">,</span> <span class="s2">&quot;model.embed_tokens&quot;</span><span class="p">:</span> <span class="n">embedding_config</span><span class="p">})</span>
 <span class="n">quantization_config</span> <span class="o">=</span> <span class="n">TorchAoConfig</span><span class="p">(</span><span class="n">quant_type</span><span class="o">=</span><span class="n">quant_config</span><span class="p">,</span> <span class="n">include_embedding</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">untie_embedding_weights</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">modules_to_not_convert</span><span class="o">=</span><span class="p">[])</span>
 
 <span class="c1"># either use `untied_model_id` or `untied_model_local_path`</span>

@@ -653,46 +653,6 @@
         <span class="k">return</span> <span class="n">model</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_replace_with_custom_fn_if_matches_filter_with_name</span><span class="p">(</span>
-    <span class="n">model</span><span class="p">,</span>
-    <span class="n">replacement_fn</span><span class="p">,</span>
-    <span class="n">filter_fn</span><span class="p">,</span>
-    <span class="n">cur_fqn</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
-    <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">extra_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="p">(),</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    A variant of _replace_with_custom_fn_if_matches_filter where replacement_fn takes module name as well</span>
-<span class="sd">        ...</span>
-<span class="sd">        replacement_fn (Callable[[torch.nn.Module, str], torch.nn.Module]): The function to replace matching modules.</span>
-<span class="sd">        ...</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        None</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
-        <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move to device before quantization</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">replacement_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="o">*</span><span class="n">extra_args</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">model</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">named_children_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">())</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">named_children_list</span><span class="p">:</span>
-            <span class="n">new_child</span> <span class="o">=</span> <span class="n">_replace_with_custom_fn_if_matches_filter_with_name</span><span class="p">(</span>
-                <span class="n">child</span><span class="p">,</span>
-                <span class="n">replacement_fn</span><span class="p">,</span>
-                <span class="n">filter_fn</span><span class="p">,</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">cur_fqn</span><span class="si">}{</span><span class="n">name</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span>
-                <span class="n">device</span><span class="p">,</span>
-                <span class="n">extra_args</span><span class="p">,</span>
-            <span class="p">)</span>
-            <span class="k">if</span> <span class="n">new_child</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">child</span><span class="p">:</span>
-                <span class="nb">setattr</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">new_child</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move parent module to device</span>
-        <span class="k">return</span> <span class="n">model</span>
-
-
 <span class="k">def</span><span class="w"> </span><span class="nf">_is_linear</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="c1"># avoid circular dependencies</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat.affine_fake_quantized_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -906,7 +866,7 @@
 <div class="viewcode-block" id="quantize_"><a class="viewcode-back" href="../../../generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">quantize_</span><span class="p">(</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">AOBaseConfig</span><span class="p">,</span>
-    <span class="n">filter_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">filter_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="n">_is_linear</span><span class="p">,</span>
     <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">Device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the weight of linear modules in the model with `config`, model is modified inplace</span>
@@ -941,18 +901,26 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.quantize_&quot;</span><span class="p">)</span>
 
-    <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">ModuleFqnToConfig</span><span class="p">):</span>
-        <span class="n">_replace_with_custom_fn_if_matches_filter_with_name</span><span class="p">(</span>
-            <span class="n">model</span><span class="p">,</span>
-            <span class="n">_module_fqn_to_config_handler</span><span class="p">,</span>
-            <span class="n">filter_fn</span><span class="p">,</span>
-            <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
-            <span class="n">extra_args</span><span class="o">=</span><span class="p">(</span><span class="n">config</span><span class="p">,),</span>
-        <span class="p">)</span>
-        <span class="k">return</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">FqnToConfig</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None is supported when FqnToConfig is specified.&quot;</span>
+            <span class="p">)</span>
 
+        <span class="k">for</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="n">_fqn_matches_fqn_config</span><span class="p">(</span><span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">_module_param_matches_fqn_config</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="p">(</span><span class="s2">&quot;_default&quot;</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span> <span class="ow">and</span> <span class="n">_is_linear</span><span class="p">(</span><span class="n">module</span><span class="p">))</span>
+            <span class="p">):</span>
+                <span class="n">module_name</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">module_fqn</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">module_fqn</span> <span class="k">else</span> <span class="n">module_fqn</span>
+                <span class="p">)</span>
+                <span class="c1"># this replaces inplace, so no need to reassign</span>
+                <span class="n">_fqn_to_config_handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_name</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">device</span><span class="p">)</span>
+        <span class="k">return</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">AOBaseConfig</span><span class="p">):</span>
+        <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span>
         <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">config</span><span class="p">)]</span>
         <span class="c1"># for each linear in the model, apply the transform if filtering passes</span>
         <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
@@ -1813,16 +1781,23 @@
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int8WeightOnlyConfig</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_int8_weight_only_transform</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int8WeightOnlyConfig</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int8_weight_only_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Int8WeightOnlyConfig</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+<span class="p">):</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
-    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">),</span> <span class="p">(</span>
-        <span class="s2">&quot;applying int8 weight only quant requires module to have weight attribute&quot;</span>
+    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
+        <span class="s2">&quot;applying int8 weight only quant requires module to have </span><span class="si">{parameter_name}</span><span class="s2"> attribute&quot;</span>
         <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
-    <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_int8_weight_only_quantize_tensor</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
-    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_int8_weight_only_quantize_tensor</span><span class="p">(</span>
+        <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="n">config</span>
+    <span class="p">)</span>
+    <span class="nb">setattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
 
@@ -2092,22 +2067,31 @@
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8WeightOnlyConfig</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_weight_only_transform</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8WeightOnlyConfig</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Float8WeightOnlyConfig</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
-    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">),</span> <span class="p">(</span>
-        <span class="s2">&quot;applying int8 weight only quant requires module to have weight attribute&quot;</span>
+    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
+        <span class="s2">&quot;applying float8 weight only quant requires module to have </span><span class="si">{parameter_name}</span><span class="s2"> attribute&quot;</span>
         <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
         <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
 
-    <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_float8_weight_only_quant_tensor</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+    <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_float8_weight_only_quant_tensor</span><span class="p">(</span>
+        <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="n">config</span>
+    <span class="p">)</span>
 
-    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="nb">setattr</span><span class="p">(</span>
+        <span class="n">module</span><span class="p">,</span>
+        <span class="n">parameter_name</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+    <span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
 
@@ -2302,7 +2286,10 @@
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_dynamic_activation_float8_weight_transform</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
         <span class="s2">&quot;Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+&quot;</span>
@@ -2310,17 +2297,20 @@
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
-    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">),</span> <span class="p">(</span>
-        <span class="s2">&quot;applying float8 dynamic activation quant requires module to have weight attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot;but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;applying float8 dynamic activation quant requires module to have parameter </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
     <span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
         <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
-
-    <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">_float8_dynamic_activation_float8_weight_quantize_tensor</span><span class="p">(</span>
-        <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span>
+    <span class="n">quantized_tensor</span> <span class="o">=</span> <span class="n">_float8_dynamic_activation_float8_weight_quantize_tensor</span><span class="p">(</span>
+        <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="n">config</span>
     <span class="p">)</span>
-    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">quantized_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="nb">setattr</span><span class="p">(</span>
+        <span class="n">module</span><span class="p">,</span>
+        <span class="n">parameter_name</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">quantized_tensor</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+    <span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
 
@@ -2815,62 +2805,224 @@
 
 
 <span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">ModuleFqnToConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Per module configurations for torchao quantize_ API</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FqnToConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an</span>
+<span class="sd">        `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an</span>
 <span class="sd">         ordered dictionary from</span>
-<span class="sd">             (1). fully qualified name (fqn) of module or</span>
+<span class="sd">             (1). fully qualified name (fqn) of module or parameter</span>
 <span class="sd">             (2). regex of fully qualified name (in python `re` module regex format), should</span>
 <span class="sd">                  start with prefix &quot;re:&quot; or</span>
 <span class="sd">             (3). &quot;_default&quot;</span>
-<span class="sd">         to the config that we want to apply to the module or None</span>
+<span class="sd">         to the config that we want to apply to the module/param or None</span>
 
 <span class="sd">         Config key ordered by precedence:</span>
+<span class="sd">           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`</span>
 <span class="sd">           * fully qualified module name, e.g. `language.layers.0.q_proj`</span>
+<span class="sd">           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.</span>
+<span class="sd">             The first regex that matches will be applied.</span>
 <span class="sd">           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,</span>
-<span class="sd">             whiever regex fully matches the module fqn first will be applied</span>
+<span class="sd">             whichever regex fully matches the module fqn first will be applied</span>
 <span class="sd">             (order of keys for dictionary are kept consistent since we are using OrderedDict)</span>
-<span class="sd">           * &quot;_default&quot;, fallback for **all modules** if no match for all previous keys</span>
+<span class="sd">           * &quot;_default&quot;, fallback if no match for all previous keys</span>
 <span class="sd">             (Note, when using `_default`, the config is applied to all modules, to apply</span>
 <span class="sd">              it to only a subset of modules, e.g. with some types, it&#39;s better to filter</span>
 <span class="sd">              the modules that we don&#39;t want to quantize before hand and configure them to</span>
-<span class="sd">              None, e.g. `{&quot;re:.+norm.+&quot;: None, &quot;_default&quot;: linear_config}`)</span>
+<span class="sd">              None, e.g. `{&quot;re:.+norm.+&quot;: None, &quot;_default&quot;: linear_config}`) &quot;_default&quot; is not supported when filter_fn is not specified.</span>
+<span class="sd">        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later</span>
+<span class="sd">        `version`: int: Version of config to use.</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied</span>
+<span class="sd">        - &quot;_default&quot; is ignored for parameter replacement.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
+    <span class="n">fqn_to_config</span><span class="p">:</span> <span class="n">OrderedDictType</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="n">OrderedDict</span>
+    <span class="p">)</span>
+    <span class="c1"># to maintain BC, we keep the previous module_fqn_to_config field</span>
     <span class="n">module_fqn_to_config</span><span class="p">:</span> <span class="n">OrderedDictType</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="n">OrderedDict</span>
     <span class="p">)</span>
+    <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.ModuleFqnToConfig&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.FqnToConfig&quot;</span><span class="p">)</span>
+
+        <span class="c1"># This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">module_fqn_to_config</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">module_fqn_to_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span>
+
+        <span class="c1"># TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`</span>
+        <span class="k">if</span> <span class="s2">&quot;_default&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="s2">&quot;Config Deprecation: _default is deprecated and will no longer be supported in a future release. Please see https://github.com/pytorch/ao/issues/3229 for more details.&quot;</span>
+            <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_module_fqn_to_config_handler</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ModuleFqnToConfig</span>
+<span class="c1"># maintain BC</span>
+<span class="n">ModuleFqnToConfig</span> <span class="o">=</span> <span class="n">FqnToConfig</span>
+
+<span class="c1"># for now, we need to keep track of what configs support custom param quantization.</span>
+<span class="c1"># Once we&#39;ve updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check</span>
+<span class="c1"># TODO see https://github.com/pytorch/ao/issues/3252 for more details</span>
+<span class="n">CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span>
+    <span class="n">Float8WeightOnlyConfig</span><span class="p">,</span>
+    <span class="n">Int8WeightOnlyConfig</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_fqn_to_config_handler</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FqnToConfig</span><span class="p">,</span>
+    <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="n">c</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">module_fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">:</span>
-        <span class="c1"># Maybe: we can add module type specific config in the future, in needed</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">[</span><span class="n">module_fqn</span><span class="p">]</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">maybe_module_fqn_pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">:</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">maybe_module_fqn_pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">):</span>
-                <span class="k">continue</span>
-            <span class="k">elif</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">maybe_module_fqn_pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">module_fqn</span><span class="p">):</span>
-                <span class="c1"># we&#39;ll apply the config for first fully matched pattern</span>
-                <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">[</span><span class="n">maybe_module_fqn_pattern</span><span class="p">]</span>
-                <span class="k">break</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c1"># fallback to use default if no module specific config is provided</span>
-            <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.</span>
 
-    <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
-        <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+<span class="sd">    Args:</span>
+<span class="sd">        module (torch.nn.Module): The module to be processed.</span>
+<span class="sd">        fqn (str): The fully qualified name of the module containing the parameters.</span>
+<span class="sd">        config (FqnToConfig): Configuration object containing regex patterns / fqn mapped</span>
+<span class="sd">            to quantization configurations.</span>
+<span class="sd">        device (Optional[torch.device]): The device to move the module to as part of quantization</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        torch.nn.Module: The modified module with quantized parameters.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="n">parameter_config_found</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">top_level_params</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">())):</span>
+        <span class="k">if</span> <span class="n">parameter_name</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">module</span><span class="p">):</span>
+            <span class="n">parameter_fqn</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fqn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">parameter_name</span>
+            <span class="p">)</span>
+            <span class="n">top_level_params</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">parameter_fqn</span><span class="p">))</span>
+
+    <span class="c1"># First we see if any parameter fqn matches with FqnToConfig, if so, we apply the appropriate transform</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">parameter_fqn</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">top_level_params</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">parameter_fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+            <span class="n">parameter_config_found</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">[</span><span class="n">parameter_fqn</span><span class="p">]</span>
+            <span class="c1"># if None, remove from subsequent regex check</span>
+            <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">top_level_params</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
+                <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="ow">in</span> <span class="n">CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS</span><span class="p">:</span>
+                    <span class="c1"># may be more than one param specified, so don&#39;t return prematurely</span>
+                    <span class="n">module</span> <span class="o">=</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">parameter_name</span><span class="o">=</span><span class="n">parameter_name</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="si">}</span><span class="s2"> does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details&quot;</span>
+                    <span class="p">)</span>
+
+    <span class="c1"># then we see if we match module_fqn exactly</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">parameter_config_found</span> <span class="ow">and</span> <span class="n">fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">[</span><span class="n">fqn</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
+            <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">module</span>
+
+    <span class="c1"># Next try to match parameters on regex patterns</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">parameter_fqn</span> <span class="ow">in</span> <span class="n">top_level_params</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">parameter_fqn</span><span class="p">):</span>
+                <span class="n">parameter_config_found</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">[</span><span class="n">pattern</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
+                    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="ow">in</span> <span class="n">CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS</span><span class="p">:</span>
+                        <span class="c1"># may be more than one param specified, so don&#39;t return prematurely</span>
+                        <span class="n">module</span> <span class="o">=</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">parameter_name</span><span class="o">=</span><span class="n">parameter_name</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="si">}</span><span class="s2"> does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details&quot;</span>
+                        <span class="p">)</span>
+
+    <span class="c1"># try to match regex on module fqn</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">parameter_config_found</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+            <span class="c1"># we&#39;ll apply the config for first fully matched pattern</span>
+            <span class="k">if</span> <span class="n">pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">fqn</span><span class="p">):</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">[</span><span class="n">pattern</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
+                    <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+
+    <span class="c1"># If no module_fqn or parameter_fqn matches, then we apply _default</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">parameter_config_found</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
+            <span class="c1"># safe to return here as at most only one module will match</span>
+            <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">module</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_fqn_matches_fqn_config</span><span class="p">(</span>
+    <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FqnToConfig</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if a given fqn matches the exact fqn or regex pattern specified in FqnToConfig.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fqn (str): The fully qualified name of the module.</span>
+<span class="sd">        config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for quantization.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        bool: True if the fqn is specified in FqnToConfig. False otherwise.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="n">fqn</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Error: Exact match but regex </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> specified.&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">maybe_module_or_param_fqn_pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">maybe_module_or_param_fqn_pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span>
+                <span class="n">maybe_module_or_param_fqn_pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">fqn</span>
+            <span class="p">):</span>
+                <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_module_param_matches_fqn_config</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FqnToConfig</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if a given module contains top-level parameters that match the exact fqn or regex pattern specified in FqnToConfig.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        module (nn.Module): The module to be checked.</span>
+<span class="sd">        fqn (str): The fully qualified name of the module.</span>
+<span class="sd">        config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for quantization.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        bool: True if the module contains top-level parameters that match the fqn or regex pattern specified in FqnTo</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">module</span><span class="p">):</span>
+            <span class="n">parameter_fqn</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fqn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">name</span>
+            <span class="k">if</span> <span class="n">_fqn_matches_fqn_config</span><span class="p">(</span><span class="n">parameter_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+                <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="k">return</span> <span class="kc">False</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">Float8Linear</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
