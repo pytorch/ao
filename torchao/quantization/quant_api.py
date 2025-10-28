@@ -2439,6 +2439,7 @@ ModuleFqnToConfig = FqnToConfig
 
 # for now, we need to keep track of what configs support custom param quantization.
 # Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
+# TODO see https://github.com/pytorch/ao/issues/3252 for more details
 CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS = {
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -2493,7 +2494,9 @@ def _fqn_to_config_handler(
                     # may be more than one param specified, so don't return prematurely
                     module = handler(module, c, parameter_name=parameter_name)
                 else:
-                    raise NotImplementedError("Not implemented")
+                    raise NotImplementedError(
+                        f"{type(c)} does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details"
+                    )
 
     # then we see if we match module_fqn exactly
     if not parameter_config_found and fqn in config.fqn_to_config:
@@ -2516,7 +2519,9 @@ def _fqn_to_config_handler(
                         # may be more than one param specified, so don't return prematurely
                         module = handler(module, c, parameter_name=parameter_name)
                     else:
-                        raise NotImplementedError("Not implemented")
+                        raise NotImplementedError(
+                            f"{type(c)} does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details"
+                        )
 
     # try to match regex on module fqn
     if not parameter_config_found:
