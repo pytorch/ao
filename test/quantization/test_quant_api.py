@@ -1089,6 +1089,39 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.weight, Float8Tensor)
         assert model.weight.scale.numel() == 1
 
+    def test_non_fqn_config_filter_fn_none(self):
+        model = torch.nn.Linear(16, 16).cuda().bfloat16()
+        quant_config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerTensor()
+        )
+
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.weight, Float8Tensor)
+        assert model.weight.scale.numel() == 1
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_quantized_model_streaming_fqn_config(self):
+        def reset_memory():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+
+        quant_config = FqnToConfig({"_default": Int8WeightOnlyConfig()})
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m.to(device="cuda"), quant_config, filter_fn=None)
+        memory_baseline = torch.cuda.max_memory_allocated()
+
+        del m
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m, quant_config, device="cuda", filter_fn=None)
+        memory_streaming = torch.cuda.max_memory_allocated()
+
+        for param in m.parameters():
+            assert param.is_cuda
+        self.assertLess(memory_streaming, memory_baseline)
+
 
 if __name__ == "__main__":
     unittest.main()

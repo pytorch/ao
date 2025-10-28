@@ -201,7 +201,7 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-    if filter_fn(model, cur_fqn[:-1]):
+    if filter_fn is None or filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
         model = replacement_fn(model, *extra_args)
@@ -516,17 +516,19 @@ def quantize_(
             raise ValueError(
                 "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None is supported when FqnToConfig is specified."
             )
-        _replace_with_custom_fn_if_matches_filter_with_name(
-            model,
-            _fqn_to_config_handler,
-            lambda mod, fqn: _filter_fn_and_param_in_fqn_config(
-                mod, fqn, config, filter_fn
-            ),
-            device=device,
-            extra_args=(config,),
-        )
-        return
 
+        for module_fqn, module in model.named_modules():
+            if (
+                _fqn_matches_fqn_config(module_fqn, config)
+                or _module_param_matches_fqn_config(module, module_fqn, config)
+                or ("_default" in config.fqn_to_config and _is_linear(module))
+            ):
+                module_name = (
+                    module_fqn.rsplit(".", 1) if "." in module_fqn else module_fqn
+                )
+                # this should replace inplace, so no need to reassign
+                _fqn_to_config_handler(module, module_name, config, device)
+        return
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
@@ -1683,7 +1685,7 @@ def _float8_weight_only_transform(
         torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert hasattr(module, parameter_name), (
-        "applying float8 weight only quant requires module to have {parametr_name} attribute"
+        "applying float8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
 
@@ -2476,14 +2478,19 @@ ModuleFqnToConfig = FqnToConfig
 
 # for now, we need to keep track of what configs support custom param quantization.
 # Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
-CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS = {
+CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS = {
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     Int8WeightOnlyConfig,
 }
 
 
-def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfig):
+def _fqn_to_config_handler(
+    module: torch.nn.Module,
+    fqn: str,
+    config: FqnToConfig,
+    device: Optional[torch.device] = None,
+):
     """This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.
 
     Args:
@@ -2491,6 +2498,7 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
         fqn (str): The fully qualified name of the module containing the parameters.
         config (FqnToConfig): Configuration object containing regex patterns / fqn mapped
             to quantization configurations.
+        device (Optional[torch.device]): The device to move the module to as part of quantization
 
     Returns:
         torch.nn.Module: The modified module with quantized parameters.
@@ -2498,6 +2506,9 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     Raises:
         NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.
     """
+    if device is not None:
+        module = module.to(device)
+
     parameter_config_found = False
     top_level_params = []
     for i, (parameter_name, param) in enumerate(list(module.named_parameters())):
@@ -2517,7 +2528,7 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
                 top_level_params.pop(i)
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
                     # may be more than one param specified, so don't return prematurely
                     module = handler(module, c, parameter_name=parameter_name)
                 else:
@@ -2540,7 +2551,7 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
                 c = config.fqn_to_config[pattern]
                 if c is not None:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPOTED_CONFIGS:
+                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
                         # may be more than one param specified, so don't return prematurely
                         module = handler(module, c, parameter_name=parameter_name)
                     else:
@@ -2567,28 +2578,19 @@ def _fqn_to_config_handler(module: torch.nn.Module, fqn: str, config: FqnToConfi
     return module
 
 
-def _filter_fn_and_param_in_fqn_config(
-    module: nn.Module,
+def _fqn_matches_fqn_config(
     fqn: str,
     config: FqnToConfig,
-    filter_fn: Optional[Callable[[nn.Module, str], bool]],
 ):
-    """Check if a module should be selected for quantization to be applied
+    """Check if a given fqn matches the exact fqn or regex pattern specified in FqnToConfig.
 
     Args:
-        module (torch.nn.Module): The module to check for parameter pattern matches.
         fqn (str): The fully qualified name of the module.
         config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for quantization.
-        filter_fn (Optional[Callable[[nn.Module, str], bool]]): A function that takes a module and returns True if the module should be quantized.
 
     Returns:
-        bool: True if both filter_fn(module, fqn) is True, and the module is specified in FqnToConfig. False otherwise.
+        bool: True if the fqn is specified in FqnToConfig. False otherwise.
     """
-    if filter_fn is not None:
-        if not filter_fn(module, fqn):
-            return False
-
-    # filter_fn must be True
     if fqn in config.fqn_to_config:
         assert not fqn.startswith("re:"), (
             f"Error: Exact match but regex {fqn} specified."
@@ -2600,20 +2602,30 @@ def _filter_fn_and_param_in_fqn_config(
                 maybe_module_or_param_fqn_pattern[3:], fqn
             ):
                 return True
-    if "_default" in config.fqn_to_config and _is_linear(module, fqn):
-        return True
+    return False
 
+
+def _module_param_matches_fqn_config(
+    module: nn.Module,
+    fqn: str,
+    config: FqnToConfig,
+):
+    """Check if a given module contains top-level parameters that match the exact fqn or regex pattern specified in FqnToConfig.
+
+    Args:
+        module (nn.Module): The module to be checked.
+        fqn (str): The fully qualified name of the module.
+        config (FqnToConfig): Configuration object containing regex patterns or raw FQNs for quantization.
+
+    Returns:
+        bool: True if the module contains top-level parameters that match the fqn or regex pattern specified in FqnTo
+    """
     for name, param in module.named_parameters():
         if name in dir(module) and not isinstance(param, TorchAOBaseTensor):
-            parameter_fqn = f"{fqn}.{name}" if fqn != "" else name
-            for pattern in config.fqn_to_config:
-                if (pattern == parameter_fqn) or (
-                    pattern.startswith("re:")
-                    and re.fullmatch(pattern[3:], parameter_fqn)
-                ):
-                    return True
+            parameter_fqn = f"{fqn}.{name}" if len(fqn) > 0 else name
+            if _fqn_matches_fqn_config(parameter_fqn, config):
+                return True
 
-    # not specified in fqn config
     return False
 
 
