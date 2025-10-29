@@ -247,16 +247,72 @@ class Float8Tensor(TorchAOBaseTensor):
 implements = Float8Tensor.implements
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
         args[2] if len(args) > 2 else None,
     )
+    return _float8_linear_impl(input_tensor, weight_tensor, bias)
+
+
+@implements(aten.mm.default)
+@implements_torch_function(torch.matmul)
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = args[0], args[1]
+    return _float8_mm_impl(input_tensor, weight_tensor)
+
+
+@implements(aten.addmm_.default)
+def _(func, types, args, kwargs):
+    output_tensor, input_tensor, weight_tensor = (
+        args[0],
+        args[1],
+        args[2] if len(args) > 2 else None,
+    )
+    out = _float8_mm_impl(input_tensor, weight_tensor)
+    return output_tensor.copy_(out)
+
+
+def _float8_mm_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: torch.Tensor,
+) -> torch.Tensor:
     assert isinstance(weight_tensor, Float8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
+    # Only support matmul(x, w.t()) for now
+    is_transposed = weight_tensor.qdata.stride(-2) < weight_tensor.qdata.stride(-1)
+    if not is_transposed:
+        raise ValueError("Only matmul(x, w.t()) is supported for now")
+    return _float8_linear_impl(input_tensor, weight_tensor.t())
+
+
+def _float8_linear_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    assert isinstance(weight_tensor, Float8Tensor), (
+        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
+    )
+
+    # If we perform a matmul during the backward pass (e.g. in a LoRA matmul
+    # autograd.Function), the weight tensor will be transposed. If the weight
+    # tensor was originally rowwise quantized, now it becomes colwise.
+    # In this case, simply dequantize the tensor and do a bf16 matmul
+    is_colwise = (
+        weight_tensor.block_size[0] == weight_tensor.shape[0]
+        and weight_tensor.block_size[1] == 1
+    )
+    if is_colwise:
+        return torch.nn.functional.linear(
+            input_tensor,
+            weight_tensor.dequantize(),
+            bias,
+        )
 
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantizing activation, if `act_quant_kwargs` is specified
@@ -297,6 +353,7 @@ def _(func, types, args, kwargs):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
+                wq = wq.contiguous()
                 res = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq,
                     wq,
@@ -555,6 +612,7 @@ def _(func, types, args, kwargs):
         assert original_shape[-1] == size[-1], (
             f"Only support reshaping when last dimension matches, requested: reshaping from {original_shape} to {size}"
         )
+        # TODO: this seems wrong, we should merge the first two dimensions instead
         qdata = self.qdata.reshape(*size)
         scale = self.scale.reshape(*size)
         block_size = self.block_size.copy()
@@ -661,6 +719,68 @@ def _(func, types, args, kwargs):
         self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(torch.ops.aten.to.dtype_layout)
+def _(func, types, args, kwargs):
+    # only support kwargs for now
+    assert len(args) == 1
+    self = args[0]
+    # only support dtype, layout, and device for now
+    for k in kwargs.keys():
+        assert k in ["dtype", "layout", "device"]
+    # only support same dtype and layout
+    # different dtype and layout has undefined behavior
+    if "dtype" in kwargs:
+        assert kwargs["dtype"] == self.dtype
+    if "layout" in kwargs:
+        assert kwargs["layout"] == self.layout
+    # if device is the same, treat this like a no-op
+    device = kwargs.get("device")
+    if device == self.device:
+        return self
+    # otherwise, move all inner tensors to the new device
+    new_tensor = self.__class__(
+        func(self.qdata, device=device),
+        func(self.scale, device=device),
+        self.block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_tensor)
+
+
+# This is called during _apply() to see if we can shallow
+# copy the content of one tensor into another. For now,
+# we only allow shallow copy if both tensors are `Float8Tensor`
+# and have the same shape.
+@implements_torch_function(torch._has_compatible_shallow_copy_type)
+def _(func, types, args, kwargs):
+    assert len(args) == 2
+    return (
+        isinstance(args[0], Float8Tensor)
+        and isinstance(args[1], Float8Tensor)
+        and args[0].shape == args[1].shape
+    )
+
+
+@implements(aten.t.default)
+def _(func, types, args, kwargs):
+    assert len(args) == 1
+    self = args[0]
+    assert len(self.block_size) == 2
+    new_tensor = self.__class__(
+        self.qdata.t(),
+        self.scale.t(),
+        (self.block_size[1], self.block_size[0]),
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
 
 Float8Tensor.__module__ = "torchao.quantization"
