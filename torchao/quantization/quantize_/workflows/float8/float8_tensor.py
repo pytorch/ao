@@ -284,11 +284,13 @@ def _float8_mm_impl(
     assert isinstance(weight_tensor, Float8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
-    # Only support matmul(x, w.t()) for now
     is_transposed = weight_tensor.qdata.stride(-2) < weight_tensor.qdata.stride(-1)
-    if not is_transposed:
-        raise ValueError("Only matmul(x, w.t()) is supported for now")
-    return _float8_linear_impl(input_tensor, weight_tensor.t())
+    # For matmul(x, w.t()), just call the linear implementation
+    # For matmul(x, w), just dequantize for now, we can optimize later
+    if is_transposed:
+        return _float8_linear_impl(input_tensor, weight_tensor.t())
+    else:
+        return torch.matmul(input_tensor, weight_tensor.dequantize())
 
 
 def _float8_linear_impl(
@@ -299,21 +301,6 @@ def _float8_linear_impl(
     assert isinstance(weight_tensor, Float8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
-
-    # If we perform a matmul during the backward pass (e.g. in a LoRA matmul
-    # autograd.Function), the weight tensor will be transposed. If the weight
-    # tensor was originally rowwise quantized, now it becomes colwise.
-    # In this case, simply dequantize the tensor and do a bf16 matmul
-    is_colwise = (
-        weight_tensor.block_size[0] == weight_tensor.shape[0]
-        and weight_tensor.block_size[1] == 1
-    )
-    if is_colwise:
-        return torch.nn.functional.linear(
-            input_tensor,
-            weight_tensor.dequantize(),
-            bias,
-        )
 
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantizing activation, if `act_quant_kwargs` is specified
