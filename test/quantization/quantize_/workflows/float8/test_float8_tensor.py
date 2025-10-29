@@ -110,11 +110,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("unimplemented")
 
             if bias is True:
+                sizes_to_keep = ((128,), 256, 128)
                 if (
-                    sizes != (128,),
-                    256,
-                    128,
-                ) or kernel_preference is not KernelPreference.TORCH:
+                    sizes != sizes_to_keep
+                    or kernel_preference is not KernelPreference.TORCH
+                ):
                     return unittest.skip(
                         "cut down on number of options to save test time"
                     )
