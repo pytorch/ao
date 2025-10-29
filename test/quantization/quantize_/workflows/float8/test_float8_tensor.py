@@ -90,15 +90,15 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
-        if (
-            isinstance(granularity, PerTensor)
-            and kernel_preference == KernelPreference.FBGEMM
-        ):
-            return unittest.skip(
-                "per tensor with fbgemm kernel preference does not work yet"
-            )
+        if isinstance(granularity, PerTensor):
+            if kernel_preference is KernelPreference.FBGEMM:
+                return unittest.skip(
+                    "per tensor with fbgemm kernel preference does not work yet"
+                )
+            elif mode == "weight-only":
+                return unittest.skip("unimplemented")
 
-        if granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
+        elif granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
             if dtype is torch.float32:
                 return unittest.skip("unimplemented")
             elif mode == "weight-only":
@@ -148,6 +148,20 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 config = Float8WeightOnlyConfig()
 
             quantize_(quantized_model, config)
+
+            # ensure weight scaling is what we expect
+            qs1 = quantized_model.linear1.weight.scale
+            qs2 = quantized_model.linear2.weight.scale
+            if granularity == PerTensor():
+                assert qs1.shape == (1, 1)
+                assert qs2.shape == (1, 1)
+            elif granularity == PerRow():
+                assert qs1.shape == (N, 1)
+                assert qs2.shape == (K, 1)
+            else:
+                assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
+                assert qs1.shape == (N // 128, K // 128)
+                assert qs2.shape == (K // 128, N // 128)
 
             if compile:
                 quantized_model = torch.compile(quantized_model, fullgraph=True)
