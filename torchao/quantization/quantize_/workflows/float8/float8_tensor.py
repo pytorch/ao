@@ -277,7 +277,11 @@ def _(func, types, args, kwargs):
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
-            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
+            if (
+                _is_fbgemm_gpu_genai_available()
+                and is_sm_at_least_90()
+                and (not _is_128_128_scaled(weight_tensor))
+            ):
                 kernel_choice = "fbgemm"
         elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
             kernel_choice = "fbgemm"
@@ -294,6 +298,7 @@ def _(func, types, args, kwargs):
             assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
             mm_config = weight_tensor.mm_config
             assert mm_config is not None
+            assert not _is_128_128_scaled(weight_tensor), "unimplemented"
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
@@ -355,12 +360,14 @@ def _(func, types, args, kwargs):
                 # TODO(future PR): add testing for torch._scaled_mm with
                 # blockwise scaling on CUDA 12.9
                 # TODO(future PR): add fbgemm_gpu_genai path if available
+                # TODO(before land): proper out_dtype handling
                 assert _is_1_128_scaled(input_tensor), "unsupported"
+                # breakpoint()
                 res = blockwise_fp8_gemm(
                     inpt_data,
                     input_scale,
                     w_data.t(),
-                    w_scale,
+                    w_scale.t(),
                     block_size=128,
                 )
             else:

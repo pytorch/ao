@@ -7,6 +7,7 @@
 Defines an nn module designed to be used during inference
 """
 
+import math
 from typing import List, NamedTuple, Optional, Tuple, Union
 
 import torch
@@ -204,7 +205,7 @@ def _is_1_128_scaled(x: torch.Tensor) -> bool:
     """
     assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
     b = x.block_size
-    return len(b) == 2 and b[0] == 1 and b[1] == 128
+    return len(b) >= 2 and math.prod(b[:-1]) == 1 and b[-1] == 128
 
 
 def _is_128_128_scaled(x: torch.Tensor) -> bool:

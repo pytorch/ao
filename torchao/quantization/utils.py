@@ -706,6 +706,15 @@ def get_block_size(
         return tuple(block_size)
     elif isinstance(granularity, PerBlock):
         block_size = granularity.block_size
+
+        # pad the start of `block_size` with 1s, to make 2d block_size
+        # handle tensors of rank 3+
+        if len(block_size) < len(input_shape):
+            block_size_list = list(block_size)
+            while len(block_size_list) < len(input_shape):
+                block_size_list.insert(0, 1)
+            block_size = tuple(block_size_list)
+
         assert len(block_size) == len(input_shape), (
             f"Block size {block_size} must have the same number of dimensions as input shape {input_shape}"
         )

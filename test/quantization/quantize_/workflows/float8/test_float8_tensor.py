@@ -62,37 +62,23 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
-    # @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("mode", ["dynamic", "weight-only"])
+    @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
-        "dtype",
-        [
-            torch.bfloat16,
-        ],
-    )
-    # @common_utils.parametrize("mode", ["dynamic", "weight-only"])
-    @common_utils.parametrize(
-        "mode",
-        [
-            "dynamic",
-        ],
-    )
-    # @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize("compile", [False])
-    # @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    @common_utils.parametrize(
-        "granularity", [(PerBlock((1, 128)), PerBlock((128, 128)))]
+        "granularity",
+        [PerTensor(), PerRow(), (PerBlock((1, 128)), PerBlock((128, 128)))],
     )
     @common_utils.parametrize(
         "kernel_preference",
-        # [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
-        [KernelPreference.TORCH],
+        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
     )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
         "sizes",
         [
             ((128,), 256, 128),
-            # ((32, 128), 64, 256),
+            ((32, 128), 256, 512),
         ],
     )
     def test_fp8_linear_variants(
@@ -109,8 +95,16 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             and kernel_preference == KernelPreference.FBGEMM
         ):
             return unittest.skip(
-                "per tensor with fbgemm kernel preferece does not work yet"
+                "per tensor with fbgemm kernel preference does not work yet"
             )
+
+        if granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
+            if dtype is torch.float32:
+                return unittest.skip("unimplemented")
+            elif mode == "weight-only":
+                return unittest.skip("unimplemented")
+            elif kernel_preference is KernelPreference.FBGEMM:
+                return unittest.skip("unimplemented")
 
         error_message = None
         if isinstance(granularity, PerRow):
