@@ -352,7 +352,6 @@ def _(func, types, args, kwargs):
             inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
             if _is_128_128_scaled(weight_tensor):
-                # TODO(before land): ensure fast_accum is False for blockwise
                 # TODO(future PR): add testing for torch._scaled_mm with
                 # blockwise scaling on CUDA 12.9
                 # TODO(future PR): add fbgemm_gpu_genai path if available

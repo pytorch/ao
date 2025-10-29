@@ -217,6 +217,16 @@ def _is_128_128_scaled(x: torch.Tensor) -> bool:
     return len(b) == 2 and b[0] == 128 and b[1] == 128
 
 
+def _granularity_is_a_1_128_w_128_128(
+    g: Union[
+        FP8Granularity,
+        Tuple[FP8Granularity, FP8Granularity],
+        list[FP8Granularity],
+    ],
+) -> bool:
+    return len(g) == 2 and g[0] == PerBlock((1, 128)) and g[1] == PerBlock((128, 128))
+
+
 def _normalize_granularity(
     granularity: Optional[
         Union[
@@ -238,9 +248,7 @@ def _normalize_granularity(
         is_per_row = isinstance(granularity[0], PerRow) and isinstance(
             granularity[1], PerRow
         )
-        is_a_1_128_w_128_128 = granularity[0] == PerBlock((1, 128)) and granularity[
-            1
-        ] == PerBlock((128, 128))
+        is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularity)
 
         if not (is_per_tensor or is_per_row or is_a_1_128_w_128_128):
             raise ValueError(f"Unsupported granularity types: {granularity}.")
@@ -273,9 +281,7 @@ def _check_hardware_support(
     is_per_row = isinstance(granularities[0], PerRow) and isinstance(
         granularities[1], PerRow
     )
-    is_a_1_128_w_128_128 = granularities[0] == PerBlock((1, 128)) and granularities[
-        1
-    ] == PerBlock((128, 128))
+    is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularities)
 
     if is_per_tensor or is_per_row:
         assert is_sm_at_least_89() or is_MI300(), (
