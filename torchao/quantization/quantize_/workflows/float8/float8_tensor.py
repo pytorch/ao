@@ -15,12 +15,17 @@ from torchao.dtypes.utils import get_out_shape
 from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
+    _is_1_128_scaled,
+    _is_128_128_scaled,
     _is_rowwise_scaled,
     _is_tensorwise_scaled,
     _slice_scale_for_dimension,
     addmm_float8_unwrapped_inference,
     preprocess_data,
     preprocess_scale,
+)
+from torchao.kernel.blockwise_quantization import (
+    blockwise_fp8_gemm,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
@@ -337,19 +342,39 @@ def _(func, types, args, kwargs):
                     "Input tensor must be rowwise block size"
                 )
                 w_scale = w_scale.transpose(-1, -2)
+            elif _is_128_128_scaled(weight_tensor):
+                assert _is_1_128_scaled(input_tensor), (
+                    "input_tensor must be 1x128 scaled"
+                )
+                w_scale = w_scale.transpose(-1, -2)
 
             input_scale = preprocess_scale(input_scale, input_tensor.shape)
             inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
-            return addmm_float8_unwrapped_inference(
-                inpt_data,
-                input_scale,
-                w_data,
-                w_scale,
-                output_dtype=input_tensor.dtype,
-                bias=bias,
-                use_fast_accum=scaled_mm_config.use_fast_accum,
-            ).reshape(out_shape)
+            if _is_128_128_scaled(weight_tensor):
+                # TODO(before land): ensure fast_accum is False for blockwise
+                # TODO(future PR): add testing for torch._scaled_mm with
+                # blockwise scaling on CUDA 12.9
+                # TODO(future PR): add fbgemm_gpu_genai path if available
+                assert _is_1_128_scaled(input_tensor), "unsupported"
+                res = blockwise_fp8_gemm(
+                    inpt_data,
+                    input_scale,
+                    w_data.t(),
+                    w_scale,
+                    block_size=128,
+                )
+            else:
+                res = addmm_float8_unwrapped_inference(
+                    inpt_data,
+                    input_scale,
+                    w_data,
+                    w_scale,
+                    output_dtype=input_tensor.dtype,
+                    bias=bias,
+                    use_fast_accum=scaled_mm_config.use_fast_accum,
+                )
+            return res.reshape(out_shape)
     else:
         assert not isinstance(input_tensor, TorchAOBaseTensor), (
             "Expecting input_tensor to be unquantized"

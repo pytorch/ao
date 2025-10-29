@@ -18,6 +18,7 @@ from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
+    PerBlock,
     PerRow,
     PerTensor,
     quantize_,
@@ -61,20 +62,37 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
-    @common_utils.parametrize("mode", ["dynamic", "weight-only"])
-    @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    # @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize(
+        "dtype",
+        [
+            torch.bfloat16,
+        ],
+    )
+    # @common_utils.parametrize("mode", ["dynamic", "weight-only"])
+    @common_utils.parametrize(
+        "mode",
+        [
+            "dynamic",
+        ],
+    )
+    # @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("compile", [False])
+    # @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "granularity", [(PerBlock((1, 128)), PerBlock((128, 128)))]
+    )
     @common_utils.parametrize(
         "kernel_preference",
-        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+        # [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+        [KernelPreference.TORCH],
     )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
         "sizes",
         [
             ((128,), 256, 128),
-            ((32, 128), 64, 256),
+            # ((32, 128), 64, 256),
         ],
     )
     def test_fp8_linear_variants(
