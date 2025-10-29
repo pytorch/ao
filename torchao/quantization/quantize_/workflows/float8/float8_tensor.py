@@ -362,7 +362,6 @@ def _(func, types, args, kwargs):
                 # TODO(future PR): add fbgemm_gpu_genai path if available
                 # TODO(before land): proper out_dtype handling
                 assert _is_1_128_scaled(input_tensor), "unsupported"
-                # breakpoint()
                 res = blockwise_fp8_gemm(
                     inpt_data,
                     input_scale,
