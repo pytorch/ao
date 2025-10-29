@@ -370,6 +370,8 @@ def _(func, types, args, kwargs):
                     w_scale.t(),
                     block_size=128,
                 )
+                if bias is not None:
+                    res = res + bias
             else:
                 res = addmm_float8_unwrapped_inference(
                     inpt_data,

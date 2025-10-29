@@ -39,10 +39,10 @@ torch._dynamo.config.cache_size_limit = 128
 
 
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, bias):
         super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
+        self.linear1 = torch.nn.Linear(in_features, out_features, bias=bias)
+        self.linear2 = torch.nn.Linear(out_features, in_features, bias=bias)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -81,6 +81,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             ((32, 128), 256, 512),
         ],
     )
+    @common_utils.parametrize("bias", [False, True])
+    @torch.no_grad()
     def test_fp8_linear_variants(
         self,
         dtype: torch.dtype,
@@ -89,6 +91,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         granularity,
         kernel_preference: KernelPreference,
         sizes: Tuple,
+        bias: bool,
     ):
         if isinstance(granularity, PerTensor):
             if kernel_preference is KernelPreference.FBGEMM:
@@ -105,6 +108,16 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("unimplemented")
             elif kernel_preference is KernelPreference.FBGEMM:
                 return unittest.skip("unimplemented")
+
+            if bias is True:
+                if (
+                    sizes != (128,),
+                    256,
+                    128,
+                ) or kernel_preference is not KernelPreference.TORCH:
+                    return unittest.skip(
+                        "cut down on number of options to save test time"
+                    )
 
         error_message = None
         if isinstance(granularity, PerRow):
@@ -134,7 +147,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+            model = ToyLinearModel(K, N, bias).eval().to(dtype).to("cuda")
 
             quantized_model = copy.deepcopy(model)
 
@@ -257,7 +270,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype = torch.bfloat16
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         # Create a linear layer with bfloat16 dtype
-        model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+        model = ToyLinearModel(K, N, bias=False).eval().to(dtype).to("cuda")
 
         # reference kernel preference and results
         # we are using KerenelPreference.TORCH as the reference
