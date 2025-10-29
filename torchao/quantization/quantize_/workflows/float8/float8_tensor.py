@@ -341,7 +341,6 @@ def _float8_linear_impl(
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
-                wq = wq.contiguous()
                 res = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq,
                     wq,
