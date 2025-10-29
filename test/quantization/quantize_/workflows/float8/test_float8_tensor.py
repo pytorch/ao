@@ -294,6 +294,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self._test_slice_and_copy_similar_to_vllm(config)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_bmm(self):
         # only support per row quantization
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
@@ -406,6 +407,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(cat_qweight2.scale, ref_scale)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_moe_weight_reshape_ops(self):
         # only per row quantization is supported for bmm
         granularity = PerRow()
@@ -416,6 +418,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     # that should be moved here after v1 config is deprecated:
     # https://github.com/pytorch/ao/issues/2649
     @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_expected_gpu_kernel_fbgemm(self):
         """Making sure KernelPreference.FBGEMM calls correct quantize and gemm kernels
         and the bias add happens in the gemm kernel for per row quantization
