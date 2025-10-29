@@ -263,7 +263,7 @@ def _(func, types, args, kwargs):
 @implements_torch_function(torch.matmul)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = args[0], args[1]
-    return _float8_linear_impl(input_tensor, weight_tensor.t())
+    return _float8_mm_impl(input_tensor, weight_tensor)
 
 
 @implements(aten.addmm_.default)
@@ -273,8 +273,22 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    out = _float8_linear_impl(input_tensor, weight_tensor.t())
+    out = _float8_mm_impl(input_tensor, weight_tensor)
     return output_tensor.copy_(out)
+
+
+def _float8_mm_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: torch.Tensor,
+) -> torch.Tensor:
+    assert isinstance(weight_tensor, Float8Tensor), (
+        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
+    )
+    # Only support matmul(x, w.t()) for now
+    is_transposed = weight_tensor.qdata.stride(-2) < weight_tensor.qdata.stride(-1)
+    if not is_transposed:
+        raise ValueError("Only matmul(x, w.t()) is supported for now")
+    return _float8_linear_impl(input_tensor, weight_tensor.t())
 
 
 def _float8_linear_impl(
@@ -286,10 +300,10 @@ def _float8_linear_impl(
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
 
-    # During the backward pass, we transpose the weight tensor,
-    # so if the weight tensor was originally rowwise quantized,
-    # now it becomes colwise. In this case, simply dequantize
-    # the tensor and do a bf16 matmul
+    # If we perform a matmul during the backward pass (e.g. in a LoRA matmul
+    # autograd.Function), the weight tensor will be transposed. If the weight
+    # tensor was originally rowwise quantized, now it becomes colwise.
+    # In this case, simply dequantize the tensor and do a bf16 matmul
     is_colwise = (
         weight_tensor.block_size[0] == weight_tensor.shape[0]
         and weight_tensor.block_size[1] == 1
