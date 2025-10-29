@@ -93,7 +93,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             and kernel_preference == KernelPreference.FBGEMM
         ):
             return unittest.skip(
-                "per tensor with fbgemm kernel preferece does not work yet"
+                "per tensor with fbgemm kernel preference does not work yet"
             )
 
         error_message = None
@@ -180,8 +180,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             and kernel_preference == KernelPreference.FBGEMM
         ):
             return unittest.skip(
-                "per tensor with fbgemm kernel preferece does not work yet"
+                "per tensor with fbgemm kernel preference does not work yet"
             )
+        if isinstance(granularity, PerRow) and dtype != torch.bfloat16:
+            return unittest.skip("per row only works with bfloat16")
+
         M, N, K = sizes
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         weight_tensor = torch.randn(N, K, dtype=dtype, device="cuda")
