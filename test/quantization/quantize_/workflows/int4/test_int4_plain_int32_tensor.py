@@ -105,7 +105,6 @@ class Int4PlainInt32TensorXPU(TestCase):
     "NPU not available",
 )
 class Int4PlainInt32TensorNPU(TestCase):
-
     @parametrize("device", ["npu"])
     @parametrize(
         "sizes",
@@ -153,9 +152,9 @@ class Int4PlainInt32TensorNPU(TestCase):
         original = linear(input)
         quantize_(linear, get_config(64))
         qw = linear.weight
-        assert isinstance(
-            qw, SupportsActivationPreScaling
-        ), "Expected int4 tensor supports activation prescaling"
+        assert isinstance(qw, SupportsActivationPreScaling), (
+            "Expected int4 tensor supports activation prescaling"
+        )
         assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
         _ACT_PRE_SCALE = 2
         qw.act_pre_scale = _ACT_PRE_SCALE

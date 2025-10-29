@@ -14,9 +14,7 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    TorchAOBaseTensor,
-)
+from torchao.utils import TorchAOBaseTensor, torch_version_at_least
 
 __all__ = [
     "Int4PlainInt32Tensor",
@@ -96,7 +94,10 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
         elif w.device.type == "npu":
             return _from_hp_npu(cls, w, block_size)
         else:
-            raise AssertionError(f"Int4PlainInt32Tensor does not support device '{w.device.type}' yet.")
+            raise NotImplementedError(
+                f"Int4PlainInt32Tensor does not support device '{w.device.type}' yet."
+            )
+
 
 def _from_hp_xpu(
     cls,
@@ -156,11 +157,17 @@ def _from_hp_xpu(
         act_pre_scale=None,
     )
 
+
 def _from_hp_npu(
     cls,
     w: torch.Tensor,
     block_size: List[int],
 ):
+    # Require PyTorch 2.7.1+ for NPU backend ops and backward compatibility.
+    assert torch_version_at_least("2.7.1"), (
+        "Need pytorch 2.7.1+ for NPU backend op support."
+    )
+
     assert w.ndim == 2 and w.device.type == "npu", (
         f"Expecting 2D tensor on NPU, but got: {w.shape} on {w.device.type}"
     )
@@ -168,20 +175,16 @@ def _from_hp_npu(
     assert w.dtype in [torch.float16, torch.bfloat16], (
         f"Expecting float16 or bfloat16 weight tensor, but got: {w.dtype}"
     )
-    
+
     group_size = block_size[1]
     k_dim = w.shape[-1]
-    assert (
-        group_size >= 32
-        and group_size % 32 == 0
-        and group_size < k_dim
-    ), (
+    assert group_size >= 32 and group_size % 32 == 0 and group_size < k_dim, (
         f"Invalid group_size={group_size}: "
         f"expected to be a multiple of 32, "
         f"in range [32, {k_dim - 1}] for per-group quantization, "
         f"but got group_size={group_size} (k_dim={k_dim})."
     )
-    
+
     original_shape = w.shape
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
@@ -190,7 +193,7 @@ def _from_hp_npu(
     eps = 1e-6
     scale_dtype = w.dtype
     zero_point_dtype = w.dtype
-    
+
     scale, zero_point = choose_qparams_affine(
         w,
         mapping_type,
@@ -202,7 +205,7 @@ def _from_hp_npu(
         scale_dtype,
         zero_point_dtype,
     )
-    
+
     int_data = quantize_affine(
         w,
         block_size,
@@ -212,31 +215,31 @@ def _from_hp_npu(
         quant_min,
         quant_max,
     )
-    
+
     assert int_data.dtype == torch.int32, (
         "torch.ops.npu.npu_convert_weight_to_int4pack expects `int32` dtype"
     )
     assert int_data.shape[-1] % 8 == 0, (
         f"torch.ops.npu.npu_convert_weight_to_int4pack expects last dim must be aligned to 8,but got {int_data.shape[-1]}"
     )
-    
+
     packed_weight = torch.ops.npu.npu_convert_weight_to_int4pack(
         int_data.contiguous(), 0
     )
-    
+
     scale = scale.reshape(int_data.shape[0], -1)
     zero_point = zero_point.reshape(int_data.shape[0], -1)
-    
+
     return Int4PlainInt32Tensor(
-        packed_weight,
+        packed_weight.contiguous(),
         scale.transpose(0, 1).contiguous(),
         zero_point.transpose(0, 1).contiguous(),
         block_size,
         original_shape,
         act_pre_scale=None,
     )
-    
-    
+
+
 implements = Int4PlainInt32Tensor.implements
 implements_torch_function = Int4PlainInt32Tensor.implements_torch_function
 
@@ -249,20 +252,22 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    
+
     if input_tensor.device.type == "xpu":
         return _linear_xpu(input_tensor, weight_tensor, bias)
     elif input_tensor.device.type == "npu":
         return _linear_npu(input_tensor, weight_tensor, bias)
     else:
-        raise AssertionError(f"Int4PlainInt32Tensor does not support device '{input_tensor.device.type}' yet.")
+        raise NotImplementedError(
+            f"Int4PlainInt32Tensor does not support device '{input_tensor.device.type}' yet."
+        )
 
 
 def _linear_xpu(
     input_tensor,
     weight_tensor,
     bias,
-):    
+):
     assert input_tensor.device.type == "xpu", (
         f"For XPU device only but got: {input_tensor.device}"
     )
@@ -306,11 +311,12 @@ def _linear_xpu(
         y += bias
     return y.to(orig_dtype)
 
+
 def _linear_npu(
     input_tensor,
     weight_tensor,
     bias,
-): 
+):
     assert input_tensor.device.type == "npu", (
         f"For NPU device only but got: {input_tensor.device.type}"
     )
@@ -355,19 +361,19 @@ def _linear_npu(
 
     y = torch.ops.npu.npu_weight_quant_batchmatmul(
         x=act_mat,
-        weight=packed_weight.contiguous().transpose(-1, -2),
+        weight=packed_weight.transpose(-1, -2),
         antiquant_scale=scale,
         antiquant_offset=zero_point,
         antiquant_group_size=groupsize,
         bias=bias,
     )
-    
+
     # remove out_feature padding
     assert weight_tensor.ndim == 2
     orig_out_features = weight_tensor.shape[-2]
     y = y[:, :orig_out_features]
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
-    
+
     return y.to(orig_dtype)
 
 
@@ -375,4 +381,3 @@ Int4PlainInt32Tensor.__module__ = "torchao.quantization"
 
 # Allow a model with Int4PlainInt32Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Int4PlainInt32Tensor])
-
