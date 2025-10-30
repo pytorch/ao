@@ -360,7 +360,7 @@ def _(func, types, args, kwargs):
                 # TODO(future PR): add testing for torch._scaled_mm with
                 # blockwise scaling on CUDA 12.9
                 # TODO(future PR): add fbgemm_gpu_genai path if available
-                # TODO(before land): proper out_dtype handling
+                # TODO(future PR): proper out_dtype handling
                 assert _is_1_128_scaled(input_tensor), "unsupported"
                 res = blockwise_fp8_gemm(
                     inpt_data,
