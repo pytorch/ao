@@ -184,6 +184,12 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             )
         if isinstance(granularity, PerRow) and dtype != torch.bfloat16:
             return unittest.skip("per row only works with bfloat16")
+        if kernel_preference == KernelPreference.FBGEMM and (
+            (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_90())
+        ):
+            return unittest.skip(
+                "Requires fbgemm_gpu_genai to run fbgemm kernel preference test"
+            )
 
         M, N, K = sizes
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")

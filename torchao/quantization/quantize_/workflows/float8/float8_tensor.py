@@ -259,11 +259,18 @@ def _(func, types, args, kwargs):
     return _float8_linear_impl(input_tensor, weight_tensor, bias)
 
 
-@implements(aten.mm.default)
+@implements(aten.matmul.default)
 @implements_torch_function(torch.matmul)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor = args[0], args[1]
-    return _float8_mm_impl(input_tensor, weight_tensor)
+    return _float8_matmul_impl(input_tensor, weight_tensor)
+
+
+@implements(aten.mm.default)
+@implements_torch_function(torch.mm)
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = args[0], args[1]
+    return _float8_matmul_impl(input_tensor, weight_tensor)
 
 
 @implements(aten.addmm_.default)
@@ -275,24 +282,110 @@ def _(func, types, args, kwargs):
     )
     assert kwargs.get("alpha", 1) == 1, "only alpha=1 is supported"
     assert kwargs.get("beta", 1) == 1, "only beta=1 is supported"
-    out = _float8_mm_impl(input_tensor, weight_tensor)
+    out = _float8_matmul_impl(input_tensor, weight_tensor)
     return bias_tensor.add_(out)
 
 
-def _float8_mm_impl(
-    input_tensor: torch.Tensor,
-    weight_tensor: torch.Tensor,
-) -> torch.Tensor:
-    assert isinstance(weight_tensor, Float8Tensor), (
-        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
-    )
-    is_transposed = weight_tensor.qdata.stride(-2) < weight_tensor.qdata.stride(-1)
-    # For matmul(x, w.t()), just call the linear implementation
-    # For matmul(x, w), just dequantize for now, we can optimize later
-    if is_transposed:
-        return _float8_linear_impl(input_tensor, weight_tensor.t())
+def _get_matmul_kernel_choice(weight_tensor: Float8Tensor) -> str:
+    """
+    Return the kernel choice for matmuls, either "fbgemm" or "torch".
+    """
+    if weight_tensor.kernel_preference == KernelPreference.AUTO:
+        kernel_choice = "torch"
+        if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
+            kernel_choice = "fbgemm"
+    elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
+        kernel_choice = "fbgemm"
     else:
-        return torch.matmul(input_tensor, weight_tensor.dequantize())
+        assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
+            f"{weight_tensor.kernel_preference=} not handled"
+        )
+        kernel_choice = "torch"
+    return kernel_choice
+
+
+def _call_fbgemm_f8f8bf16_matmul(
+    input_tensor: Float8Tensor,
+    weight_tensor: Float8Tensor,
+    bias: Optional[torch.Tensor] = None,
+    weight_is_already_transposed: bool = False,
+) -> torch.Tensor:
+    """
+    Call `torch.ops.fbgemm.f8f8bf16*` ops.
+
+    These ops expect the weight tensor to be transposed.
+    If `weight_is_already_transposed=True` (e.g. in the linear case),
+    then we avoid unnecessarily double transposing the weight.
+    """
+    assert _is_fbgemm_gpu_genai_available(), (
+        "Expected fbgemm_gpu_genai package to be installed"
+    )
+    assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
+    mm_config = weight_tensor.mm_config
+    assert mm_config is not None
+
+    if not weight_is_already_transposed:
+        weight_tensor = weight_tensor.t()
+
+    out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
+    xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
+    wq = weight_tensor.qdata
+    x_scale = input_tensor.scale
+    w_scale = weight_tensor.scale
+    if _is_rowwise_scaled(weight_tensor):
+        assert _is_rowwise_scaled(input_tensor), (
+            "Input tensor must be rowwise block size"
+        )
+        res = torch.ops.fbgemm.f8f8bf16_rowwise(
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            bias=bias,
+            use_fast_accum=mm_config.use_fast_accum,
+        ).reshape(out_shape)
+    else:
+        assert _is_tensorwise_scaled(weight_tensor)
+        assert _is_tensorwise_scaled(input_tensor)
+        res = torch.ops.fbgemm.f8f8bf16(
+            xq,
+            wq,
+            x_scale * w_scale,
+            use_fast_accum=mm_config.use_fast_accum,
+        ).reshape(out_shape)
+        if bias is not None:
+            res = res + bias
+    return res
+
+
+def _call_float8_scaled_mm(
+    input_tensor: Float8Tensor,
+    weight_tensor: Float8Tensor,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    scaled_mm_config = weight_tensor.mm_config
+    assert scaled_mm_config is not None
+    assert weight_tensor.dim() == 2
+    out_shape = (*input_tensor.shape[:-1], weight_tensor.shape[1])
+
+    # Extract tensor data and scales
+    inpt_data = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
+    w_data = weight_tensor.qdata
+    input_scale = input_tensor.scale
+    w_scale = weight_tensor.scale
+
+    input_scale = preprocess_scale(input_scale, input_tensor.shape)
+    inpt_data, w_data = preprocess_data(inpt_data, w_data, scaled_mm_config)
+
+    return addmm_float8_unwrapped_inference(
+        inpt_data,
+        input_scale,
+        w_data,
+        w_scale,
+        output_dtype=input_tensor.dtype,
+        bias=bias,
+        use_fast_accum=scaled_mm_config.use_fast_accum,
+    ).reshape(out_shape)
 
 
 def _float8_linear_impl(
@@ -312,88 +405,17 @@ def _float8_linear_impl(
         )
 
     if isinstance(input_tensor, Float8Tensor):
-        kernel_choice = None
-
-        if weight_tensor.kernel_preference == KernelPreference.AUTO:
-            kernel_choice = "torch"
-            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
-                kernel_choice = "fbgemm"
-        elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
-            kernel_choice = "fbgemm"
-        else:
-            assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
-                f"{weight_tensor.kernel_preference=} not handled"
-            )
-            kernel_choice = "torch"
-
+        kernel_choice = _get_matmul_kernel_choice(weight_tensor)
         if kernel_choice == "fbgemm":
-            assert _is_fbgemm_gpu_genai_available(), (
-                "Expected fbgemm_gpu_genai package to be installed"
+            return _call_fbgemm_f8f8bf16_matmul(
+                input_tensor,
+                weight_tensor,
+                bias,
+                weight_is_already_transposed=True,
             )
-            assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
-            mm_config = weight_tensor.mm_config
-            assert mm_config is not None
-
-            out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
-            xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
-            wq = weight_tensor.qdata
-            x_scale = input_tensor.scale
-            w_scale = weight_tensor.scale
-            if _is_rowwise_scaled(weight_tensor):
-                assert _is_rowwise_scaled(input_tensor), (
-                    "Input tensor must be rowwise block size"
-                )
-                res = torch.ops.fbgemm.f8f8bf16_rowwise(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                    bias=bias,
-                    use_fast_accum=mm_config.use_fast_accum,
-                ).reshape(out_shape)
-            else:
-                assert _is_tensorwise_scaled(weight_tensor)
-                assert _is_tensorwise_scaled(input_tensor)
-                res = torch.ops.fbgemm.f8f8bf16(
-                    xq,
-                    wq,
-                    x_scale * w_scale,
-                    use_fast_accum=mm_config.use_fast_accum,
-                ).reshape(out_shape)
-                if bias is not None:
-                    res = res + bias
-            return res
         else:
             assert kernel_choice == "torch"
-            scaled_mm_config = weight_tensor.mm_config
-            assert scaled_mm_config is not None
-            out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
-
-            # Extract tensor data and scales
-            inpt_data = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
-            w_data = weight_tensor.qdata
-            input_scale = input_tensor.scale
-            w_scale = weight_tensor.scale
-
-            # Handle rowwise scaling
-            if _is_rowwise_scaled(weight_tensor):
-                assert _is_rowwise_scaled(input_tensor), (
-                    "Input tensor must be rowwise block size"
-                )
-                w_scale = w_scale.transpose(-1, -2)
-
-            input_scale = preprocess_scale(input_scale, input_tensor.shape)
-            inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
-
-            return addmm_float8_unwrapped_inference(
-                inpt_data,
-                input_scale,
-                w_data,
-                w_scale,
-                output_dtype=input_tensor.dtype,
-                bias=bias,
-                use_fast_accum=scaled_mm_config.use_fast_accum,
-            ).reshape(out_shape)
+            return _call_float8_scaled_mm(input_tensor, weight_tensor.t(), bias)
     else:
         assert not isinstance(input_tensor, TorchAOBaseTensor), (
             "Expecting input_tensor to be unquantized"
@@ -403,6 +425,37 @@ def _float8_linear_impl(
         return torch.nn.functional.linear(
             input_tensor, weight_tensor.dequantize(), bias
         )
+
+
+def _float8_matmul_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: torch.Tensor,
+) -> torch.Tensor:
+    assert isinstance(weight_tensor, Float8Tensor), (
+        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
+    )
+
+    act_quant_kwargs = weight_tensor.act_quant_kwargs
+    # quantizing activation, if `act_quant_kwargs` is specified
+    if act_quant_kwargs is not None:
+        input_tensor = _choose_quant_func_and_quantize_tensor(
+            input_tensor, act_quant_kwargs
+        )
+
+    if isinstance(input_tensor, Float8Tensor):
+        kernel_choice = _get_matmul_kernel_choice(weight_tensor)
+        if kernel_choice == "fbgemm":
+            return _call_fbgemm_f8f8bf16_matmul(input_tensor, weight_tensor)
+        else:
+            assert kernel_choice == "torch"
+            return _call_float8_scaled_mm(input_tensor, weight_tensor)
+    else:
+        assert not isinstance(input_tensor, TorchAOBaseTensor), (
+            "Expecting input_tensor to be unquantized"
+        )
+        # when input is not `Float8Tensor`, we expect that it is not quantized
+        # so this is float8 weight only quantization
+        return torch.matmul(input_tensor, weight_tensor.dequantize())
 
 
 @implements_torch_function(torch.bmm)
