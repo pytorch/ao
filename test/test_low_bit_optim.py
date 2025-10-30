@@ -419,8 +419,8 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    def test_optim_bf16_stochastic_round_correctness(self):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    @parametrize("device", _DEVICES)
+    def test_optim_bf16_stochastic_round_correctness(self, device):
         torch.manual_seed(2024)
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
