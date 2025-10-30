@@ -175,7 +175,7 @@ def compute_blocked_scale_offsets_for_M_groups(offsets: torch.Tensor):
         - starting_row_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
     """
     # Calculate group sizes
-    zero = torch.tensor([0], dtype=offsets.dtype, device=offsets.device)
+    zero = torch.zeros(1, dtype=offsets.dtype, device=offsets.device)
     group_sizes = torch.diff(offsets, prepend=zero)
 
     # Round each group size up to the nearest multiple of 128
@@ -203,8 +203,8 @@ def compute_blocked_scale_offsets_for_K_groups(
         - starting_col_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
     """
     # Calculate group sizes
-    zero = torch.tensor(
-        [0], dtype=scale_group_offsets.dtype, device=scale_group_offsets.device
+    zero = torch.zeros(
+        1, dtype=scale_group_offsets.dtype, device=scale_group_offsets.device
     )
     group_sizes = torch.diff(scale_group_offsets, prepend=zero)
 

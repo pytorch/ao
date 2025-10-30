@@ -2,7 +2,7 @@
 
 Quantization-Aware Training (QAT) refers to applying fake quantization during the
 training or fine-tuning process, such that the final quantized model will exhibit
-higher accuracies and perplexities. Fake quantization refers to rounding the float
+higher accuracies and lower perplexities. Fake quantization refers to rounding the float
 values to quantized values without actually casting them to dtypes with lower
 bit-widths, in contrast to post-training quantization (PTQ), which does cast the
 quantized values to lower bit-width dtypes, e.g.:

@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-import tempfile
 from contextlib import contextmanager
 
 import pytest
@@ -71,11 +70,20 @@ def cuda_kernel_profiler(kernel_pattern):
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
 @pytest.mark.parametrize("emulate", [True, False])
+@pytest.mark.parametrize("use_inference_mode", [True, False])
+@pytest.mark.parametrize("x_rank", [2, 3])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
 )  # TODO(future): deploy gfx950 in ROCM CI
-def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: bool):
+def test_inference_workflow_mx(
+    elem_dtype,
+    bias: bool,
+    compile: bool,
+    emulate: bool,
+    use_inference_mode: bool,
+    x_rank: int,
+):
     """
     Smoke test for inference compile
     """
@@ -112,23 +120,20 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
         m_mx = torch.compile(m_mx, fullgraph=True)
 
     x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    if x_rank == 3:
+        x = x.unsqueeze(0)
+
     y_ref = m(x)
-    y_mx = m_mx(x)
+    if use_inference_mode:
+        with torch.inference_mode():
+            y_mx = m_mx(x)
+    else:
+        y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
     SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
-
-    # serialization
-    with tempfile.NamedTemporaryFile() as f:
-        torch.save(m_mx.state_dict(), f)
-        f.seek(0)
-
-        # temporary workaround for https://github.com/pytorch/ao/issues/3077
-        torch.serialization.add_safe_globals([getattr])
-
-        _ = torch.load(f, weights_only=True)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -156,6 +161,8 @@ def test_inference_workflow_mx(elem_dtype, bias: bool, compile: bool, emulate: b
     ],
     ids=lambda s: f"{s[0]}x{s[1]}x{s[2]}",
 )
+@pytest.mark.parametrize("use_inference_mode", [False, True])
+@pytest.mark.parametrize("x_rank", [2, 3])
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
 def test_inference_workflow_nvfp4(
@@ -166,6 +173,8 @@ def test_inference_workflow_nvfp4(
     use_triton_kernel: bool,
     use_dynamic_per_tensor_scale: bool,
     shapes: tuple,
+    use_inference_mode: bool,
+    x_rank: int,
 ):
     """
     Test NVFP4 recipe with scale_dtype=float8_e4m3fn and block_size=16
@@ -180,6 +189,16 @@ def test_inference_workflow_nvfp4(
 
     if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
         pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+
+    if use_inference_mode and (
+        shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
+    ):
+        pytest.skip("skipping unnecessary tests for inference mode")
+    if x_rank == 3 and (
+        shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
+    ):
+        pytest.skip("skipping unnecessary tests for x_rank 3")
+
     batch_size, in_features, out_features = shapes
 
     m = nn.Linear(in_features, out_features, bias=bias, dtype=inpt_dtype, device="cuda")
@@ -196,6 +215,9 @@ def test_inference_workflow_nvfp4(
         m_mx = torch.compile(m_mx, fullgraph=True, backend="aot_eager")
 
     x = torch.randn(batch_size, in_features, device="cuda", dtype=inpt_dtype)
+    if x_rank == 3:
+        x = x.unsqueeze(0)
+
     y_ref = m(x)
 
     if use_triton_kernel and mm_config != NVFP4MMConfig.WEIGHT_ONLY:
@@ -203,7 +225,11 @@ def test_inference_workflow_nvfp4(
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
     else:
-        y_mx = m_mx(x)
+        if use_inference_mode:
+            with torch.inference_mode():
+                y_mx = m_mx(x)
+        else:
+            y_mx = m_mx(x)
 
     sqnr = compute_error(y_ref, y_mx)
 
@@ -216,16 +242,6 @@ def test_inference_workflow_nvfp4(
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
     )
-
-    # serialization
-    with tempfile.NamedTemporaryFile() as f:
-        torch.save(m_mx.state_dict(), f)
-        f.seek(0)
-
-        # temporary workaround for https://github.com/pytorch/ao/issues/3077
-        torch.serialization.add_safe_globals([getattr])
-
-        _ = torch.load(f, weights_only=True)
 
 
 class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
