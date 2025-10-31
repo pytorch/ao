@@ -39,6 +39,7 @@ from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     fill_defaults,
     is_sm_at_least_90,
+    is_sm_at_least_100,
 )
 
 __all__ = [
@@ -261,7 +262,7 @@ def _(func, types, args, kwargs):
     )
 
     act_quant_kwargs = weight_tensor.act_quant_kwargs
-    # quantizing activation, if `act_quant_kwargs` is specified
+    # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
         input_tensor = _choose_quant_func_and_quantize_tensor(
             input_tensor, act_quant_kwargs
@@ -416,6 +417,125 @@ def _(func, types, args, kwargs):
         )
 
     return res
+
+
+def _quantize_and_scaled_conv3d(
+    input_tensor,
+    weight_tensor,
+    bias,
+    stride,
+    padding,
+    dilation,
+):
+    assert isinstance(weight_tensor, Float8Tensor), (
+        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
+    )
+
+    assert input_tensor.dim() == 5 and weight_tensor.dim() == 5, (
+        "Only support 3D conv currently"
+    )
+    assert _is_fbgemm_gpu_genai_available(), (
+        "quantized fp8 conv3d requires fbgemm_gpu_genai to be available"
+    )
+    act_quant_kwargs = weight_tensor.act_quant_kwargs
+    # quantize activation, if `act_quant_kwargs` is specified
+    if act_quant_kwargs is not None:
+        input_tensor = _choose_quant_func_and_quantize_tensor(
+            input_tensor, act_quant_kwargs
+        )
+
+    if isinstance(input_tensor, Float8Tensor):
+        kernel_choice = None
+        if weight_tensor.kernel_preference == KernelPreference.AUTO:
+            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_100():
+                kernel_choice = "fbgemm"
+            else:
+                raise NotImplementedError(
+                    f"No available kernel choice for {weight_tensor.kernel_preference}"
+                )
+        elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
+            kernel_choice = "fbgemm"
+        else:
+            raise NotImplementedError(
+                f"No available kernel choice for {weight_tensor.kernel_preference}"
+            )
+
+    assert kernel_choice == "fbgemm", "Only fbgemm kernel choice is supported currently"
+    # move C_in to last dim
+    # after permute: (N, D, H, W, C_in)
+    act_qdata = input_tensor.qdata.permute([0, 2, 3, 4, 1])
+
+    # move C_in to last dim
+    # after permute: (C_out, K1, K2, K3, C_in)
+    weight_qdata = weight_tensor.qdata.permute([0, 2, 3, 4, 1])
+
+    assert act_qdata.is_contiguous() and weight_qdata.is_contiguous(), (
+        "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
+    )
+
+    act_scale = input_tensor.scale
+    weight_scale = weight_tensor.scale
+    output = torch.ops.fbgemm.f8f8bf16_conv(
+        act_qdata,
+        weight_qdata,
+        act_scale * weight_scale,
+        padding,
+        stride,
+        dilation,
+    )
+    # output shape after permute: N, C_out, D_out, H_out, W_out
+    output = output.permute([0, 4, 1, 2, 3])
+    return output
+
+
+@implements(aten.convolution.default)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        transposed,
+        output_padding,
+        groups,
+    ) = args
+    assert not transposed, "transposed conv is not supported currently"
+    assert tuple(output_padding) == (0, 0, 0), (
+        f"Only (0, 0, 0) is supported for `output_padding`, got: f{output_padding}"
+    )
+    assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
+    return _quantize_and_scaled_conv3d(
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+    )
+
+
+@implements(aten.conv3d.default)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        groups,
+    ) = fill_defaults(args, 7, [None, [1, 1, 1], [0, 0, 0], [1, 1, 1], 1])
+    assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
+    return _quantize_and_scaled_conv3d(
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+    )
 
 
 @implements(aten.slice.Tensor)
