@@ -406,7 +406,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                     self.gemlite_kwargs[key] = src.gemlite_kwargs[key]
                 return
             raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+                f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
             )
 
         raise NotImplementedError(

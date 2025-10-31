@@ -23,10 +23,10 @@ from torchao.quantization.quant_api import quantize_
 
 # this benchmark requires torchtitan
 try:
-    from torchtitan.distributed.expert_parallel import (
+    from torchtitan.models.moe import MoE, MoEArgs
+    from torchtitan.models.moe.utils import (
         set_token_group_alignment_size_m,
     )
-    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     logging.warning(
         "please pip install torchtitan to run this benchmark: https://github.com/pytorch/torchtitan"
@@ -77,6 +77,8 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
     target_fqns = ["experts"]
     model_args = MoEArgs(
         num_experts=local_num_experts,
+        num_shared_experts=1,
+        _debug_force_load_balance=True,
     )
     init_std = 0.02
     device = torch.device("cuda")
@@ -203,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--local_batch_size",
         type=int,
-        default=8,
+        default=12,
     )
     parser.add_argument(
         "--hidden_dim",
