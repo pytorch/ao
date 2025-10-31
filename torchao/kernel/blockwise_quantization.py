@@ -92,7 +92,7 @@ if has_triton():
         M = a.numel() // K
         N = b.size(0)
         M_BUCKET = math.ceil(math.log2(M))
-        c = a.new_empty(*a.size()[:-1], N, dtype=torch.get_default_dtype())
+        c = a.new_empty(*a.size()[:-1], N, dtype=torch.bfloat16)
         grid = lambda META: (
             triton.cdiv(M, META["BLOCK_SIZE_M"]),
             triton.cdiv(N, META["BLOCK_SIZE_N"]),
@@ -105,7 +105,7 @@ if has_triton():
     @blockwise_fp8_gemm.register_fake
     def _(a, a_s, b, b_s, block_size=128):
         N = b.size(0)
-        c = a.new_empty(*a.size()[:-1], N, dtype=torch.get_default_dtype())
+        c = a.new_empty(*a.size()[:-1], N, dtype=torch.bfloat16)
         return c
 
     @triton.jit
