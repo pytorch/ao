@@ -163,9 +163,12 @@ def _from_hp_npu(
     w: torch.Tensor,
     block_size: List[int],
 ):
-    # Require PyTorch 2.7.1+ for NPU backend ops and backward compatibility.
-    assert torch_version_at_least("2.7.1"), (
-        "Need pytorch 2.7.1+ for NPU backend op support."
+    assert (
+        torch.accelerator.is_available()
+        and torch.accelerator.current_accelerator().type == "npu"
+        and torch_version_at_least("2.7.1")
+    ), (
+        f"PyTorch NPU 2.7.1+ needed for int4 packing and matmul ops, {torch.__version__} found"
     )
 
     assert w.ndim == 2 and w.device.type == "npu", (
