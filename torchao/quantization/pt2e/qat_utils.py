@@ -888,7 +888,7 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
             and node.args[0].op == "get_attr"
             and node.args[1] == 1
             and torch.nn.modules.batchnorm.BatchNorm2d
-            in [val[1] for val in node.meta["source_fn_stack"]]
+            in [val[1] for _, val in node.meta["nn_module_stack"].items()]
         ):
             m.graph.erase_node(node)
 
