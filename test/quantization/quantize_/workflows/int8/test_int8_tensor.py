@@ -75,18 +75,60 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             torch.all(tensor.qdata >= -128) and torch.all(tensor.qdata <= 127)
         )
 
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize(
-        "sizes",
-        [
-            ((128,), 256, 128),
-        ],
-    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
         "config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
             Int8WeightOnlyConfig(version=2),
+        ],
+    )
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),  # 2D
+            ((32, 128), 64, 256),  # 3D
+        ],
+    )
+    def test_int8_linear_variants(
+        self,
+        dtype: torch.dtype,
+        config,
+        compile: bool,
+        sizes: tuple,
+    ):
+        """Test linear operation supports including shape and compile"""
+        M, N, K = sizes
+        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
+        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
+        model_q = copy.deepcopy(model)
+
+        quantize_(model_q, config)
+
+        if compile:
+            model_q = torch.compile(model_q, fullgraph=True)
+
+        output_fp = model(input_tensor)
+        output_quantized = model_q(input_tensor)
+
+        assert compute_error(output_fp, output_quantized) > 20, (
+            f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
+        )
+
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8WeightOnlyConfig(version=2),
+        ],
+    )
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),  # 2D
+            ((32, 128), 64, 256),  # 3D
         ],
     )
     def test_int8_linear_quantization_accuracy(
@@ -100,16 +142,16 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
         # Create a linear layer
-        m = ToyTwoLinearModel(K, N, K).eval().to(dtype).to("cuda")
+        m = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
         m_q = copy.deepcopy(m)
 
         # Quantize
         quantize_(m_q, config)
 
-        output_original = m(input_tensor)
+        output_fp = m(input_tensor)
         output_quantized = m_q(input_tensor)
 
-        error = compute_error(output_original, output_quantized)
+        error = compute_error(output_fp, output_quantized)
         assert error > 20, (
             f"Quantization quality is too low, SQNR: {error}dB (expected > {20}dB)"
         )
@@ -134,23 +176,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             self.assertEqual(linear.weight.scale.ndim, 1)
         else:
             self.assertEqual(linear.weight.scale.numel(), 1)
-
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("has_bias", [True, False])
-    def test_weight_only_linear_with_bias(self, dtype, has_bias):
-        """Test weight-only quantization with and without bias"""
-        K, N = 128, 64
-        linear = torch.nn.Linear(K, N, bias=has_bias, dtype=dtype, device="cuda")
-        input_tensor = torch.randn(self.batch_size, K, dtype=dtype, device="cuda")
-
-        output_fp = linear(input_tensor)
-
-        quantize_(linear, Int8WeightOnlyConfig(version=2))
-        output_q = linear(input_tensor)
-
-        self.assertEqual(output_q.shape, output_fp.shape)
-        error = compute_error(output_fp, output_q)
-        self.assertGreater(error, 20)
 
     @common_utils.parametrize(
         "config",
