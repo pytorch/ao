@@ -106,11 +106,24 @@ class PerToken(Granularity):
 @dataclass(frozen=True)
 class PerBlock(Granularity):
     """
-    Represents per-block granularity in quantization. See
-    :func:`~torchao.quantization.quant_primitives.quantize_affine` for docs for
-    `block_size`
+    Represents multidimensional per-block granularity in quantization.
+
+    Example:
+    * block_size has shape [X, Y]
+    * input_tensor shape [A] -> scaling undefined
+    * input_tensor shape [A, B] -> scale shape [A // X, B // Y]
+    * input_tensor shape [A, B, C] -> scale shape [1, B // X, C // Y]
+    * input_tensor shape [A, B, C, D] -> scale shape [1, 1, C // X, D // Y], and so on
+
+    Note that `PerBlock((1, Y))` is equivalent to `PerGroup(Y)`
+
     Attributes:
         block_size (tuple[int, ...]): The size of each quantization group
     """
 
+    # TODO(future PR): consider renaming this attribute to make the meaning
+    #   of `block_size` consistent.
+    # 1. `block_size` in this class can support tensors of multiple ranks
+    # 2. `block_size` in other places in the codebase has rank equal to the
+    #    corresponding tensor
     block_size: tuple[int, ...]

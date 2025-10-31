@@ -99,11 +99,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("unimplemented")
 
         elif granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
-            if dtype is torch.float32:
+            if dtype is not torch.bfloat16:
                 return unittest.skip("unimplemented")
-            elif mode == "weight-only":
+            elif mode != "dynamic":
                 return unittest.skip("unimplemented")
-            elif kernel_preference is KernelPreference.FBGEMM:
+            elif kernel_preference not in (
+                KernelPreference.AUTO,
+                KernelPreference.TORCH,
+            ):
                 return unittest.skip("unimplemented")
 
         error_message = None
