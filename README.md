@@ -62,9 +62,9 @@ Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
 
 ## Third-party Pipeline Status
 
-| Backend    | Inference                                                    |
-| ---------- | ------------------------------------------------------------ |
-| Ascend NPU | [![Ascend NPU](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg)]( |
+| Backend    | Inference                                                                                                             |
+| ----------- | -------------------------------------------------------------------------------------------------------------------- |
+| Ascend NPU | [![Ascend NPU](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg)](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml) |
 
 ## 🚀 Quick Start
 
