@@ -31,6 +31,7 @@ from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    is_sm_at_least_100,
     torch_version_at_least,
 )
 
@@ -48,6 +49,28 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear1(x)
         x = self.linear2(x)
         return x
+
+
+class ToyConvModel(torch.nn.Module):
+    def __init__(
+        self, dim, in_channels, out_channels, kernel_size, bias, padding, dtype, device
+    ):
+        super().__init__()
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        self.conv = convs[dim](
+            in_channels,
+            out_channels,
+            kernel_size,
+            bias=bias,
+            padding=padding,
+            dtype=dtype,
+            device=device,
+        )
+        if dim == 3:
+            self.conv = self.conv.to(memory_format=torch.channels_last_3d)
+
+    def forward(self, x):
+        return self.conv(x)
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
@@ -189,6 +212,85 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             assert compute_error(output_original, output_quantized) > 20, (
                 f"Quantization error is too high got a SQNR of {error}"
             )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("granularity", [PerTensor()])
+    @common_utils.parametrize("inference_mode", [True, False])
+    @common_utils.parametrize(
+        "kernel_preference",
+        [KernelPreference.AUTO],
+    )
+    # only test for 3D conv for now
+    # Inputs are (N, C_in, C_out, D, H, W)
+    @common_utils.parametrize(
+        "sizes",
+        [
+            (4, 16, 64, 32, 32, 32),
+        ],
+    )
+    def test_fp8_conv_variants(
+        self,
+        dtype: torch.dtype,
+        compile: bool,
+        granularity,
+        inference_mode: bool,
+        kernel_preference: KernelPreference,
+        sizes: Tuple,
+    ):
+        if (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_100()):
+            return unittest.skip(
+                "Requires fbgemm_gpu_genai and sm version >= 10.0 to run "
+                "fbgemm kernel preference test"
+            )
+
+        dim = 3
+        N, C_in, C_out, D, H, W = sizes
+        kernel_size = 3
+
+        # Note: this is channel last memory format
+        input_tensor = torch.randn(N, C_in, D, H, W, dtype=dtype, device="cuda")
+        input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+
+        # Create a linear layer with bfloat16 dtype
+        model = ToyConvModel(
+            dim,
+            C_in,
+            C_out,
+            kernel_size,
+            bias=False,
+            padding=0,
+            dtype=dtype,
+            device="cuda",
+        ).eval()
+
+        quantized_model = copy.deepcopy(model)
+
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+            kernel_preference=kernel_preference,
+        )
+
+        _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+
+        quantize_(quantized_model, config, filter_fn=_is_conv3d)
+
+        if compile:
+            quantized_model = torch.compile(quantized_model, fullgraph=True)
+
+        inference_mode_ctx = torch.inference_mode() if inference_mode else nullcontext()
+        with inference_mode_ctx:
+            output_original = model(input_tensor)
+            output_quantized = quantized_model(input_tensor)
+
+        error = compute_error(output_original, output_quantized)
+        assert compute_error(output_original, output_quantized) > 20, (
+            f"Quantization error is too high got a SQNR of {error}"
+        )
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(

@@ -1811,7 +1811,12 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     _check_hardware_support(granularity)
     activation_granularity, weight_granularity = granularity
 
-    if not _fp8_mm_compat(weight):
+    if weight.dim() == 5:
+        # weights for conv3d
+        assert isinstance(activation_granularity, PerTensor) and isinstance(
+            weight_granularity, PerTensor
+        ), "5D tensor only supports per tensor activation and weight quantization"
+    elif not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight
