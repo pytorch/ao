@@ -1,0 +1,28 @@
+name: MyPy type checking
+
+on:
+  push:
+    branches:
+      - main
+      - 'gh/**'
+  pull_request:
+    branches:
+      - main
+      - 'gh/**'
+
+jobs:
+  mypy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy
+
+      - name: Run mypy
+        run: mypy .
