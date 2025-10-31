@@ -2227,7 +2227,12 @@
     <span class="n">_check_hardware_support</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
     <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">granularity</span>
 
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+        <span class="c1"># weights for conv3d</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
+            <span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
+        <span class="p">),</span> <span class="s2">&quot;5D tensor only supports per tensor activation and weight quantization&quot;</span>
+    <span class="k">elif</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
         <span class="c1"># not doing what the user asked</span>
         <span class="k">return</span> <span class="n">weight</span>
