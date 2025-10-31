@@ -10,7 +10,10 @@ from typing import Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.float8.inference import _slice_scale_for_dimension
+from torchao.float8.inference import (
+    _slice_scale_for_dimension,
+    preprocess_scale,
+)
 from torchao.kernel import int_scaled_matmul
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -46,7 +49,7 @@ class Int8Tensor(TorchAOBaseTensor):
     int8 quantized tensor with plain layout
 
     Tensor Attributes:
-        qdata: (N, K) int8 quantized weight data
+        qdata: (N, K) or (B, N, K) int8 quantized weight data (2D or 3D)
         scale: scale factors for dequantization
 
     Non-Tensor Attributes:
@@ -103,8 +106,8 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: list[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
-        if w.dim() != 2 or len(block_size) != 2:
-            raise ValueError("Expected 2D tensor and block_size length 2")
+        if w.dim() not in [2, 3] or len(block_size) != w.dim():
+            raise ValueError("Expected 2D or 3D tensor with same block_size length")
 
         scale, zero_point = choose_qparams_affine(
             input=w,
@@ -165,41 +168,66 @@ def _(func, types, args, kwargs):
         f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
     )
 
+    # Store original shape for reshaping result
+    original_weight_shape = weight_tensor.qdata.shape
+
+    # Reshape 3D weights to 2D: (B, N, K) -> (B*N, K)
+    if weight_tensor.qdata.dim() == 3:
+        w_q_2d = weight_tensor.qdata.reshape(-1, original_weight_shape[-1])
+        w_scale_2d = (
+            weight_tensor.scale.reshape(-1)
+            if weight_tensor.scale.numel() > 1
+            else weight_tensor.scale
+        )
+    else:
+        w_q_2d = weight_tensor.qdata
+        w_scale_2d = weight_tensor.scale
+
     if weight_tensor.act_quant_kwargs is not None:
         if not isinstance(activation_tensor, Int8Tensor):
-            # Activation quantization
+            # Dynamic activation quantization
+            act_kwargs = weight_tensor.act_quant_kwargs
+            input_ndim = activation_tensor.ndim
+
+            # Ensure block_size matches input tensor dimensions
+            if len(act_kwargs.block_size) != input_ndim:
+                if input_ndim == 3 and len(act_kwargs.block_size) == 2:
+                    block_size_updated = [1] + list(act_kwargs.block_size)
+                else:
+                    block_size_updated = list(act_kwargs.block_size)[-input_ndim:]
+                act_kwargs = QuantizeTensorToInt8Kwargs(block_size=block_size_updated)
+
             activation_tensor = _choose_quant_func_and_quantize_tensor(
-                activation_tensor, weight_tensor.act_quant_kwargs
+                activation_tensor, act_kwargs
             )
 
-        x_vals = activation_tensor.qdata
-        x_scales = activation_tensor.scale
-        w_vals_t = weight_tensor.qdata.contiguous().t()
-        w_scales = weight_tensor.scale
-
-        tmp = x_vals.reshape(-1, x_vals.shape[-1])
+        x_vals = activation_tensor.qdata.reshape(-1, activation_tensor.qdata.shape[-1])
+        x_scales = preprocess_scale(activation_tensor.scale, x_vals.shape)
+        w_vals_t = w_q_2d.contiguous().t()
         intermediate_dtype = (
             torch.float if x_scales.dtype == torch.half else x_scales.dtype
         )
 
         y_dot_scaled = int_scaled_matmul(
-            tmp, w_vals_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
+            x_vals, w_vals_t, x_scales.to(intermediate_dtype)
         )
-        y_dot_scaled = y_dot_scaled.to(x_scales.dtype)
+        y_dot_scaled = y_dot_scaled.to(activation_tensor.scale.dtype)
 
-        result = (y_dot_scaled * w_scales).reshape(
-            *x_vals.shape[:-1], y_dot_scaled.shape[-1]
+        result = (y_dot_scaled * w_scale_2d).reshape(
+            *activation_tensor.shape[:-1], *original_weight_shape[:-1]
         )
         result = result.to(activation_tensor.dtype)
     else:
         # FP × INT8 (weight-only)
-        w_vals_int8_t = weight_tensor.qdata.t()
+        w_vals_int8_t = w_q_2d.t()
         m = torch.mm(
             activation_tensor.reshape(-1, activation_tensor.shape[-1]),
             w_vals_int8_t.to(activation_tensor.dtype),
         )
-        result = m * weight_tensor.scale.to(m.dtype)
-        result = result.reshape(*activation_tensor.shape[:-1], result.shape[-1])
+        result = m * w_scale_2d.to(m.dtype)
+        result = result.reshape(
+            *activation_tensor.shape[:-1], *original_weight_shape[:-1]
+        )
 
     return result + bias if bias is not None else result
 
@@ -211,6 +239,11 @@ def _(func, types, args, kwargs):
 
     if step != 1:
         raise NotImplementedError("Slicing with step > 1 is not supported")
+
+    assert dim in [0, 1, 2], f"Only dim=0,1,2 are supported, got: dim={dim}"
+    assert self.qdata.ndim in [2, 3], (
+        f"Expected qdata to have dim=2,3 got: dim={self.qdata.ndim}"
+    )
 
     if end >= self.shape[dim]:
         end = self.shape[dim]
@@ -252,7 +285,7 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             self.qdata[index],
             selected_scale,
-            self.block_size,
+            self.block_size[1:],
             self.act_quant_kwargs,
             self.dtype,
         ),

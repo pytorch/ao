@@ -1354,7 +1354,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 
     group_size: Optional[int] = None
     set_inductor_config: bool = True
-    version: int = 2
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
@@ -1524,7 +1524,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     weight_only_decode: bool = False
     granularity: Optional[Union[PerRow, PerTensor]] = PerRow()
     set_inductor_config: bool = True
-    version: int = 2
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
