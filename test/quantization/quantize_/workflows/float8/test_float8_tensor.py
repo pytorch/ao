@@ -18,6 +18,7 @@ from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
+    PerBlock,
     PerRow,
     PerTensor,
     quantize_,
@@ -64,7 +65,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only"])
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "granularity",
+        [PerTensor(), PerRow(), (PerBlock((1, 128)), PerBlock((128, 128)))],
+    )
     @common_utils.parametrize(
         "kernel_preference",
         [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
@@ -74,7 +78,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         "sizes",
         [
             ((128,), 256, 128),
-            ((32, 128), 64, 256),
+            ((32, 128), 256, 512),
         ],
     )
     def test_fp8_linear_variants(
@@ -86,13 +90,24 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
-        if (
-            isinstance(granularity, PerTensor)
-            and kernel_preference == KernelPreference.FBGEMM
-        ):
-            return unittest.skip(
-                "per tensor with fbgemm kernel preferece does not work yet"
-            )
+        if isinstance(granularity, PerTensor):
+            if kernel_preference is KernelPreference.FBGEMM:
+                return unittest.skip(
+                    "per tensor with fbgemm kernel preference does not work yet"
+                )
+            elif mode == "weight-only":
+                return unittest.skip("unimplemented")
+
+        elif granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
+            if dtype is not torch.bfloat16:
+                return unittest.skip("unimplemented")
+            elif mode != "dynamic":
+                return unittest.skip("unimplemented")
+            elif kernel_preference not in (
+                KernelPreference.AUTO,
+                KernelPreference.TORCH,
+            ):
+                return unittest.skip("unimplemented")
 
         error_message = None
         if isinstance(granularity, PerRow):
@@ -136,6 +151,20 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 config = Float8WeightOnlyConfig()
 
             quantize_(quantized_model, config)
+
+            # ensure weight scaling is what we expect
+            qs1 = quantized_model.linear1.weight.scale
+            qs2 = quantized_model.linear2.weight.scale
+            if granularity == PerTensor():
+                assert qs1.shape == (1, 1)
+                assert qs2.shape == (1, 1)
+            elif granularity == PerRow():
+                assert qs1.shape == (N, 1)
+                assert qs2.shape == (K, 1)
+            else:
+                assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
+                assert qs1.shape == (N // 128, K // 128)
+                assert qs2.shape == (K // 128, N // 128)
 
             if compile:
                 quantized_model = torch.compile(quantized_model, fullgraph=True)
