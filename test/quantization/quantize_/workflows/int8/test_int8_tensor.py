@@ -8,6 +8,7 @@ import copy
 import unittest
 
 import torch
+from torch._inductor.utils import run_and_get_code
 from torch.testing._internal import common_utils
 
 from torchao.quantization import (
@@ -254,6 +255,43 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             0.1,
             msg=f"Dequantization error exceeds tolerance of {0.1}",
         )
+
+    def test_available_gpu_kernels(self):
+        """Check which GPU kernels are available"""
+        M, K, N = 128, 256, 512
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+        )
+        config = Int8DynamicActivationInt8WeightConfig(version=2)
+        quantize_(m, config)
+        m = torch.compile(m)
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+
+        try:
+            out, code = run_and_get_code(m, x)
+            kernels_found = {}
+
+            # Check for Triton kernels
+            if "torch.ops.triton" in code[0]:
+                kernels_found["triton"] = True
+                print("Triton kernels are available for int8 quantization")
+            else:
+                kernels_found["triton"] = False
+                print("Triton kernels are NOT available for int8 quantization")
+
+            # Check for FBGEMM kernels
+            if "torch.ops.fbgemm" in code[0]:
+                kernels_found["fbgemm"] = True
+                print("FBGEMM kernels are available for int8 quantization")
+            else:
+                kernels_found["fbgemm"] = False
+                print("FBGEMM kernels are NOT available for int8 quantization")
+
+            # Just log what we found, don't fail the test
+            print(f"Available kernels for int8 quantization: {kernels_found}")
+
+        except Exception as e:
+            print(f"Could not check available kernels: {e}")
 
 
 if __name__ == "__main__":
