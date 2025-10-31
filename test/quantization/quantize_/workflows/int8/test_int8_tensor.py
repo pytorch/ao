@@ -267,31 +267,24 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         m = torch.compile(m)
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
-        try:
-            out, code = run_and_get_code(m, x)
-            kernels_found = {}
+        out, code = run_and_get_code(m, x)
+        kernels = {}
 
-            # Check for Triton kernels
-            if "torch.ops.triton" in code[0]:
-                kernels_found["triton"] = True
-                print("Triton kernels are available for int8 quantization")
-            else:
-                kernels_found["triton"] = False
-                print("Triton kernels are NOT available for int8 quantization")
+        # Check for Triton kernels
+        if "torch.ops.triton" in code[0]:
+            kernels["triton"] = True
+            print("Triton kernels are available for int8 quantization")
+        else:
+            kernels["triton"] = False
+            print("Triton kernels are NOT available for int8 quantization")
 
-            # Check for FBGEMM kernels
-            if "torch.ops.fbgemm" in code[0]:
-                kernels_found["fbgemm"] = True
-                print("FBGEMM kernels are available for int8 quantization")
-            else:
-                kernels_found["fbgemm"] = False
-                print("FBGEMM kernels are NOT available for int8 quantization")
-
-            # Just log what we found, don't fail the test
-            print(f"Available kernels for int8 quantization: {kernels_found}")
-
-        except Exception as e:
-            print(f"Could not check available kernels: {e}")
+        # Check for FBGEMM kernels
+        if "torch.ops.fbgemm" in code[0]:
+            kernels["fbgemm"] = True
+            print("FBGEMM kernels are available for int8 quantization")
+        else:
+            kernels["fbgemm"] = False
+            print("FBGEMM kernels are NOT available for int8 quantization")
 
 
 if __name__ == "__main__":
