@@ -112,8 +112,8 @@ class PerBlock(Granularity):
     * block_size has shape [X, Y]
     * input_tensor shape [A] -> scaling undefined
     * input_tensor shape [A, B] -> scale shape [A // X, B // Y]
-    * input_tensor shape [A, B, C] -> scale shape [1, B // X, C // Y]
-    * input_tensor shape [A, B, C, D] -> scale shape [1, 1, C // X, D // Y], and so on
+    * input_tensor shape [A, B, C] -> scale shape [A, B // X, C // Y]
+    * input_tensor shape [A, B, C, D] -> scale shape [A, B, C // X, D // Y], and so on
 
     Note that `PerBlock((1, Y))` is equivalent to `PerGroup(Y)`
 
