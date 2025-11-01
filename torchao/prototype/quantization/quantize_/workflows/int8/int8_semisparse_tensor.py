@@ -174,26 +174,27 @@ def _(func, types, args, kwargs):
     )
 
     assert isinstance(weight_tensor, Int8SemiSparseTensor)
-    assert isinstance(activation_tensor, Int8SemiSparseTensor), (
-        "Int8SemiSparseTensor requires pre-quantized activations (static quantization only)"
-    )
     assert activation_tensor.shape[-1] == weight_tensor.original_shape[1], (
         f"Shape mismatch: {activation_tensor.shape} @ {weight_tensor.original_shape}"
     )
 
-    # Extract quantized data
-    x_vals_dense = activation_tensor.qdata.to_dense().to(torch.int8)
-    x_scales = activation_tensor.scale
+    # Dynamic quantization: Activation scale in runtime
+    original_shape = activation_tensor.shape
+    x_flat = activation_tensor.view(-1, activation_tensor.shape[-1])
+    x_scales = x_flat.abs().max(dim=-1, keepdim=True)[0] / 127.0
+    x_scales = x_scales.clamp(min=1e-5)
+    x_vals = (x_flat / x_scales).round().clamp(-128, 127).to(torch.int8)
+
+    # Weight quantization after activation quantization
     w_vals_dense = weight_tensor.qdata.to_dense().to(torch.int8)
     w_scales = weight_tensor.scale
 
     # Prepare activation for sparse matmul
-    tmp = x_vals_dense.view(-1, x_vals_dense.shape[-1])
-    row, col = tmp.shape
+    row, col = x_vals.shape
 
     from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
-    tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(tmp)
+    tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(x_vals)
 
     # Perform sparse matmul with int8, output as bfloat16 with weight scale
     w_scaled = w_vals_dense.to(torch.float16) * w_scales.view(-1, 1)
@@ -204,7 +205,7 @@ def _(func, types, args, kwargs):
     y_bf16 = y_bf16[:row, :]
 
     # Apply activation scale
-    y = (y_bf16 * x_scales.view(-1, 1)).view(*x_vals_dense.shape[:-1], y_bf16.shape[-1])
+    y = (y_bf16 * x_scales).view(*original_shape[:-1], y_bf16.shape[-1])
 
     output_dtype = activation_tensor.dtype
     y = y.to(output_dtype).contiguous()

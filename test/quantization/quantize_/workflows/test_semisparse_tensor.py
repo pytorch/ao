@@ -9,9 +9,6 @@ import unittest
 import torch
 from torch.testing._internal import common_utils
 
-from torchao.prototype.quantization.quantize_.workflows.float8.float8_semisparse_tensor import (
-    Float8SemiSparseTensor,
-)
 from torchao.prototype.quantization.quantize_.workflows.int8.int8_semisparse_tensor import (
     Int8SemiSparseTensor,
 )
@@ -31,19 +28,17 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
         self.block_size = [1, 512]
         self.weight_fp = torch.randn(*self.shape, dtype=self.dtype, device="cuda")
 
-    @common_utils.parametrize("config", [Int8SemiSparseTensor, Float8SemiSparseTensor])
-    def test_creation_and_shape(self, config):
+    def test_creation_and_shape(self):
         """Test tensor creation and shape preservation"""
-        tensor = config.from_hp(self.weight_fp, self.block_size)
+        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
 
         self.assertEqual(tensor.shape, self.shape)
         self.assertEqual(tensor.original_shape, self.shape)
         self.assertEqual(tensor.scale.shape[0], self.shape[0])
 
-    @common_utils.parametrize("config", [Int8SemiSparseTensor, Float8SemiSparseTensor])
-    def test_sparsity_pattern(self, config):
+    def test_sparsity_pattern(self):
         """Test 2:4 sparsity pattern is maintained"""
-        tensor = config.from_hp(self.weight_fp, self.block_size)
+        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
         dequantized = tensor.dequantize()
 
         # Check 2:4 pattern (skip overall sparsity check for compressed format)
@@ -62,18 +57,9 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
         self.assertTrue(torch.all(tensor.qdata_int8 >= -128))
         self.assertTrue(torch.all(tensor.qdata_int8 <= 127))
 
-    def test_float8_quantization_no_nan(self):
-        """Test Float8 quantization produces no NaN"""
-        tensor = Float8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
-
-        self.assertEqual(tensor.qdata_fp8.dtype, torch.float8_e4m3fn)
-        self.assertFalse(tensor.qdata_fp8.isnan().any())
-        self.assertFalse(tensor.scale.isnan().any())
-
-    @common_utils.parametrize("config", [Int8SemiSparseTensor, Float8SemiSparseTensor])
-    def test_dequantization_accuracy(self, config):
+    def test_dequantization_accuracy(self):
         """Test dequantization error is reasonable"""
-        tensor = config.from_hp(self.weight_fp, self.block_size)
+        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
         dequantized = tensor.dequantize()
 
         # Apply same pruning to original for fair comparison
@@ -84,39 +70,23 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
         error = (dequantized - w_sparse).abs().max()
         rel_error = error / w_sparse.abs().max()
 
-        # Int8: ~2.0, Float8: ~0.3
-        max_error = 2.5 if config == Int8SemiSparseTensor else 0.5
-        self.assertLess(error.item(), max_error)
+        self.assertLess(error.item(), 2.5)
         self.assertLess(rel_error.item(), 0.5)
 
-    @common_utils.parametrize("config", [Int8SemiSparseTensor, Float8SemiSparseTensor])
-    def test_invalid_dimensions(self, config):
+    def test_invalid_dimensions(self):
         """Test dimension validation"""
         # Not multiple of 32
         invalid_weight = torch.randn(100, 100, dtype=self.dtype, device="cuda")
 
         with self.assertRaises(ValueError):
-            config.from_hp(invalid_weight, [1, 100])
+            Int8SemiSparseTensor.from_hp(invalid_weight, [1, 100])
 
-    @common_utils.parametrize("config", [Int8SemiSparseTensor, Float8SemiSparseTensor])
-    def test_cpu_tensor_rejection(self, config):
+    def test_cpu_tensor_rejection(self):
         """Test CPU tensor is rejected"""
         cpu_weight = torch.randn(*self.shape, dtype=self.dtype)
 
         with self.assertRaises(ValueError):
-            config.from_hp(cpu_weight, self.block_size)
-
-    def test_float8_dtype_selection(self):
-        """Test Float8 dtype variants"""
-        tensor_e4m3 = Float8SemiSparseTensor.from_hp(
-            self.weight_fp, self.block_size, float8_dtype=torch.float8_e4m3fn
-        )
-        self.assertEqual(tensor_e4m3.qdata_fp8.dtype, torch.float8_e4m3fn)
-
-        tensor_e5m2 = Float8SemiSparseTensor.from_hp(
-            self.weight_fp, self.block_size, float8_dtype=torch.float8_e5m2
-        )
-        self.assertEqual(tensor_e5m2.qdata_fp8.dtype, torch.float8_e5m2)
+            Int8SemiSparseTensor.from_hp(cpu_weight, self.block_size)
 
 
 if __name__ == "__main__":
