@@ -61,6 +61,12 @@ TorchAO is an easy to use quantization library for native PyTorch. TorchAO works
 
 Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
 
+## Third-party Pipeline Status
+
+| Backend    | Inference                                                                                                             |
+| ----------- | -------------------------------------------------------------------------------------------------------------------- |
+| Ascend NPU | [![Ascend NPU](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg)](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml) |
+
 ## 🚀 Quick Start
 
 First, install TorchAO. We recommend installing the latest stable version:
