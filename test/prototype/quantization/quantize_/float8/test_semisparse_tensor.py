@@ -9,15 +9,15 @@ import unittest
 import torch
 from torch.testing._internal import common_utils
 
-from torchao.prototype.quantization.quantize_.workflows.int8.int8_semisparse_tensor import (
-    Int8SemiSparseTensor,
+from torchao.prototype.quantization.quantize_.workflows.float8.float8_semisparse_tensor import (
+    Float8SemiSparseTensor,
 )
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests
-class TestSemiSparseTensor(TorchAOIntegrationTestCase):
+class TestFloat8SemiSparseTensor(TorchAOIntegrationTestCase):
     def setUp(self):
         super().setUp()
         torch.manual_seed(42)
@@ -30,7 +30,7 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
 
     def test_creation_and_shape(self):
         """Test tensor creation and shape preservation"""
-        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
+        tensor = Float8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
 
         self.assertEqual(tensor.shape, self.shape)
         self.assertEqual(tensor.original_shape, self.shape)
@@ -38,7 +38,7 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
 
     def test_sparsity_pattern(self):
         """Test 2:4 sparsity pattern is maintained"""
-        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
+        tensor = Float8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
         dequantized = tensor.dequantize()
 
         # Check 2:4 pattern (skip overall sparsity check for compressed format)
@@ -49,17 +49,9 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
 
         self.assertGreaterEqual(valid_groups / total_groups, 0.99)
 
-    def test_int8_quantization_range(self):
-        """Test Int8 quantization stays in valid range"""
-        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
-
-        self.assertEqual(tensor.qdata_int8.dtype, torch.int8)
-        self.assertTrue(torch.all(tensor.qdata_int8 >= -128))
-        self.assertTrue(torch.all(tensor.qdata_int8 <= 127))
-
     def test_dequantization_accuracy(self):
         """Test dequantization error is reasonable"""
-        tensor = Int8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
+        tensor = Float8SemiSparseTensor.from_hp(self.weight_fp, self.block_size)
         dequantized = tensor.dequantize()
 
         # Apply same pruning to original for fair comparison
@@ -79,14 +71,14 @@ class TestSemiSparseTensor(TorchAOIntegrationTestCase):
         invalid_weight = torch.randn(100, 100, dtype=self.dtype, device="cuda")
 
         with self.assertRaises(ValueError):
-            Int8SemiSparseTensor.from_hp(invalid_weight, [1, 100])
+            Float8SemiSparseTensor.from_hp(invalid_weight, [1, 100])
 
     def test_cpu_tensor_rejection(self):
         """Test CPU tensor is rejected"""
         cpu_weight = torch.randn(*self.shape, dtype=self.dtype)
 
         with self.assertRaises(ValueError):
-            Int8SemiSparseTensor.from_hp(cpu_weight, self.block_size)
+            Float8SemiSparseTensor.from_hp(cpu_weight, self.block_size)
 
 
 if __name__ == "__main__":
