@@ -142,7 +142,6 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
 
         # Store fp8 data in both dense and compressed formats
         fp8_data_fp16 = fp8_data.to(torch.float16)
-        from torch.sparse import to_sparse_semi_structured
 
         fp8_compressed = to_sparse_semi_structured(fp8_data_fp16)
 
@@ -180,47 +179,28 @@ def _(func, types, args, kwargs):
     )
 
     assert isinstance(weight_tensor, Float8SemiSparseTensor)
-    assert activation_tensor.shape[-1] == weight_tensor.original_shape[1], (
-        f"Shape mismatch: {activation_tensor.shape} @ {weight_tensor.original_shape}"
-    )
+    assert activation_tensor.dim() == 2, "Only 2D input supported"
+    assert activation_tensor.shape[-1] == weight_tensor.original_shape[1]
 
-    # Flatten batch dimensions for scale computation
-    orig_shape = activation_tensor.shape
-    if activation_tensor.dim() > 2:
-        activation_flat = activation_tensor.view(-1, orig_shape[-1])
-    else:
-        activation_flat = activation_tensor
+    x_scales = _choose_qparams_affine_floatx(activation_tensor, ebits=4, mbits=3)
+    w_scales = weight_tensor.scale
 
-    # Compute dynamic scale for activation quantization
-    x_scales = _choose_qparams_affine_floatx(activation_flat, ebits=4, mbits=3)
-    x_scales = x_scales.unsqueeze(1)  # [batch, 1]
-
-    # Quantize activation
-    scaled_x = activation_flat / x_scales
-    scaled_x = scaled_x.clamp(-448.0, 448.0)
+    # Global normalizer to prevent overflow
+    global_scale = (x_scales.max() * w_scales.max()).sqrt().clamp(min=0.01)
+    x_scales_adj = (x_scales.unsqueeze(1) / global_scale).to(torch.float32)
+    scaled_x = (activation_tensor.to(torch.float32) / x_scales_adj).clamp(-448.0, 448.0)
     x_vals_fp8 = scaled_x.to(torch.float8_e4m3fn)
 
-    # Dequantize both activation and weight before MatMul to avoid FP16 overflow
-    x_dequant = (x_vals_fp8.to(torch.float32) * x_scales.to(torch.float32)).to(
-        torch.float16
+    # MatMul
+    x_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(
+        x_vals_fp8.to(torch.float16)
     )
-    w_dequant = (
-        weight_tensor.qdata.to(torch.float32)
-        * weight_tensor.scale.unsqueeze(1).to(torch.float32)
-    ).to(torch.float16)
+    y_fp16 = torch.matmul(x_padded, weight_tensor.qdata_compressed.t())
+    y = y_fp16[: activation_tensor.shape[0], :].to(torch.float32)
 
-    # Sparse MatMul with dequntized tensor
-    w_sparse = to_sparse_semi_structured(w_dequant)
-    row = x_dequant.shape[0]
-    x_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(x_dequant)
-
-    y = torch.matmul(x_padded, w_sparse.t())
-    y = y[:row, :]
-
-    # Reshape to original activation shape
-    if activation_tensor.dim() > 2:
-        y = y.view(*orig_shape[:-1], -1)
-
+    # Restore scale
+    w_scales_fp32 = w_scales.to(torch.float32)
+    y = y * (x_scales_adj * w_scales_fp32.unsqueeze(0) * global_scale)
     y = y.to(activation_tensor.dtype).contiguous()
 
     if bias is not None:
