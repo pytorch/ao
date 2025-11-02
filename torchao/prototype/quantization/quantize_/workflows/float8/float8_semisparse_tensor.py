@@ -7,6 +7,7 @@
 from typing import Optional
 
 import torch
+from torch.sparse import SparseSemiStructuredTensorCUSPARSELT, to_sparse_semi_structured
 
 from torchao.quantization.quant_primitives import (
     _choose_qparams_affine_floatx,
@@ -20,7 +21,7 @@ aten = torch.ops.aten
 
 class Float8SemiSparseTensor(TorchAOBaseTensor):
     """
-    float8 quantized tensor with 2:4 semi-structured sparsity layout
+    W8A8-FP-CSR: float8 quantized tensor with 2:4 semi-structured sparsity layout
 
     Tensor Attributes:
         qdata: float8 data in dense format
@@ -120,30 +121,24 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         pruning_inds = w_sparse.abs().view(-1, 4).argsort(dim=1)[:, :2]
         w_sparse.view(-1, 4).scatter_(1, pruning_inds, value=0)
 
-        # Quantize to float8
-        if float8_dtype == torch.float8_e4m3fn:
-            ebits, mbits = 4, 3
-            max_val = 448.0
-        elif float8_dtype == torch.float8_e5m2:
-            ebits, mbits = 5, 2
-            max_val = 57344.0
-        else:
-            raise ValueError(f"Unsupported float8 dtype: {float8_dtype}")
+        # Check for all-zero (sparsity=1) tensor
+        if w_sparse.abs().max() == 0:
+            raise ValueError("Input tensor is all zeros after pruning")
 
-        scale = _choose_qparams_affine_floatx(w_sparse, ebits=ebits, mbits=mbits)
+        scale = _choose_qparams_affine_floatx(w_sparse, ebits=4, mbits=3)
 
-        if scale.isnan().any():
-            raise ValueError("Scale contains NaN")
+        if not torch.isfinite(scale).all():
+            raise ValueError("Scale contains NaN or inf values")
         if not (scale > 0).all():
             raise ValueError(f"Scale contains non-positive values: min={scale.min()}")
 
         scale_expanded = scale.unsqueeze(1)
         scaled_data = w_sparse / scale_expanded
-        scaled_data = scaled_data.clamp(-max_val, max_val)
+        scaled_data = scaled_data.clamp(-448.0, 448.0)
         fp8_data = scaled_data.to(float8_dtype).contiguous()
 
-        if fp8_data.isnan().any():
-            raise ValueError("fp8_data contains NaN after quantization")
+        if not torch.isfinite(fp8_data.to(torch.float32)).all():
+            raise ValueError("fp8_data contains NaN/Inf after quantization")
 
         # Store fp8 data in both dense and compressed formats
         fp8_data_fp16 = fp8_data.to(torch.float16)
@@ -185,53 +180,48 @@ def _(func, types, args, kwargs):
     )
 
     assert isinstance(weight_tensor, Float8SemiSparseTensor)
-    if not isinstance(activation_tensor, Float8SemiSparseTensor):
-        raise TypeError(
-            "Float8SemiSparseTensor requires pre-quantized activations (static quantization only). "
-            "Activation must be Float8SemiSparseTensor."
-        )
     assert activation_tensor.shape[-1] == weight_tensor.original_shape[1], (
         f"Shape mismatch: {activation_tensor.shape} @ {weight_tensor.original_shape}"
     )
 
-    # Use compressed data for matmul
-    x_vals_dense = activation_tensor.qdata_compressed.to_dense()
-    x_vals_fp8 = x_vals_dense.view(torch.float8_e4m3fn)
-    x_scales = activation_tensor.scale
+    # Flatten batch dimensions for scale computation
+    orig_shape = activation_tensor.shape
+    if activation_tensor.dim() > 2:
+        activation_flat = activation_tensor.view(-1, orig_shape[-1])
+    else:
+        activation_flat = activation_tensor
 
-    w_vals_dense = weight_tensor.qdata_compressed.to_dense()
-    w_vals_fp8 = w_vals_dense.view(torch.float8_e4m3fn)
-    w_scales = weight_tensor.scale
+    # Compute dynamic scale for activation quantization
+    x_scales = _choose_qparams_affine_floatx(activation_flat, ebits=4, mbits=3)
+    x_scales = x_scales.unsqueeze(1)  # [batch, 1]
 
-    # Prepare activation for sparse matmul
-    tmp = x_vals_fp8
-    if tmp.dim() > 2:
-        tmp = tmp.view(-1, tmp.shape[-1])
-    row = tmp.shape[0]
+    # Quantize activation
+    scaled_x = activation_flat / x_scales
+    scaled_x = scaled_x.clamp(-448.0, 448.0)
+    x_vals_fp8 = scaled_x.to(torch.float8_e4m3fn)
 
-    from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
-
-    tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(tmp)
-
-    # Convert weight fp8 to fp16 with scale for matmul
-    w_scaled = w_vals_fp8.to(torch.float16) * w_scales.unsqueeze(1)
-    w_sparse_scaled = torch.sparse.to_sparse_semi_structured(w_scaled)
-
-    # Matmul with sparse weight
-    y = torch.matmul(
-        tmp_padded.to(torch.bfloat16), w_sparse_scaled.t().to(torch.bfloat16)
+    # Dequantize both activation and weight before MatMul to avoid FP16 overflow
+    x_dequant = (x_vals_fp8.to(torch.float32) * x_scales.to(torch.float32)).to(
+        torch.float16
     )
+    w_dequant = (
+        weight_tensor.qdata.to(torch.float32)
+        * weight_tensor.scale.unsqueeze(1).to(torch.float32)
+    ).to(torch.float16)
+
+    # Sparse MatMul with dequntized tensor
+    w_sparse = to_sparse_semi_structured(w_dequant)
+    row = x_dequant.shape[0]
+    x_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(x_dequant)
+
+    y = torch.matmul(x_padded, w_sparse.t())
     y = y[:row, :]
 
-    # Apply activation scale
-    y = y * x_scales.unsqueeze(1)
-
     # Reshape to original activation shape
-    if x_vals_fp8.dim() > 2:
-        y = y.view(*x_vals_fp8.shape[:-1], y.shape[-1])
+    if activation_tensor.dim() > 2:
+        y = y.view(*orig_shape[:-1], -1)
 
-    output_dtype = activation_tensor.dtype
-    y = y.to(output_dtype).contiguous()
+    y = y.to(activation_tensor.dtype).contiguous()
 
     if bias is not None:
         y += bias
