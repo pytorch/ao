@@ -21,10 +21,3 @@ from torchao.prototype.sparsity.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_check,
     _linear_int8_act_int8_weight_block_sparse_impl,
 )
-
-__all__ = [
-    "BlockSparseLayout",
-    "BlockSparseAQTTensorImpl",
-    "_linear_int8_act_int8_weight_block_sparse_check",
-    "_linear_int8_act_int8_weight_block_sparse_impl",
-]
