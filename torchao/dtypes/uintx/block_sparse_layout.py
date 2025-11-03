@@ -9,13 +9,13 @@ import warnings
 
 warnings.warn(
     "Importing BlockSparseLayout from torchao.dtypes is deprecated. "
-    "Please use 'from torchao.prototype.sparsity import BlockSparseLayout' instead. "
+    "Please use 'from torchao.prototype.dtypes import BlockSparseLayout' instead. "
     "This import path will be removed in torchao v0.16.0.",
     DeprecationWarning,
     stacklevel=2,
 )
 
-from torchao.prototype.sparsity.block_sparse_layout import (
+from torchao.prototype.dtypes.uintx.block_sparse_layout import (
     BlockSparseAQTTensorImpl,  # noqa: F401
     BlockSparseLayout,  # noqa: F401
     _linear_int8_act_int8_weight_block_sparse_check,  # noqa: F401

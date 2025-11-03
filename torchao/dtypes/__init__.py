@@ -1,5 +1,5 @@
 # Import BlockSparseLayout from prototype for backward compatibility
-from torchao.prototype.sparsity import BlockSparseLayout
+from torchao.prototype.dtypes import BlockSparseLayout
 
 from . import affine_quantized_tensor_ops
 from .affine_quantized_tensor import (

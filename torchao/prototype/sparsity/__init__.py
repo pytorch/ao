@@ -1,9 +1,5 @@
 # Sparsifier
 # Scheduler
-# Block Sparse Layout
-from torchao.prototype.sparsity.block_sparse_layout import (
-    BlockSparseLayout,
-)
 from torchao.prototype.sparsity.scheduler.base_scheduler import BaseScheduler
 from torchao.prototype.sparsity.scheduler.cubic_scheduler import CubicSL
 from torchao.prototype.sparsity.scheduler.lambda_scheduler import LambdaSL
@@ -34,5 +30,4 @@ __all__ = [
     "get_arg_info_from_tensor_fqn",
     "module_to_fqn",
     "WeightNormSparsifier",
-    "BlockSparseLayout",
 ]
