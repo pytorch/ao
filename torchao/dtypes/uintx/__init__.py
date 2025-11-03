@@ -1,3 +1,6 @@
+from .block_sparse_layout import (
+    BlockSparseLayout,
+)
 from .cutlass_int4_packed_layout import (
     CutlassInt4PackedLayout,
 )
@@ -36,6 +39,7 @@ from .uintx_layout import (
 
 __all__ = [
     "UintxLayout",
+    "BlockSparseLayout",
     "MarlinSparseLayout",
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
