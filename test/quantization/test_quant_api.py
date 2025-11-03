@@ -1122,6 +1122,41 @@ class TestFqnToConfig(TestCase):
             assert param.is_cuda
         self.assertLess(memory_streaming, memory_baseline)
 
+    from torchao.quantization.quant_api import (
+        CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS,
+    )
+
+    @common_utils.parametrize("config", CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS)
+    def test_fqn_to_config_supported_param_configs(self, config):
+        """Test that all supported parameter configs are in FqnToConfig."""
+
+        from torchao.utils import (
+            TorchAOBaseTensor,
+        )
+
+        torchao_tensor_types = (TorchAOBaseTensor, AffineQuantizedTensor)
+        m = ToyLinearModel(m=128, k=128, n=128)
+        m.linear1.register_parameter(
+            "custom_param_name", torch.nn.Parameter(torch.randn(m.linear1.weight.shape))
+        )
+        m = m.cuda().bfloat16()
+
+        fqn_config = FqnToConfig(
+            {
+                "linear1.custom_param_name": config(),
+                "linear1.weight": config(),
+                "linear2.weight": config(),
+            }
+        )
+
+        quantize_(m, fqn_config, filter_fn=None)
+
+        assert isinstance(m.linear1.custom_param_name.data, torchao_tensor_types)
+        assert isinstance(m.linear1.weight.data, torchao_tensor_types)
+        assert isinstance(m.linear2.weight.data, torchao_tensor_types)
+
+
+common_utils.instantiate_parametrized_tests(TestFqnToConfig)
 
 if __name__ == "__main__":
     unittest.main()
