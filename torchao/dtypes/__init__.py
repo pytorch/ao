@@ -1,3 +1,6 @@
+# Import BlockSparseLayout from prototype for backward compatibility
+from torchao.prototype.sparsity import BlockSparseLayout
+
 from . import affine_quantized_tensor_ops
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
@@ -13,10 +16,6 @@ from .floatx import (
     Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
-
-# Import BlockSparseLayout from prototype for backward compatibility
-from torchao.prototype.sparsity import BlockSparseLayout
-
 from .uintx import (
     CutlassInt4PackedLayout,
     Int4CPULayout,

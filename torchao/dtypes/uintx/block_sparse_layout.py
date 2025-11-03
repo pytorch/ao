@@ -16,8 +16,8 @@ warnings.warn(
 )
 
 from torchao.prototype.sparsity.block_sparse_layout import (
-    BlockSparseLayout,
-    BlockSparseAQTTensorImpl,
-    _linear_int8_act_int8_weight_block_sparse_check,
-    _linear_int8_act_int8_weight_block_sparse_impl,
+    BlockSparseAQTTensorImpl,  # noqa: F401
+    BlockSparseLayout,  # noqa: F401
+    _linear_int8_act_int8_weight_block_sparse_check,  # noqa: F401
+    _linear_int8_act_int8_weight_block_sparse_impl,  # noqa: F401
 )
