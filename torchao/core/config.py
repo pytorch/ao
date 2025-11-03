@@ -144,10 +144,11 @@ class ConfigJSONEncoder(json.JSONEncoder):
             return [self.encode_value(item) for item in o]
 
         elif isinstance(o, tuple):
-            raise NotImplementedError(
-                "Tuples will be serialized as List in JSON, so we recommend to use "
-                f"Lists instead to avoid surprises. got: {o}"
-            )
+            return [self.encode_value(item) for item in o]
+            # raise NotImplementedError(
+            #     "Tuples will be serialized as List in JSON, so we recommend to use "
+            #     f"Lists instead to avoid surprises. got: {o}"
+            # )
 
         if isinstance(o, dict):
             return {k: self.encode_value(v) for k, v in o.items()}
