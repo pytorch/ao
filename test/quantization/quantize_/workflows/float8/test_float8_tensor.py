@@ -18,6 +18,7 @@ from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
+    PerBlock,
     PerRow,
     PerTensor,
     quantize_,
@@ -30,6 +31,7 @@ from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    is_sm_at_least_100,
     torch_version_at_least,
 )
 
@@ -38,15 +40,37 @@ torch._dynamo.config.cache_size_limit = 128
 
 
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, bias):
         super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
+        self.linear1 = torch.nn.Linear(in_features, out_features, bias=bias)
+        self.linear2 = torch.nn.Linear(out_features, in_features, bias=bias)
 
     def forward(self, x):
         x = self.linear1(x)
         x = self.linear2(x)
         return x
+
+
+class ToyConvModel(torch.nn.Module):
+    def __init__(
+        self, dim, in_channels, out_channels, kernel_size, bias, padding, dtype, device
+    ):
+        super().__init__()
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        self.conv = convs[dim](
+            in_channels,
+            out_channels,
+            kernel_size,
+            bias=bias,
+            padding=padding,
+            dtype=dtype,
+            device=device,
+        )
+        if dim == 3:
+            self.conv = self.conv.to(memory_format=torch.channels_last_3d)
+
+    def forward(self, x):
+        return self.conv(x)
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
@@ -64,7 +88,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only"])
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "granularity",
+        [PerTensor(), PerRow(), (PerBlock((1, 128)), PerBlock((128, 128)))],
+    )
     @common_utils.parametrize(
         "kernel_preference",
         [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
@@ -74,9 +101,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         "sizes",
         [
             ((128,), 256, 128),
-            ((32, 128), 64, 256),
+            ((32, 128), 256, 512),
         ],
     )
+    @common_utils.parametrize("bias", [False, True])
+    @torch.no_grad()
     def test_fp8_linear_variants(
         self,
         dtype: torch.dtype,
@@ -85,14 +114,36 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         granularity,
         kernel_preference: KernelPreference,
         sizes: Tuple,
+        bias: bool,
     ):
-        if (
-            isinstance(granularity, PerTensor)
-            and kernel_preference == KernelPreference.FBGEMM
-        ):
-            return unittest.skip(
-                "per tensor with fbgemm kernel preferece does not work yet"
-            )
+        if isinstance(granularity, PerTensor):
+            if kernel_preference is KernelPreference.FBGEMM:
+                return unittest.skip(
+                    "per tensor with fbgemm kernel preference does not work yet"
+                )
+            elif mode == "weight-only":
+                return unittest.skip("unimplemented")
+
+        elif granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
+            if dtype is not torch.bfloat16:
+                return unittest.skip("unimplemented")
+            elif mode != "dynamic":
+                return unittest.skip("unimplemented")
+            elif kernel_preference not in (
+                KernelPreference.AUTO,
+                KernelPreference.TORCH,
+            ):
+                return unittest.skip("unimplemented")
+
+            if bias is True:
+                sizes_to_keep = ((128,), 256, 128)
+                if (
+                    sizes != sizes_to_keep
+                    or kernel_preference is not KernelPreference.TORCH
+                ):
+                    return unittest.skip(
+                        "cut down on number of options to save test time"
+                    )
 
         error_message = None
         if isinstance(granularity, PerRow):
@@ -122,7 +173,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+            model = ToyLinearModel(K, N, bias).eval().to(dtype).to("cuda")
 
             quantized_model = copy.deepcopy(model)
 
@@ -137,6 +188,20 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
             quantize_(quantized_model, config)
 
+            # ensure weight scaling is what we expect
+            qs1 = quantized_model.linear1.weight.scale
+            qs2 = quantized_model.linear2.weight.scale
+            if granularity == PerTensor():
+                assert qs1.shape == (1, 1)
+                assert qs2.shape == (1, 1)
+            elif granularity == PerRow():
+                assert qs1.shape == (N, 1)
+                assert qs2.shape == (K, 1)
+            else:
+                assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
+                assert qs1.shape == (N // 128, K // 128)
+                assert qs2.shape == (K // 128, N // 128)
+
             if compile:
                 quantized_model = torch.compile(quantized_model, fullgraph=True)
 
@@ -147,6 +212,85 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             assert compute_error(output_original, output_quantized) > 20, (
                 f"Quantization error is too high got a SQNR of {error}"
             )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("granularity", [PerTensor()])
+    @common_utils.parametrize("inference_mode", [True, False])
+    @common_utils.parametrize(
+        "kernel_preference",
+        [KernelPreference.AUTO],
+    )
+    # only test for 3D conv for now
+    # Inputs are (N, C_in, C_out, D, H, W)
+    @common_utils.parametrize(
+        "sizes",
+        [
+            (4, 16, 64, 32, 32, 32),
+        ],
+    )
+    def test_fp8_conv_variants(
+        self,
+        dtype: torch.dtype,
+        compile: bool,
+        granularity,
+        inference_mode: bool,
+        kernel_preference: KernelPreference,
+        sizes: Tuple,
+    ):
+        if (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_100()):
+            return unittest.skip(
+                "Requires fbgemm_gpu_genai and sm version >= 10.0 to run "
+                "fbgemm kernel preference test"
+            )
+
+        dim = 3
+        N, C_in, C_out, D, H, W = sizes
+        kernel_size = 3
+
+        # Note: this is channel last memory format
+        input_tensor = torch.randn(N, C_in, D, H, W, dtype=dtype, device="cuda")
+        input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+
+        # Create a linear layer with bfloat16 dtype
+        model = ToyConvModel(
+            dim,
+            C_in,
+            C_out,
+            kernel_size,
+            bias=False,
+            padding=0,
+            dtype=dtype,
+            device="cuda",
+        ).eval()
+
+        quantized_model = copy.deepcopy(model)
+
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+            kernel_preference=kernel_preference,
+        )
+
+        _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+
+        quantize_(quantized_model, config, filter_fn=_is_conv3d)
+
+        if compile:
+            quantized_model = torch.compile(quantized_model, fullgraph=True)
+
+        inference_mode_ctx = torch.inference_mode() if inference_mode else nullcontext()
+        with inference_mode_ctx:
+            output_original = model(input_tensor)
+            output_quantized = quantized_model(input_tensor)
+
+        error = compute_error(output_original, output_quantized)
+        assert compute_error(output_original, output_quantized) > 20, (
+            f"Quantization error is too high got a SQNR of {error}"
+        )
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(
@@ -231,7 +375,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype = torch.bfloat16
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         # Create a linear layer with bfloat16 dtype
-        model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+        model = ToyLinearModel(K, N, bias=False).eval().to(dtype).to("cuda")
 
         # reference kernel preference and results
         # we are using KerenelPreference.TORCH as the reference

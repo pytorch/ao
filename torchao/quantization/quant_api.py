@@ -62,6 +62,7 @@ from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
     _check_hardware_support,
+    _granularity_is_a_1_128_w_128_128,
     _normalize_granularity,
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
@@ -1778,12 +1779,25 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8DynamicActivationFloat8WeightConfig"
         )
-        if self.mm_config is None:
-            self.mm_config = Float8MMConfig(use_fast_accum=True)
         activation_granularity, weight_granularity = _normalize_granularity(
             self.granularity
         )
         self.granularity = [activation_granularity, weight_granularity]
+
+        default_use_fast_accum = True
+        if _granularity_is_a_1_128_w_128_128(self.granularity):
+            assert self.activation_value_lb is None, "unimplemented"
+            assert self.activation_value_ub is None, "unimplemented"
+            assert self.kernel_preference in (
+                KernelPreference.AUTO,
+                KernelPreference.TORCH,
+            ), "unimplemented"
+            assert self.mm_config is None, "unimplemented"
+            assert self.version >= 2, "unimplemented"
+            default_use_fast_accum = False
+
+        if self.mm_config is None:
+            self.mm_config = Float8MMConfig(use_fast_accum=default_use_fast_accum)
 
 
 # for bc
@@ -1805,7 +1819,12 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     _check_hardware_support(granularity)
     activation_granularity, weight_granularity = granularity
 
-    if not _fp8_mm_compat(weight):
+    if weight.dim() == 5:
+        # weights for conv3d
+        assert isinstance(activation_granularity, PerTensor) and isinstance(
+            weight_granularity, PerTensor
+        ), "5D tensor only supports per tensor activation and weight quantization"
+    elif not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight

@@ -15,12 +15,17 @@ from torchao.dtypes.utils import get_out_shape
 from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
+    _is_1_128_scaled,
+    _is_128_128_scaled,
     _is_rowwise_scaled,
     _is_tensorwise_scaled,
     _slice_scale_for_dimension,
     addmm_float8_unwrapped_inference,
     preprocess_data,
     preprocess_scale,
+)
+from torchao.kernel.blockwise_quantization import (
+    blockwise_fp8_gemm,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
@@ -39,6 +44,7 @@ from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     fill_defaults,
     is_sm_at_least_90,
+    is_sm_at_least_100,
 )
 
 __all__ = [
@@ -262,7 +268,7 @@ def _(func, types, args, kwargs):
     )
 
     act_quant_kwargs = weight_tensor.act_quant_kwargs
-    # quantizing activation, if `act_quant_kwargs` is specified
+    # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
         input_tensor = _choose_quant_func_and_quantize_tensor(
             input_tensor, act_quant_kwargs
@@ -273,7 +279,11 @@ def _(func, types, args, kwargs):
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
-            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
+            if (
+                _is_fbgemm_gpu_genai_available()
+                and is_sm_at_least_90()
+                and (not _is_128_128_scaled(weight_tensor))
+            ):
                 kernel_choice = "fbgemm"
         elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
             kernel_choice = "fbgemm"
@@ -290,6 +300,7 @@ def _(func, types, args, kwargs):
             assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
             mm_config = weight_tensor.mm_config
             assert mm_config is not None
+            assert not _is_128_128_scaled(weight_tensor), "unimplemented"
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
@@ -338,19 +349,41 @@ def _(func, types, args, kwargs):
                     "Input tensor must be rowwise block size"
                 )
                 w_scale = w_scale.transpose(-1, -2)
+            elif _is_128_128_scaled(weight_tensor):
+                assert _is_1_128_scaled(input_tensor), (
+                    "input_tensor must be 1x128 scaled"
+                )
+                w_scale = w_scale.transpose(-1, -2)
 
             input_scale = preprocess_scale(input_scale, input_tensor.shape)
             inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
-            return addmm_float8_unwrapped_inference(
-                inpt_data,
-                input_scale,
-                w_data,
-                w_scale,
-                output_dtype=input_tensor.dtype,
-                bias=bias,
-                use_fast_accum=scaled_mm_config.use_fast_accum,
-            ).reshape(out_shape)
+            if _is_128_128_scaled(weight_tensor):
+                # TODO(future PR): add testing for torch._scaled_mm with
+                # blockwise scaling on CUDA 12.9
+                # TODO(future PR): add fbgemm_gpu_genai path if available
+                # TODO(future PR): proper out_dtype handling
+                assert _is_1_128_scaled(input_tensor), "unsupported"
+                res = blockwise_fp8_gemm(
+                    inpt_data,
+                    input_scale,
+                    w_data.t(),
+                    w_scale.t(),
+                    block_size=128,
+                )
+                if bias is not None:
+                    res = res + bias
+            else:
+                res = addmm_float8_unwrapped_inference(
+                    inpt_data,
+                    input_scale,
+                    w_data,
+                    w_scale,
+                    output_dtype=input_tensor.dtype,
+                    bias=bias,
+                    use_fast_accum=scaled_mm_config.use_fast_accum,
+                )
+            return res.reshape(out_shape)
     else:
         assert not isinstance(input_tensor, TorchAOBaseTensor), (
             "Expecting input_tensor to be unquantized"
@@ -417,6 +450,125 @@ def _(func, types, args, kwargs):
         )
 
     return res
+
+
+def _quantize_and_scaled_conv3d(
+    input_tensor,
+    weight_tensor,
+    bias,
+    stride,
+    padding,
+    dilation,
+):
+    assert isinstance(weight_tensor, Float8Tensor), (
+        f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
+    )
+
+    assert input_tensor.dim() == 5 and weight_tensor.dim() == 5, (
+        "Only support 3D conv currently"
+    )
+    assert _is_fbgemm_gpu_genai_available(), (
+        "quantized fp8 conv3d requires fbgemm_gpu_genai to be available"
+    )
+    act_quant_kwargs = weight_tensor.act_quant_kwargs
+    # quantize activation, if `act_quant_kwargs` is specified
+    if act_quant_kwargs is not None:
+        input_tensor = _choose_quant_func_and_quantize_tensor(
+            input_tensor, act_quant_kwargs
+        )
+
+    if isinstance(input_tensor, Float8Tensor):
+        kernel_choice = None
+        if weight_tensor.kernel_preference == KernelPreference.AUTO:
+            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_100():
+                kernel_choice = "fbgemm"
+            else:
+                raise NotImplementedError(
+                    f"No available kernel choice for {weight_tensor.kernel_preference}"
+                )
+        elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
+            kernel_choice = "fbgemm"
+        else:
+            raise NotImplementedError(
+                f"No available kernel choice for {weight_tensor.kernel_preference}"
+            )
+
+    assert kernel_choice == "fbgemm", "Only fbgemm kernel choice is supported currently"
+    # move C_in to last dim
+    # after permute: (N, D, H, W, C_in)
+    act_qdata = input_tensor.qdata.permute([0, 2, 3, 4, 1])
+
+    # move C_in to last dim
+    # after permute: (C_out, K1, K2, K3, C_in)
+    weight_qdata = weight_tensor.qdata.permute([0, 2, 3, 4, 1])
+
+    assert act_qdata.is_contiguous() and weight_qdata.is_contiguous(), (
+        "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
+    )
+
+    act_scale = input_tensor.scale
+    weight_scale = weight_tensor.scale
+    output = torch.ops.fbgemm.f8f8bf16_conv(
+        act_qdata,
+        weight_qdata,
+        act_scale * weight_scale,
+        padding,
+        stride,
+        dilation,
+    )
+    # output shape after permute: N, C_out, D_out, H_out, W_out
+    output = output.permute([0, 4, 1, 2, 3])
+    return output
+
+
+@implements(aten.convolution.default)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        transposed,
+        output_padding,
+        groups,
+    ) = args
+    assert not transposed, "transposed conv is not supported currently"
+    assert tuple(output_padding) == (0, 0, 0), (
+        f"Only (0, 0, 0) is supported for `output_padding`, got: f{output_padding}"
+    )
+    assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
+    return _quantize_and_scaled_conv3d(
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+    )
+
+
+@implements(aten.conv3d.default)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        groups,
+    ) = fill_defaults(args, 7, [None, [1, 1, 1], [0, 0, 0], [1, 1, 1], 1])
+    assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
+    return _quantize_and_scaled_conv3d(
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+    )
 
 
 @implements(aten.slice.Tensor)
