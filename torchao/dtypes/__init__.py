@@ -28,11 +28,11 @@ from .uintx import (
     UintxLayout,
     to_marlinqqq_quantized_intx,
 )
+from .uintx.block_sparse_layout import BlockSparseLayout
 from .utils import (
     Layout,
     PlainLayout,
 )
-from .uintx.block_sparse_layout import BlockSparseLayout
 
 __all__ = [
     "NF4Tensor",
