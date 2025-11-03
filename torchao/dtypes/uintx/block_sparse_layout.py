@@ -8,7 +8,7 @@
 import warnings
 
 warnings.warn(
-    "Importing from torchao.dtypes.uintx.block_sparse_layout is deprecated. "
+    "Importing BlockSparseLayout from torchao.dtypes is deprecated. "
     "Please use 'from torchao.prototype.sparsity import BlockSparseLayout' instead. "
     "This import path will be removed in torchao v0.16.0.",
     DeprecationWarning,

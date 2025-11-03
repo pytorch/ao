@@ -253,7 +253,7 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
         quantize_(model_copy, Int8DynamicActivationInt8WeightConfig())
         reference = model_copy(input)
 
-        from torchao.dtypes import BlockSparseLayout
+        from torchao.prototype.sparsity import BlockSparseLayout
 
         quantize_(
             model,

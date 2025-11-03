@@ -14,10 +14,8 @@ from .floatx import (
 )
 from .nf4tensor import NF4Tensor, to_nf4
 
-# Import BlockSparseLayout from prototype for backward compatibility
-from torchao.prototype.sparsity import BlockSparseLayout
-
 from .uintx import (
+    BlockSparseLayout,
     CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
