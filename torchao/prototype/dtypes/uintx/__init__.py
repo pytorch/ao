@@ -9,4 +9,3 @@ from .block_sparse_layout import BlockSparseLayout
 __all__ = [
     "BlockSparseLayout",
 ]
-

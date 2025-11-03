@@ -9,4 +9,3 @@ from .uintx import BlockSparseLayout
 __all__ = [
     "BlockSparseLayout",
 ]
-
