@@ -13,7 +13,6 @@ from .floatx import (
     Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
-
 from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
