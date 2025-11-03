@@ -160,6 +160,7 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
+    "FqnToConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -479,7 +480,7 @@ def quantize_(
 
         for module_fqn, module in model.named_modules():
             if (
-                _fqn_matches_fqn_config(module_fqn, config)
+                fqn_matches_fqn_config(module_fqn, config)
                 or _module_param_matches_fqn_config(module, module_fqn, config)
                 or ("_default" in config.fqn_to_config and _is_linear(module))
             ):
@@ -1254,17 +1255,22 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(Int4WeightOnlyConfig)
 def _int4_weight_only_transform(
-    module: torch.nn.Module, config: Int4WeightOnlyConfig
+    module: torch.nn.Module,
+    config: Int4WeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying int8 weight only quant requires module to have weight attribute"
+    assert hasattr(module, parameter_name), (
+        "applying int8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
-    new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    new_weight = _int4_weight_only_quantize_tensor(
+        getattr(module, parameter_name), config
+    )
+    setattr(module, parameter_name, torch.nn.Parameter(new_weight, requires_grad=False))
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -2298,18 +2304,19 @@ def _intx_weight_only_transform(
     *,
     custom_scale: Optional[torch.Tensor] = None,
     custom_zero_point: Optional[torch.Tensor] = None,
+    parameter_name="weight",
 ) -> torch.nn.Module:
-    assert hasattr(module, "weight"), (
-        "applying intx weight only quant requires module to have weight attribute"
+    assert hasattr(module, parameter_name), (
+        "applying intx weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
     new_weight = _intx_weight_only_quantize_tensor(
-        module.weight,
+        getattr(module, parameter_name),
         config,
         custom_scale=custom_scale,
         custom_zero_point=custom_zero_point,
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    setattr(module, parameter_name, torch.nn.Parameter(new_weight, requires_grad=False))
 
     if isinstance(module, nn.Linear):
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
@@ -2446,6 +2453,8 @@ CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS = {
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     Int8WeightOnlyConfig,
+    Int4WeightOnlyConfig,
+    IntxWeightOnlyConfig,
 }
 
 
@@ -2541,7 +2550,7 @@ def _fqn_to_config_handler(
     return module
 
 
-def _fqn_matches_fqn_config(
+def fqn_matches_fqn_config(
     fqn: str,
     config: FqnToConfig,
 ):
@@ -2586,7 +2595,7 @@ def _module_param_matches_fqn_config(
     for name, param in module.named_parameters():
         if name in dir(module):
             parameter_fqn = f"{fqn}.{name}" if len(fqn) > 0 else name
-            if _fqn_matches_fqn_config(parameter_fqn, config):
+            if fqn_matches_fqn_config(parameter_fqn, config):
                 return True
 
     return False

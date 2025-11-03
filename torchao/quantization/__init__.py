@@ -69,6 +69,7 @@ from .quant_api import (
     float8_static_activation_float8_weight,
     float8_weight_only,
     fpx_weight_only,
+    fqn_matches_fqn_config,
     gemlite_uintx_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
@@ -221,4 +222,6 @@ __all__ = [
     "Int4WeightOnlyGPTQQuantizer",
     "MultiTensor",
     "MultiTensorInputRecorder",
+    # helper functions
+    "fqn_matches_fqn_config",
 ]
