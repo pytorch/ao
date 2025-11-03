@@ -14,7 +14,6 @@ from .floatx import (
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
-    BlockSparseLayout,
     CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
@@ -33,6 +32,7 @@ from .utils import (
     Layout,
     PlainLayout,
 )
+from .uintx.block_sparse_layout import BlockSparseLayout
 
 __all__ = [
     "NF4Tensor",
