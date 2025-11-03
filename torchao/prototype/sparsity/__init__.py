@@ -19,6 +19,11 @@ from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
     WeightNormSparsifier,
 )
 
+# Block Sparse Layout
+from torchao.prototype.sparsity.block_sparse_layout import (
+    BlockSparseLayout,
+)
+
 __all__ = [
     "BaseScheduler",
     "CubicSL",
@@ -30,4 +35,5 @@ __all__ = [
     "get_arg_info_from_tensor_fqn",
     "module_to_fqn",
     "WeightNormSparsifier",
+    "BlockSparseLayout",
 ]

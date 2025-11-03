@@ -15,3 +15,13 @@ torchao.sparsity
     apply_fake_sparsity
     WandaSparsifier
     PerChannelNormObserver
+
+Prototype
+---------
+.. currentmodule:: torchao.prototype.sparsity
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    BlockSparseLayout

@@ -22,7 +22,6 @@ Layouts and Tensor Subclasses
     FloatxTensor
     FloatxTensorCoreLayout
     MarlinSparseLayout
-    BlockSparseLayout
     UintxLayout
     MarlinQQQTensor
     MarlinQQQLayout
