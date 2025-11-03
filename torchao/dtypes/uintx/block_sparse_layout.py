@@ -8,23 +8,16 @@
 import warnings
 
 warnings.warn(
-    "Importing from torchao.dtypes.uintx.block_sparse_layout is deprecated. "
-    "Please use 'from torchao.prototype.sparsity import BlockSparseLayout' instead. "
+    "Importing BlockSparseLayout from torchao.dtypes is deprecated. "
+    "Please use 'from torchao.prototype.dtypes import BlockSparseLayout' instead. "
     "This import path will be removed in torchao v0.16.0.",
     DeprecationWarning,
     stacklevel=2,
 )
 
-from torchao.prototype.sparsity.block_sparse_layout import (
-    BlockSparseLayout,
-    BlockSparseAQTTensorImpl,
-    _linear_int8_act_int8_weight_block_sparse_check,
-    _linear_int8_act_int8_weight_block_sparse_impl,
+from torchao.prototype.dtypes.uintx.block_sparse_layout import (
+    BlockSparseAQTTensorImpl,  # noqa: F401
+    BlockSparseLayout,  # noqa: F401
+    _linear_int8_act_int8_weight_block_sparse_check,  # noqa: F401
+    _linear_int8_act_int8_weight_block_sparse_impl,  # noqa: F401
 )
-
-__all__ = [
-    "BlockSparseLayout",
-    "BlockSparseAQTTensorImpl",
-    "_linear_int8_act_int8_weight_block_sparse_check",
-    "_linear_int8_act_int8_weight_block_sparse_impl",
-]

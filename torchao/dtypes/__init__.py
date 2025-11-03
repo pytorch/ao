@@ -1,6 +1,3 @@
-# Import layouts from prototype for backward compatibility
-from torchao.prototype.dtypes import CutlassInt4PackedLayout
-
 from . import affine_quantized_tensor_ops
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
@@ -17,6 +14,8 @@ from .floatx import (
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
+    BlockSparseLayout,
+    CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
     Int8DynamicActInt4WeightCPULayout,

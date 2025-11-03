@@ -50,6 +50,7 @@ Prototype
     :toctree: generated/
     :nosignatures:
 
+    BlockSparseLayout
     CutlassInt4PackedLayout
 
 ..
