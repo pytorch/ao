@@ -14,7 +14,6 @@ from .floatx import (
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
-    CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
     Int8DynamicActInt4WeightCPULayout,
@@ -29,6 +28,7 @@ from .uintx import (
     to_marlinqqq_quantized_intx,
 )
 from .uintx.block_sparse_layout import BlockSparseLayout
+from .uintx.cutlass_int4_packed_layout import CutlassInt4PackedLayout
 from .utils import (
     Layout,
     PlainLayout,

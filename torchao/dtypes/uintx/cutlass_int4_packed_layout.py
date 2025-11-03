@@ -8,7 +8,7 @@
 import warnings
 
 warnings.warn(
-    "Importing from torchao.dtypes.uintx.cutlass_int4_packed_layout is deprecated. "
+    "Importing from torchao.dtypes is deprecated. "
     "Please use 'from torchao.prototype.dtypes import CutlassInt4PackedLayout' instead. "
     "This import path will be removed in torchao v0.16.0.",
     DeprecationWarning,
@@ -16,19 +16,10 @@ warnings.warn(
 )
 
 from torchao.prototype.dtypes.uintx.cutlass_int4_packed_layout import (  # noqa: F401
-    CutlassInt4PackedLayout,
-    Int4PackedTensorImpl,
-    _linear_int4_act_int4_weight_cutlass_check,
-    _linear_int4_act_int4_weight_cutlass_impl,
-    _linear_int8_act_int4_weight_cutlass_check,
-    _linear_int8_act_int4_weight_cutlass_impl,
+    CutlassInt4PackedLayout,  # noqa: F401
+    Int4PackedTensorImpl,  # noqa: F401
+    _linear_int4_act_int4_weight_cutlass_check,  # noqa: F401
+    _linear_int4_act_int4_weight_cutlass_impl,  # noqa: F401
+    _linear_int8_act_int4_weight_cutlass_check,  # noqa: F401
+    _linear_int8_act_int4_weight_cutlass_impl,  # noqa: F401
 )
-
-__all__ = [
-    "CutlassInt4PackedLayout",
-    "Int4PackedTensorImpl",
-    "_linear_int4_act_int4_weight_cutlass_check",
-    "_linear_int4_act_int4_weight_cutlass_impl",
-    "_linear_int8_act_int4_weight_cutlass_check",
-    "_linear_int8_act_int4_weight_cutlass_impl",
-]
