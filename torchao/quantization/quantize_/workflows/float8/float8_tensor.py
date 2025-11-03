@@ -202,13 +202,14 @@ class Float8Tensor(TorchAOBaseTensor):
             else:
                 maybe_hp_value_ub_tensor = None
             if isinstance(granularity, PerRow):
-                data, scale = torch.ops.triton.quantize_fp8_row(
-                    hp_tensor, scale_ub=maybe_hp_value_ub_tensor
-                )
-                scale_shape = []
-                for i in range(hp_tensor.ndim):
-                    scale_shape.append(hp_tensor.shape[i] // block_size[i])
-                scale = scale.reshape(*scale_shape)
+                with torch.cuda.device(hp_tensor.device):
+                    data, scale = torch.ops.triton.quantize_fp8_row(
+                        hp_tensor, scale_ub=maybe_hp_value_ub_tensor
+                    )
+                    scale_shape = []
+                    for i in range(hp_tensor.ndim):
+                        scale_shape.append(hp_tensor.shape[i] // block_size[i])
+                    scale = scale.reshape(*scale_shape)
             else:
                 assert isinstance(granularity, PerTensor), (
                     f"Expected per tensor, got {granularity}"

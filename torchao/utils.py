@@ -571,6 +571,9 @@ def _implements_common_tensor_ops(cls):
     def _(func, types, args, kwargs):
         self = args[0]
         src = args[1]
+        if type(self) is torch.Tensor and isinstance(src, TorchAOBaseTensor):
+            func(self, src.dequantize())
+            return
         if _same_metadata(self, src):
             self_tensors = self.__tensor_flatten__()[0]
             for tensor_name in self_tensors:

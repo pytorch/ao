@@ -485,7 +485,7 @@ def quantize_(
                 or ("_default" in config.fqn_to_config and _is_linear(module))
             ):
                 module_name = (
-                    module_fqn.rsplit(".", 1) if "." in module_fqn else module_fqn
+                    module_fqn.rsplit(".", 1)[0] if "." in module_fqn else module_fqn
                 )
                 # this replaces inplace, so no need to reassign
                 _fqn_to_config_handler(module, module_name, config)
