@@ -26,7 +26,6 @@ Layouts and Tensor Subclasses
     MarlinQQQTensor
     MarlinQQQLayout
     Int4CPULayout
-    CutlassInt4PackedLayout
     CutlassSemiSparseLayout
 
 Quantization techniques
@@ -42,6 +41,17 @@ Quantization techniques
     to_affine_quantized_floatx_static
     to_marlinqqq_quantized_intx
     to_nf4
+
+Prototype
+---------
+.. currentmodule:: torchao.prototype.dtypes
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    CutlassInt4PackedLayout
+
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring
   of torchao.dtypes.nf4tensor.NF4Tensor.dequantize_scalers:6:Unexpected indentation.
