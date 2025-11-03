@@ -90,7 +90,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
         "granularity",
-        [PerTensor(), PerRow(), (PerBlock((1, 128)), PerBlock((128, 128)))],
+        [PerTensor(), PerRow(), (PerBlock([1, 128]), PerBlock([128, 128]))],
     )
     @common_utils.parametrize(
         "kernel_preference",
@@ -124,7 +124,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             elif mode == "weight-only":
                 return unittest.skip("unimplemented")
 
-        elif granularity == (PerBlock((1, 128)), PerBlock((128, 128))):
+        elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
             if dtype is not torch.bfloat16:
                 return unittest.skip("unimplemented")
             elif mode != "dynamic":
@@ -198,7 +198,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 assert qs1.shape == (N, 1)
                 assert qs2.shape == (K, 1)
             else:
-                assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
+                assert granularity == (PerBlock([1, 128]), PerBlock([128, 128]))
                 assert qs1.shape == (N // 128, K // 128)
                 assert qs2.shape == (K // 128, N // 128)
 
