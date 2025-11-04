@@ -508,6 +508,36 @@ def _implements_common_tensor_ops(cls):
     implements_torch_function = cls.implements_torch_function
     aten = torch.ops.aten
 
+    @implements(torch.ops.aten.to.dtype_layout)
+    def _(func, types, args, kwargs):
+        # only support kwargs for now
+        assert len(args) == 1
+        self = args[0]
+        # only support dtype, layout, and device for now
+        for k in kwargs.keys():
+            assert k in ["dtype", "layout", "device"]
+        # only support same dtype and layout
+        # different dtype and layout has undefined behavior
+        if "dtype" in kwargs:
+            assert kwargs["dtype"] == self.dtype
+        if "layout" in kwargs:
+            assert kwargs["layout"] == self.layout
+        # if device is the same, treat this like a no-op
+        device = kwargs.get("device")
+        if device == self.device:
+            return self
+        new_tensor = args[0]._apply_fn_to_data(lambda x: func(x, device=device))
+        return return_and_correct_aliasing(func, args, kwargs, new_tensor)
+
+    # This is called during _apply() to see if we can shallow
+    # copy the content of one tensor into another. For now,
+    # we only allow shallow copy if both tensors are of the
+    # same type and have the same shape.
+    @implements_torch_function(torch._has_compatible_shallow_copy_type)
+    def _(func, types, args, kwargs):
+        assert len(args) == 2
+        return type(args[0]) == type(args[1]) and args[0].shape == args[1].shape
+
     @implements_torch_function(
         [
             torch.Tensor.contiguous,
