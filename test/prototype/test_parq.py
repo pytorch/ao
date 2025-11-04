@@ -588,11 +588,9 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
                 n for n, m in model.named_modules() if isinstance(m, nn.Embedding)
             }
             reg_param_names.add("_default")
-            module_fqn_to_config = (
-                model.config.quantization_config.quant_type.module_fqn_to_config
-            )
-            self.assertEqual(set(module_fqn_to_config.keys()), reg_param_names)
-            for torchao_config in module_fqn_to_config.values():
+            fqn_to_config = model.config.quantization_config.quant_type.fqn_to_config
+            self.assertEqual(set(fqn_to_config.keys()), reg_param_names)
+            for torchao_config in fqn_to_config.values():
                 self.assertTrue(isinstance(torchao_config, config.__class__))
 
 

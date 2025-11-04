@@ -52,6 +52,7 @@ from .quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -159,6 +160,7 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
+    "FqnToConfig",
     "ModuleFqnToConfig",
     # tensor subclasses
     "Int4Tensor",

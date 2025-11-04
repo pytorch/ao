@@ -34,6 +34,7 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
+    Float8Tensor,
     Int4TilePackedTo4dTensor,
     IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
@@ -44,6 +45,7 @@ from torchao.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -53,6 +55,8 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
+    PerRow,
+    PerTensor,
     Quantizer,
     TwoStepQuantizer,
     UIntXWeightOnlyConfig,
@@ -616,7 +620,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
@@ -630,7 +634,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
@@ -642,10 +646,10 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
-        config = ModuleFqnToConfig({"re:linear.*": config1})
+        config = ModuleFqnToConfig({"re:linear.": config1})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
@@ -659,10 +663,10 @@ class TestQuantFlow(TestCase):
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
         config2 = IntxWeightOnlyConfig()
-        config = ModuleFqnToConfig({"linear1": config1, "re:linear.*": config2})
+        config = ModuleFqnToConfig({"linear1": config1, "re:linear.": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
@@ -678,10 +682,10 @@ class TestQuantFlow(TestCase):
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
         config2 = IntxWeightOnlyConfig()
-        config = ModuleFqnToConfig({"re:linear.*": config2, "linear1": config1})
+        config = ModuleFqnToConfig({"re:linear.": config2, "linear1": config1})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
@@ -717,19 +721,23 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
-        config2 = IntxWeightOnlyConfig()
-        config = ModuleFqnToConfig({"re:linear.*": config2, "linear1": config1})
+        config2 = Float8WeightOnlyConfig()
+        config = ModuleFqnToConfig(
+            {
+                "re:linear.*": config2,
+                "linear1": config1,
+                "linear3_full_match.bias": None,
+            }
+        )
         model = M(dtype=torch.bfloat16, device="cuda")
         example_inputs = model.example_inputs()
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         # since fqn does not fully match `linear*`, it should not be quantized
-        assert not isinstance(
-            model.not_full_match_linear2.weight, IntxUnpackedToInt8Tensor
-        )
+        assert not isinstance(model.not_full_match_linear2.weight, Float8Tensor)
         # linear3_full_match matches `linear*`, so should be quantized
-        assert isinstance(model.linear3_full_match.weight, IntxUnpackedToInt8Tensor)
+        assert isinstance(model.linear3_full_match.weight, Float8Tensor)
 
     def test_module_fqn_to_config_embedding_linear(self):
         weight_dtype = torch.int8
@@ -752,12 +760,7 @@ class TestQuantFlow(TestCase):
         example_inputs = (indices,)
         model = TestHelperModules.EmbeddingConvLinearModule().eval()
         model(*example_inputs)
-        quantize_(
-            model,
-            config,
-            filter_fn=lambda x, fqn: isinstance(x, torch.nn.Linear)
-            or isinstance(x, torch.nn.Embedding),
-        )
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
 
         assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
@@ -769,7 +772,7 @@ class TestQuantFlow(TestCase):
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
-        quantize_(model, config)
+        quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
@@ -846,6 +849,285 @@ class TestQuantFlow(TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
+class TestFqnToConfig(TestCase):
+    def test_quantize_param_fqn_exact(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                "experts.gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+
+    def test_quantize_param_fqn_regex(self):
+        from transformers import AutoConfig
+        from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+
+        config = AutoConfig.from_pretrained(
+            "unsloth/Llama-4-Scout-17B-16E-Instruct"
+        ).text_config
+        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+
+        quant_config = FqnToConfig(
+            {
+                "re:.*gate_up_proj": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+
+        assert isinstance(model.experts.gate_up_proj, Float8Tensor)
+
+    def test_quantize_fqn_precedence_param_over_module(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+
+        quant_config = FqnToConfig(
+            {
+                "linear1": None,
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+
+    def test_quantize_fqn_precedence_param_over_module_regex(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*": None,
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+
+    def test_quantize_fqn_precedence_param_regex_over_module_regex(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*": None,
+                "re:linear.*.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+
+    def test_quantize_fqn_precedence_module_over_param_regex(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*.weight": None,
+                "linear1": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+        assert not isinstance(model.linear2.weight, Float8Tensor)
+
+    def test_quantize_fqn_precedence_param_over_default(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+
+        quant_config = FqnToConfig(
+            {
+                "linear2.weight": None,
+                "_default": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+        assert not isinstance(model.linear2.weight, Float8Tensor)
+
+    def test_quantize_fqn_precedence_param_regex_over_default(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+
+        quant_config = FqnToConfig(
+            {
+                "re:linear.*.weight": None,
+                "_default": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                ),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+        assert not isinstance(model.linear2.weight, Float8Tensor)
+        assert not isinstance(model.linear1.weight, Float8Tensor)
+
+    def test_quantize_model_same_module_different_param(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+        model.linear1.register_parameter(
+            "weight2", torch.nn.Parameter(model.linear1.weight.clone())
+        )
+        quant_config = FqnToConfig(
+            {
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+                "linear1.weight2": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                ),
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+        assert isinstance(model.linear1.weight2, Float8Tensor)
+        assert model.linear1.weight2.scale.numel() == 32
+
+    def test_quantize_model_same_module_different_param_regex(self):
+        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+        quant_config = FqnToConfig(
+            {
+                "re:.*weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+                "re:.*bias": None,
+            }
+        )
+
+        quantize_(
+            model,
+            quant_config,
+            filter_fn=None,
+        )
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert model.linear1.weight.scale.numel() == 1
+        assert not isinstance(model.linear1.bias, Float8Tensor)
+        assert isinstance(model.linear2.weight, Float8Tensor)
+        assert model.linear2.weight.scale.numel() == 1
+        assert not isinstance(model.linear2.bias, Float8Tensor)
+
+    def test_unsupported_param_config_raises_not_implemented_error(self):
+        """Test that using an unsupported parameter config raises NotImplementedError."""
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "0.weight": Int4WeightOnlyConfig(),
+            }
+        )
+
+        # This should raise NotImplementedError
+        with self.assertRaises(NotImplementedError):
+            quantize_(model, quant_config, filter_fn=None)
+
+    def test_filter_fn_and_fqn_to_config_error(self):
+        """Test that specifying non-default filter_fn and FqnToConfig raises ValueError."""
+
+        # Create a simple model
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+
+        # Create config with unsupported parameter handler
+        quant_config = FqnToConfig(
+            {
+                "0.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        # This should raise ValueError
+        with self.assertRaises(ValueError):
+            quantize_(model, quant_config, filter_fn=lambda mod, fqn: True)
+
+    def test_top_level_param(self):
+        model = torch.nn.Linear(16, 16).cuda().bfloat16()
+
+        quant_config = FqnToConfig(
+            {
+                "weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor()
+                )
+            }
+        )
+
+        quantize_(model, quant_config, filter_fn=None)
+
+        assert isinstance(model.weight, Float8Tensor)
+        assert model.weight.scale.numel() == 1
+
+    def test_non_fqn_config_filter_fn_none(self):
+        model = torch.nn.Linear(16, 16).cuda().bfloat16()
+        quant_config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerTensor()
+        )
+
+        quantize_(model, quant_config, filter_fn=None)
+        assert isinstance(model.weight, Float8Tensor)
+        assert model.weight.scale.numel() == 1
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_quantized_model_streaming_fqn_config(self):
+        def reset_memory():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+
+        quant_config = FqnToConfig({"_default": Int8WeightOnlyConfig()})
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m.to(device="cuda"), quant_config, filter_fn=None)
+        memory_baseline = torch.cuda.max_memory_allocated()
+
+        del m
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m, quant_config, device="cuda", filter_fn=None)
+        memory_streaming = torch.cuda.max_memory_allocated()
+
+        for param in m.parameters():
+            assert param.is_cuda
+        self.assertLess(memory_streaming, memory_baseline)
 
 
 if __name__ == "__main__":
