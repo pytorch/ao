@@ -143,10 +143,11 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         qdata_fp = self.qdata.to(output_dtype)
-        # Reshape scale to broadcast if granularity is block-wise
-        scale_expanded = _maybe_expand_scale_to_tensor_shape(
-            self.scale, self.qdata.shape
-        )
+        scale = self.scale
+        while scale.ndim < qdata_fp.ndim:
+            scale = scale.unsqueeze(-1)
+
+        scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, qdata_fp.shape)
         return qdata_fp * scale_expanded.to(output_dtype)
 
 
@@ -276,16 +277,19 @@ def _(func, types, args, kwargs):
     self, dim, index = args
     assert dim == 0, f"Only dim=0 supported, got {dim}"
 
-    selected_scale = self.scale if self.scale.ndim == 0 else self.scale[index]
+    selected_qdata = self.qdata[index]
+    selected_scale = _slice_scale_for_dimension(
+        self.scale, self.qdata.shape, dim, index, index + 1, step=1
+    ).squeeze(0)
 
     return return_and_correct_aliasing(
         func,
         args,
         kwargs,
         Int8Tensor(
-            self.qdata[index],
+            selected_qdata,
             selected_scale,
-            self.block_size[1:],
+            [selected_qdata.shape[-1]],
             self.act_quant_kwargs,
             self.dtype,
         ),

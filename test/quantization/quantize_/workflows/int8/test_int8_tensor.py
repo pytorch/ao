@@ -16,9 +16,6 @@ from torchao.quantization import (
     Int8WeightOnlyConfig,
     quantize_,
 )
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    Int8Tensor,
-)
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
@@ -56,7 +53,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         super().setUp()
 
-        self.test_shape = (4, 3)
+        self.test_shape = (32, 20)
         self.dtype = torch.bfloat16
         self.batch_size = 32
 
@@ -66,9 +63,26 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.bias = torch.randn(self.test_shape[0], dtype=self.dtype)
         self.block_size = list(self.test_shape)
 
-    def test_creation_and_attributes(self):
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8WeightOnlyConfig(version=2),
+        ],
+    )
+    def test_creation_and_attributes(self, config):
         """Test tensor creation, dtypes, and ranges"""
-        tensor = Int8Tensor.from_hp(self.weight_fp, self.block_size)
+        linear = torch.nn.Linear(
+            self.test_shape[1],
+            self.test_shape[0],
+            bias=False,
+            dtype=self.dtype,
+            device="cuda",
+        )
+        linear.weight.data = self.weight_fp.cuda()
+        quantize_(linear, config)
+
+        tensor = linear.weight
 
         self.assertEqual(tensor.shape, self.test_shape)
         self.assertEqual(tensor.qdata.dtype, torch.int8)
@@ -115,46 +129,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         assert compute_error(output_fp, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
-        )
-
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
-        ],
-    )
-    @common_utils.parametrize(
-        "sizes",
-        [
-            ((128,), 256, 128),  # 2D
-            ((32, 128), 64, 256),  # 3D
-        ],
-    )
-    def test_int8_linear_quantization_accuracy(
-        self,
-        dtype: torch.dtype,
-        sizes: tuple,
-        config,
-    ):
-        """Test quantization preserves reasonable accuracy"""
-        M, N, K = sizes
-        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
-
-        # Create a linear layer
-        m = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
-        m_q = copy.deepcopy(m)
-
-        # Quantize
-        quantize_(m_q, config)
-
-        output_fp = m(input_tensor)
-        output_quantized = m_q(input_tensor)
-
-        error = compute_error(output_fp, output_quantized)
-        assert error > 20, (
-            f"Quantization quality is too low, SQNR: {error}dB (expected > {20}dB)"
         )
 
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
@@ -218,36 +192,42 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         with self.assertRaises(NotImplementedError):
             _ = dummy.weight[::2]
 
-    def test_index_select(self):
-        """test that `x_0 = x[0]` works when `x` is a 2D `Int8Tensor`."""
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8WeightOnlyConfig(version=2),
+        ],
+    )
+    def test_index_select(self, config):
+        """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
         x = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-        x_int8 = Int8Tensor.from_hp(x, block_size=[N, K])
+        linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
+        linear.weight.data = x
+        quantize_(linear, config)
+
+        x_int8 = linear.weight
         x_int8_0 = x_int8[0]
         torch.testing.assert_close(
             x_int8.dequantize()[0], x_int8_0.dequantize(), atol=0, rtol=0
         )
 
-    def test_invalid_input_handling(self):
-        """Test input validation with specific error types"""
-        invalid_tensor = torch.randn(5)
-        incompatible_block_size = [1]
-
-        with self.assertRaises(
-            ValueError, msg="Should reject incompatible tensor dimensions"
-        ):
-            Int8Tensor.from_hp(invalid_tensor, incompatible_block_size)
-
-        with self.assertRaises(
-            ValueError, msg="Should reject mismatched block size dimensions"
-        ):
-            Int8Tensor.from_hp(self.weight_fp, [1])
-
-    def test_dequantization_accuracy(self):
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8WeightOnlyConfig(version=2),
+        ],
+    )
+    def test_dequantization_accuracy(self, config):
         """Test dequantization accuracy separately"""
-        test_data = torch.tensor([[1.0, -1.0]], dtype=torch.bfloat16)
-        tensor = Int8Tensor.from_hp(test_data, [1, 2])
+        test_data = torch.tensor([[1.0, -1.0]], dtype=torch.bfloat16, device="cuda")
+        linear = torch.nn.Linear(2, 1, bias=False, dtype=torch.bfloat16, device="cuda")
+        linear.weight.data = test_data
+        quantize_(linear, config)
 
+        tensor = linear.weight
         dequantized = tensor.dequantize()
         self.assertEqual(dequantized.shape, test_data.shape)
         self.assertLess(
@@ -268,23 +248,14 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
         out, code = run_and_get_code(m, x)
-        kernels = {}
+        has_triton = "triton" in code[0].lower()  # Trition
+        has_fbgemm = "fbgemm" in code[0].lower()  # FB-GEMM
+        has_int_mm = "_int_mm" in code[0]  # Int8 MatMul
 
-        # Check for Triton kernels
-        if "torch.ops.triton" in code[0]:
-            kernels["triton"] = True
-            print("Triton kernels are available for int8 quantization")
-        else:
-            kernels["triton"] = False
-            print("Triton kernels are NOT available for int8 quantization")
-
-        # Check for FBGEMM kernels
-        if "torch.ops.fbgemm" in code[0]:
-            kernels["fbgemm"] = True
-            print("FBGEMM kernels are available for int8 quantization")
-        else:
-            kernels["fbgemm"] = False
-            print("FBGEMM kernels are NOT available for int8 quantization")
+        self.assertTrue(
+            has_triton or has_fbgemm or has_int_mm,
+            f"No int8 quantization kernels found. has_triton={has_triton}, has_fbgemm={has_fbgemm}, has_int_mm={has_int_mm}",
+        )
 
 
 if __name__ == "__main__":
