@@ -18,6 +18,7 @@ from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
+    Granularity,
     PerBlock,
     PerRow,
     PerTensor,
@@ -42,6 +43,8 @@ torch._dynamo.config.cache_size_limit = 128
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, in_features, out_features, bias):
         super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
         self.linear1 = torch.nn.Linear(in_features, out_features, bias=bias)
         self.linear2 = torch.nn.Linear(out_features, in_features, bias=bias)
 
@@ -49,6 +52,21 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear1(x)
         x = self.linear2(x)
         return x
+
+    def check_weight_scaling(self, granularity: Granularity):
+        qs1 = self.linear1.weight.scale
+        qs2 = self.linear2.weight.scale
+        N, K = (self.out_features, self.in_features)
+        if granularity == PerTensor():
+            assert qs1.shape == (1, 1)
+            assert qs2.shape == (1, 1)
+        elif granularity == PerRow():
+            assert qs1.shape == (N, 1)
+            assert qs2.shape == (K, 1)
+        else:
+            assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
+            assert qs1.shape == (N // 128, K // 128)
+            assert qs2.shape == (K // 128, N // 128)
 
 
 class ToyConvModel(torch.nn.Module):
@@ -71,6 +89,37 @@ class ToyConvModel(torch.nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class ToyLoRAModel(torch.nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        lora_rank: int,
+    ):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.linear = torch.nn.Linear(in_features, out_features, bias=False)
+        self.lora_A = torch.nn.Parameter(torch.randn(in_features, lora_rank))
+        self.lora_B = torch.nn.Parameter(torch.randn(lora_rank, out_features))
+
+    def forward(self, x):
+        matmul_out = torch.matmul(x, self.linear.weight.t())
+        lora_out = x @ self.lora_A @ self.lora_B
+        return matmul_out + lora_out
+
+    def check_weight_scaling(self, granularity: Granularity):
+        qs = self.linear.weight.scale
+        N, K = (self.out_features, self.in_features)
+        if granularity == PerTensor():
+            assert qs.shape == (1, 1)
+        elif granularity == PerRow():
+            assert qs.shape == (N, 1)
+        else:
+            assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
+            assert qs.shape == (N // 128, K // 128)
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
@@ -112,10 +161,74 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype: torch.dtype,
         mode: str,
         compile: bool,
-        granularity,
+        granularity: Granularity,
         kernel_preference: KernelPreference,
         sizes: Tuple,
         bias: bool,
+    ):
+        _, N, K = sizes
+        self._test_fp8_matmul_model(
+            dtype,
+            mode,
+            compile,
+            granularity,
+            kernel_preference,
+            sizes,
+            bias,
+            ToyLinearModel(K, N, bias),
+        )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("mode", ["dynamic", "weight-only"])
+    @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "kernel_preference",
+        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+    )
+    # Inputs are (M,..), K, N
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    def test_fp8_matmul_lora_variants(
+        self,
+        dtype: torch.dtype,
+        mode: str,
+        compile: bool,
+        granularity: Granularity,
+        kernel_preference: KernelPreference,
+        sizes: Tuple,
+    ):
+        _, N, K = sizes
+        self._test_fp8_matmul_model(
+            dtype,
+            mode,
+            compile,
+            granularity,
+            kernel_preference,
+            sizes,
+            bias=False,
+            model=ToyLoRAModel(K, N, lora_rank=8),
+        )
+
+    def _test_fp8_matmul_model(
+        self,
+        dtype: torch.dtype,
+        mode: str,
+        compile: bool,
+        granularity: Granularity,
+        kernel_preference: KernelPreference,
+        sizes: Tuple,
+        bias: bool,
+        model: torch.nn.Module,
     ):
         if isinstance(granularity, PerTensor):
             if kernel_preference is KernelPreference.FBGEMM:
@@ -172,9 +285,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         with error_context:
             M, N, K = sizes
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
-
-            # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N, bias).eval().to(dtype).to("cuda")
+            model = model.eval().to(dtype).to("cuda")
 
             quantized_model = copy.deepcopy(model)
 
@@ -190,18 +301,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             quantize_(quantized_model, config)
 
             # ensure weight scaling is what we expect
-            qs1 = quantized_model.linear1.weight.scale
-            qs2 = quantized_model.linear2.weight.scale
-            if granularity == PerTensor():
-                assert qs1.shape == (1, 1)
-                assert qs2.shape == (1, 1)
-            elif granularity == PerRow():
-                assert qs1.shape == (N, 1)
-                assert qs2.shape == (K, 1)
-            else:
-                assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
-                assert qs1.shape == (N // 128, K // 128)
-                assert qs2.shape == (K // 128, N // 128)
+            quantized_model.check_weight_scaling(granularity)
 
             if compile:
                 quantized_model = torch.compile(quantized_model, fullgraph=True)
@@ -800,6 +900,38 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sliced_dequantized = sliced_tensor.dequantize()
 
         self.assertEqual(sliced_dequantized, sliced_original)
+
+    def test_to_dtype_layout(self):
+        x = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        y_fp8 = torch.ops.aten.to.dtype_layout(
+            x_fp8, dtype=x_fp8.dtype, layout=x_fp8.layout, device="cpu"
+        )
+        self.assertEqual(y_fp8.dtype, x_fp8.dtype)
+        self.assertEqual(y_fp8.layout, x_fp8.layout)
+        self.assertEqual(y_fp8.device, torch.device("cpu"))
+
+    def test_has_compatible_shallow_copy_type(self):
+        x1 = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x2 = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x3 = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+        x1_fp8 = Float8Tensor.from_hp(x1)
+        x2_fp8 = Float8Tensor.from_hp(x2)
+        x3_fp8 = Float8Tensor.from_hp(x3)
+        self.assertFalse(torch._has_compatible_shallow_copy_type(x1, x2_fp8))
+        self.assertFalse(torch._has_compatible_shallow_copy_type(x1_fp8, x2))
+        self.assertTrue(torch._has_compatible_shallow_copy_type(x1_fp8, x2_fp8))
+        # Wrong shape
+        self.assertFalse(torch._has_compatible_shallow_copy_type(x1_fp8, x3_fp8))
+
+    def test_transpose(self):
+        x = torch.randn(128, 512, device="cuda", dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        x_fp8_t = x_fp8.t()
+        torch.testing.assert_close(x_fp8_t.qdata, x_fp8.qdata.t(), atol=0, rtol=0)
+        torch.testing.assert_close(x_fp8_t.scale, x_fp8.scale.t(), atol=0, rtol=0)
+        self.assertEqual(x_fp8.block_size, (1, 512), atol=0, rtol=0)
+        self.assertEqual(x_fp8_t.block_size, (512, 1), atol=0, rtol=0)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

@@ -254,14 +254,49 @@ implements = Float8Tensor.implements
 implements_torch_function = Float8Tensor.implements_torch_function
 
 
-@implements([aten.linear.default])
-@implements_torch_function([torch.nn.functional.linear])
+@implements(aten.linear.default)
+@implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
         args[2] if len(args) > 2 else None,
     )
+    return _float8_mm_impl(input_tensor, weight_tensor.t(), bias)
+
+
+@implements(aten.matmul.default)
+@implements_torch_function(torch.matmul)
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = args[0], args[1]
+    return _float8_mm_impl(input_tensor, weight_tensor)
+
+
+@implements(aten.mm.default)
+@implements_torch_function(torch.mm)
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor = args[0], args[1]
+    return _float8_mm_impl(input_tensor, weight_tensor)
+
+
+@implements(aten.addmm_.default)
+def _(func, types, args, kwargs):
+    bias_tensor, input_tensor, weight_tensor = (
+        args[0],
+        args[1],
+        args[2],
+    )
+    assert kwargs.get("alpha", 1) == 1, "only alpha=1 is supported"
+    assert kwargs.get("beta", 1) == 1, "only beta=1 is supported"
+    out = _float8_mm_impl(input_tensor, weight_tensor)
+    return bias_tensor.add_(out)
+
+
+def _float8_mm_impl(
+    input_tensor: Float8Tensor,
+    weight_tensor: Float8Tensor,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     assert isinstance(weight_tensor, Float8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
@@ -269,6 +304,9 @@ def _(func, types, args, kwargs):
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
+        assert not isinstance(input_tensor, TorchAOBaseTensor), (
+            "input tensor was already quantized"
+        )
         input_tensor = _choose_quant_func_and_quantize_tensor(
             input_tensor, act_quant_kwargs
         )
@@ -300,6 +338,7 @@ def _(func, types, args, kwargs):
             mm_config = weight_tensor.mm_config
             assert mm_config is not None
             assert not _is_128_128_scaled(weight_tensor), "unimplemented"
+            weight_tensor = weight_tensor.t()
 
             out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
@@ -334,7 +373,7 @@ def _(func, types, args, kwargs):
             assert kernel_choice == "torch"
             scaled_mm_config = weight_tensor.mm_config
             assert scaled_mm_config is not None
-            out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
+            out_shape = (*input_tensor.shape[:-1], weight_tensor.shape[1])
 
             # Extract tensor data and scales
             inpt_data = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
@@ -342,20 +381,17 @@ def _(func, types, args, kwargs):
             input_scale = input_tensor.scale
             w_scale = weight_tensor.scale
 
-            # Handle rowwise scaling
             if _is_rowwise_scaled(weight_tensor):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
-                w_scale = w_scale.transpose(-1, -2)
             elif _is_128_128_scaled(weight_tensor):
                 assert _is_1_128_scaled(input_tensor), (
                     "input_tensor must be 1x128 scaled"
                 )
-                w_scale = w_scale.transpose(-1, -2)
 
             input_scale = preprocess_scale(input_scale, input_tensor.shape)
-            inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
+            inpt_data, w_data = preprocess_data(inpt_data, w_data, scaled_mm_config)
 
             if _is_128_128_scaled(weight_tensor):
                 # TODO(future PR): add testing for torch._scaled_mm with
@@ -389,9 +425,11 @@ def _(func, types, args, kwargs):
         )
         # when input is not `Float8Tensor`, we expect that it is not quantized
         # so this is float8 weight only quantization
-        return torch.nn.functional.linear(
-            input_tensor, weight_tensor.dequantize(), bias
-        )
+        out = torch.matmul(input_tensor, weight_tensor.dequantize())
+        if bias is not None:
+            return out + bias
+        else:
+            return out
 
 
 @implements_torch_function(torch.bmm)
@@ -709,6 +747,7 @@ def _(func, types, args, kwargs):
         assert original_shape[-1] == size[-1], (
             f"Only support reshaping when last dimension matches, requested: reshaping from {original_shape} to {size}"
         )
+        # TODO: this seems wrong, we should merge the first two dimensions instead
         qdata = self.qdata.reshape(*size)
         scale = self.scale.reshape(*size)
         block_size = self.block_size.copy()
@@ -815,6 +854,23 @@ def _(func, types, args, kwargs):
         self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.t.default)
+def _(func, types, args, kwargs):
+    assert len(args) == 1
+    self = args[0]
+    assert len(self.block_size) == 2
+    new_tensor = self.__class__(
+        self.qdata.t(),
+        self.scale.t(),
+        (self.block_size[1], self.block_size[0]),
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
 
 Float8Tensor.__module__ = "torchao.quantization"
