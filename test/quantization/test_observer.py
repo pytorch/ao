@@ -187,6 +187,7 @@ class TestQuantFlow(TestCase):
         obs(example_input)
         obs.set_qparams(torch.ones(2048))
         scale, zero_point = obs.calculate_qparams()
+        print("scale", scale)
         self.assertTrue(torch.allclose(scale, torch.ones(2048)))
 
 

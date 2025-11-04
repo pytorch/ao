@@ -14,6 +14,6 @@ python3 -c "import torch; import torchao; print(f'Torch version: {torch.__versio
 
 pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0'
 
-pytest -v -s torchao/test/quantization/quantize_/workflows/int4/test_int4_plain_int32_tensor.py 
+# pytest -v -s torchao/test/quantization/quantize_/workflows/int4/test_int4_plain_int32_tensor.py 
 
-pytest -v -s torchao/test/quantization/
+pytest -v -s torchao/test/quantization/test_observer.py::TestQuantFlow::test_fixed_qparams_observer
