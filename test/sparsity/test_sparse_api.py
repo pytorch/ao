@@ -267,6 +267,33 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
 
         torch.testing.assert_close(reference, sparse_result, rtol=1e-1, atol=1e-1)
 
+    # TODO: Remove this test once the deprecated API has been removed
+    def test_sparse_deprecated(self):
+        import sys
+        import warnings
+
+        # We need to clear the cache to force re-importing and trigger the warning again.
+        modules_to_clear = [
+            "torchao.dtypes.uintx.block_sparse_layout",
+            "torchao.dtypes",
+        ]
+        for mod in modules_to_clear:
+            if mod in sys.modules:
+                del sys.modules[mod]
+
+        with warnings.catch_warnings(record=True) as w:
+            from torchao.dtypes import BlockSparseLayout  # noqa: F401
+
+            warnings.simplefilter("always")  # Ensure all warnings are captured
+            self.assertTrue(
+                any(
+                    issubclass(warning.category, DeprecationWarning)
+                    and "BlockSparseLayout" in str(warning.message)
+                    for warning in w
+                ),
+                f"Expected deprecation warning for BlockSparseLayout, got: {[str(w.message) for w in w]}",
+            )
+
 
 common_utils.instantiate_parametrized_tests(TestSemiStructuredSparse)
 common_utils.instantiate_parametrized_tests(TestQuantSemiSparse)
