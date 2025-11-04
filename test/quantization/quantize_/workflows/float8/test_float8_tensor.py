@@ -80,6 +80,7 @@ class ToyConvModel(torch.nn.Module):
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         self.GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
+        torch.set_grad_enabled(False)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
