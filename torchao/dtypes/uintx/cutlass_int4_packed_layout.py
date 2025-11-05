@@ -10,7 +10,7 @@ import warnings
 warnings.warn(
     "Importing from torchao.dtypes is deprecated. "
     "Please use 'from torchao.prototype.dtypes import CutlassInt4PackedLayout' instead. "
-    "This import path will be removed in torchao v0.16.0. "
+    "This import path will be removed in a future torchao release. "
     "Please check issue: https://github.com/pytorch/ao/issues/2752 for more details. ",
     DeprecationWarning,
     stacklevel=2,
