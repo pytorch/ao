@@ -10,7 +10,7 @@ import warnings
 warnings.warn(
     "Importing BlockSparseLayout from torchao.dtypes is deprecated. "
     "Please use 'from torchao.prototype.dtypes import BlockSparseLayout' instead. "
-    "This import path will be removed in torchao v0.16.0. "
+    "This import path will be removed in future torchao releases. "
     "Please check issue: https://github.com/pytorch/ao/issues/2752 for more details. ",
     DeprecationWarning,
     stacklevel=2,
