@@ -238,7 +238,7 @@ def create_model_and_input_data(
     """
     if model_type == "linear":
         model = ToySingleLinearModel(k, n, device=device, dtype=high_precision_dtype)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
+        input_data = model.example_inputs(batch_size=m)[0]
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string
         match = re.search(r"ln_linear_?(\w+)?", model_type)
