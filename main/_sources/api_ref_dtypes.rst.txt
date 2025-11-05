@@ -26,7 +26,6 @@ Layouts and Tensor Subclasses
     MarlinQQQTensor
     MarlinQQQLayout
     Int4CPULayout
-    CutlassInt4PackedLayout
     CutlassSemiSparseLayout
 
 Quantization techniques
@@ -52,6 +51,7 @@ Prototype
     :nosignatures:
 
     BlockSparseLayout
+    CutlassInt4PackedLayout
 
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring
