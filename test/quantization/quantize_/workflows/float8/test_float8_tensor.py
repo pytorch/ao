@@ -444,25 +444,27 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         # only support per row quantization
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 
-        class M(torch.nn.Module):
+        class Model(torch.nn.Module):
             def __init__(self, weight):
                 super().__init__()
                 self.weight = weight
 
             def forward(self, x):
-                return torch.bmm(x, self.weight)
+                return torch.bmm(x, self.weight.transpose(-2, -1))
 
         dtype = torch.bfloat16
         device = "cuda"
-        input = torch.randn(10, 32, 128, dtype=dtype, device=device)
-        weight = torch.randn(10, 128, 256, dtype=dtype, device=device)
-        m = M(weight).eval()
+
+        B, M, K, N = 10, 32, 128, 256
+
+        input = torch.randn(B, M, K, dtype=dtype, device=device)
+        weight = torch.randn(B, N, K, dtype=dtype, device=device)
+        m = Model(weight).eval()
         original = m(input)
-        # we need to transpose the weight first for bmm
-        m.weight = torch.nn.Parameter(m.weight.transpose(1, 2).contiguous())
         quantize_(m, config, filter_fn=lambda x, fqn: True)
         quantized = m(input)
-        self.assertTrue(compute_error(original, quantized) > 20)
+        sqnr = compute_error(original, quantized)
+        self.assertTrue(sqnr > 20)
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize(
