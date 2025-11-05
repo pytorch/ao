@@ -15,7 +15,7 @@ from torchao.utils import (
 
 
 def torch_to_blocked_2d_M_groups(
-    x_scales: Tensor, group_offs: Tensor, K: int, block_size: int = 32
+    x_scales: Tensor, group_offs: Tensor, block_size: int = 32
 ) -> Tuple[Tensor, Tensor]:
     """
     Convert scales to blocked format for a 2D tensor (input activations / token groups),
@@ -34,14 +34,14 @@ def torch_to_blocked_2d_M_groups(
 
     assert x_scales.ndim == 2, "x_scales must be 2D"
     assert block_size == 32, "Only block_size=32 is supported for now"
-    total_M, _ = x_scales.shape
+    total_M, scale_cols = x_scales.shape
     num_groups = group_offs.shape[0]
 
     # Each group will require a variable amount of padding, so to avoid d2h sync causing by iterating over each group,
     # the Triton kernenl will use an upper bound of adding 128 padding rows to each group.
     # (This torch impl is used as a reference for correctness, so we must match the triton kernel's impl).
     total_M_padded = total_M + num_groups * 128
-    blocked_scales = x_scales.new_zeros(total_M_padded, K // block_size)
+    blocked_scales = x_scales.new_zeros(total_M_padded, scale_cols)
     start_row_after_padding_list = [0]
     group_start_idx = 0
     for i, group_end_idx in enumerate(group_offs.tolist()):
@@ -56,8 +56,7 @@ def torch_to_blocked_2d_M_groups(
         group_scales_blocked = to_blocked(group_scales)
 
         # Calculate the start row after padding
-        scaling_groups_per_row = K // block_size
-        rows_for_group = group_scales_blocked.numel() // scaling_groups_per_row
+        rows_for_group = group_scales_blocked.numel() // scale_cols
         new_start_row = prev_start_row_after_padding + rows_for_group
         start_row_after_padding_list.append(new_start_row)
 
@@ -67,7 +66,7 @@ def torch_to_blocked_2d_M_groups(
             prev_start_row_after_padding : prev_start_row_after_padding
             + group_rows_padded,
             :,
-        ] = group_scales_blocked.reshape(-1, K // block_size)
+        ] = group_scales_blocked.reshape(-1, scale_cols)
 
         # Update next group start index
         group_start_idx = group_end_idx

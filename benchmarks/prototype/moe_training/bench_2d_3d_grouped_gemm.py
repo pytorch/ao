@@ -216,12 +216,12 @@ def bench_fp8_rowwise_grouped_mm(A, B_t, offs) -> float:
 
 
 def bench_mxfp8_grouped_mm(A, B_t, offs, block_size=32) -> float:
-    # A_mx shape: (M, K)
-    # A_scale shape: (M, K//block_size)
+    # A_fp8 shape: (M, K)
+    # A_scales shape: (M, K//block_size)
     A_scales, A_fp8 = to_mx(A, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
 
-    # B_mx shape: (E, N, K)
-    # B_scale shape: (E, N, K//block_size)
+    # B_fp8 shape: (E, N, K)
+    # B_scales shape: (E, N, K//block_size)
     B_scales, B_fp8 = to_mx(
         B_t.transpose(-2, -1),
         elem_dtype=torch.float8_e4m3fn,
@@ -230,26 +230,19 @@ def bench_mxfp8_grouped_mm(A, B_t, offs, block_size=32) -> float:
 
     # Convert scales for each group to blocked format.
     Mg, K = A_fp8.shape
-    A_scales_blocked, starting_row_after_padding = torch_to_blocked_2d_M_groups(
-        A_scales, offs, K
+    A_scales_blocked, _ = torch_to_blocked_2d_M_groups(
+        A_scales, offs, block_size=block_size
     )
     B_scales_blocked = torch_to_blocked_per_group_3d(B_scales)
 
-    # From this, we compute `group_sizes` and `starting_row_after_padding`:
-    # group_sizes = [32, 32, 64]
-    # starting_row_after_padding = [0, 32, 64, 128]
-    zero = torch.tensor([0], dtype=offs.dtype, device=offs.device)
-    group_sizes = torch.diff(offs, prepend=zero).to(torch.int64)
-
     # Run the grouped mm
     mxfp8_us = benchmark_cuda_function_in_microseconds(
-        torch.ops.fbgemm.mx8mx8bf16_grouped_stacked,
+        torch._scaled_grouped_mm,
         A_fp8,
-        B_fp8,
+        B_fp8.transpose(-2, -1),
         A_scales_blocked,
         B_scales_blocked,
-        group_sizes,
-        starting_row_after_padding=starting_row_after_padding,
+        offs=offs,
     )
     return mxfp8_us
 

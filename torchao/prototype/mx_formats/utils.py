@@ -68,7 +68,6 @@ def to_blocked(input_matrix, use_triton_kernel: bool = False) -> Tensor:
     # Rearrange the blocks
     blocks = padded.view(n_row_blocks, 128, n_col_blocks, 4).permute(0, 2, 1, 3)
     rearranged = blocks.reshape(-1, 4, 32, 4).transpose(1, 2).reshape(-1, 32, 16)
-
     return rearranged.flatten()
 
 
