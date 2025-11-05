@@ -282,7 +282,8 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
                 del sys.modules[mod]
 
         with warnings.catch_warnings(record=True) as w:
-            from torchao.dtypes import BlockSparseLayout
+            from torchao.dtypes import BlockSparseLayout  # noqa: F401
+
             warnings.simplefilter("always")  # Ensure all warnings are captured
             self.assertTrue(
                 any(
