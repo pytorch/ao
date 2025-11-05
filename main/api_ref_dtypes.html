@@ -462,25 +462,22 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.MarlinSparseLayout.html#torchao.dtypes.MarlinSparseLayout" title="torchao.dtypes.MarlinSparseLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MarlinSparseLayout</span></code></a></p></td>
 <td><p>MarlinSparseLayout is a layout class for handling sparse tensor formats specifically designed for the Marlin sparse kernel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.BlockSparseLayout.html#torchao.dtypes.BlockSparseLayout" title="torchao.dtypes.BlockSparseLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BlockSparseLayout</span></code></a></p></td>
-<td><p>BlockSparseLayout is a data class that represents the layout of a block sparse matrix.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.UintxLayout.html#torchao.dtypes.UintxLayout" title="torchao.dtypes.UintxLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">UintxLayout</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.UintxLayout.html#torchao.dtypes.UintxLayout" title="torchao.dtypes.UintxLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">UintxLayout</span></code></a></p></td>
 <td><p>A layout class for Uintx tensors, which are tensors with elements packed into smaller bit-widths than the standard 8-bit byte.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.MarlinQQQTensor.html#torchao.dtypes.MarlinQQQTensor" title="torchao.dtypes.MarlinQQQTensor"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MarlinQQQTensor</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.MarlinQQQTensor.html#torchao.dtypes.MarlinQQQTensor" title="torchao.dtypes.MarlinQQQTensor"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MarlinQQQTensor</span></code></a></p></td>
 <td><p>MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.MarlinQQQLayout.html#torchao.dtypes.MarlinQQQLayout" title="torchao.dtypes.MarlinQQQLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MarlinQQQLayout</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.MarlinQQQLayout.html#torchao.dtypes.MarlinQQQLayout" title="torchao.dtypes.MarlinQQQLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MarlinQQQLayout</span></code></a></p></td>
 <td><p>MarlinQQQLayout is a layout class for Marlin QQQ quantization.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.Int4CPULayout.html#torchao.dtypes.Int4CPULayout" title="torchao.dtypes.Int4CPULayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4CPULayout</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.Int4CPULayout.html#torchao.dtypes.Int4CPULayout" title="torchao.dtypes.Int4CPULayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4CPULayout</span></code></a></p></td>
 <td><p>Layout class for int4 CPU layout for affine quantized tensor, used by tinygemm kernels <cite>_weight_int4pack_mm_for_cpu</cite>.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.CutlassInt4PackedLayout.html#torchao.dtypes.CutlassInt4PackedLayout" title="torchao.dtypes.CutlassInt4PackedLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CutlassInt4PackedLayout</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.CutlassInt4PackedLayout.html#torchao.dtypes.CutlassInt4PackedLayout" title="torchao.dtypes.CutlassInt4PackedLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CutlassInt4PackedLayout</span></code></a></p></td>
 <td><p>Layout class for int4 packed layout for affine quantized tensor, for cutlass kernel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.CutlassSemiSparseLayout.html#torchao.dtypes.CutlassSemiSparseLayout" title="torchao.dtypes.CutlassSemiSparseLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CutlassSemiSparseLayout</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.CutlassSemiSparseLayout.html#torchao.dtypes.CutlassSemiSparseLayout" title="torchao.dtypes.CutlassSemiSparseLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CutlassSemiSparseLayout</span></code></a></p></td>
 <td><p>Layout class for float8 2:4 sparsity layout for affine quantized tensor, for cutlass kernel.</p></td>
 </tr>
 </tbody>
@@ -510,6 +507,16 @@
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_nf4.html#torchao.dtypes.to_nf4" title="torchao.dtypes.to_nf4"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_nf4</span></code></a></p></td>
 <td><p>Convert a given tensor to normalized float 4-bit tensor.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="prototype">
+<h2>Prototype<a class="headerlink" href="#prototype" title="Permalink to this heading">¶</a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.prototype.dtypes.BlockSparseLayout.html#torchao.prototype.dtypes.BlockSparseLayout" title="torchao.prototype.dtypes.BlockSparseLayout"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BlockSparseLayout</span></code></a></p></td>
+<td><p>BlockSparseLayout is a data class that represents the layout of a block sparse matrix.</p></td>
 </tr>
 </tbody>
 </table>
@@ -562,6 +569,7 @@
 <li><a class="reference internal" href="#">torchao.dtypes</a><ul>
 <li><a class="reference internal" href="#layouts-and-tensor-subclasses">Layouts and Tensor Subclasses</a></li>
 <li><a class="reference internal" href="#quantization-techniques">Quantization techniques</a></li>
+<li><a class="reference internal" href="#prototype">Prototype</a></li>
 </ul>
 </li>
 </ul>
