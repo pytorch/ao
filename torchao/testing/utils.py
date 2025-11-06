@@ -444,7 +444,9 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
         # making the weight different
         dummy_l.weight = torch.nn.Parameter(
-            dummy_l.weight + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
+            dummy_l.weight
+            + 1.0
+            + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
             requires_grad=False,
         )
         quantize_(dummy_l, config)

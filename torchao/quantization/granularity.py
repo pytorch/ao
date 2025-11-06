@@ -87,7 +87,7 @@ class PerRow(Granularity):
 
     # TODO(before land): any BC concerns with loading old checkpoints
     # serialized without this arg? investigate this
-    axis: int = -1
+    dim: int = -1
 
 
 @dataclass(frozen=True)

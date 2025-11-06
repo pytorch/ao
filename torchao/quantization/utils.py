@@ -727,7 +727,7 @@ def get_block_size(
         return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
     elif isinstance(granularity, PerRow):
         block_size = [1] * len(input_shape)
-        block_size[granularity.axis] = input_shape[granularity.axis]
+        block_size[granularity.dim] = input_shape[granularity.dim]
         return tuple(block_size)
     elif isinstance(granularity, PerGroup):
         assert input_shape[-1] % granularity.group_size == 0, (

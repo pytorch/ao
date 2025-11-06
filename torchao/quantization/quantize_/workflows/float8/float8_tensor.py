@@ -180,7 +180,8 @@ class Float8Tensor(TorchAOBaseTensor):
             and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
-            and granularity.axis in (-1, len(hp_tensor.shape))
+            # fbgemm path only supports quantizing along the last dim
+            and granularity.dim in (-1, len(hp_tensor.shape) - 1)
             and float8_dtype == torch.float8_e4m3fn
             and hp_value_lb is None
         ):
