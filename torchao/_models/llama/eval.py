@@ -23,6 +23,7 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    PerBlock,
     PerRow,
     PerTensor,
     UIntXWeightOnlyConfig,
@@ -44,6 +45,7 @@ def run_evaluation(
     calibration_limit: Optional[int] = None,
     calibration_seq_length: Optional[int] = None,
     pad_calibration_inputs: bool = False,
+    print_model: bool = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
     print(
@@ -169,6 +171,14 @@ def run_evaluation(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
             )
+        if quantization == "float8_a1x128_w128x128":
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=(PerBlock((1, 128)), PerBlock((128, 128))),
+                activation_value_lb=1e-12,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`
+            quantize_(model, config)
         if "autoround" in quantization:
             from transformers import AutoTokenizer
 
@@ -273,7 +283,16 @@ def run_evaluation(
             )
 
     if compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        # TODO(future PR): clean this up
+        if quantization == "float8_a1x128_w128x128":
+            # we don't need max-autotune for float8 blockwise quant
+            model = torch.compile(model)
+        else:
+            model = torch.compile(model, mode="max-autotune", fullgraph=True)
+
+    if print_model:
+        print(model)
+
     with torch.no_grad():
         print("Running evaluation ...")
         # avoid circular imports
@@ -371,6 +390,9 @@ if __name__ == "__main__":
         default=False,
         help="pads sequences shorter than calibration_seq_length to that length, yielding more calibration inputs but running much slower",
     )
+    parser.add_argument(
+        "--print_model", action="store_true", help="Whether to print the model."
+    )
 
     args = parser.parse_args()
     run_evaluation(
@@ -387,4 +409,5 @@ if __name__ == "__main__":
         args.calibration_limit,
         args.calibration_seq_length,
         args.pad_calibration_inputs,
+        args.print_model,
     )
