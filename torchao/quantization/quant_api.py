@@ -592,6 +592,9 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt4WeightConfig"
         )
+        warnings.warn(
+            "`Int8DynamicActivationInt4WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for BC
@@ -963,6 +966,9 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int4DynamicActivationInt4WeightConfig"
         )
+        warnings.warn(
+            "`Int4DynamicActivationInt4WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for bc
@@ -1025,6 +1031,9 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.GemliteUIntXWeightOnlyConfig"
+        )
+        warnings.warn(
+            "`GemliteUIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
 
 
@@ -1982,6 +1991,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8StaticActivationFloat8WeightConfig"
         )
+        warnings.warn(
+            "`Float8StaticActivationFloat8WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for bc
@@ -2070,6 +2082,9 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.UIntXWeightOnlyConfig")
+        warnings.warn(
+            "`UIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for BC
@@ -2354,6 +2369,9 @@ class FPXWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.FPXWeightOnlyConfig")
+        warnings.warn(
+            "`FPXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for BC
