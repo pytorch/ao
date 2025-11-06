@@ -480,7 +480,7 @@ def quantize_(
 
         for module_fqn, module in model.named_modules():
             if (
-                _fqn_matches_fqn_config(module_fqn, config)
+                fqn_matches_fqn_config(module_fqn, config)
                 or _module_param_matches_fqn_config(module, module_fqn, config)
                 or ("_default" in config.fqn_to_config and _is_linear(module))
             ):
@@ -488,7 +488,9 @@ def quantize_(
                     module_fqn.rsplit(".", 1) if "." in module_fqn else module_fqn
                 )
                 # this replaces inplace, so no need to reassign
-                _fqn_to_config_handler(module, module_name, config, device)
+                _fqn_to_config_handler(module, module_name, config)
+                if device is not None:
+                    module.to(device=device)
         return
     if isinstance(config, AOBaseConfig):
         filter_fn = _is_linear if filter_fn is None else filter_fn
@@ -2467,7 +2469,6 @@ def _fqn_to_config_handler(
     module: torch.nn.Module,
     fqn: str,
     config: FqnToConfig,
-    device: Optional[torch.device] = None,
 ):
     """This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.
 
@@ -2476,7 +2477,6 @@ def _fqn_to_config_handler(
         fqn (str): The fully qualified name of the module containing the parameters.
         config (FqnToConfig): Configuration object containing regex patterns / fqn mapped
             to quantization configurations.
-        device (Optional[torch.device]): The device to move the module to as part of quantization
 
     Returns:
         torch.nn.Module: The modified module with quantized parameters.
@@ -2484,9 +2484,6 @@ def _fqn_to_config_handler(
     Raises:
         NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.
     """
-    if device is not None:
-        module = module.to(device)
-
     parameter_config_found = False
     top_level_params = []
     for i, (parameter_name, param) in enumerate(list(module.named_parameters())):
@@ -2560,7 +2557,7 @@ def _fqn_to_config_handler(
     return module
 
 
-def _fqn_matches_fqn_config(
+def fqn_matches_fqn_config(
     fqn: str,
     config: FqnToConfig,
 ):
@@ -2605,7 +2602,7 @@ def _module_param_matches_fqn_config(
     for name, param in module.named_parameters():
         if name in dir(module):
             parameter_fqn = f"{fqn}.{name}" if len(fqn) > 0 else name
-            if _fqn_matches_fqn_config(parameter_fqn, config):
+            if fqn_matches_fqn_config(parameter_fqn, config):
                 return True
 
     return False
