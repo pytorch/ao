@@ -826,19 +826,23 @@ class TestQuantFlow(TestCase):
             uintx_weight_only: (torch.uint4,),
         }
 
-        with warnings.catch_warnings(record=True) as _warnings:
-            # Call each deprecated API twice
-            for cls, args in deprecated_apis_to_args.items():
+        # Call each deprecated API twice
+        for cls, args in deprecated_apis_to_args.items():
+            with warnings.catch_warnings(record=True) as _warnings:
                 cls(*args)
                 cls(*args)
 
-            # Each call should trigger the warning only once
-            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
-            for w in _warnings:
-                self.assertIn(
-                    "is deprecated and will be removed in a future release",
-                    str(w.message),
-                )
+                # Each call should have at least one warning.
+                # Some of them can have two warnings - one for deprecation,
+                # one for moving to prototype
+                self.assertTrue(len(_warnings) > 0)
+                found_deprecated = False
+                for w in _warnings:
+                    if "is deprecated and will be removed in a future release" in str(
+                        w.message
+                    ):
+                        found_deprecated = True
+                    self.assertTrue(found_deprecated)
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
