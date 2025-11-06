@@ -1778,13 +1778,10 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
         default_use_fast_accum = True
         if _granularity_is_a_1_128_w_128_128(self.granularity):
-            assert self.activation_value_lb is None, "unimplemented"
-            assert self.activation_value_ub is None, "unimplemented"
             assert self.kernel_preference in (
                 KernelPreference.AUTO,
                 KernelPreference.TORCH,
             ), "unimplemented"
-            assert self.mm_config is None, "unimplemented"
             assert self.version >= 2, "unimplemented"
             default_use_fast_accum = False
 

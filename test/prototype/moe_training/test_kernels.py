@@ -230,7 +230,7 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 
     # torch reference
     ref_out_scales, _ = torch_to_blocked_2d_M_groups(
-        e8m0_scales, input_group_offsets, k, block_size=block_size
+        e8m0_scales, input_group_offsets, block_size=block_size
     )
 
     # triton kernel
