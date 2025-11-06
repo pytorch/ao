@@ -422,24 +422,25 @@ def _(func, types, args, kwargs):
         a_scale = input_tensor.scale
 
         b_data = weight_tensor.qdata
-        b_scale = weight_tensor.scale.squeeze(-1)
-        assert b_data.is_contiguous(), "weight for bmm must be contiguous"
+        b_scale = weight_tensor.scale
 
         assert (
-            all(x == 1 for x in weight_tensor.block_size[:-1])
-            and weight_tensor.block_size[-1] == weight_tensor.shape[-1]
+            weight_tensor.block_size[0] == 1
+            and weight_tensor.block_size[1] == weight_tensor.shape[1]
+            and weight_tensor.block_size[2] == 1
         ), "bmm only works for per row weight quantization"
         assert (
             all(x == 1 for x in input_tensor.block_size[:-1])
             and input_tensor.block_size[-1] == input_tensor.shape[-1]
         ), "bmm only works for per row activation quantization"
 
-        orig_out_features = b_data.shape[-2]
+        orig_out_features = b_data.shape[-1]
 
         res = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
             a_data,
-            b_data,
+            b_data.transpose(-2, -1),
             a_scale,
+            b_scale.transpose(-2, -1),
             b_scale,
         )
         res = res.reshape(*orig_act_size[:-1], orig_out_features)
