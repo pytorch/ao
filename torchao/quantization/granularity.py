@@ -78,11 +78,14 @@ class PerRow(Granularity):
     """
     Represents row-wise granularity in quantization.
 
-    For 2D tensors, this is a special case of per-axis quantization and is unique to Float8 matmuls
-    where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
-    is quantized with a block_size of (1, weight.shape[1]).
+    Examples:
+    * input_tensor shape [A, B], dim 0 -> scale_shape [1, B]
+    * input_tensor shape [A, B], dim 1 -> scale_shape [A, 1]
+    * input_tensor shape [A, B], dim -1 -> scale_shape [A, 1]
+    * input_tensor shape [A, B, C], dim 1 -> scale_shape [A, 1, C]
 
-    TODO(before land): modify docblock for new axis argument
+    Attributes:
+        dim (int): The dim which is reduced across, all other dims are kept
     """
 
     # TODO(before land): any BC concerns with loading old checkpoints
