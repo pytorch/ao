@@ -79,40 +79,6 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     M, K = config.input_shape
     block_size = config.block_size
 
-    def naive_fp8_blockwise_quant(
-        x: torch.Tensor, block_size: int = 128
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Naive PyTorch reference implementation for blockwise FP8 quantization.
-
-        Quantizes along dimension 1 (K) with blocks of size block_size.
-        Each row gets K//block_size scale factors.
-
-        Args:
-            x: Input tensor of shape (M, K)
-            block_size: Number of elements per block
-
-        Returns:
-            y: Quantized tensor in FP8 (M, K)
-            s: Reciprocal scales in column-major format (M, K//block_size)
-        """
-
-        M, K = x.size()
-
-        # Reshape to (M, K) where K is treated as multiple tile_size blocks
-        y, s_reciprocal = torch_blockwise_scale_act_quant_lhs(
-            x, tile_size=block_size)
-
-        # Convert scales from row-major to column-major format to match Triton kernel
-        num_blocks = K // block_size
-        s = x.new_empty(M, num_blocks, dtype=torch.float32).as_strided(
-            (M, num_blocks),
-            (1, M),  # Column-major strides
-        )
-        s.copy_(s_reciprocal)
-
-        return y, s
-
     def verify_outputs(
         y_naive: torch.Tensor,
         s_naive: torch.Tensor,
@@ -180,7 +146,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Benchmark naive implementation
-    naive_impl_c = torch.compile(naive_fp8_blockwise_quant)
+    naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
     y_naive, s_naive = naive_impl_c(input_tensor, block_size)
     naive_time_us = benchmark_cuda_function_in_microseconds(
         naive_impl_c,

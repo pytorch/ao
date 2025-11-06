@@ -91,7 +91,8 @@ def triton_fp8_gemm_1x128_128x128_kernel(
         b_ptrs += BLOCK_SIZE_K * b_stride_dim_0
 
     c = accumulator.to(c_ptr.dtype.element_ty)
-    c_ptrs = c_ptr + offs_m[:, None] * c_stride_dim_0 + offs_n[None, :] * c_stride_dim_1
+    c_ptrs = c_ptr + offs_m[:, None] * \
+        c_stride_dim_0 + offs_n[None, :] * c_stride_dim_1
     c_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     tl.store(c_ptrs, c, mask=c_mask)
 
@@ -116,7 +117,8 @@ def triton_fp8_gemm_1x128_128x128(
     K = a.size(1)
     N = b.size(1)
     c = a.new_empty(M, N, dtype=out_dtype)
-    grid = lambda META: (
+
+    def grid(META): return (
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
@@ -231,7 +233,8 @@ def triton_fp8_gemm_1x128_128x1(
     K = a.size(1)
     N = b.size(1)
     c = a.new_empty(M, N, dtype=out_dtype)
-    grid = lambda META: (
+
+    def grid(META): return (
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
@@ -304,7 +307,8 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     # Load (num_groups x block_size) tile of x, where input is row major
     m_offs = pid_m * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
     k_offs = pid_k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
+    x_offs = m_offs[:, None] * x_stride_dim_0 + \
+        k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
@@ -313,13 +317,16 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     min_fp8_e4m3 = -448.0
 
     # Scales for (1 x block_size) groups, shape will be (NUM_GROUPS, 1)
-    amax = tl.clamp(tl.max(tl.abs(x), axis=1), min=EPS, max=float("inf")).to(tl.float64)
+    amax = tl.clamp(tl.max(tl.abs(x), axis=1), min=EPS,
+                    max=float("inf")).to(tl.float64)
     scale = (max_fp8_e4m3 / amax).to(tl.float32)[:, None]
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(
+        y_ptr.dtype.element_ty)
 
     # Write output to column major fomrat
-    y_offs = m_offs[:, None] * y_stride_dim_0 + k_offs[None, :] * y_stride_dim_1
+    y_offs = m_offs[:, None] * y_stride_dim_0 + \
+        k_offs[None, :] * y_stride_dim_1
     y_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
@@ -350,7 +357,8 @@ def triton_fp8_blockwise_act_quant_lhs(
         (M, K // block_size),
         (1, M),
     )
-    grid = lambda meta: (
+
+    def grid(meta): return (
         triton.cdiv(M, meta["NUM_GROUPS"]),
         triton.cdiv(K, meta["BLOCK_SIZE"]),
     )
@@ -398,7 +406,8 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
     # to facilitate coalesced gmem accesses and improve efficiency.
     m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     k_offs = pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
-    x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
+    x_offs = m_offs[:, None] * x_stride_dim_0 + \
+        k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
@@ -407,13 +416,16 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
     min_fp8_e4m3 = -448.0
 
     # Column-wise scales for RHS operand, shape (1, block_size)
-    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
+    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS,
+                    max=float("inf")).to(tl.float64)
     scale = (max_fp8_e4m3 / amax).to(tl.float32)[None, :]
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(
+        y_ptr.dtype.element_ty)
 
     # Write output to column major format
-    y_offs = m_offs[:, None] * y_stride_dim_0 + k_offs[None, :] * y_stride_dim_1
+    y_offs = m_offs[:, None] * y_stride_dim_0 + \
+        k_offs[None, :] * y_stride_dim_1
     y_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
@@ -443,7 +455,7 @@ def triton_fp8_blockwise_act_quant_rhs(
     y = y.as_strided(y.size(), (1, y.size(0)))
     s = x.new_empty(M_blocks, K, dtype=torch.float32)
 
-    grid = lambda meta: (
+    def grid(meta): return (
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(K, meta["NUM_GROUPS"]),
     )
@@ -496,7 +508,8 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     # which will fail to launch for large tensors, due to max block number of 65535.
     m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     k_offs = pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
-    x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
+    x_offs = m_offs[:, None] * x_stride_dim_0 + \
+        k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
@@ -505,13 +518,16 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     min_fp8_e4m3 = -448.0
 
     # Compute amax across dim 0 (column-wise).
-    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
+    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS,
+                    max=float("inf")).to(tl.float64)
     scale = (max_fp8_e4m3 / amax).to(tl.float32)
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(
+        y_ptr.dtype.element_ty)
 
     # Write output to column major fomrat
-    y_offs = k_offs[:, None] * y_stride_dim_0 + m_offs[None, :] * y_stride_dim_1
+    y_offs = k_offs[:, None] * y_stride_dim_0 + \
+        m_offs[None, :] * y_stride_dim_1
     y_mask = (k_offs[:, None] < K) & (m_offs[None, :] < M)
     tl.store(y_ptr + y_offs, y.trans(1, 0), mask=y_mask)
 
@@ -549,7 +565,8 @@ def triton_fp8_blockwise_act_quant_transposed_lhs(
         (K, M_blocks),  # shape
         (1, K),  # stride
     )
-    grid = lambda meta: (
+
+    def grid(meta): return (
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(K, meta["NUM_GROUPS"]),
     )
@@ -596,20 +613,24 @@ def triton_fp8_blockwise_weight_quant_rhs_kernel(
     offs_n = pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
 
     # Load (block_size x block_size) block of x, where input is row major
-    x_offs = offs_m[:, None] * x_stride_dim_0 + offs_n[None, :] * x_stride_dim_1
+    x_offs = offs_m[:, None] * x_stride_dim_0 + \
+        offs_n[None, :] * x_stride_dim_1
     x_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
     # Scale the data
     max_fp8_e4m3 = 448.0
     min_fp8_e4m3 = -448.0
-    amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
+    amax = tl.clamp(tl.max(tl.abs(x)), min=EPS,
+                    max=float("inf")).to(tl.float64)
     scale = (max_fp8_e4m3 / amax).to(tl.float32)
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(
+        y_ptr.dtype.element_ty)
 
     # Store output in column major format
-    y_offs = offs_m[:, None] * y_stride_dim_0 + offs_n[None, :] * y_stride_dim_1
+    y_offs = offs_m[:, None] * y_stride_dim_0 + \
+        offs_n[None, :] * y_stride_dim_1
     y_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
@@ -639,7 +660,8 @@ def triton_fp8_blockwise_weight_quant_rhs(
         (M_blocks, N_blocks),  # shape
         (1, M_blocks),  # stride
     )
-    grid = lambda meta: (
+
+    def grid(meta): return (
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
@@ -697,27 +719,32 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     # Load (block_size x block_size) block of input, where input is row major
     m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     n_offs = pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    x_offs = m_offs[:, None] * x_stride_dim_0 + n_offs[None, :] * x_stride_dim_1
+    x_offs = m_offs[:, None] * x_stride_dim_0 + \
+        n_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (n_offs[None, :] < N)
     x = tl.load(x_ptr + x_offs, mask=x_mask).to(tl.float32)
 
     # Perform scaling
     max_fp8_e4m3 = 448.0
     min_fp8_e4m3 = -448.0
-    amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
+    amax = tl.clamp(tl.max(tl.abs(x)), min=EPS,
+                    max=float("inf")).to(tl.float64)
     scale = (max_fp8_e4m3 / amax).to(tl.float32)
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(
+        y_ptr.dtype.element_ty)
 
     # Write output to column major fomrat
-    y_offs = n_offs[:, None] * y_stride_dim_0 + m_offs[None, :] * y_stride_dim_1
+    y_offs = n_offs[:, None] * y_stride_dim_0 + \
+        m_offs[None, :] * y_stride_dim_1
     y_mask = (n_offs[:, None] < N) & (m_offs[None, :] < M)
     tl.store(y_ptr + y_offs, y.trans(1, 0), mask=y_mask)
 
     # Write reciprocal scales
     scale_m = pid_m
     scale_k = pid_n
-    scale_offs = scale_k[:, None] * s_stride_dim_0 + scale_m[None, :] * s_stride_dim_1
+    scale_offs = scale_k[:, None] * s_stride_dim_0 + \
+        scale_m[None, :] * s_stride_dim_1
     scale_mask = (scale_k[:, None] < N // BLOCK_SIZE) & (
         scale_m[None, :] < M // BLOCK_SIZE
     )
@@ -744,7 +771,8 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs(
         (n_blocks, m_blocks),  # shape
         (1, n_blocks),  # stride
     )
-    grid = lambda meta: (
+
+    def grid(meta): return (
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
@@ -789,11 +817,13 @@ def torch_blockwise_scale_act_quant_lhs(x, tile_size=128):
     s = (fp8_dtype_max / x_amax).to(torch.float32)
 
     # Apply scale and clamp
-    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(torch.float8_e4m3fn)
+    x = (x * s).clamp(min=fp8_dtype_min,
+                      max=fp8_dtype_max).to(torch.float8_e4m3fn)
 
     # Reshape quantized output back to original shape and reshape scales accordingly
     x = x.reshape(*orig_shape)
     s = s.reshape(orig_shape[0], -1).to(torch.float)
+    s = s.transpose(-2, -1).contiguous().transpose(-2, -1)
 
     # Return output tensor and reciprocal scale
     return x, 1.0 / s
@@ -831,7 +861,8 @@ def torch_blockwise_scale_act_quant_rhs(
         x_col = x_blocks[:, :, k]  # (num_blocks_m, block_size)
 
         # Compute absolute max for each block
-        amax = torch.abs(x_col).max(dim=1, keepdim=True)[0]  # (num_blocks_m, 1)
+        amax = torch.abs(x_col).max(dim=1, keepdim=True)[
+            0]  # (num_blocks_m, 1)
 
         # Clamp to avoid division by zero
         amax = torch.clamp(amax, min=eps).to(torch.float64)
@@ -889,7 +920,8 @@ def torch_blockwise_scale_weight_quant(x, tile_size=128):
     s = (fp8_dtype_max / x_amax).to(torch.float32)
 
     # Apply scale and clamp
-    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(torch.float8_e4m3fn)
+    x = (x * s).clamp(min=fp8_dtype_min,
+                      max=fp8_dtype_max).to(torch.float8_e4m3fn)
 
     # Reshape quantized output and scales back to 2D
     x = x.reshape(t_h, t_w, tile_size, tile_size)
