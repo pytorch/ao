@@ -15,13 +15,12 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import Layout, PlainLayout, is_device
-from torchao.utils import torch_version_at_least
-
-from .int4_cpu_layout import (
+from torchao.dtypes.uintx.int4_cpu_layout import (
     Int4CPUAQTTensorImpl,
     _is_float,
 )
+from torchao.dtypes.utils import Layout, PlainLayout, is_device
+from torchao.utils import torch_version_at_least
 
 aten = torch.ops.aten
 
