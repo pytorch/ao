@@ -1,3 +1,9 @@
+from torchao.prototype.dtypes.uintx.marlin_qqq_tensor import (
+    MarlinQQQLayout,
+    MarlinQQQTensor,
+    to_marlinqqq_quantized_intx,
+)
+
 from .dyn_int8_act_int4_wei_cpu_layout import (
     Int8DynamicActInt4WeightCPULayout,
 )
@@ -6,11 +12,6 @@ from .int4_cpu_layout import (
 )
 from .int4_xpu_layout import (
     Int4XPULayout,
-)
-from .marlin_qqq_tensor import (
-    MarlinQQQLayout,
-    MarlinQQQTensor,
-    to_marlinqqq_quantized_intx,
 )
 from .marlin_sparse_layout import (
     MarlinSparseLayout,

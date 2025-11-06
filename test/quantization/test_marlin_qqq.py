@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 
-from torchao.dtypes import MarlinQQQLayout
+from torchao.prototype.dtypes import MarlinQQQLayout
 from torchao.quantization.marlin_qqq import (
     pack_to_marlin_qqq,
     unpack_from_marlin_qqq,
@@ -130,6 +130,26 @@ class TestMarlinQQQ(TestCase):
             assert torch.equal(s_group, unpacked_s_group), (
                 "Unpacked s_group do not match original s_group"
             )
+
+
+def test_marlin_qqq_tensor_deprecation_warning():
+    """Test that importing from the old location raises a deprecation warning"""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        # Import from the old deprecated location
+        from torchao.dtypes.uintx.marlin_qqq_tensor import (  # noqa: F401
+            MarlinQQQLayout,
+        )
+
+        # Verify the deprecation warning was raised
+        assert len(w) == 1
+        assert issubclass(w[-1].category, DeprecationWarning)
+        assert "torchao.dtypes.uintx.marlin_qqq_tensor is deprecated" in str(
+            w[-1].message
+        )
+        assert "torchao.prototype.dtypes import" in str(w[-1].message)
 
 
 if __name__ == "__main__":
