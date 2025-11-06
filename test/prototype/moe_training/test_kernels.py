@@ -21,8 +21,6 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    compute_blocked_scale_offsets_for_K_groups,
-    compute_blocked_scale_offsets_for_M_groups,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
@@ -232,17 +230,13 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 
     # torch reference
     ref_out_scales, _ = torch_to_blocked_2d_M_groups(
-        e8m0_scales, input_group_offsets, k, block_size=block_size
+        e8m0_scales, input_group_offsets, block_size=block_size
     )
 
     # triton kernel
-    _, output_group_offsets = compute_blocked_scale_offsets_for_M_groups(
-        input_group_offsets
-    )
     triton_out_scales = triton_mx_block_rearrange_2d_M_groups(
         e8m0_scales,
         input_group_offsets,
-        output_group_offsets,
     )
     assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
         "blocked scales not equal"
@@ -306,16 +300,9 @@ def test_triton_mx_block_rearrange_2d_K_groups(
     )
 
     # triton kernel
-    _, output_group_offsets = compute_blocked_scale_offsets_for_K_groups(
-        scale_group_offsets
-    )
-    assert torch.equal(output_group_offsets, ref_start_cols_after_padding), (
-        "output scale group start offsets not equal"
-    )
     triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
         e8m0_scales,
         scale_group_offsets,
-        output_group_offsets,
     )
     assert torch.equal(ref_out_scales, triton_out_scales), "blocked scales not equal"
 
