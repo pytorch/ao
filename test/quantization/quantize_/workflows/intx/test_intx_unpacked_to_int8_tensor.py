@@ -50,6 +50,24 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         error = compute_error(original, quantized)
         self.assertTrue(error > 20)
 
+    def test_add(self):
+        device = "cpu"
+        a = torch.randint(low=0, high=128, size=(10,), device=device)
+        a_orig = a.clone()
+        b = torch.randint(low=0, high=128, size=(10,), device=device)
+        sum = a + b
+
+        quantize_(a, self.config)
+        a_quant_sum = a + b
+
+        quantize_(b, self.config)
+        b_quant_sum = a_orig + b
+        a_b_quant_sum = a + b
+
+        for quantized_sum in [a_quant_sum, b_quant_sum, a_b_quant_sum]:
+            error = compute_error(sum, quantized_sum)
+            self.assertTrue(error > 20)
+
     def test_linear(self):
         dtype = torch.bfloat16
         device = "cpu"
