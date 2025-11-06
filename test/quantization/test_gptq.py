@@ -27,6 +27,7 @@ _DEVICE = auto_detect_device()
 
 class TestGPTQ(TestCase):
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_gptq_quantizer_int4_weight_only(self):
         from torchao._models._eval import (
             LMEvalInputRecorder,
@@ -105,6 +106,7 @@ class TestGPTQ(TestCase):
 
 
 class TestMultiTensorFlow(TestCase):
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_add_tensors(self):
         from torchao.quantization.GPTQ import MultiTensor
 
@@ -116,6 +118,7 @@ class TestMultiTensorFlow(TestCase):
         self.assertTrue(torch.equal(mt.values[0], tensor1))
         self.assertTrue(torch.equal(mt.values[1], tensor2))
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_pad_unpad(self):
         from torchao.quantization.GPTQ import MultiTensor
 
@@ -126,6 +129,7 @@ class TestMultiTensorFlow(TestCase):
         mt.unpad()
         self.assertEqual(mt.count, 1)
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_inplace_operation(self):
         from torchao.quantization.GPTQ import MultiTensor
 
@@ -136,6 +140,7 @@ class TestMultiTensorFlow(TestCase):
 
 
 class TestMultiTensorInputRecorder(TestCase):
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_input_recorder(self):
         from torchao.quantization.GPTQ import MultiTensor, MultiTensorInputRecorder
 

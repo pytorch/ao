@@ -152,7 +152,7 @@ def auto_detect_device():
     if torch.accelerator.is_available():
         return torch.accelerator.current_accelerator()
     else:
-        return "cpu"
+        return None
 
 
 def get_compute_capability():
