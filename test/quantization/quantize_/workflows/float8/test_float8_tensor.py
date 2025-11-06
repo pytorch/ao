@@ -18,7 +18,6 @@ from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    PerAxis,
     PerBlock,
     PerRow,
     PerTensor,
@@ -472,10 +471,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def test_bmm_weight_in_bkn_layout(self):
         # Tests rowwise quantization of a 3d weight stored with shape (B, K, N)
         # and contigous with that shape. Since the `K` dimension is not last, we
-        # need to specify granularity with `PerAxis(1)`.
-        
+        # need to specify granularity with `PerRow(1)`.
+
         # only support per row quantization
-        granularity = [PerRow(), PerAxis(1)]
+        granularity = [PerRow(), PerRow(1)]
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
 
         class Model(torch.nn.Module):
@@ -496,6 +495,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         m = Model(weight).eval()
         original = m(input)
         quantize_(m, config, filter_fn=lambda x, fqn: True)
+
+        assert m.weight.scale.shape == (B, 1, N), (
+            f"unexpected scale shape {m.weight.scale.shape}"
+        )
+
         quantized = m(input)
         sqnr = compute_error(original, quantized)
         self.assertTrue(sqnr > 20)

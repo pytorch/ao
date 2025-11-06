@@ -39,12 +39,14 @@ class PerAxis(Granularity):
     This granularity type calculates different quantization parameters
     along a specified axis of the tensor.
 
-    For example if the input tensor is shape [8, 16] and axis=0, then
-    the quantization parameters are calculated for each row of the tensor.
-    Giving a total of 8 quantization parameters.
+    Examples:
+    * input_tensor shape [A, B], axis 0 -> scale_shape [A, 1]
+    * input_tensor shape [A, B], axis 1 -> scale_shape [1, B]
+    * input_tensor shape [A, B, C], axis 1 -> scale_shape [1, B, 1]
 
     Attributes:
-        axis (int): The axis along which reduction is performed.
+        axis (int): The axis which is kept, reduction is performed across all
+          the other axes
     """
 
     axis: int
@@ -76,12 +78,16 @@ class PerRow(Granularity):
     """
     Represents row-wise granularity in quantization.
 
-    This is a special case of per-axis quantization and is unique to Float8 matmuls
+    For 2D tensors, this is a special case of per-axis quantization and is unique to Float8 matmuls
     where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
     is quantized with a block_size of (1, weight.shape[1]).
+
+    TODO(before land): modify docblock for new axis argument
     """
 
-    pass
+    # TODO(before land): any BC concerns with loading old checkpoints
+    # serialized without this arg? investigate this
+    axis: int = -1
 
 
 @dataclass(frozen=True)

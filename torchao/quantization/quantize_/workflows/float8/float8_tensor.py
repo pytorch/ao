@@ -180,6 +180,7 @@ class Float8Tensor(TorchAOBaseTensor):
             and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
+            and granularity.axis in (-1, len(hp_tensor.shape))
             and float8_dtype == torch.float8_e4m3fn
             and hp_value_lb is None
         ):
@@ -423,8 +424,6 @@ def _(func, types, args, kwargs):
 
         b_data = weight_tensor.qdata
         b_scale = weight_tensor.scale
-        print('a', a_data.shape, a_scale.shape, input_tensor.block_size)
-        print('b', b_data.shape, b_scale.shape, weight_tensor.block_size)
 
         assert (
             weight_tensor.block_size[0] == 1
@@ -440,7 +439,7 @@ def _(func, types, args, kwargs):
 
         res = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
             a_data,
-            b_data.transpose(-2, -1),
+            b_data.transpose(-2, -1).contiguous(),
             a_scale,
             b_scale.transpose(-2, -1),
             b_scale,

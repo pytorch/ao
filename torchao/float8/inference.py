@@ -15,7 +15,6 @@ import torch
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
-    PerAxis,
     PerBlock,
     PerRow,
     PerTensor,
@@ -248,21 +247,13 @@ def _normalize_granularity(
             granularity[1], PerTensor
         )
         is_per_row = isinstance(granularity[0], PerRow) and isinstance(
-            granularity[1], (PerRow, PerAxis)
+            granularity[1], PerRow
         )
         is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularity)
 
         if not (is_per_tensor or is_per_row or is_a_1_128_w_128_128):
             raise ValueError(f"Unsupported granularity types: {granularity}.")
-
-        a_w_granularities_match = (
-            # direct match
-            isinstance(granularity[0], type(granularity[1]))
-            # PerAxis is a more general version of PerRow
-            or (isinstance(granularity[0], PerRow) and isinstance(granularity[1], PerAxis))
-        )
-
-        if not a_w_granularities_match:
+        if not isinstance(granularity[0], type(granularity[1])):
             raise ValueError(
                 f"Different granularities for activation and weight are not supported: {granularity}."
             )
@@ -289,7 +280,7 @@ def _check_hardware_support(
         granularities[1], PerTensor
     )
     is_per_row = isinstance(granularities[0], PerRow) and isinstance(
-        granularities[1], (PerRow, PerAxis)
+        granularities[1], PerRow
     )
     is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularities)
 
