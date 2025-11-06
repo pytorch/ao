@@ -15,7 +15,6 @@ from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    compute_blocked_scale_offsets_for_M_groups,
     torch_to_blocked_2d_M_groups,
     triton_mx_block_rearrange_2d_M_groups,
 )
@@ -52,6 +51,7 @@ def get_configs() -> List[ExperimentConfig]:
     block_size = 32
     input_shapes = [
         (16640, 5120 // block_size),
+        (131072, 5120 // block_size),
     ]
     num_groups = [16]
     configs = []
@@ -79,34 +79,32 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     Mg, K = input_shape
-    input_group_offsets = generate_jagged_offs(num_groups, Mg, multiple_of=32)
-    _, output_group_offsets = compute_blocked_scale_offsets_for_M_groups(
-        input_group_offsets
-    )
+    block_size = 32
+    input_group_offsets = generate_jagged_offs(num_groups, Mg, multiple_of=block_size)
 
     # bench torch
     compiled_run_torch = torch.compile(torch_to_blocked_2d_M_groups)
     torch_out_scales, torch_group_offs = compiled_run_torch(
-        input_tensor, input_group_offsets, K
+        input_tensor,
+        input_group_offsets,
+        block_size=block_size,
     )
     torch_time_us = benchmark_cuda_function_in_microseconds(
         compiled_run_torch,
         input_tensor,
         input_group_offsets,
-        K,
+        block_size=block_size,
     )
 
     # bench triton
     triton_out_scales = triton_mx_block_rearrange_2d_M_groups(
         input_tensor,
         input_group_offsets,
-        output_group_offsets,
     )
     triton_time_us = benchmark_cuda_function_in_microseconds(
         triton_mx_block_rearrange_2d_M_groups,
         input_tensor,
         input_group_offsets,
-        output_group_offsets,
     )
 
     # mem bw calculations

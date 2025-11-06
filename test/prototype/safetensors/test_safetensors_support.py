@@ -66,6 +66,12 @@ class TestSafeTensors(TestCase):
 
         with tempfile.NamedTemporaryFile() as f:
             tensors_data_dict, metadata = flatten_tensor_state_dict(model.state_dict())
+
+            for key in tensors_data_dict.keys():
+                assert key.startswith("0._weight_") or key.startswith("0.bias"), (
+                    f"Unexpected key format: {key}"
+                )
+
             save_file(tensors_data_dict, f.name, metadata=metadata)
             tensors_data_dict, metadata = load_data(file_path=f.name, device="cuda")
             reconstructed_dict = unflatten_tensor_state_dict(
