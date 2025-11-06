@@ -32,6 +32,7 @@ __all__ = [
     "is_MI300",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
+    "is_sm_at_least_100",
     "is_package_at_least",
     "DummyModule",
     # Deprecated
