@@ -423,6 +423,8 @@ def _(func, types, args, kwargs):
 
         b_data = weight_tensor.qdata
         b_scale = weight_tensor.scale
+        print('a', a_data.shape, a_scale.shape, input_tensor.block_size)
+        print('b', b_data.shape, b_scale.shape, weight_tensor.block_size)
 
         assert (
             weight_tensor.block_size[0] == 1

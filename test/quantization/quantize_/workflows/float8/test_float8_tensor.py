@@ -18,6 +18,7 @@ from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
+    PerAxis,
     PerBlock,
     PerRow,
     PerTensor,
@@ -459,6 +460,39 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         input = torch.randn(B, M, K, dtype=dtype, device=device)
         weight = torch.randn(B, N, K, dtype=dtype, device=device)
+        m = Model(weight).eval()
+        original = m(input)
+        quantize_(m, config, filter_fn=lambda x, fqn: True)
+        quantized = m(input)
+        sqnr = compute_error(original, quantized)
+        self.assertTrue(sqnr > 20)
+
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
+    def test_bmm_weight_in_bkn_layout(self):
+        # Tests rowwise quantization of a 3d weight stored with shape (B, K, N)
+        # and contigous with that shape. Since the `K` dimension is not last, we
+        # need to specify granularity with `PerAxis(1)`.
+        
+        # only support per row quantization
+        granularity = [PerRow(), PerAxis(1)]
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+
+        class Model(torch.nn.Module):
+            def __init__(self, weight):
+                super().__init__()
+                self.weight = weight
+
+            def forward(self, x):
+                return torch.bmm(x, self.weight)
+
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        B, M, K, N = 10, 32, 128, 256
+
+        input = torch.randn(B, M, K, dtype=dtype, device=device)
+        weight = torch.randn(B, K, N, dtype=dtype, device=device)
         m = Model(weight).eval()
         original = m(input)
         quantize_(m, config, filter_fn=lambda x, fqn: True)
