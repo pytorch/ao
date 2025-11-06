@@ -1782,7 +1782,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
                 KernelPreference.AUTO,
                 KernelPreference.TORCH,
             ), "unimplemented"
-            assert self.mm_config is None, "unimplemented"
             assert self.version >= 2, "unimplemented"
             default_use_fast_accum = False
 
