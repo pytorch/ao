@@ -173,7 +173,7 @@ def run_evaluation(
             )
         if quantization == "float8_a1x128_w128x128":
             config = Float8DynamicActivationFloat8WeightConfig(
-                granularity=(PerBlock((1, 128)), PerBlock((128, 128))),
+                granularity=(PerBlock([1, 128]), PerBlock([128, 128])),
                 activation_value_lb=1e-12,
             )
             # TODO(future): all workflows in this file should be skipping quantization
