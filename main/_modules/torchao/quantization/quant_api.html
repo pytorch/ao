@@ -2208,8 +2208,6 @@
 
         <span class="n">default_use_fast_accum</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="k">if</span> <span class="n">_granularity_is_a_1_128_w_128_128</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_value_lb</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;unimplemented&quot;</span>
-            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_value_ub</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;unimplemented&quot;</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel_preference</span> <span class="ow">in</span> <span class="p">(</span>
                 <span class="n">KernelPreference</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span>
                 <span class="n">KernelPreference</span><span class="o">.</span><span class="n">TORCH</span><span class="p">,</span>
