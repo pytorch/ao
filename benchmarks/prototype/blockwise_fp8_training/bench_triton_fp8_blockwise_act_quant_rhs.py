@@ -121,13 +121,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             torch.float8_e4m3fn
         )
 
-        # y must be column-major per RHS kernel contract
+        # y must be column-major per RHS kernel
         y = y_rowmajor.t().contiguous().t()
 
         # Reciprocal scales (row-major) -> (M_blocks, K)
-        reciprocal_scale = (1.0 / scale.squeeze(1)
-                            ).to(torch.float32)  # (M_blocks, K)
-        s = reciprocal_scale  # already row-major and correct shape
+        reciprocal_scale = 1.0 / scale.squeeze(1)
+        s = reciprocal_scale
 
         return y, s
 
