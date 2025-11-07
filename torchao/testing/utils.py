@@ -464,7 +464,7 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
 
             # debugging CI failures
             # TODO(before land): remove this
-            if not torch.equal(orig_value, loaded_weight.qdata[0][0]):
+            if torch.equal(orig_value, loaded_weight.qdata[0][0]):
                 print("param_data.qdata", param_data.qdata)
                 print("orig_value", orig_value)
                 print("loaded_weight.qdata", loaded_weight.qdata)
