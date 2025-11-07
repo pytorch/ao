@@ -80,7 +80,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
         RHS semantics:
         • Groups are (block_size x 1) along the M dimension (rows).
-        • y is returned in column-major layout (M, K) with strides (1, M).
+        • y is returned in column-major layout (M, K).
         • s has shape (ceil(M/block_size), K) in row-major (reciprocal scales).
         """
         assert x.is_contiguous(), "Input must be contiguous"
@@ -96,8 +96,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         # Pad rows so we can reshape without a loop; then crop back.
         pad_rows = M_blocks * block_size - M
         if pad_rows:
-            x = torch.nn.functional.pad(
-                x, (0, 0, 0, pad_rows))  # pad rows at bottom
+            x = torch.nn.functional.pad(x, (0, 0, 0, pad_rows))  # pad rows at bottom
 
         # Reshape to (M_blocks, block_size, K) for block-wise operations along M
         x_reshaped = x.view(M_blocks, block_size, K)
@@ -113,8 +112,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         scale = (max_fp8_e4m3 / amax).to(torch.float32).unsqueeze(1)
 
         # Quantize (still (M_blocks, block_size, K))
-        y_reshaped = torch.clamp(
-            x_reshaped * scale, min=min_fp8_e4m3, max=max_fp8_e4m3)
+        y_reshaped = torch.clamp(x_reshaped * scale, min=min_fp8_e4m3, max=max_fp8_e4m3)
 
         # Back to (M_padded, K), then crop to (M, K)
         y_rowmajor = y_reshaped.view(M_blocks * block_size, K)[:M, :].to(
@@ -179,8 +177,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Benchmark Triton implementation
-    y_triton, s_triton = triton_fp8_blockwise_act_quant_rhs(
-        input_tensor, block_size)
+    y_triton, s_triton = triton_fp8_blockwise_act_quant_rhs(input_tensor, block_size)
     triton_time_us = benchmark_cuda_function_in_microseconds(
         triton_fp8_blockwise_act_quant_rhs,
         input_tensor,
