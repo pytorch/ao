@@ -51,18 +51,19 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         self.assertTrue(error > 20)
 
     def test_add(self):
+        dtype = torch.bfloat16
         device = "cpu"
-        a = torch.randint(low=0, high=128, size=(10,), device=device)
+        a = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
+        b = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
         a_orig = a.clone()
-        b = torch.randint(low=0, high=128, size=(10,), device=device)
-        sum = a + b
+        sum = a.weight + b.weight
 
         quantize_(a, self.config)
-        a_quant_sum = a + b
+        a_quant_sum = a.weight + b.weight
 
         quantize_(b, self.config)
-        b_quant_sum = a_orig + b
-        a_b_quant_sum = a + b
+        b_quant_sum = a_orig.weight + b.weight
+        a_b_quant_sum = a.weight + b.weight
 
         for quantized_sum in [a_quant_sum, b_quant_sum, a_b_quant_sum]:
             error = compute_error(sum, quantized_sum)
