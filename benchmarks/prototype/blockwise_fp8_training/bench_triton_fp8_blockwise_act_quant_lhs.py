@@ -58,7 +58,6 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 4096),
         (4096, 4096),
         (8192, 4096),
-
     ]
 
     configs = []
@@ -100,7 +99,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
                 y_triton_float,
                 rtol=rtol,
                 atol=atol,
-                msg="Quantized values differ between naive and Triton implementations"
+                msg="Quantized values differ between naive and Triton implementations",
             )
         except AssertionError as e:
             max_diff = (y_naive_float - y_triton_float).abs().max().item()
@@ -119,17 +118,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
                 s_triton,
                 rtol=rtol,
                 atol=atol,
-                msg="Scales differ between naive and Triton implementations"
+                msg="Scales differ between naive and Triton implementations",
             )
         except AssertionError as e:
             max_diff = (s_naive - s_triton).abs().max().item()
             print(f"WARNING: Scales differ! Max diff: {max_diff}")
-            print(
-                f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]"
-            )
-            print(
-                f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]"
-            )
+            print(f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]")
+            print(f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]")
             print(f"  Error details: {e}")
 
     input_tensor = torch.randn(
@@ -141,8 +136,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Benchmark naive implementation
     # naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
-    y_naive, s_naive = torch_blockwise_scale_act_quant_lhs(
-        input_tensor, block_size)
+    y_naive, s_naive = torch_blockwise_scale_act_quant_lhs(input_tensor, block_size)
     naive_time_us = benchmark_cuda_function_in_microseconds(
         torch_blockwise_scale_act_quant_lhs,
         input_tensor,
@@ -159,8 +153,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Verify correctness (optional, can comment out for pure benchmarking)
-    verify_outputs(y_naive, s_naive, y_triton,
-                   s_triton)
+    verify_outputs(y_naive, s_naive, y_triton, s_triton)
 
     # Memory bandwidth calculations
     bytes_per_input_el = torch.finfo(torch.float32).bits / 8
