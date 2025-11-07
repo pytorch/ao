@@ -42,8 +42,6 @@ Legacy QAT APIs
     :toctree: generated/
     :nosignatures:
 
-    IntXQuantizationAwareTrainingConfig
-    FromIntXQuantizationAwareTrainingConfig
     Int4WeightOnlyQATQuantizer
     linear.Int4WeightOnlyQATLinear
     Int8DynActInt4WeightQATQuantizer

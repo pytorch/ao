@@ -41,7 +41,6 @@ from .fake_quantize_config import (
 from .utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _log_deprecation_warning,
 )
 
 
@@ -330,14 +329,3 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             zero_point = _Round.apply(zero_point)
             zero_point = torch.clamp(zero_point, qmin, qmax)
             self.zero_point = torch.nn.Parameter(zero_point, requires_grad=True)
-
-
-# For BC
-class FakeQuantizer(IntxFakeQuantizer):
-    """
-    (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizer` instead.
-    """
-
-    def __init__(self, config: FakeQuantizeConfigBase):
-        super().__init__(config)
-        _log_deprecation_warning(self)

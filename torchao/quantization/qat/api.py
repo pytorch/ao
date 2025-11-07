@@ -21,13 +21,11 @@ from torchao.quantization.unified import TwoStepQuantizer
 
 from .embedding import FakeQuantizedEmbedding
 from .fake_quantize_config import (
-    FakeQuantizeConfig,  # noqa: F401, for BC
     FakeQuantizeConfigBase,
     IntxFakeQuantizeConfig,
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
-from .utils import _log_deprecation_warning
 
 
 class QATStep(str, Enum):
@@ -286,119 +284,6 @@ def _qat_config_transform(
             )
         else:
             return module
-
-
-@dataclass
-class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
-    """
-    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.
-
-    Config for applying fake quantization to a `torch.nn.Module`.
-    to be used with :func:`~torchao.quantization.quant_api.quantize_`.
-
-    Example usage::
-
-        from torchao.quantization import quantize_
-        from torchao.quantization.qat import IntxFakeQuantizeConfig
-        activation_config = IntxFakeQuantizeConfig(
-            torch.int8, "per_token", is_symmetric=False,
-        )
-        weight_config = IntxFakeQuantizeConfig(
-            torch.int4, group_size=32, is_symmetric=True,
-        )
-        quantize_(
-            model,
-            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
-        )
-
-    Note: If the config is applied on a module that is not
-    `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
-    `torch.nn.Embedding` with an activation config, then we will raise
-    ValueError as these are not supported.
-    """
-
-    activation_config: Optional[FakeQuantizeConfigBase] = None
-    weight_config: Optional[FakeQuantizeConfigBase] = None
-
-    def __post_init__(self):
-        _log_deprecation_warning(self)
-
-
-# for BC
-class intx_quantization_aware_training(IntXQuantizationAwareTrainingConfig):
-    pass
-
-
-@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
-def _intx_quantization_aware_training_transform(
-    module: torch.nn.Module,
-    config: IntXQuantizationAwareTrainingConfig,
-) -> torch.nn.Module:
-    mod = module
-    activation_config = config.activation_config
-    weight_config = config.weight_config
-
-    if isinstance(mod, torch.nn.Linear):
-        return FakeQuantizedLinear.from_linear(
-            mod,
-            activation_config,
-            weight_config,
-        )
-    elif isinstance(mod, torch.nn.Embedding):
-        if activation_config is not None:
-            raise ValueError(
-                "Activation fake quantization is not supported for embedding"
-            )
-        return FakeQuantizedEmbedding.from_embedding(mod, weight_config)
-    else:
-        raise ValueError("Module of type '%s' does not have QAT support" % type(mod))
-
-
-@dataclass
-class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
-    """
-    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.
-
-    Config for converting a model with fake quantized modules,
-    such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
-    and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
-    back to model with the original, corresponding modules without
-    fake quantization. This should be used with
-    :func:`~torchao.quantization.quant_api.quantize_`.
-
-    Example usage::
-
-        from torchao.quantization import quantize_
-        quantize_(
-            model_with_fake_quantized_linears,
-            FromIntXQuantizationAwareTrainingConfig(),
-        )
-    """
-
-    def __post_init__(self):
-        _log_deprecation_warning(self)
-
-
-# for BC
-class from_intx_quantization_aware_training(FromIntXQuantizationAwareTrainingConfig):
-    pass
-
-
-@register_quantize_module_handler(FromIntXQuantizationAwareTrainingConfig)
-def _from_intx_quantization_aware_training_transform(
-    mod: torch.nn.Module,
-    config: FromIntXQuantizationAwareTrainingConfig,
-) -> torch.nn.Module:
-    """
-    If the given module is a fake quantized module, return the original
-    corresponding version of the module without fake quantization.
-    """
-    if isinstance(mod, FakeQuantizedLinear):
-        return mod.to_linear()
-    elif isinstance(mod, FakeQuantizedEmbedding):
-        return mod.to_embedding()
-    else:
-        return mod
 
 
 class ComposableQATQuantizer(TwoStepQuantizer):
