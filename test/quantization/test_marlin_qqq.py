@@ -132,25 +132,5 @@ class TestMarlinQQQ(TestCase):
             )
 
 
-def test_marlin_qqq_tensor_deprecation_warning():
-    """Test that importing from the old location raises a deprecation warning"""
-    import warnings
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        # Import from the old deprecated location
-        from torchao.dtypes.uintx.marlin_qqq_tensor import (  # noqa: F401
-            MarlinQQQLayout,
-        )
-
-        # Verify the deprecation warning was raised
-        assert len(w) == 1
-        assert issubclass(w[-1].category, DeprecationWarning)
-        assert "torchao.dtypes.uintx.marlin_qqq_tensor is deprecated" in str(
-            w[-1].message
-        )
-        assert "torchao.prototype.dtypes import" in str(w[-1].message)
-
-
 if __name__ == "__main__":
     run_tests()
