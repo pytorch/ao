@@ -122,9 +122,6 @@ from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightQuantizer,
 )
-from .qat import (
-    intx_quantization_aware_training,
-)
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -151,7 +148,6 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
-    "intx_quantization_aware_training",
     "float8_weight_only",
     "uintx_weight_only",
     "fpx_weight_only",
