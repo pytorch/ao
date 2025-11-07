@@ -1824,6 +1824,13 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         assert isinstance(activation_granularity, PerTensor) and isinstance(
             weight_granularity, PerTensor
         ), "5D tensor only supports per tensor activation and weight quantization"
+
+        # weight dim: (C_out, C_in, K1, K2, K3)
+        # skip quantization when either C_out or C_in
+        # is not a multiple of 16
+        if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+            return weight
+
     elif not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
