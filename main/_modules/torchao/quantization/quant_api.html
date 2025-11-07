@@ -2251,6 +2251,13 @@
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
             <span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
         <span class="p">),</span> <span class="s2">&quot;5D tensor only supports per tensor activation and weight quantization&quot;</span>
+
+        <span class="c1"># weight dim: (C_out, C_in, K1, K2, K3)</span>
+        <span class="c1"># skip quantization when either C_out or C_in</span>
+        <span class="c1"># is not a multiple of 16</span>
+        <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">weight</span>
+
     <span class="k">elif</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
         <span class="c1"># not doing what the user asked</span>
