@@ -19,7 +19,7 @@ from benchmarks.utils import (
     bench_fwd_microseconds,
     profile_fwd_bwd,
 )
-from torchao.prototype.moe_training import _scaled_grouped_mm
+from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
@@ -158,7 +158,7 @@ def run_experiment(
 
     # fwd_bwd scaled benchmark + profiling
     scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
-        _scaled_grouped_mm,
+        _quantize_then_scaled_grouped_mm,
         A,
         B_t,
         offs,
@@ -169,7 +169,7 @@ def run_experiment(
     )
     if args.profile:
         profile_fwd_bwd(
-            _scaled_grouped_mm,
+            _quantize_then_scaled_grouped_mm,
             A,
             B_t,
             offs,
@@ -190,7 +190,7 @@ def run_experiment(
         fullgraph=True,
     )
     scaled_fwd_us = bench_fwd_microseconds(
-        _scaled_grouped_mm,
+        _quantize_then_scaled_grouped_mm,
         A,
         B_t,
         offs,

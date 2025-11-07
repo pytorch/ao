@@ -15,7 +15,7 @@ from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
-from torchao.prototype.moe_training import _scaled_grouped_mm
+from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     """
     ScaledGroupedMMTensor is a simple tensor subclass that wraps a regular tensor
     and overrides the torch._grouped_mm op by dispatching to the
-    differentiable _scaled_grouped_mm autograd function.
+    differentiable _quantize_then_scaled_grouped_mm autograd function.
     """
 
     scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE
@@ -77,7 +77,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
-        # override the grouped mm op to use the differentiable _scaled_grouped_mm
+        # override the grouped mm op to use the differentiable _quantize_then_scaled_grouped_mm
         if func.__name__ == cls.grouped_mm_func_name:
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
@@ -99,7 +99,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
             has_offs = kwargs.get(cls.offs_arg_name) is not None
             other_args = args[2:]
             if A_is_2d and B_is_2d_or_3d and has_offs:
-                return _scaled_grouped_mm(
+                return _quantize_then_scaled_grouped_mm(
                     A,
                     B,
                     *other_args,
