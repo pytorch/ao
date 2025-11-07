@@ -201,4 +201,6 @@ def test_uintx_api_deprecation():
                 issubclass(warning.category, DeprecationWarning)
                 and api_name in str(warning.message)
                 for warning in w
-            ), f"Expected deprecation warning for {api_name}, got: {[str(warning.message) for warning in w]}"
+            ), (
+                f"Expected deprecation warning for {api_name}, got: {[str(warning.message) for warning in w]}"
+            )
