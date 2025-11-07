@@ -6,8 +6,10 @@
 
 from .block_sparse_layout import BlockSparseLayout
 from .cutlass_int4_packed_layout import CutlassInt4PackedLayout
+from .dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
 
 __all__ = [
     "BlockSparseLayout",
     "CutlassInt4PackedLayout",
+    "Int8DynamicActInt4WeightCPULayout",
 ]
