@@ -96,34 +96,24 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         y_triton_float = y_triton.to(torch.float32)
 
         # Check quantized values are close
-        if not torch.allclose(y_naive_float, y_triton_float, rtol=rtol, atol=atol):
+        try:
+            torch.testing.assert_close(
+                y_naive_float,
+                y_triton_float,
+                rtol=rtol,
+                atol=atol,
+                msg="Quantized values differ between naive and Triton implementations"
+            )
+        except AssertionError as e:
             max_diff = (y_naive_float - y_triton_float).abs().max().item()
-            print(f"WARNING: Quantized values differ! Max diff: {max_diff}")
+            print(f"WARNING: Scales differ! Max diff: {max_diff}")
             print(
-                f"  Naive range: [{y_naive_float.min():.3f}, {y_naive_float.max():.3f}]"
+                f"  Naive scale range: [{y_naive_float.min():.6f}, {y_naive_float.max():.6f}]"
             )
             print(
-                f"  Triton range: [{y_triton_float.min():.3f}, {y_triton_float.max():.3f}]"
+                f"  Triton scale range: [{y_triton_float.min():.6f}, {y_triton_float.max():.6f}]"
             )
-
-        # ROBUST FIX: Handle potential dtype mismatches from torch.compile
-        # Convert both scales to float32 before any operations
-        # if s_naive.dtype != torch.float32:
-        #     print(
-        #         f"INFO: Converting naive scales from {s_naive.dtype} to float32")
-        #     s_naive = s_naive.to(torch.float32)
-
-        # if s_triton.dtype != torch.float32:
-        #     print(
-        #         f"INFO: Converting Triton scales from {s_triton.dtype} to float32")
-        #     s_triton = s_triton.to(torch.float32)
-
-        # Check scales are close
-        # Note: scales are in column-major format, need to read them correctly
-        # s_naive_rowmajor = s_naive.as_strided(
-        #     s_naive.shape, (s_naive.shape[1], 1))
-        # s_triton_rowmajor = s_triton.as_strided(
-        #     s_triton.shape, (s_triton.shape[1], 1))
+            print(f"  Error details: {e}")
 
         try:
             torch.testing.assert_close(
@@ -176,7 +166,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Memory bandwidth calculations
     bytes_per_input_el = torch.finfo(torch.float32).bits / 8
-    bytes_per_output_el = torch.finfo(torch.float32).bits / 8
+    bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
     bytes_per_scale_el = 4  # float32
 
     read_bytes = input_tensor.numel() * bytes_per_input_el
