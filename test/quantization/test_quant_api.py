@@ -1123,7 +1123,7 @@ class TestFqnToConfig(TestCase):
         self.assertLess(memory_streaming, memory_baseline)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_quantized_nested_module(self):
+    def test_fqn_config_quantized_nested_module(self):
         class NestedModule(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1140,6 +1140,31 @@ class TestFqnToConfig(TestCase):
             {
                 "nested.linear": Int8WeightOnlyConfig(),
                 "linear1": Int8WeightOnlyConfig(),
+            }
+        )
+        quantize_(m, quant_config, filter_fn=None)
+
+        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
+        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_fqn_config_quantized_nested_module_param(self):
+        class NestedModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+
+        class TopLevelModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.nested = NestedModule()
+                self.linear1 = torch.nn.Linear(16, 16)
+
+        m = TopLevelModule()
+        quant_config = FqnToConfig(
+            {
+                "nested.linear.weight": Int8WeightOnlyConfig(),
+                "linear1.weight": Int8WeightOnlyConfig(),
             }
         )
         quantize_(m, quant_config, filter_fn=None)
