@@ -484,11 +484,8 @@ def quantize_(
                 or _module_param_matches_fqn_config(module, module_fqn, config)
                 or ("_default" in config.fqn_to_config and _is_linear(module))
             ):
-                module_name = (
-                    module_fqn.rsplit(".", 1) if "." in module_fqn else module_fqn
-                )
                 # this replaces inplace, so no need to reassign
-                _fqn_to_config_handler(module, module_name, config)
+                _fqn_to_config_handler(module, module_fqn, config)
                 if device is not None:
                     module.to(device=device)
         return
