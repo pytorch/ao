@@ -462,6 +462,13 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
             loaded_weight = dummy_l.weight
             loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
 
+            # debugging CI failures
+            # TODO(before land): remove this
+            if not torch.equal(orig_value, loaded_weight.qdata[0][0]):
+                print("param_data.qdata", param_data.qdata)
+                print("orig_value", orig_value)
+                print("loaded_weight.qdata", loaded_weight.qdata)
+
             # making sure param.data.qdata[0][0] is not the same as loaded_weight.qdata[0][0]
             assert not torch.equal(orig_value, loaded_weight.qdata[0][0])
             param_data.copy_(loaded_weight)
