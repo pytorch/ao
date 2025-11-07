@@ -17,6 +17,7 @@ from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8Tensor,
     Float8WeightOnlyConfig,
     Granularity,
     PerBlock,
@@ -25,7 +26,6 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.quantization.quantize_.workflows.float8.float8_tensor import Float8Tensor
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
@@ -329,14 +329,13 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
     )
+    @unittest.skipIf(
+        not _is_fbgemm_gpu_genai_available(),
+        "Requires fbgemm_gpu_genai to be installed",
+    )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize("granularity", [PerTensor()])
     @common_utils.parametrize("inference_mode", [True, False])
-    @common_utils.parametrize(
-        "kernel_preference",
-        [KernelPreference.AUTO],
-    )
     # only test for 3D conv for now
     # Inputs are (N, C_in, C_out, D, H, W)
     @common_utils.parametrize(
@@ -349,19 +348,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self,
         dtype: torch.dtype,
         compile: bool,
-        granularity,
         inference_mode: bool,
         kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
-        if (not _is_fbgemm_gpu_genai_available()) or (not is_sm_at_least_100()):
-            return unittest.skip(
-                "Requires fbgemm_gpu_genai and sm version >= 10.0 to run "
-                "fbgemm kernel preference test"
-            )
-
-        dim = 3
+        granularity = PerTensor()
+        kernel_preference = KernelPreference.AUTO
         N, C_in, C_out, D, H, W = sizes
+        dim = 3
         kernel_size = 3
 
         # Note: this is channel last memory format
@@ -403,6 +397,69 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         assert compute_error(output_original, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {error}"
         )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
+    )
+    @unittest.skipIf(
+        not _is_fbgemm_gpu_genai_available(),
+        "Requires fbgemm_gpu_genai to be installed",
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    # only test for 3D conv for now
+    # Inputs are (N, C_in, C_out, D, H, W)
+    @common_utils.parametrize(
+        "sizes",
+        [
+            (4, 12, 64, 32, 32, 32),
+            (4, 16, 12, 32, 32, 32),
+        ],
+    )
+    def test_fp8_conv_skip_quant(
+        self,
+        dtype: torch.dtype,
+        sizes: Tuple,
+    ):
+        """Some shapes are not supported so we won't quantize the module
+        Specifically, we skip quantization when C_in or C_out is not a multiple of 16
+        """
+        granularity = PerTensor()
+        kernel_preference = KernelPreference.AUTO
+        N, C_in, C_out, D, H, W = sizes
+        dim = 3
+        kernel_size = 3
+
+        # Note: this is channel last memory format
+        input_tensor = torch.randn(N, C_in, D, H, W, dtype=dtype, device="cuda")
+        input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+        # Create a linear layer with bfloat16 dtype
+        model = ToyConvModel(
+            dim,
+            C_in,
+            C_out,
+            kernel_size,
+            bias=False,
+            padding=0,
+            dtype=dtype,
+            device="cuda",
+        ).eval()
+
+        quantized_model = copy.deepcopy(model)
+
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+            kernel_preference=kernel_preference,
+        )
+
+        _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+
+        quantize_(quantized_model, config, filter_fn=_is_conv3d)
+        assert not isinstance(quantized_model.conv.weight, Float8Tensor)
+
+        output_original = model(input_tensor)
+        output_quantized = quantized_model(input_tensor)
+        self.assertEqual(output_original, output_quantized)
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(
