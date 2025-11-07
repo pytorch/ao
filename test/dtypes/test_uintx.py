@@ -3,6 +3,9 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import sys
+import warnings
+
 import pytest
 import torch
 
@@ -165,3 +168,37 @@ def test_uintx_model_size(dtype):
     quantize_(linear[0], UIntXWeightOnlyConfig(dtype))
     quantized_size = get_model_size_in_bytes(linear)
     assert bf16_size * _dtype_to_ratio[dtype] == quantized_size
+
+
+def test_uintx_api_deprecation():
+    """
+    Test that deprecated uintx APIs trigger deprecation warnings on import.
+    TODO: Remove this test once the deprecated APIs have been removed.
+    """
+    deprecated_apis = [
+        (
+            "Int8DynamicActInt4WeightCPULayout",
+            "torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout",
+        ),
+        ("CutlassInt4PackedLayout", "torchao.dtypes.uintx.cutlass_int4_packed_layout"),
+        ("BlockSparseLayout", "torchao.dtypes.uintx.block_sparse_layout"),
+    ]
+
+    for api_name, module_path in deprecated_apis:
+        # Clear the cache to force re-importing and trigger the warning again
+        modules_to_clear = [module_path, "torchao.dtypes"]
+        for mod in modules_to_clear:
+            if mod in sys.modules:
+                del sys.modules[mod]
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")  # Ensure all warnings are captured
+
+            # Dynamically import the deprecated API
+            exec(f"from torchao.dtypes import {api_name}")
+
+            assert any(
+                issubclass(warning.category, DeprecationWarning)
+                and api_name in str(warning.message)
+                for warning in w
+            ), f"Expected deprecation warning for {api_name}, got: {[str(warning.message) for warning in w]}"
