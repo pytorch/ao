@@ -97,9 +97,9 @@ def test_marlin_qqq_layout_deprecated():
             del sys.modules[mod]
 
     with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")  # Ensure all warnings are captured
         from torchao.dtypes import MarlinQQQLayout  # noqa: F401
 
-        warnings.simplefilter("always")  # Ensure all warnings are captured
         assert any(
             issubclass(warning.category, DeprecationWarning)
             and "MarlinQQQLayout" in str(warning.message)
