@@ -5,6 +5,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+
 import pytest
 import torch
 from torch._inductor.utils import run_and_get_code
@@ -22,6 +24,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
     ScaleCalculationMode,
     to_dtype,
 )
+from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     is_sm_at_least_89,
@@ -53,7 +56,7 @@ def _test_mx(
     data_hp, elem_dtype, block_size, scale_calculation_mode=ScaleCalculationMode.FLOOR
 ):
     data_mx = MXTensor.to_mx(data_hp, elem_dtype, block_size, scale_calculation_mode)
-    data_mx_dq = data_mx.to_dtype(data_hp.dtype)
+    data_mx_dq = data_mx.dequantize(data_hp.dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
         sqnr = compute_error(orig, new)
@@ -75,7 +78,7 @@ def _test_mx(
         assert data_mx.qdata.shape == (*prev_dims, K // 2)
     else:
         assert data_mx.qdata.shape == (*prev_dims, K)
-    assert data_mx._scale_e8m0.shape == (*prev_dims, K // block_size)
+    assert data_mx.scale.shape == (*prev_dims, K // block_size)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -113,8 +116,6 @@ def test_some_zeros(elem_dtype):
     _test_mx(data, elem_dtype, block_size)
 
 
-# TODO(future PR): fix and reenable this test
-@pytest.mark.skip(reason="does not pass on B200 yet")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_to_mx_rceil():
     # nan
@@ -128,11 +129,7 @@ def test_to_mx_rceil():
         ],
         dtype=torch.uint32,
     ).view(torch.float32)
-    # fmt: on
-    ground_truth_scale = torch.tensor([255], dtype=torch.uint8).view(
-        torch.float8_e8m0fnu
-    )
-    # fmt: off
+
     ground_truth_fp8 = torch.tensor(
         [
         127, 0, 0, 0, 0, 0, 0, 0,
@@ -146,7 +143,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    assert torch.isnan(data_mx.scale)
     assert torch.isnan(data_mx.qdata[0])
     assert torch.all(data_mx.qdata[1:] == 0)
     # fp32 denorm
@@ -168,7 +165,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 denorm
     # fmt: off
@@ -189,7 +186,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # fp32 some denorm
     # fmt: off
@@ -220,7 +217,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 some denorm
     # fmt: off
@@ -251,7 +248,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # zero
     data_hp = torch.tensor([0] * 32, dtype=torch.uint32).view(torch.float32)
@@ -262,7 +259,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # fp32 normal
     # fmt: off
@@ -293,7 +290,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
     # bf16 normal
     # fmt: off
@@ -324,7 +321,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
+    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
 
 
@@ -340,8 +337,8 @@ def test_exponent_nan_in(elem_dtype):
     )
     block_size = 4
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
-    assert torch.all(torch.isnan(tensor_mx._scale_e8m0[0]))
-    assert not torch.any(torch.isnan(tensor_mx._scale_e8m0[1:]))
+    assert torch.all(torch.isnan(tensor_mx.scale[0]))
+    assert not torch.any(torch.isnan(tensor_mx.scale[1:]))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -388,8 +385,9 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         MXGemmKernelChoice.EMULATED,
         pack_fp6,
         None,
+        False,
     )
-    tensor_hp = tensor_mx.to_dtype(torch.float)
+    tensor_hp = tensor_mx.dequantize(torch.float)
     assert torch.all(torch.isnan(tensor_hp.flatten()[0:4]))
     assert not torch.any(torch.isnan(tensor_hp.flatten()[4:]))
 
@@ -436,10 +434,10 @@ def test_transpose(elem_dtype):
         elem_dtype,
         block_size,
     )
-    tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()
+    tensor_mx_dq_t = tensor_mx.dequantize(tensor_hp.dtype).t()
 
     tensor_mx_t = tensor_mx.t()
-    tensor_mx_t_dq = tensor_mx_t.to_dtype(tensor_hp.dtype)
+    tensor_mx_t_dq = tensor_mx_t.dequantize(tensor_hp.dtype)
 
     assert tensor_mx_dq_t.shape == tensor_mx_t_dq.shape
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
@@ -461,8 +459,8 @@ def test_clone():
     data_mx = MXTensor.to_mx(data, torch.float8_e4m3fn, block_size)
     data_mx_c = data_mx.clone()
     torch.testing.assert_close(
-        data_mx.to_dtype(torch.bfloat16),
-        data_mx_c.to_dtype(torch.bfloat16),
+        data_mx.dequantize(torch.bfloat16),
+        data_mx_c.dequantize(torch.bfloat16),
         atol=0,
         rtol=0,
     )
@@ -507,8 +505,8 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
     x_mx_c = to_mx_c(x, elem_dtype, block_size)
     torch.testing.assert_close(
-        x_mx._scale_e8m0,
-        x_mx_c._scale_e8m0,
+        x_mx.scale,
+        x_mx_c.scale,
         atol=0,
         rtol=0,
     )
@@ -519,7 +517,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     pack_fp6 = False
     x_mx_dq = to_dtype(
         x_mx.qdata,
-        x_mx._scale_e8m0,
+        x_mx.scale,
         x_mx._elem_dtype,
         x_mx._block_size,
         hp_dtype,  # noqa: E501
@@ -527,7 +525,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c.qdata,
-        x_mx_c._scale_e8m0,
+        x_mx_c.scale,
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
         hp_dtype,
@@ -571,7 +569,7 @@ def test_index_select():
 
     x_mx_1 = x_mx[1]
     torch.testing.assert_close(
-        x_mx.to_dtype(x.dtype)[1], x_mx_1.to_dtype(x.dtype), atol=0, rtol=0
+        x_mx.dequantize(x.dtype)[1], x_mx_1.dequantize(x.dtype), atol=0, rtol=0
     )
 
 
@@ -645,8 +643,6 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
-    from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
-
     rows, cols = shape
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -662,3 +658,122 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
         rtol=0.0,
         msg=f"Roundtrip failed for shape {shape} with use_triton_kernel={use_triton_kernel}",
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
+@pytest.mark.parametrize("transpose", [False, True])
+@pytest.mark.parametrize(
+    "shape",
+    (
+        (128, 64),
+        (1, 128, 64),
+    ),
+)
+def test_scale_shape_matches_qdata(transpose, shape):
+    if len(shape) == 3 and transpose:
+        pytest.skip("transpose not yet implemented for 3D MXTensor")
+
+    block_size = 32
+
+    x_hp = torch.randn(*shape, device="cuda")
+    x = MXTensor.to_mx(
+        x_hp,
+        torch.float8_e4m3fn,
+        block_size,
+        ScaleCalculationMode.FLOOR,
+    )
+
+    if len(shape) == 2:
+        m_dim, k_dim = 0, 1
+        if transpose:
+            x_hp = x_hp.t()
+            x = x.t()
+            m_dim, k_dim = 1, 0
+    else:
+        assert len(shape) == 3, "unsupported"
+        m_dim, k_dim = 1, 2
+        if transpose:
+            x_hp = x_hp.transpose(-2, -1)
+            x = x.transpose(-2, -1)
+            m_dim, k_dim = 2, 1
+
+    orig_m = x_hp.shape[m_dim]
+    expected_padded_m = orig_m
+    actual_padded_m = x.scale.shape[m_dim]
+    assert expected_padded_m == actual_padded_m, (
+        f"incompatible padded shape for dim {m_dim}: {expected_padded_m=}, {actual_padded_m=}, {x.shape}, {x.scale.shape}"
+    )
+
+    orig_k = x_hp.shape[k_dim]
+    expected_padded_k = orig_k // block_size
+    actual_padded_k = x.scale.shape[k_dim]
+
+    assert expected_padded_k == actual_padded_k, (
+        f"incompatible padded shape for dim {k_dim}: {expected_padded_k}, {actual_padded_k=}, {x.shape}, {x.scale.shape}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
+@pytest.mark.parametrize("elem_dtype", (torch.float8_e4m3fn, torch.float4_e2m1fn_x2))
+@pytest.mark.parametrize("transpose", [False, True])
+@pytest.mark.parametrize(
+    "shape",
+    (
+        (128, 64),
+        (1, 128, 64),
+    ),
+)
+def test_swizzle(elem_dtype, transpose, shape):
+    if len(shape) == 3 and transpose:
+        pytest.skip("transpose not yet implemented for 3D MXTensor")
+
+    block_size = 32
+
+    x_hp = torch.randn(*shape, device="cuda")
+    x = MXTensor.to_mx(
+        x_hp,
+        elem_dtype,
+        block_size,
+        ScaleCalculationMode.FLOOR,
+    )
+
+    xs = MXTensor.to_mx(
+        x_hp,
+        elem_dtype,
+        block_size,
+        ScaleCalculationMode.FLOOR,
+        is_swizzled_scales=True,
+    )
+
+    if transpose:
+        x = x.t()
+        xs = xs.t()
+
+    torch.testing.assert_close(x.qdata, xs.qdata, atol=0, rtol=0)
+
+    if transpose:
+        leading_dims, M, K = x.shape[:-2], x.shape[-1], x.shape[-2]
+        xs_scale_unblocked = from_blocked(
+            xs.scale.t(), math.prod(leading_dims) * M, K // block_size
+        )
+        xs_scale_unblocked = xs_scale_unblocked.view(*leading_dims, M, K // block_size)
+        xs_scale_unblocked = xs_scale_unblocked.t()
+    else:
+        leading_dims, M, K = x.shape[:-2], x.shape[-2], x.shape[-1]
+        xs_scale_unblocked = from_blocked(
+            xs.scale, math.prod(leading_dims) * M, K // block_size
+        )
+        xs_scale_unblocked = xs_scale_unblocked.view(*leading_dims, M, K // block_size)
+
+    torch.testing.assert_close(
+        x.scale,
+        xs_scale_unblocked,
+        atol=0,
+        rtol=0,
+    )
+
+    x_dq = x.dequantize(x.dtype)
+    xs_dq = xs.dequantize(xs.dtype)
+    torch.testing.assert_close(x_dq, xs_dq, atol=0, rtol=0)

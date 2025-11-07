@@ -15,7 +15,7 @@ Post-training Quantization with HuggingFace
 -------------------------------------------
 
 HuggingFace Transformers provides seamless integration with torchao quantization. The ``TorchAoConfig`` automatically applies torchao's optimized quantization algorithms during model loading.
-Please check out our `HF Integration Docs <torchao_hf_integration.html>`_ for examples on how to use quantization and sparsity in Transformers and Diffusers.
+Please check out our `HF Integration Docs <torchao_hf_integration.html>`_ for examples on how to use quantization and sparsity in Transformers and Diffusers and `TorchAOConfig Reference <api_ref_quantization.html#inference-apis-for-quantize>`_ for all available torchao configs to use.
 
 Serving and Inference
 --------------------
@@ -29,19 +29,19 @@ First, install vLLM with torchao support:
 
 .. code-block:: bash
 
-    pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
-    pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
+    pip install vllm --pre --extra-index-url https://download.pytorch.org/whl/nightly/vllm/
+    pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu128
 
 To serve in vLLM, we're using the model we quantized and pushed to Hugging Face hub in the previous step :ref:`Post-training Quantization with HuggingFace`.
 
 .. code-block:: bash
 
     # Server
-    vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+    vllm serve pytorch/Phi-4-mini-instruct-FP8 --tokenizer microsoft/Phi-4-mini-instruct -O3
 
     # Client
     curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
-        "model": "pytorch/Phi-4-mini-instruct-float8dq",
+        "model": "pytorch/Phi-4-mini-instruct-FP8",
         "messages": [
             {"role": "user", "content": "Give me a short introduction to large language models."}
         ],
@@ -175,7 +175,7 @@ Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivati
     from torchao.quantization.quant_api import (
         IntxWeightOnlyConfig,
         Int8DynamicActivationIntxWeightConfig,
-        ModuleFqnToConfig,
+        FqnToConfig,
         quantize_,
     )
     from torchao.quantization.granularity import PerGroup, PerAxis
@@ -198,7 +198,7 @@ Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivati
         weight_granularity=PerGroup(32),
         weight_scale_dtype=torch.bfloat16,
     )
-    quant_config = ModuleFqnToConfig({"_default": linear_config, "model.embed_tokens": embedding_config})
+    quant_config = FqnToConfig({"_default": linear_config, "model.embed_tokens": embedding_config})
     quantization_config = TorchAoConfig(quant_type=quant_config, include_embedding=True, untie_embedding_weights=True, modules_to_not_convert=[])
 
     # either use `untied_model_id` or `untied_model_local_path`
@@ -271,8 +271,8 @@ Evaluate quantized models using lm-evaluation-harness:
     # Evaluate baseline model
     lm_eval --model hf --model_args pretrained=microsoft/Phi-4-mini-instruct --tasks hellaswag --device cuda:0 --batch_size 8
 
-    # Evaluate torchao-quantized model (float8dq)
-    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-float8dq --tasks hellaswag --device cuda:0 --batch_size 8
+    # Evaluate torchao-quantized model (FP8)
+    lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-FP8 --tasks hellaswag --device cuda:0 --batch_size 8
 
 Memory Benchmarking
 ^^^^^^^^^^^^^^^^^
@@ -283,8 +283,8 @@ For Phi-4-mini-instruct, when quantized with float8 dynamic quant, we can reduce
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-float8dq"
-    model_id = "pytorch/Phi-4-mini-instruct-float8dq"
+    # use "microsoft/Phi-4-mini-instruct" or "pytorch/Phi-4-mini-instruct-FP8"
+    model_id = "pytorch/Phi-4-mini-instruct-FP8"
     quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", dtype=torch.bfloat16)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -328,7 +328,7 @@ Output:
     Peak Memory Usage: 5.70 GB
 
 +-------------------+---------------------+------------------------------+
-| Benchmark         | Phi-4 mini-instruct | Phi-4-mini-instruct-float8dq |
+| Benchmark         | Phi-4 mini-instruct | Phi-4-mini-instruct-FP8 |
 +===================+=====================+==============================+
 | Peak Memory (GB)  | 8.91                | 5.70 (36% reduction)         |
 +-------------------+---------------------+------------------------------+
@@ -342,10 +342,10 @@ Latency Benchmarking
 .. code-block:: bash
 
     # baseline
-    python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
+    vllm bench latency --input-len 256 --output-len 256 --model microsoft/Phi-4-mini-instruct --batch-size 1
 
-    # float8dq
-    VLLM_DISABLE_COMPILE_CACHE=1 python benchmarks/benchmark_latency.py --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-float8dq --batch-size 1
+    # FP8
+    VLLM_DISABLE_COMPILE_CACHE=1 vllm bench latency --input-len 256 --output-len 256 --model pytorch/Phi-4-mini-instruct-FP8 --batch-size 1
 
 Serving Benchmarking
 """""""""""""""""""""
@@ -372,13 +372,13 @@ We benchmarked the throughput in a serving environment.
     # Server:
     vllm serve microsoft/Phi-4-mini-instruct --tokenizer microsoft/Phi-4-mini-instruct -O3
     # Client:
-    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
+    vllm bench serve --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model microsoft/Phi-4-mini-instruct --num-prompts 1
 
-    # For float8dq
+    # For FP8
     # Server:
-    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-float8dq --tokenizer microsoft/Phi-4-mini-instruct -O3
+    VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Phi-4-mini-instruct-FP8 --tokenizer microsoft/Phi-4-mini-instruct -O3
     # Client:
-    python benchmarks/benchmark_serving.py --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-float8dq --num-prompts 1
+    vllm bench serve --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-FP8 --num-prompts 1
 
 Results (H100 machine)
 """""""""""""""""""""

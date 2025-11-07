@@ -46,8 +46,8 @@ from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
-    from torchtitan.distributed.expert_parallel import set_token_group_alignment_size_m
     from torchtitan.models.moe import MoE, MoEArgs
+    from torchtitan.models.moe.utils import set_token_group_alignment_size_m
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
@@ -62,9 +62,6 @@ def device_mesh_1d() -> DeviceMesh:
     """
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    if not dist.is_initialized():
-        dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
     device_mesh = init_device_mesh("cuda", (world_size,))
     torch.manual_seed(1)
     torch.cuda.set_device(rank)
