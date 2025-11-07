@@ -11,6 +11,7 @@ from .uintx import (
     MarlinQQQLayout,
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
+    GemlitePackedLayout,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "MarlinQQQLayout",
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
+    "GemlitePackedLayout",
 ]

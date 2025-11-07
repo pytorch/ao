@@ -12,6 +12,7 @@ from .marlin_qqq_tensor import (
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
 )
+from .gemlite_layout import GemlitePackedLayout
 
 __all__ = [
     "BlockSparseLayout",
@@ -20,4 +21,5 @@ __all__ = [
     "MarlinQQQLayout",
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
+    "GemlitePackedLayout",
 ]
