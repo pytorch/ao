@@ -243,7 +243,7 @@ class TestQuantFlow(TestCase):
 
         torch.testing.assert_close(ref, res.cpu())
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_int8_wo_quant_save_load(self):
         m = ToyLinearModel().eval().cpu()
 
@@ -264,7 +264,7 @@ class TestQuantFlow(TestCase):
         api(m2)
 
         m2.load_state_dict(state_dict)
-        m2 = m2.to(device="cuda")
+        m2 = m2.to(_DEVICE)
         example_inputs = map(lambda x: x.to(_DEVICE), example_inputs)
         res = m2(*example_inputs)
 
@@ -444,7 +444,7 @@ class TestQuantFlow(TestCase):
         ref = m_copy(*example_inputs)
         self.assertTrue(torch.equal(res, ref))
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
         m_copy = copy.deepcopy(m)
@@ -462,7 +462,7 @@ class TestQuantFlow(TestCase):
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_int8wo_quantized_model_to_device(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
         example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cpu")
@@ -470,15 +470,15 @@ class TestQuantFlow(TestCase):
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
 
-        example_inputs_cuda = (example_inputs[0].to("cuda"),)
-        m.to(device="cuda")
+        example_inputs_cuda = (example_inputs[0].to(_DEVICE),)
+        m.to(_DEVICE)
         cuda_res = m(*example_inputs_cuda)
         self.assertEqual(cuda_res.cpu(), ref)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load_map_location(self):
-        m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device="cuda")
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
+        m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device=_DEVICE.type)
+        example_inputs = m.example_inputs(dtype=torch.bfloat16, device=_DEVICE.type)
 
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
@@ -491,31 +491,31 @@ class TestQuantFlow(TestCase):
             m_copy = ToyLinearModel().eval()
 
         m_copy.load_state_dict(state_dict, assign=True)
-        m_copy.to(dtype=torch.bfloat16, device="cuda")
+        m_copy.to(dtype=torch.bfloat16, device=_DEVICE.type)
 
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming(self):
         def reset_memory():
             gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.reset_peak_memory_stats()
+            torch.accelerator.empty_cache()
+            torch.accelerator.reset_peak_memory_stats()
 
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m.to(device="cuda"), Int8WeightOnlyConfig())
-        memory_baseline = torch.cuda.max_memory_allocated()
+        quantize_(m.to(device=_DEVICE.type), Int8WeightOnlyConfig())
+        memory_baseline = torch.accelerator.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m, Int8WeightOnlyConfig(), device="cuda")
-        memory_streaming = torch.cuda.max_memory_allocated()
+        quantize_(m, Int8WeightOnlyConfig(), device=_DEVICE.type)
+        memory_streaming = torch.accelerator.max_memory_allocated()
 
         for param in m.parameters():
-            assert param.is_cuda
+            assert param.device.type == _DEVICE.type
         self.assertLess(memory_streaming, memory_baseline)
 
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
@@ -641,20 +641,20 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_basic(self):
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
         config = ModuleFqnToConfig({"re:linear.": config1})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=_DEVICE.type, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_precedence(self):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig
@@ -664,14 +664,14 @@ class TestQuantFlow(TestCase):
         )
         config2 = IntxWeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "re:linear.": config2})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=_DEVICE.type, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_precedence2(self):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig, swapping
@@ -683,14 +683,14 @@ class TestQuantFlow(TestCase):
         )
         config2 = IntxWeightOnlyConfig()
         config = ModuleFqnToConfig({"re:linear.": config2, "linear1": config1})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=_DEVICE.type, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_fullmatch(self):
         """Testing that we will only match the fqns that fully
         matches the regex
@@ -729,7 +729,7 @@ class TestQuantFlow(TestCase):
                 "linear3_full_match.bias": None,
             }
         )
-        model = M(dtype=torch.bfloat16, device="cuda")
+        model = M(dtype=torch.bfloat16, device=_DEVICE.type)
         example_inputs = model.example_inputs()
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
@@ -851,7 +851,7 @@ class TestQuantFlow(TestCase):
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
 class TestFqnToConfig(TestCase):
     def test_quantize_param_fqn_exact(self):
@@ -861,7 +861,7 @@ class TestFqnToConfig(TestCase):
         config = AutoConfig.from_pretrained(
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
-        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        model = Llama4TextMoe(config).to(torch.bfloat16).to(_DEVICE)
 
         quant_config = FqnToConfig(
             {
@@ -1106,27 +1106,27 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.weight, Float8Tensor)
         assert model.weight.scale.numel() == 1
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming_fqn_config(self):
         def reset_memory():
             gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.reset_peak_memory_stats()
+            torch.accelerator.empty_cache()
+            torch.accelerator.reset_peak_memory_stats()
 
         quant_config = FqnToConfig({"_default": Int8WeightOnlyConfig()})
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m.to(device="cuda"), quant_config, filter_fn=None)
-        memory_baseline = torch.cuda.max_memory_allocated()
+        quantize_(m.to(device=_DEVICE.type), quant_config, filter_fn=None)
+        memory_baseline = torch.accelerator.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m, quant_config, device="cuda", filter_fn=None)
-        memory_streaming = torch.cuda.max_memory_allocated()
+        quantize_(m, quant_config, device=_DEVICE.type, filter_fn=None)
+        memory_streaming = torch.accelerator.max_memory_allocated()
 
         for param in m.parameters():
-            assert param.is_cuda
+            assert param.device.type == _DEVICE.type
         self.assertLess(memory_streaming, memory_baseline)
 
 
