@@ -15,6 +15,7 @@ from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import run_tests
 
+from torchao.core.config import config_from_dict, config_to_dict
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -844,6 +845,32 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sliced_dequantized = sliced_tensor.dequantize()
 
         self.assertEqual(sliced_dequantized, sliced_original)
+
+    def test_per_row_config_before_dim(self):
+        """
+        Test that loading a serialized config of `PerRow` before the `dim`
+        argument was introduced works properly
+        """
+
+        # create a config with PerRow granularity
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(),
+        )
+
+        # serialize it
+        config_ser = config_to_dict(config)
+
+        # manually modify the serialized config to match v1
+        # reference: https://gist.github.com/vkuzo/d347c4f8b8121819483d2d31e79f7335
+        del config_ser["_data"]["granularity"][0]["_data"]["dim"]
+        del config_ser["_data"]["granularity"][1]["_data"]["dim"]
+        assert len(config_ser["_data"]["granularity"][0]["_data"]) == 0
+        assert len(config_ser["_data"]["granularity"][1]["_data"]) == 0
+
+        # load the modified version, verify that granularity is as expected
+        config_deser = config_from_dict(config_ser)
+        assert config_deser.granularity[0].dim == -1
+        assert config_deser.granularity[1].dim == -1
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
