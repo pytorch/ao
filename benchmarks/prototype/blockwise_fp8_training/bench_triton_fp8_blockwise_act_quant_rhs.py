@@ -148,30 +148,43 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         y_naive_float = y_naive.to(torch.float32)
         y_triton_float = y_triton.to(torch.float32)
 
-        if not torch.allclose(y_naive_float, y_triton_float, rtol=rtol, atol=atol):
+        try:
+            torch.testing.assert_close(
+                y_naive_float,
+                y_triton_float,
+                rtol=rtol,
+                atol=atol,
+                msg="Quantized values differ between naive and Triton implementations"
+            )
+        except AssertionError as e:
             max_diff = (y_naive_float - y_triton_float).abs().max().item()
-            print(f"WARNING: Quantized values differ! Max diff: {max_diff}")
+            print(f"WARNING: Scales differ! Max diff: {max_diff}")
             print(
-                f"  Naive range: [{y_naive_float.min():.3f}, {y_naive_float.max():.3f}]"
+                f"  Naive scale range: [{y_naive_float.min():.6f}, {y_triton_float.max():.6f}]"
             )
             print(
-                f"  Triton range: [{y_triton_float.min():.3f}, {y_triton_float.max():.3f}]"
+                f"  Triton scale range: [{y_naive_float.min():.6f}, {y_triton_float.max():.6f}]"
             )
+            print(f"  Error details: {e}")
 
-        # Ensure float32 for scales
-        if s_naive.dtype != torch.float32:
-            s_naive = s_naive.to(torch.float32)
-        if s_triton.dtype != torch.float32:
-            s_triton = s_triton.to(torch.float32)
-
-        # RHS: scales are already row-major (M_blocks, K) on both paths; compare directly
-        if not torch.allclose(s_naive, s_triton, rtol=rtol, atol=atol):
+        try:
+            torch.testing.assert_close(
+                s_naive,
+                s_triton,
+                rtol=rtol,
+                atol=atol,
+                msg="Scales differ between naive and Triton implementations"
+            )
+        except AssertionError as e:
             max_diff = (s_naive - s_triton).abs().max().item()
             print(f"WARNING: Scales differ! Max diff: {max_diff}")
             print(
-                f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]")
+                f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]"
+            )
             print(
-                f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]")
+                f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]"
+            )
+            print(f"  Error details: {e}")
 
     input_tensor = torch.randn(
         M,
@@ -205,7 +218,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     verify_outputs(y_naive, s_naive, y_triton, s_triton)
 
     # Memory bandwidth calculations
-    bytes_per_input_el = torch.finfo(torch.bfloat16).bits / 8
+    bytes_per_input_el = torch.finfo(torch.float32).bits / 8
     bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
     bytes_per_scale_el = 4  # float32
 
