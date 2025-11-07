@@ -39,6 +39,8 @@ class SparseMarlin24(TestCase):
             .half()
             .cuda()
         )
+        for param in self.model.parameters():
+            param.requires_grad = False
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")

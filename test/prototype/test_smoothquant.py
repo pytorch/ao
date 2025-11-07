@@ -61,7 +61,12 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
+device_list = ["cpu"]
+if torch.cuda.is_available():
+    device_list.append("cuda")
+
+if torch.xpu.is_available():
+    device_list.append("xpu")
 
 
 @unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
