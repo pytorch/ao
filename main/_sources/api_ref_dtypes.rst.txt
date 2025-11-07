@@ -52,6 +52,7 @@ Prototype
 
     BlockSparseLayout
     CutlassInt4PackedLayout
+    Int8DynamicActInt4WeightCPULayout
 
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring
