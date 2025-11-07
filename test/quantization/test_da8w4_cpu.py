@@ -176,32 +176,5 @@ class TestDa8w4Cpu(TestCase):
 common_utils.instantiate_parametrized_tests(TestDa8w4Cpu)
 
 
-# TODO: Remove this test once the deprecated API has been removed
-def test_int8_dynamic_act_int4_weight_cpu_layout_deprecated():
-    import sys
-    import warnings
-
-    # We need to clear the cache to force re-importing and trigger the warning again.
-    modules_to_clear = [
-        "torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout",
-        "torchao.dtypes",
-    ]
-    for mod in modules_to_clear:
-        if mod in sys.modules:
-            del sys.modules[mod]
-
-    with warnings.catch_warnings(record=True) as w:
-        from torchao.dtypes import Int8DynamicActInt4WeightCPULayout  # noqa: F401
-
-        warnings.simplefilter("always")  # Ensure all warnings are captured
-        assert any(
-            issubclass(warning.category, DeprecationWarning)
-            and "Int8DynamicActInt4WeightCPULayout" in str(warning.message)
-            for warning in w
-        ), (
-            f"Expected deprecation warning for Int8DynamicActInt4WeightCPULayout, got: {[str(warning.message) for warning in w]}"
-        )
-
-
 if __name__ == "__main__":
     run_tests()
