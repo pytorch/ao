@@ -1946,32 +1946,5 @@ class TestBenchmarkModel(unittest.TestCase):
         assert self.run_benchmark_model("cpu") is not None
 
 
-# TODO: Remove this test once the deprecated API has been removed
-def test_cutlass_int4_packed_layout_deprecated():
-    import sys
-    import warnings
-
-    # We need to clear the cache to force re-importing and trigger the warning again.
-    modules_to_clear = [
-        "torchao.dtypes.uintx.cutlass_int4_packed_layout",
-        "torchao.dtypes",
-    ]
-    for mod in modules_to_clear:
-        if mod in sys.modules:
-            del sys.modules[mod]
-
-    with warnings.catch_warnings(record=True) as w:
-        from torchao.dtypes import CutlassInt4PackedLayout  # noqa: F401
-
-        warnings.simplefilter("always")  # Ensure all warnings are captured
-        assert any(
-            issubclass(warning.category, DeprecationWarning)
-            and "CutlassInt4PackedLayout" in str(warning.message)
-            for warning in w
-        ), (
-            f"Expected deprecation warning for CutlassInt4PackedLayout, got: {[str(warning.message) for warning in w]}"
-        )
-
-
 if __name__ == "__main__":
     unittest.main()
