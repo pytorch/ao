@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn.utils.parametrize as parametrize
