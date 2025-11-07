@@ -914,11 +914,8 @@
                 <span class="ow">or</span> <span class="n">_module_param_matches_fqn_config</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
                 <span class="ow">or</span> <span class="p">(</span><span class="s2">&quot;_default&quot;</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span> <span class="ow">and</span> <span class="n">_is_linear</span><span class="p">(</span><span class="n">module</span><span class="p">))</span>
             <span class="p">):</span>
-                <span class="n">module_name</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="n">module_fqn</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">module_fqn</span> <span class="k">else</span> <span class="n">module_fqn</span>
-                <span class="p">)</span>
                 <span class="c1"># this replaces inplace, so no need to reassign</span>
-                <span class="n">_fqn_to_config_handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_name</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+                <span class="n">_fqn_to_config_handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
                 <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">module</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
         <span class="k">return</span>
