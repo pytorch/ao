@@ -84,8 +84,6 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         s_naive: torch.Tensor,
         y_triton: torch.Tensor,
         s_triton: torch.Tensor,
-        input_tensor: torch.Tensor,
-        block_size: int,
         rtol: float = 1e-2,
         atol: float = 1e-2,
     ):
@@ -162,7 +160,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Verify correctness (optional, can comment out for pure benchmarking)
     verify_outputs(y_naive, s_naive, y_triton,
-                   s_triton, input_tensor, block_size)
+                   s_triton)
 
     # Memory bandwidth calculations
     bytes_per_input_el = torch.finfo(torch.float32).bits / 8
