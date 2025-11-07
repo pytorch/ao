@@ -119,8 +119,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Benchmark naive implementation
     naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
-    y_naive, s_naive = naive_impl_c(
-        input_tensor, block_size)
+    y_naive, s_naive = naive_impl_c(input_tensor, block_size)
     naive_time_us = benchmark_cuda_function_in_microseconds(
         naive_impl_c,
         input_tensor,
@@ -128,8 +127,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Benchmark Triton implementation
-    y_triton, s_triton = triton_fp8_blockwise_act_quant_lhs(
-        input_tensor, block_size)
+    y_triton, s_triton = triton_fp8_blockwise_act_quant_lhs(input_tensor, block_size)
     triton_time_us = benchmark_cuda_function_in_microseconds(
         triton_fp8_blockwise_act_quant_lhs,
         input_tensor,

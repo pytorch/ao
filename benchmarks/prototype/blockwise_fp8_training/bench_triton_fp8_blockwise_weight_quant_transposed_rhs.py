@@ -140,8 +140,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         # Permute back: (M_blocks, N_blocks, block_size, block_size) -> (M_blocks, block_size, N_blocks, block_size)
         y_reshaped = y_blocks.permute(0, 2, 1, 3)
         # Reshape to (M, N) then transpose to (N, M)
-        y_rowmajor = y_reshaped.reshape(
-            M, N).t()
+        y_rowmajor = y_reshaped.reshape(M, N).t()
 
         # Convert to FP8 and create column-major output (matching Triton kernel)
         y = y_rowmajor.t().contiguous().t()
@@ -208,7 +207,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Benchmark Triton implementation (torch.compile handles warmup)
     y_triton, s_triton = triton_fp8_blockwise_weight_quant_transposed_rhs(
-        input_tensor, block_size)
+        input_tensor, block_size
+    )
     triton_time_us = benchmark_cuda_function_in_microseconds(
         triton_fp8_blockwise_weight_quant_transposed_rhs,
         input_tensor,

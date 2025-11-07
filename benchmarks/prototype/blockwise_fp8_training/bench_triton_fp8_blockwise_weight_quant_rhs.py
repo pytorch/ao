@@ -145,21 +145,17 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         # Reshape back and convert to FP8
         # Permute back: (M_blocks, N_blocks, block_size, block_size) -> (M_blocks, block_size, N_blocks, block_size)
         y_reshaped = y_blocks.permute(0, 2, 1, 3)
-        y_rowmajor = y_reshaped.reshape(M, N).contiguous()
+        y_rowmajor = y_reshaped.reshape(M, N).to(torch.float8_e4m3fn)
 
         # Convert to column-major format
-        y = x.new_empty(M, N, dtype=torch.float8_e4m3fn).as_strided((M, N), (1, M))
-        y.copy_(y_rowmajor.to(torch.float8_e4m3fn))
+
+        y = y_rowmajor.t().contiguous().t()
 
         # Compute reciprocal scales - explicitly cast to float32
-        reciprocal_scale = (1.0 / scale).to(torch.float32)
+        reciprocal_scale = 1.0 / scale
 
-        # Convert to column-major using as_strided
-        s = x.new_empty(M_blocks, N_blocks, dtype=torch.float32).as_strided(
-            (M_blocks, N_blocks),
-            (1, M_blocks),  # Column-major strides
-        )
-        s.copy_(reciprocal_scale)
+        # Convert to column-major
+        s = reciprocal_scale.t().contiguous().t()
 
         return y, s
 
@@ -179,39 +175,21 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         y_triton_float = y_triton.to(torch.float32)
 
         # Check quantized values are close
-        try:
-            torch.testing.assert_close(
-                y_naive_float,
-                y_triton_float,
-                rtol=rtol,
-                atol=atol,
-                msg="Quantized values differ between naive and Triton implementations",
-            )
-        except AssertionError as e:
-            max_diff = (y_naive_float - y_triton_float).abs().max().item()
-            print(f"WARNING: Scales differ! Max diff: {max_diff}")
-            print(
-                f"  Naive scale range: [{y_naive_float.min():.6f}, {y_triton_float.max():.6f}]"
-            )
-            print(
-                f"  Triton scale range: [{y_naive_float.min():.6f}, {y_triton_float.max():.6f}]"
-            )
-            print(f"  Error details: {e}")
+        torch.testing.assert_close(
+            y_naive_float,
+            y_triton_float,
+            rtol=rtol,
+            atol=atol,
+            msg="Quantized values differ between naive and Triton implementations",
+        )
 
-        try:
-            torch.testing.assert_close(
-                s_naive,
-                s_triton,
-                rtol=rtol,
-                atol=atol,
-                msg="Scales differ between naive and Triton implementations",
-            )
-        except AssertionError as e:
-            max_diff = (s_naive - s_triton).abs().max().item()
-            print(f"WARNING: Scales differ! Max diff: {max_diff}")
-            print(f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]")
-            print(f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]")
-            print(f"  Error details: {e}")
+        torch.testing.assert_close(
+            s_naive,
+            s_triton,
+            rtol=rtol,
+            atol=atol,
+            msg="Scales differ between naive and Triton implementations",
+        )
 
     # Create input tensor
     input_tensor = torch.randn(
@@ -221,7 +199,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         device=device,
     )
 
-    # Benchmark naive implementation (torch.compile handles warmup)
+    # Benchmark naive implementation
     naive_impl_c = torch.compile(naive_fp8_blockwise_weight_quant)
     y_naive, s_naive = naive_impl_c(input_tensor, block_size)
     naive_time_us = benchmark_cuda_function_in_microseconds(
@@ -230,11 +208,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         block_size,
     )
 
-    # Benchmark Triton implementation (torch.compile handles warmup)
-    triton_impl_c = torch.compile(triton_fp8_blockwise_weight_quant_rhs)
-    y_triton, s_triton = triton_impl_c(input_tensor, block_size)
+    # Benchmark Triton implementation
+    y_triton, s_triton = triton_fp8_blockwise_weight_quant_rhs(input_tensor, block_size)
     triton_time_us = benchmark_cuda_function_in_microseconds(
-        triton_impl_c,
+        triton_fp8_blockwise_weight_quant_rhs,
         input_tensor,
         block_size,
     )
@@ -243,9 +220,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     verify_outputs(y_naive, s_naive, y_triton, s_triton)
 
     # Memory bandwidth calculations
-    bytes_per_input_el = torch.finfo(torch.float32).bits / 8
-    bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
-    bytes_per_scale_el = 4  # float32
+    bytes_per_input_el = torch.finfo(input_tensor.dtype).bits / 8
+    bytes_per_output_el = torch.finfo(y_triton.dtype).bits / 8
+    bytes_per_scale_el = torch.finfo(s_triton.dtype).bits / 8
 
     read_bytes = input_tensor.numel() * bytes_per_input_el
     write_bytes = (
