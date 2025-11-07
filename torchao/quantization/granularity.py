@@ -126,4 +126,8 @@ class PerBlock(Granularity):
     # 1. `block_size` in this class can support tensors of multiple ranks
     # 2. `block_size` in other places in the codebase has rank equal to the
     #    corresponding tensor
+    # TODO(future PR): change to list or support serialization with tuples,
+    # currently serialization only works when `block_size` is specified as a
+    # list. Example error:
+    # https://gist.github.com/vkuzo/ab4d6aec83cb98ad9417898d2c024a2c
     block_size: tuple[int, ...]

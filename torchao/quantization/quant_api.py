@@ -480,7 +480,7 @@ def quantize_(
 
         for module_fqn, module in model.named_modules():
             if (
-                _fqn_matches_fqn_config(module_fqn, config)
+                fqn_matches_fqn_config(module_fqn, config)
                 or _module_param_matches_fqn_config(module, module_fqn, config)
                 or ("_default" in config.fqn_to_config and _is_linear(module))
             ):
@@ -488,7 +488,9 @@ def quantize_(
                     module_fqn.rsplit(".", 1) if "." in module_fqn else module_fqn
                 )
                 # this replaces inplace, so no need to reassign
-                _fqn_to_config_handler(module, module_name, config, device)
+                _fqn_to_config_handler(module, module_name, config)
+                if device is not None:
+                    module.to(device=device)
         return
     if isinstance(config, AOBaseConfig):
         filter_fn = _is_linear if filter_fn is None else filter_fn
@@ -591,6 +593,9 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt4WeightConfig"
+        )
+        warnings.warn(
+            "`Int8DynamicActivationInt4WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
 
 
@@ -963,6 +968,9 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int4DynamicActivationInt4WeightConfig"
         )
+        warnings.warn(
+            "`Int4DynamicActivationInt4WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for bc
@@ -1025,6 +1033,9 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.GemliteUIntXWeightOnlyConfig"
+        )
+        warnings.warn(
+            "`GemliteUIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
 
 
@@ -1778,13 +1789,10 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
         default_use_fast_accum = True
         if _granularity_is_a_1_128_w_128_128(self.granularity):
-            assert self.activation_value_lb is None, "unimplemented"
-            assert self.activation_value_ub is None, "unimplemented"
             assert self.kernel_preference in (
                 KernelPreference.AUTO,
                 KernelPreference.TORCH,
             ), "unimplemented"
-            assert self.mm_config is None, "unimplemented"
             assert self.version >= 2, "unimplemented"
             default_use_fast_accum = False
 
@@ -1982,6 +1990,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8StaticActivationFloat8WeightConfig"
         )
+        warnings.warn(
+            "`Float8StaticActivationFloat8WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for bc
@@ -2070,6 +2081,9 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.UIntXWeightOnlyConfig")
+        warnings.warn(
+            "`UIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for BC
@@ -2354,6 +2368,9 @@ class FPXWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.FPXWeightOnlyConfig")
+        warnings.warn(
+            "`FPXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
+        )
 
 
 # for BC
@@ -2470,7 +2487,6 @@ def _fqn_to_config_handler(
     module: torch.nn.Module,
     fqn: str,
     config: FqnToConfig,
-    device: Optional[torch.device] = None,
 ):
     """This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.
 
@@ -2479,7 +2495,6 @@ def _fqn_to_config_handler(
         fqn (str): The fully qualified name of the module containing the parameters.
         config (FqnToConfig): Configuration object containing regex patterns / fqn mapped
             to quantization configurations.
-        device (Optional[torch.device]): The device to move the module to as part of quantization
 
     Returns:
         torch.nn.Module: The modified module with quantized parameters.
@@ -2487,9 +2502,6 @@ def _fqn_to_config_handler(
     Raises:
         NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.
     """
-    if device is not None:
-        module = module.to(device)
-
     parameter_config_found = False
     top_level_params = []
     for i, (parameter_name, param) in enumerate(list(module.named_parameters())):
@@ -2563,7 +2575,7 @@ def _fqn_to_config_handler(
     return module
 
 
-def _fqn_matches_fqn_config(
+def fqn_matches_fqn_config(
     fqn: str,
     config: FqnToConfig,
 ):
@@ -2608,7 +2620,7 @@ def _module_param_matches_fqn_config(
     for name, param in module.named_parameters():
         if name in dir(module):
             parameter_fqn = f"{fqn}.{name}" if len(fqn) > 0 else name
-            if _fqn_matches_fqn_config(parameter_fqn, config):
+            if fqn_matches_fqn_config(parameter_fqn, config):
                 return True
 
     return False
