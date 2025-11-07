@@ -52,7 +52,6 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 4096),
         (4096, 4096),
         (8192, 4096),
-
     ]
 
     configs = []
@@ -97,8 +96,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         # Pad rows so we can reshape without a loop; then crop back.
         pad_rows = M_blocks * block_size - M
         if pad_rows:
-            x = torch.nn.functional.pad(
-                x, (0, 0, 0, pad_rows))  # pad rows at bottom
+            x = torch.nn.functional.pad(x, (0, 0, 0, pad_rows))  # pad rows at bottom
 
         # Reshape to (M_blocks, block_size, K) for block-wise operations along M
         x_reshaped = x.view(M_blocks, block_size, K)
@@ -114,8 +112,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         scale = (max_fp8_e4m3 / amax).to(torch.float32).unsqueeze(1)
 
         # Quantize (still (M_blocks, block_size, K))
-        y_reshaped = torch.clamp(
-            x_reshaped * scale, min=min_fp8_e4m3, max=max_fp8_e4m3)
+        y_reshaped = torch.clamp(x_reshaped * scale, min=min_fp8_e4m3, max=max_fp8_e4m3)
 
         # Back to (M_padded, K), then crop to (M, K)
         y_rowmajor = y_reshaped.view(M_blocks * block_size, K)[:M, :].to(
@@ -123,13 +120,11 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         )
 
         # y must be column-major per RHS kernel contract
-        y = x.new_empty(M, K, dtype=torch.float8_e4m3fn).as_strided(
-            (M, K), (1, M))
+        y = x.new_empty(M, K, dtype=torch.float8_e4m3fn).as_strided((M, K), (1, M))
         y.copy_(y_rowmajor)
 
         # Reciprocal scales (row-major) -> (M_blocks, K)
-        reciprocal_scale = (1.0 / scale.squeeze(1)
-                            ).to(torch.float32)  # (M_blocks, K)
+        reciprocal_scale = (1.0 / scale.squeeze(1)).to(torch.float32)  # (M_blocks, K)
         s = reciprocal_scale  # already row-major and correct shape
 
         return y, s
@@ -154,7 +149,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
                 y_triton_float,
                 rtol=rtol,
                 atol=atol,
-                msg="Quantized values differ between naive and Triton implementations"
+                msg="Quantized values differ between naive and Triton implementations",
             )
         except AssertionError as e:
             max_diff = (y_naive_float - y_triton_float).abs().max().item()
@@ -173,17 +168,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
                 s_triton,
                 rtol=rtol,
                 atol=atol,
-                msg="Scales differ between naive and Triton implementations"
+                msg="Scales differ between naive and Triton implementations",
             )
         except AssertionError as e:
             max_diff = (s_naive - s_triton).abs().max().item()
             print(f"WARNING: Scales differ! Max diff: {max_diff}")
-            print(
-                f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]"
-            )
-            print(
-                f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]"
-            )
+            print(f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]")
+            print(f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]")
             print(f"  Error details: {e}")
 
     input_tensor = torch.randn(
