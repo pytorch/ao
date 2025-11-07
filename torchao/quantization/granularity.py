@@ -88,8 +88,6 @@ class PerRow(Granularity):
         dim (int): The dim which is reduced across, all other dims are kept
     """
 
-    # TODO(before land): any BC concerns with loading old checkpoints
-    # serialized without this arg? investigate this
     dim: int = -1
 
 
