@@ -93,39 +93,22 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         y_triton_float = y_triton.to(torch.float32)
 
         # Check quantized values are close
-        try:
-            torch.testing.assert_close(
-                y_naive_float,
-                y_triton_float,
-                rtol=rtol,
-                atol=atol,
-                msg="Quantized values differ between naive and Triton implementations",
-            )
-        except AssertionError as e:
-            max_diff = (y_naive_float - y_triton_float).abs().max().item()
-            print(f"WARNING: Scales differ! Max diff: {max_diff}")
-            print(
-                f"  Naive scale range: [{y_naive_float.min():.6f}, {y_naive_float.max():.6f}]"
-            )
-            print(
-                f"  Triton scale range: [{y_triton_float.min():.6f}, {y_triton_float.max():.6f}]"
-            )
-            print(f"  Error details: {e}")
 
-        try:
-            torch.testing.assert_close(
-                s_naive,
-                s_triton,
-                rtol=rtol,
-                atol=atol,
-                msg="Scales differ between naive and Triton implementations",
-            )
-        except AssertionError as e:
-            max_diff = (s_naive - s_triton).abs().max().item()
-            print(f"WARNING: Scales differ! Max diff: {max_diff}")
-            print(f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]")
-            print(f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]")
-            print(f"  Error details: {e}")
+        torch.testing.assert_close(
+            y_naive_float,
+            y_triton_float,
+            rtol=rtol,
+            atol=atol,
+            msg="Quantized values differ between naive and Triton implementations",
+        )
+
+        torch.testing.assert_close(
+            s_naive,
+            s_triton,
+            rtol=rtol,
+            atol=atol,
+            msg="Scales differ between naive and Triton implementations",
+        )
 
     input_tensor = torch.randn(
         M,
@@ -135,19 +118,20 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Benchmark naive implementation
-    # naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
-    y_naive, s_naive = torch_blockwise_scale_act_quant_lhs(input_tensor, block_size)
+    naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
+    y_naive, s_naive = naive_impl_c(
+        input_tensor, block_size)
     naive_time_us = benchmark_cuda_function_in_microseconds(
-        torch_blockwise_scale_act_quant_lhs,
+        naive_impl_c,
         input_tensor,
         block_size,
     )
 
     # Benchmark Triton implementation
-    triton_impl_c = torch.compile(triton_fp8_blockwise_act_quant_lhs)
-    y_triton, s_triton = triton_impl_c(input_tensor, block_size)
+    y_triton, s_triton = triton_fp8_blockwise_act_quant_lhs(
+        input_tensor, block_size)
     triton_time_us = benchmark_cuda_function_in_microseconds(
-        triton_impl_c,
+        triton_fp8_blockwise_act_quant_lhs,
         input_tensor,
         block_size,
     )
@@ -156,9 +140,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     verify_outputs(y_naive, s_naive, y_triton, s_triton)
 
     # Memory bandwidth calculations
-    bytes_per_input_el = torch.finfo(torch.float32).bits / 8
-    bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
-    bytes_per_scale_el = 4  # float32
+    bytes_per_input_el = torch.finfo(input_tensor.dtype).bits / 8
+    bytes_per_output_el = torch.finfo(y_triton.dtype).bits / 8
+    bytes_per_scale_el = torch.finfo(s_triton.dtype).bits / 8
 
     read_bytes = input_tensor.numel() * bytes_per_input_el
     write_bytes = (
