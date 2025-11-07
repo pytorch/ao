@@ -108,35 +108,41 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
         # ROBUST FIX: Handle potential dtype mismatches from torch.compile
         # Convert both scales to float32 before any operations
-        if s_naive.dtype != torch.float32:
-            print(
-                f"INFO: Converting naive scales from {s_naive.dtype} to float32")
-            s_naive = s_naive.to(torch.float32)
+        # if s_naive.dtype != torch.float32:
+        #     print(
+        #         f"INFO: Converting naive scales from {s_naive.dtype} to float32")
+        #     s_naive = s_naive.to(torch.float32)
 
-        if s_triton.dtype != torch.float32:
-            print(
-                f"INFO: Converting Triton scales from {s_triton.dtype} to float32")
-            s_triton = s_triton.to(torch.float32)
+        # if s_triton.dtype != torch.float32:
+        #     print(
+        #         f"INFO: Converting Triton scales from {s_triton.dtype} to float32")
+        #     s_triton = s_triton.to(torch.float32)
 
         # Check scales are close
         # Note: scales are in column-major format, need to read them correctly
-        s_naive_rowmajor = s_naive.as_strided(
-            s_naive.shape, (s_naive.shape[1], 1))
-        s_triton_rowmajor = s_triton.as_strided(
-            s_triton.shape, (s_triton.shape[1], 1))
+        # s_naive_rowmajor = s_naive.as_strided(
+        #     s_naive.shape, (s_naive.shape[1], 1))
+        # s_triton_rowmajor = s_triton.as_strided(
+        #     s_triton.shape, (s_triton.shape[1], 1))
 
-        if not torch.allclose(
-            s_naive_rowmajor, s_triton_rowmajor, rtol=rtol, atol=atol
-        ):
-            max_diff = (s_naive_rowmajor -
-                        s_triton_rowmajor).abs().max().item()
+        try:
+            torch.testing.assert_close(
+                s_naive,
+                s_triton,
+                rtol=rtol,
+                atol=atol,
+                msg="Scales differ between naive and Triton implementations"
+            )
+        except AssertionError as e:
+            max_diff = (s_naive - s_triton).abs().max().item()
             print(f"WARNING: Scales differ! Max diff: {max_diff}")
             print(
-                f"  Naive scale range: [{s_naive_rowmajor.min():.6f}, {s_naive_rowmajor.max():.6f}]"
+                f"  Naive scale range: [{s_naive.min():.6f}, {s_naive.max():.6f}]"
             )
             print(
-                f"  Triton scale range: [{s_triton_rowmajor.min():.6f}, {s_triton_rowmajor.max():.6f}]"
+                f"  Triton scale range: [{s_triton.min():.6f}, {s_triton.max():.6f}]"
             )
+            print(f"  Error details: {e}")
 
     input_tensor = torch.randn(
         M,
@@ -146,10 +152,11 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Benchmark naive implementation
-    naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
-    y_naive, s_naive = naive_impl_c(input_tensor, block_size)
+    # naive_impl_c = torch.compile(torch_blockwise_scale_act_quant_lhs)
+    y_naive, s_naive = torch_blockwise_scale_act_quant_lhs(
+        input_tensor, block_size)
     naive_time_us = benchmark_cuda_function_in_microseconds(
-        naive_impl_c,
+        torch_blockwise_scale_act_quant_lhs,
         input_tensor,
         block_size,
     )
@@ -168,8 +175,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
                    s_triton, input_tensor, block_size)
 
     # Memory bandwidth calculations
-    bytes_per_input_el = torch.finfo(torch.bfloat16).bits / 8
-    bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
+    bytes_per_input_el = torch.finfo(torch.float32).bits / 8
+    bytes_per_output_el = torch.finfo(torch.float32).bits / 8
     bytes_per_scale_el = 4  # float32
 
     read_bytes = input_tensor.numel() * bytes_per_input_el
