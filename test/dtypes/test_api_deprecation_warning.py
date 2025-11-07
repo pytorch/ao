@@ -83,3 +83,27 @@ def test_block_sparse_layout_deprecated():
         ), (
             f"Expected deprecation warning for BlockSparseLayout, got: {[str(warning.message) for warning in w]}"
         )
+
+
+def test_marlin_qqq_layout_deprecated():
+    """Test deprecation warning for MarlinQQQLayout."""
+    # We need to clear the cache to force re-importing and trigger the warning again.
+    modules_to_clear = [
+        "torchao.dtypes.uintx.marlin_qqq_tensor",
+        "torchao.dtypes",
+    ]
+    for mod in modules_to_clear:
+        if mod in sys.modules:
+            del sys.modules[mod]
+
+    with warnings.catch_warnings(record=True) as w:
+        from torchao.dtypes import MarlinQQQLayout  # noqa: F401
+
+        warnings.simplefilter("always")  # Ensure all warnings are captured
+        assert any(
+            issubclass(warning.category, DeprecationWarning)
+            and "MarlinQQQLayout" in str(warning.message)
+            for warning in w
+        ), (
+            f"Expected deprecation warning for MarlinQQQLayout, got: {[str(warning.message) for warning in w]}"
+        )
