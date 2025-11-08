@@ -7,11 +7,15 @@
 from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
+    GemlitePackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
+    UintxAQTTensorImpl,
+    UintxLayout,
+    UintxTensor,
     to_marlinqqq_quantized_intx,
-    GemlitePackedLayout,
+    to_uintx,
 )
 
 __all__ = [
@@ -22,4 +26,8 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "GemlitePackedLayout",
+    "UintxLayout",
+    "UintxTensor",
+    "UintxAQTTensorImpl",
+    "to_uintx",
 ]
