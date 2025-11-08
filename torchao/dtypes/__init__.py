@@ -16,19 +16,21 @@ from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     Int4CPULayout,
     Int4XPULayout,
-    MarlinQQQLayout,
-    MarlinQQQTensor,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
-    to_marlinqqq_quantized_intx,
 )
 from .uintx.block_sparse_layout import BlockSparseLayout
 from .uintx.cutlass_int4_packed_layout import CutlassInt4PackedLayout
 from .uintx.dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
+from .uintx.marlin_qqq_tensor import (
+    MarlinQQQLayout,
+    MarlinQQQTensor,
+    to_marlinqqq_quantized_intx,
+)
 from .utils import (
     Layout,
     PlainLayout,

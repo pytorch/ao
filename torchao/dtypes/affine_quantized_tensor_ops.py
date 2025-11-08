@@ -39,10 +39,6 @@ from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_fp_act_uint4_weight_int8_zero_check,
     _linear_fp_act_uint4_weight_int8_zero_impl,
 )
-from torchao.dtypes.uintx.marlin_qqq_tensor import (
-    _linear_int8_act_int4_weight_marlin_qqq_check,
-    _linear_int8_act_int4_weight_marlin_qqq_impl,
-)
 from torchao.dtypes.uintx.marlin_sparse_layout import (
     _linear_fp_act_int4_weight_sparse_marlin_check,
     _linear_fp_act_int4_weight_sparse_marlin_impl,
@@ -93,6 +89,10 @@ from torchao.prototype.dtypes.uintx.cutlass_int4_packed_layout import (
 from torchao.prototype.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
     _linear_int8_act_int4_weight_cpu_check,
     _linear_int8_act_int4_weight_cpu_impl,
+)
+from torchao.prototype.dtypes.uintx.marlin_qqq_tensor import (
+    _linear_int8_act_int4_weight_marlin_qqq_check,
+    _linear_int8_act_int4_weight_marlin_qqq_impl,
 )
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,

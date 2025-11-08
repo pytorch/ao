@@ -8,10 +8,16 @@ from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
     Int8DynamicActInt4WeightCPULayout,
+    MarlinQQQLayout,
+    MarlinQQQTensor,
+    to_marlinqqq_quantized_intx,
 )
 
 __all__ = [
     "BlockSparseLayout",
     "CutlassInt4PackedLayout",
     "Int8DynamicActInt4WeightCPULayout",
+    "MarlinQQQLayout",
+    "MarlinQQQTensor",
+    "to_marlinqqq_quantized_intx",
 ]

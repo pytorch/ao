@@ -460,7 +460,7 @@ def main(
                 )
         if "marlin" in quantization:
             if "qqq" in quantization:
-                from torchao.dtypes import MarlinQQQLayout
+                from torchao.prototype.dtypes import MarlinQQQLayout
 
                 quantize_(
                     model,
