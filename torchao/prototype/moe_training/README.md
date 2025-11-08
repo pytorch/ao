@@ -6,12 +6,34 @@ This prototype provides:
     - Using MXFP8 on a B200 GPU, this provides:
         - **~1.4x - 1.8x speedups** over bfloat16 `torch._grouped_mm` for Llama4 Scout shapes
         - **~1.19 - 1.6x speedups** over bfloat16 `torch._grouped_mm` for DeepSeekV3 671b shapes
-
+    - These benchmarks use `seq_len=8192`, `local_batch_size=16` (so `total_M = 8192 * 16 = 131,072`). We recommend using a large `total_M` dim to maximize speedup. See [benchmarks](#microbenchmarks) for more details.
 
 
 2. [TorchTitan](https://github.com/pytorch/torchtitan/tree/main) integration: pretrain DeepSeekV3/Llama4 with MXFP8 grouped GEMMs by adding the flag to your training command: `--model.converters="quantize.grouped_mm.mx" --quantize.grouped_mm.mx.fqns="experts"`
 
 3. Model conversion API to swap all `torch._grouped_mm` ops in your model definition to use torchao `_quantize_then_scaled_grouped_mm` under the hood (see [example](#model-conversion-api-example-end-to-end-training) below).
+
+
+## Equivalent convergence to bfloat16 training baseline
+
+Training runs on 64 node GB200 cluster with TorchTitan Llama4 Scout show that MXFP8 MoE training has equivalent convergence to bfloat16 training baseline. Infact, after 3,000 steps it finishes with slightly *lower* loss than bfloat16! This is consistent with our scaling experiments with [MXFP8 training for dense models](https://pytorch.org/blog/accelerating-2k-scale-pre-training-up-to-1-28x-with-torchao-mxfp8-and-torchtitan-on-crusoe-b200-cluster/).
+
+<img alt="Image" src="../../../docs/static/mxfp8_with_loss.png" />
+
+Training and model configurations for this run:
+- Model: Llama4 Scout
+- Dataset: C4
+- Sequence length: 8192
+- Local batch size: 1
+- Learning rate: 1e-4
+- LR scheduler warmup steps: 2000
+- Parallelisms (64 nodes of 4 devices each = 256 chips):
+    - FSDP=256 (on attention layers, shared experts, dense layer FFNs) and 256/4=64 (on routed experts)
+    - EP=16 (on routed experts)
+- Activation checkpointing mode: `none` (ideally this should use selective per op AC but there was a bug at the time preventing us from using it).
+- `torch.compile` enabled
+- `mxfp8` applied to routed experts computation (grouped GEMMs)
+- `mxfp8` applied to all linear layers except: `output`, `router.gate`, `attention.wk`, `attention.wv` (Wk and Wv too small to benefit from mxfp8)
 
 
 ## Table of Contents
