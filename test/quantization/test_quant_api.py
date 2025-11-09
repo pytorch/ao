@@ -74,6 +74,7 @@ from torchao.utils import (
 )
 
 _DEVICE = auto_detect_device()
+device_module = torch.get_device_module(_DEVICE)
 
 try:
     import gemlite  # noqa: F401
@@ -477,8 +478,8 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load_map_location(self):
-        m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device=_DEVICE.type)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device=_DEVICE.type)
+        m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device=_DEVICE)
+        example_inputs = m.example_inputs(dtype=torch.bfloat16, device=_DEVICE)
 
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
@@ -491,7 +492,7 @@ class TestQuantFlow(TestCase):
             m_copy = ToyLinearModel().eval()
 
         m_copy.load_state_dict(state_dict, assign=True)
-        m_copy.to(dtype=torch.bfloat16, device=_DEVICE.type)
+        m_copy.to(dtype=torch.bfloat16, device=_DEVICE)
 
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
@@ -500,19 +501,19 @@ class TestQuantFlow(TestCase):
     def test_quantized_model_streaming(self):
         def reset_memory():
             gc.collect()
-            torch.accelerator.empty_cache()
-            torch.accelerator.reset_peak_memory_stats()
+            device_module.empty_cache()
+            device_module.reset_peak_memory_stats()
 
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m.to(device=_DEVICE.type), Int8WeightOnlyConfig())
-        memory_baseline = torch.accelerator.max_memory_allocated()
+        quantize_(m.to(device=_DEVICE), Int8WeightOnlyConfig())
+        memory_baseline = device_module.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m, Int8WeightOnlyConfig(), device=_DEVICE.type)
-        memory_streaming = torch.accelerator.max_memory_allocated()
+        quantize_(m, Int8WeightOnlyConfig(), device=_DEVICE)
+        memory_streaming = device_module.max_memory_allocated()
 
         for param in m.parameters():
             assert param.device.type == _DEVICE.type
@@ -1110,20 +1111,20 @@ class TestFqnToConfig(TestCase):
     def test_quantized_model_streaming_fqn_config(self):
         def reset_memory():
             gc.collect()
-            torch.accelerator.empty_cache()
-            torch.accelerator.reset_peak_memory_stats()
+            device_module.empty_cache()
+            device_module.reset_peak_memory_stats()
 
         quant_config = FqnToConfig({"_default": Int8WeightOnlyConfig()})
         reset_memory()
         m = ToyLinearModel()
         quantize_(m.to(device=_DEVICE.type), quant_config, filter_fn=None)
-        memory_baseline = torch.accelerator.max_memory_allocated()
+        memory_baseline = device_module.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m, quant_config, device=_DEVICE.type, filter_fn=None)
-        memory_streaming = torch.accelerator.max_memory_allocated()
+        quantize_(m, quant_config, device=_DEVICE, filter_fn=None)
+        memory_streaming = device_module.max_memory_allocated()
 
         for param in m.parameters():
             assert param.device.type == _DEVICE.type
