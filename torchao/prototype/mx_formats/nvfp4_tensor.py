@@ -502,6 +502,7 @@ def _addmm_nvfp4_dispatch(
     assert b.scale.t().is_contiguous()
     assert a._block_size == 16, f"NVFP4 requires block_size=16, got {a._block_size}"
     assert b._block_size == 16, f"NVFP4 requires block_size=16, got {b._block_size}"
+    assert len(a.shape) == 2 and len(b.shape) == 2
 
     M, K = a.shape[0], a.shape[1]
     N = b.shape[1]
@@ -576,7 +577,9 @@ def nvfp4_linear(func, types, args, kwargs):
             tensor_amax = torch.max(torch.abs(input_tensor))
             per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
         else:
-            per_tensor_scale = weight_tensor._act_per_tensor_scale
+            per_tensor_scale = weight_tensor.act_per_tensor_scale
+        orig_shape = input_tensor.shape
+        input_tensor = input_tensor.view(-1, orig_shape[-1])
         input_tensor = NVFP4Tensor.to_nvfp4(
             input_tensor,
             block_size=k.block_size,
@@ -584,7 +587,9 @@ def nvfp4_linear(func, types, args, kwargs):
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
         )
-        return _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
+        res = _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
+        res = res.reshape(*orig_shape[:-1], res.shape[-1])
+        return res
 
 
 @implements([aten.mm.default, aten.matmul.default])

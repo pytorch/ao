@@ -32,6 +32,7 @@ __all__ = [
     "is_MI300",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
+    "is_sm_at_least_100",
     "is_package_at_least",
     "DummyModule",
     # Deprecated
@@ -506,6 +507,36 @@ def _implements_common_tensor_ops(cls):
     implements = cls.implements
     implements_torch_function = cls.implements_torch_function
     aten = torch.ops.aten
+
+    @implements(torch.ops.aten.to.dtype_layout)
+    def _(func, types, args, kwargs):
+        # only support kwargs for now
+        assert len(args) == 1
+        self = args[0]
+        # only support dtype, layout, and device for now
+        for k in kwargs.keys():
+            assert k in ["dtype", "layout", "device"]
+        # only support same dtype and layout
+        # different dtype and layout has undefined behavior
+        if "dtype" in kwargs:
+            assert kwargs["dtype"] == self.dtype
+        if "layout" in kwargs:
+            assert kwargs["layout"] == self.layout
+        # if device is the same, treat this like a no-op
+        device = kwargs.get("device")
+        if device == self.device:
+            return self
+        new_tensor = args[0]._apply_fn_to_data(lambda x: func(x, device=device))
+        return return_and_correct_aliasing(func, args, kwargs, new_tensor)
+
+    # This is called during _apply() to see if we can shallow
+    # copy the content of one tensor into another. For now,
+    # we only allow shallow copy if both tensors are of the
+    # same type and have the same shape.
+    @implements_torch_function(torch._has_compatible_shallow_copy_type)
+    def _(func, types, args, kwargs):
+        assert len(args) == 2
+        return type(args[0]) == type(args[1]) and args[0].shape == args[1].shape
 
     @implements_torch_function(
         [
@@ -1152,7 +1183,10 @@ def is_package_at_least(package_name: str, min_version: str):
 def _is_fbgemm_gpu_genai_available():
     # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
     # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if importlib.util.find_spec("fbgemm_gpu") is None:
+    if (
+        importlib.util.find_spec("fbgemm_gpu") is None
+        or importlib.util.find_spec("fbgemm_gpu.experimental") is None
+    ):
         return False
 
     import fbgemm_gpu.experimental.gen_ai  # noqa: F401
