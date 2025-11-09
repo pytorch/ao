@@ -1117,7 +1117,7 @@ class TestFqnToConfig(TestCase):
         quant_config = FqnToConfig({"_default": Int8WeightOnlyConfig()})
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m.to(device=_DEVICE.type), quant_config, filter_fn=None)
+        quantize_(m.to(device=_DEVICE), quant_config, filter_fn=None)
         memory_baseline = device_module.max_memory_allocated()
 
         del m
