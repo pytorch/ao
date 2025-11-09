@@ -28,10 +28,10 @@ class ExperimentConfig:
 @dataclass(frozen=True)
 class ExperimentResult:
     # time
-    naive_us: float
+    torch_us: float
     triton_us: float
     # mem bw
-    naive_gbps: float
+    torch_gbps: float
     triton_gbps: float
 
 
@@ -52,6 +52,10 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 4096),
         (4096, 4096),
         (8192, 4096),
+        (16384, 4096),
+        (32768, 4096),
+        (65536, 4096),
+        (131_072, 4096),
     ]
 
     configs = []
@@ -72,11 +76,11 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     M, K = config.input_shape
     block_size = config.block_size
 
-    def naive_fp8_blockwise_quant(
+    def torch_fp8_blockwise_quant(
         x: torch.Tensor, block_size: int = 128
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Naive PyTorch reference implementation for RHS blockwise FP8 quantization.
+        Torch reference implementation for RHS blockwise FP8 quantization.
 
         RHS semantics:
         • Groups are (block_size x 1) along the M dimension (rows).
@@ -129,33 +133,47 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         return y, s
 
     def verify_outputs(
-        y_naive: torch.Tensor,
-        s_naive: torch.Tensor,
+        y_torch: torch.Tensor,
+        s_torch: torch.Tensor,
         y_triton: torch.Tensor,
         s_triton: torch.Tensor,
         rtol: float = 1e-2,
         atol: float = 1e-2,
     ):
-        """Verify that Triton and naive implementations produce similar results."""
+        """Verify that Triton and torch implementations produce similar results."""
 
         # Quantized tensors (both are column-major; convert to float to compare)
-        y_naive_float = y_naive.to(torch.float32)
+        y_torch_float = y_torch.to(torch.float32)
         y_triton_float = y_triton.to(torch.float32)
 
-        torch.testing.assert_close(
-            y_naive_float,
-            y_triton_float,
-            rtol=rtol,
-            atol=atol,
-            msg="Quantized values differ between naive and Triton implementations",
+        assert y_torch.shape == y_triton.shape, (
+            f"Output shape mismatch: torch {y_torch.shape} vs triton {y_triton.shape}"
+        )
+        assert y_torch.stride() == y_triton.stride(), (
+            f"Output stride mismatch: torch {y_torch.stride()} vs triton {y_triton.stride()}"
+        )
+
+        assert s_torch.shape == s_triton.shape, (
+            f"Scale shape mismatch: torch {s_torch.shape} vs triton {s_triton.shape}"
+        )
+        assert s_torch.stride() == s_triton.stride(), (
+            f"Scale stride mismatch: torch {s_torch.stride()} vs triton {s_triton.stride()}"
         )
 
         torch.testing.assert_close(
-            s_naive,
+            y_torch_float,
+            y_triton_float,
+            rtol=rtol,
+            atol=atol,
+            msg="Quantized values differ between torch and Triton implementations",
+        )
+
+        torch.testing.assert_close(
+            s_torch,
             s_triton,
             rtol=rtol,
             atol=atol,
-            msg="Scales differ between naive and Triton implementations",
+            msg="Scales differ between torch and Triton implementations",
         )
 
     input_tensor = torch.randn(
@@ -166,12 +184,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Compile once
-    naive_impl_c = torch.compile(naive_fp8_blockwise_quant)
+    torch_impl_c = torch.compile(torch_fp8_blockwise_quant)
 
-    # Benchmark naive implementation
-    y_naive, s_naive = naive_impl_c(input_tensor, block_size)
-    naive_time_us = benchmark_cuda_function_in_microseconds(
-        naive_impl_c,
+    # Benchmark torch implementation
+    y_torch, s_torch = torch_impl_c(input_tensor, block_size)
+    torch_time_us = benchmark_cuda_function_in_microseconds(
+        torch_impl_c,
         input_tensor,
         block_size,
     )
@@ -184,8 +202,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         block_size,
     )
 
-    # Verify correctness (compare to naive)
-    verify_outputs(y_naive, s_naive, y_triton, s_triton)
+    # Verify correctness (compare to torch)
+    verify_outputs(y_torch, s_torch, y_triton, s_triton)
 
     # Memory bandwidth calculations
     bytes_per_input_el = torch.finfo(input_tensor.dtype).bits / 8
@@ -197,13 +215,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         y_triton.numel() * bytes_per_output_el + s_triton.numel() * bytes_per_scale_el
     )
 
-    naive_gbps = ((read_bytes + write_bytes) / 1e9) / (naive_time_us / 1e6)
+    torch_gbps = ((read_bytes + write_bytes) / 1e9) / (torch_time_us / 1e6)
     triton_gbps = ((read_bytes + write_bytes) / 1e9) / (triton_time_us / 1e6)
 
     return ExperimentResult(
-        naive_us=naive_time_us,
+        torch_us=torch_time_us,
         triton_us=triton_time_us,
-        naive_gbps=naive_gbps,
+        torch_gbps=torch_gbps,
         triton_gbps=triton_gbps,
     )
 
@@ -212,23 +230,23 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape (M, K)",
         "block_size",
-        "naive_us",
+        "torch_us",
         "triton_us",
         "speedup",
-        "naive_gbps",
+        "torch_gbps",
         "triton_gbps",
     ]
     rows = []
     for experiment in experiments:
-        speedup = experiment.result.naive_us / experiment.result.triton_us
+        speedup = experiment.result.torch_us / experiment.result.triton_us
         rows.append(
             [
                 f"{experiment.config.input_shape[0]}x{experiment.config.input_shape[1]}",
                 experiment.config.block_size,
-                f"{experiment.result.naive_us:.2f}",
+                f"{experiment.result.torch_us:.2f}",
                 f"{experiment.result.triton_us:.2f}",
                 f"{speedup:.2f}x",
-                f"{experiment.result.naive_gbps:.1f}",
+                f"{experiment.result.torch_gbps:.1f}",
                 f"{experiment.result.triton_gbps:.1f}",
             ]
         )
