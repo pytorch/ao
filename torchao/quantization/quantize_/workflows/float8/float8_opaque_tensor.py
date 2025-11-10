@@ -5,12 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 import torch
 
 from torchao.quantization.granularity import (
     PerGroup,
+    PerRow,
+    PerTensor,
 )
 from torchao.quantization.observer import get_block_size
 from torchao.quantization.quant_primitives import (
@@ -28,6 +30,7 @@ __all__ = [
 ]
 
 aten = torch.ops.aten
+ValidGranularity = Union["PerTensor", "PerRow", "PerGroup"]
 
 
 class Float8OpaqueTensor(TorchAOBaseTensor):
@@ -87,6 +90,47 @@ class Float8OpaqueTensor(TorchAOBaseTensor):
 
     def _quantization_type(self):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}, {self.act_quant_kwargs=}"
+
+    @classmethod
+    def _normalize_and_check_granularity(
+        cls,
+        granularity: Optional[
+            Union[
+                ValidGranularity,
+                Tuple[ValidGranularity, ValidGranularity],
+                list[ValidGranularity],
+            ]
+        ],
+    ) -> Tuple[ValidGranularity, ValidGranularity]:
+        normalized_granularity = None
+        supported = (PerTensor, PerRow, PerGroup)
+        if granularity is None:
+            normalized_granularity = (PerTensor(), PerTensor())
+        elif isinstance(granularity, supported):
+            normalized_granularity = (granularity, granularity)
+        elif isinstance(granularity, (tuple, list)) and len(granularity) == 2:
+            if not (
+                isinstance(granularity[0], supported)
+                and isinstance(granularity[1], supported)
+            ):
+                raise ValueError(
+                    f"Invalid granularity types: {granularity}, only {supported} are supported."
+                )
+            if isinstance(granularity[0], PerGroup):
+                if not isinstance(granularity[1], PerGroup):
+                    raise ValueError(
+                        "When granularity for activation is PerGroup, granularity for weight must be PerGroup, too."
+                    )
+                if granularity[0].group_size != granularity[1].group_size:
+                    raise ValueError(
+                        f"Group sizes for activation and weight must be the same, got {granularity[0].group_size} and {granularity[1].group_size}."
+                    )
+            normalized_granularity = tuple(granularity)
+        else:
+            raise ValueError(
+                f"Invalid granularity specification: {granularity}, only {supported} are supported."
+            )
+        return normalized_granularity
 
     @classmethod
     def from_hp(

@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-import sys
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -26,6 +25,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
     tensor_size_hp_to_fp4x2,
 )
 from torchao.prototype.mx_formats.utils import (
+    _swizzle_aware_slice,
     from_blocked,
     hp_data_dims_to_swizzled_scale_dims_nvfp4,
     to_blocked,
@@ -33,7 +33,7 @@ from torchao.prototype.mx_formats.utils import (
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
-from torchao.utils import TorchAOBaseTensor, ceil_div, fill_defaults
+from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 
@@ -393,173 +393,7 @@ def nvfp4_slice(func, types, args, kwargs):
         f"only rank 2 is supported for slice, got rank {len(x.shape)}"
     )
 
-    M, K = x.shape[0], x.shape[1]
-
-    # The scale manipulations below assume a flattened scale. For now, we
-    # flatten the scale, go through the calculations below, and then reshape
-    # it back to the format which matches the shape of `qdata`.
-    # TODO(future PR): update this
-
-    if x._is_swizzled_scales:
-        scale_rows = M
-        scale_cols = K // x._block_size
-        n_row_blocks = ceil_div(scale_rows, 128)
-        n_col_blocks = ceil_div(scale_cols, 4)
-        elements_per_block = 32 * 16  # 512 elements
-
-        if dim == 0:
-            # Row slicing
-            # Handle sys.maxsize (default slice end)
-            if end == sys.maxsize:
-                end = M
-
-            # Check if start/end align with 128-row boundaries
-            if start is not None and start % 128 != 0:
-                raise RuntimeError(
-                    f"Row slicing of NVFP4Tensor with swizzled scales requires "
-                    f"start index to be a multiple of 128, got {start}"
-                )
-            if end is not None and end != M and end % 128 != 0:
-                raise RuntimeError(
-                    f"Row slicing of NVFP4Tensor with swizzled scales requires "
-                    f"end index to be a multiple of 128 or equal to tensor size {M}, got {end}"
-                )
-
-            # Calculate which row blocks to keep
-            start_block = 0 if start is None else start // 128
-            end_block = n_row_blocks if end is None or end >= M else end // 128
-
-            # The swizzled tensor has shape (n_row_blocks * n_col_blocks * 32 * 16,)
-            blocks_per_row = n_col_blocks
-            start_idx = start_block * blocks_per_row * elements_per_block
-            end_idx = (
-                end_block * blocks_per_row * elements_per_block
-                if end_block < n_row_blocks
-                else None
-            )
-
-            sliced_scale = aten.slice.Tensor(
-                x.scale.flatten(), 0, start_idx, end_idx, 1
-            )
-            sliced_data = aten.slice.Tensor(x.qdata, 0, start, end, step)
-
-        elif dim == 1:
-            # Column slicing
-            # Handle sys.maxsize (default slice end)
-            if end == sys.maxsize:
-                end = K
-
-            # Check if start/end align with 64-column boundaries (4 scale columns * 16 block_size)
-            if start is not None and start % 64 != 0:
-                raise RuntimeError(
-                    f"Column slicing of NVFP4Tensor with swizzled scales requires "
-                    f"start index to be a multiple of 64, got {start}"
-                )
-            if end is not None and end != K and end % 64 != 0:
-                raise RuntimeError(
-                    f"Column slicing of NVFP4Tensor with swizzled scales requires "
-                    f"end index to be a multiple of 64 or equal to tensor size {K}, got {end}"
-                )
-
-            # Also check FP4 packing alignment
-            if start is not None and start % 2 != 0:
-                raise RuntimeError(f"Start index {start} must be even for FP4 packing")
-            if end is not None and end != K and end % 2 != 0:
-                raise RuntimeError(f"End index {end} must be even for FP4 packing")
-
-            # Calculate which column blocks to keep
-            start_scale_col = 0 if start is None else start // 16
-            end_scale_col = scale_cols if end is None or end >= K else end // 16
-
-            start_col_block = start_scale_col // 4
-            end_col_block = end_scale_col // 4
-
-            # Verify the end aligns with block boundary
-            if end_scale_col % 4 != 0:
-                raise RuntimeError(
-                    f"Column slicing end index {end} does not align with scale block boundaries. "
-                    f"End must result in a multiple of 4 scale columns (64 data columns)."
-                )
-
-            if start_col_block == 0 and end_col_block == n_col_blocks:
-                # Full width - no slicing needed
-                sliced_scale = x.scale
-            else:
-                # Extract specific column blocks from each row block
-                # Each row block in swizzled format contains n_col_blocks chunks of (32, 16)
-                elements_per_row_block = n_col_blocks * elements_per_block
-
-                # Build list of slices to extract
-                slices_to_extract = []
-                for row_block in range(n_row_blocks):
-                    row_start = row_block * elements_per_row_block
-                    col_start = row_start + start_col_block * elements_per_block
-                    col_end = row_start + end_col_block * elements_per_block
-                    slices_to_extract.append(x.scale.flatten()[col_start:col_end])
-
-                # Concatenate all the slices
-                sliced_scale = torch.cat(slices_to_extract, dim=0)
-
-            # Slice the data tensor
-            packed_start = None if start is None else start // 2
-            packed_end = None if end is None else end // 2
-            sliced_data = aten.slice.Tensor(
-                x.qdata, dim, packed_start, packed_end, step
-            )
-
-        else:
-            raise ValueError(
-                f"NVFP4Tensor only supports slicing along dimensions 0 and 1, got dim={dim}"
-            )
-
-    else:
-        scale_shaped = x.scale.view(M, K // x._block_size)
-
-        if dim == 0:
-            sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step)
-            sliced_data = aten.slice.Tensor(x.qdata, dim, start, end, step)
-
-        elif dim == 1:
-            if start is not None:
-                assert start % x._block_size == 0, (
-                    f"Start index {start} must be a multiple of block_size {x._block_size}"
-                )
-                assert start % 2 == 0, (
-                    f"Start index {start} must be even for FP4 packing"
-                )
-
-            if end is not None and end != sys.maxsize:
-                assert end % x._block_size == 0, (
-                    f"End index {end} must be a multiple of block_size {x._block_size}"
-                )
-                assert end % 2 == 0, f"End index {end} must be even for FP4 packing"
-
-            packed_start = None if start is None else start // 2
-            packed_end = None if end is None else end // 2
-            sliced_data = aten.slice.Tensor(
-                x.qdata, dim, packed_start, packed_end, step
-            )
-
-            start_block = 0 if start is None else start // x._block_size
-            end_block = None if end is None else end // x._block_size
-            sliced_scale = aten.slice.Tensor(
-                scale_shaped, 1, start_block, end_block, step
-            )
-
-        sliced_scale = sliced_scale.flatten()
-
-    # reshape at the end
-    sliced_M = sliced_data.shape[0]
-    # multiply by 2 to convert from bytes to num_elements
-    sliced_K = sliced_data.shape[1] * 2
-    if x._is_swizzled_scales:
-        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(sliced_M, sliced_K)
-    else:
-        # a 1x16 unpacked or 1x8 packed qdata tile corresponds to 1
-        # scale element
-        scale_M = sliced_M
-        scale_K = sliced_K // x._block_size
-    sliced_scale = sliced_scale.view(scale_M, scale_K)
+    sliced_data, sliced_scale = _swizzle_aware_slice(x, dim, start, end, step)
 
     # Create result tensor
     result = NVFP4Tensor(
@@ -668,6 +502,7 @@ def _addmm_nvfp4_dispatch(
     assert b.scale.t().is_contiguous()
     assert a._block_size == 16, f"NVFP4 requires block_size=16, got {a._block_size}"
     assert b._block_size == 16, f"NVFP4 requires block_size=16, got {b._block_size}"
+    assert len(a.shape) == 2 and len(b.shape) == 2
 
     M, K = a.shape[0], a.shape[1]
     N = b.shape[1]
@@ -742,7 +577,9 @@ def nvfp4_linear(func, types, args, kwargs):
             tensor_amax = torch.max(torch.abs(input_tensor))
             per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
         else:
-            per_tensor_scale = weight_tensor._act_per_tensor_scale
+            per_tensor_scale = weight_tensor.act_per_tensor_scale
+        orig_shape = input_tensor.shape
+        input_tensor = input_tensor.view(-1, orig_shape[-1])
         input_tensor = NVFP4Tensor.to_nvfp4(
             input_tensor,
             block_size=k.block_size,
@@ -750,7 +587,9 @@ def nvfp4_linear(func, types, args, kwargs):
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
         )
-        return _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
+        res = _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
+        res = res.reshape(*orig_shape[:-1], res.shape[-1])
+        return res
 
 
 @implements([aten.mm.default, aten.matmul.default])

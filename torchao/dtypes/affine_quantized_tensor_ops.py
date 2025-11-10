@@ -25,20 +25,6 @@ from torchao.dtypes.floatx.floatx_tensor_core_layout import (
     _linear_f16_bf16_act_floatx_weight_check,
     _linear_f16_bf16_act_floatx_weight_impl,
 )
-from torchao.dtypes.uintx.block_sparse_layout import (
-    _linear_int8_act_int8_weight_block_sparse_check,
-    _linear_int8_act_int8_weight_block_sparse_impl,
-)
-from torchao.dtypes.uintx.cutlass_int4_packed_layout import (
-    _linear_int4_act_int4_weight_cutlass_check,
-    _linear_int4_act_int4_weight_cutlass_impl,
-    _linear_int8_act_int4_weight_cutlass_check,
-    _linear_int8_act_int4_weight_cutlass_impl,
-)
-from torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
-    _linear_int8_act_int4_weight_cpu_check,
-    _linear_int8_act_int4_weight_cpu_impl,
-)
 from torchao.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
@@ -52,10 +38,6 @@ from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_bf16_act_uint4_weight_float_zero_impl,
     _linear_fp_act_uint4_weight_int8_zero_check,
     _linear_fp_act_uint4_weight_int8_zero_impl,
-)
-from torchao.dtypes.uintx.marlin_qqq_tensor import (
-    _linear_int8_act_int4_weight_marlin_qqq_check,
-    _linear_int8_act_int4_weight_marlin_qqq_impl,
 )
 from torchao.dtypes.uintx.marlin_sparse_layout import (
     _linear_fp_act_int4_weight_sparse_marlin_check,
@@ -93,6 +75,24 @@ from torchao.dtypes.uintx.semi_sparse_layout import (
 from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
+)
+from torchao.prototype.dtypes.uintx.block_sparse_layout import (
+    _linear_int8_act_int8_weight_block_sparse_check,
+    _linear_int8_act_int8_weight_block_sparse_impl,
+)
+from torchao.prototype.dtypes.uintx.cutlass_int4_packed_layout import (
+    _linear_int4_act_int4_weight_cutlass_check,
+    _linear_int4_act_int4_weight_cutlass_impl,
+    _linear_int8_act_int4_weight_cutlass_check,
+    _linear_int8_act_int4_weight_cutlass_impl,
+)
+from torchao.prototype.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
+    _linear_int8_act_int4_weight_cpu_check,
+    _linear_int8_act_int4_weight_cpu_impl,
+)
+from torchao.prototype.dtypes.uintx.marlin_qqq_tensor import (
+    _linear_int8_act_int4_weight_marlin_qqq_check,
+    _linear_int8_act_int4_weight_marlin_qqq_impl,
 )
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
@@ -462,7 +462,7 @@ def _(func, types, args, kwargs):
             getattr(self, tensor_name).copy_(getattr(src, tensor_name))
         return
     raise ValueError(
-        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+        f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
     )
 
 

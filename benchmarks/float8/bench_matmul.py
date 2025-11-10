@@ -17,6 +17,7 @@ from utils import (
 
 from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.testing.training.roofline_utils import get_specs
 from torchao.utils import is_MI300
 
@@ -125,10 +126,16 @@ def run(
         elif recipe in ("mxfp8_cublas", "mxfp4_cutlass"):
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+            # pad if needed
+            scale_a = to_blocked(scale_a)
+            scale_b = to_blocked(scale_b)
         elif recipe == "nvfp4":
             # Use the blockwise scales from nvfp4_quantize
             scale_a = A_scales.view(torch.float8_e4m3fn)
             scale_b = B_scales.view(torch.float8_e4m3fn)
+            # pad if needed
+            scale_a = to_blocked(scale_a)
+            scale_b = to_blocked(scale_b)
         else:
             assert False, f"unknown recipe {recipe}"
 

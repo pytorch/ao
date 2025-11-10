@@ -52,6 +52,7 @@ from .quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -64,9 +65,22 @@ from .quant_api import (
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
+    float8_dynamic_activation_float8_weight,
+    float8_static_activation_float8_weight,
+    float8_weight_only,
+    fpx_weight_only,
+    fqn_matches_fqn_config,
+    gemlite_uintx_weight_only,
+    int4_dynamic_activation_int4_weight,
+    int4_weight_only,
+    int8_dynamic_activation_int4_weight,
+    int8_dynamic_activation_int8_semi_sparse_weight,
+    int8_dynamic_activation_int8_weight,
+    int8_weight_only,
     intx_quantization_aware_training,
     quantize_,
     swap_conv2d_1x1_to_linear,
+    uintx_weight_only,
 )
 from .quant_primitives import (
     MappingType,
@@ -97,13 +111,11 @@ from .smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
-from .subclass import *  # noqa: F403
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
 )
-from .weight_only import WeightOnlyInt8QuantLinear
 
 # TODO: remove after migration of APIs are done
 AOPerModuleConfig = ModuleFqnToConfig
@@ -120,7 +132,20 @@ __all__ = [
     "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
+    "int4_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int8_weight",
+    "int8_dynamic_activation_int8_semi_sparse_weight",
+    "int4_weight_only",
+    "int8_weight_only",
     "intx_quantization_aware_training",
+    "float8_weight_only",
+    "float8_dynamic_activation_float8_weight",
+    "float8_static_activation_float8_weight",
+    "uintx_weight_only",
+    "fpx_weight_only",
+    "fqn_matches_fqn_config",
+    "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
     "Int4DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt4WeightConfig",
@@ -138,6 +163,7 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
+    "FqnToConfig",
     "ModuleFqnToConfig",
     # tensor subclasses
     "Int4Tensor",
@@ -188,7 +214,6 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
-    "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
     # Layouts for quant_api
