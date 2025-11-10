@@ -55,7 +55,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         device = "cpu"
         a = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
         b = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
-        a_orig = a.clone()
+        a_orig = copy.deepcopy(a)
         sum = a.weight + b.weight
 
         quantize_(a, self.config)
