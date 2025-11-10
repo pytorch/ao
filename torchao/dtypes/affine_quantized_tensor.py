@@ -136,7 +136,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import Float8Layout, FloatxTensorCoreLayout
+        from torchao.dtypes.floatx import Float8Layout 
+        from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
 
         if isinstance(self._layout, FloatxTensorCoreLayout):
             int_data, scale = self.tensor_impl.get_plain()
@@ -539,7 +540,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout,
     ):
         """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
+        from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
 
         assert isinstance(_layout, FloatxTensorCoreLayout), (
             f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"

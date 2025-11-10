@@ -20,7 +20,6 @@ Layouts and Tensor Subclasses
     TensorCoreTiledLayout
     Float8Layout
     FloatxTensor
-    FloatxTensorCoreLayout
     MarlinSparseLayout
     UintxLayout
     Int4CPULayout
@@ -53,6 +52,7 @@ Prototype
     Int8DynamicActInt4WeightCPULayout
     MarlinQQQTensor
     MarlinQQQLayout
+    FloatxTensorCoreLayout
 
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring

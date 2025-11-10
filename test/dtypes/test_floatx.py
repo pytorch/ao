@@ -14,7 +14,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes.floatx import (
+from torchao.prototype.dtypes.floatx import (
     FloatxTensorCoreLayout,
     from_scaled_tc_floatx,
     to_scaled_tc_floatx,
