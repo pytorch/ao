@@ -465,17 +465,6 @@
     <span class="s2">&quot;is_sm_at_least_100&quot;</span><span class="p">,</span>
     <span class="s2">&quot;is_package_at_least&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DummyModule&quot;</span><span class="p">,</span>
-    <span class="c1"># Deprecated</span>
-    <span class="s2">&quot;TORCH_VERSION_AT_LEAST_2_2&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AT_LEAST_2_3&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AT_LEAST_2_4&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AT_LEAST_2_5&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AT_LEAST_2_6&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AT_LEAST_2_7&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AFTER_2_2&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AFTER_2_3&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AFTER_2_4&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TORCH_VERSION_AFTER_2_5&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -807,61 +796,6 @@
 
     <span class="c1"># Parser for local identifiers</span>
     <span class="k">return</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">min_version</span><span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="n">version_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Wrapper for existing TORCH_VERSION_AT_LEAST* variables that will log</span>
-<span class="sd">    a deprecation warning if the variable is used.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">version_str_var_name</span> <span class="o">=</span> <span class="s2">&quot;_&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">version_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[:</span><span class="mi">2</span><span class="p">])</span>
-    <span class="n">deprecation_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;TORCH_VERSION_AT_LEAST_</span><span class="si">{</span><span class="n">version_str_var_name</span><span class="si">}</span><span class="s2"> is deprecated and will be removed in torchao 0.14.0&quot;</span>
-    <span class="k">return</span> <span class="n">_BoolDeprecationWrapper</span><span class="p">(</span>
-        <span class="n">torch_version_at_least</span><span class="p">(</span><span class="n">version_str</span><span class="p">),</span>
-        <span class="n">deprecation_msg</span><span class="p">,</span>
-    <span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_deprecated_torch_version_after</span><span class="p">(</span><span class="n">version_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Wrapper for existing TORCH_VERSION_AFTER* variables that will log</span>
-<span class="sd">    a deprecation warning if the variable is used.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">bool_value</span> <span class="o">=</span> <span class="n">is_fbcode</span><span class="p">()</span> <span class="ow">or</span> <span class="n">version</span><span class="p">(</span><span class="s2">&quot;torch&quot;</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">version_str</span>
-    <span class="n">version_str_var_name</span> <span class="o">=</span> <span class="s2">&quot;_&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">version_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[:</span><span class="mi">2</span><span class="p">])</span>
-    <span class="n">deprecation_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;TORCH_VERSION_AFTER_</span><span class="si">{</span><span class="n">version_str_var_name</span><span class="si">}</span><span class="s2"> is deprecated and will be removed in torchao 0.14.0&quot;</span>
-    <span class="k">return</span> <span class="n">_BoolDeprecationWrapper</span><span class="p">(</span><span class="n">bool_value</span><span class="p">,</span> <span class="n">deprecation_msg</span><span class="p">)</span>
-
-
-<span class="k">class</span><span class="w"> </span><span class="nc">_BoolDeprecationWrapper</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    A deprecation wrapper that logs a warning when the given bool value is accessed.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">bool_value</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">bool_value</span> <span class="o">=</span> <span class="n">bool_value</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">msg</span> <span class="o">=</span> <span class="n">msg</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__bool__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">msg</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">bool_value</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__eq__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
-        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">==</span> <span class="nb">bool</span><span class="p">(</span><span class="n">other</span><span class="p">)</span>
-
-
-<span class="c1"># Deprecated, use `torch_version_at_least` directly instead</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_8</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.8.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_7</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.7.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_6</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.6.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_5</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.5.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_4</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.4.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_3</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.3.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AT_LEAST_2_2</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_at_least</span><span class="p">(</span><span class="s2">&quot;2.2.0&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AFTER_2_5</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.5.0.dev&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AFTER_2_4</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.4.0.dev&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AFTER_2_3</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.3.0.dev&quot;</span><span class="p">)</span>
-<span class="n">TORCH_VERSION_AFTER_2_2</span> <span class="o">=</span> <span class="n">_deprecated_torch_version_after</span><span class="p">(</span><span class="s2">&quot;2.2.0.dev&quot;</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">_ConfigDeprecationWrapper</span><span class="p">:</span>
