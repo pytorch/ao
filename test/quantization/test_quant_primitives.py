@@ -42,8 +42,6 @@ _SEED = 1234
 torch.manual_seed(_SEED)
 
 _DEVICE = auto_detect_device()
-device_module = torch.get_device_module(_DEVICE)
-
 
 # Helper function to run a function twice
 # and verify that the result is the same.
@@ -599,6 +597,7 @@ class TestQuantPrimitives(unittest.TestCase):
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
         weight = torch.randn(1024, 1024).to(device=_DEVICE)
+        device_module = torch.get_device_module(_DEVICE)
         original_mem_use = device_module.memory_allocated()
         n_bit = 4
         groupsize = 128
