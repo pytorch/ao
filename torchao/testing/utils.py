@@ -444,9 +444,7 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
         # making the weight different
         dummy_l.weight = torch.nn.Parameter(
-            dummy_l.weight
-            + 1.0
-            + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
+            dummy_l.weight + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
             requires_grad=False,
         )
         quantize_(dummy_l, config)
@@ -458,15 +456,15 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
             param = l.weight
             param_data = param.data
             param_data = param_data.narrow(output_dim, start_idx, shard_size)
-            orig_values = param_data.qdata[0]
+            orig_value = param_data.qdata[0][0]
             loaded_weight = dummy_l.weight
             loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
 
-            # making sure param.data.qdata[0] is not the same as loaded_weight.qdata[0]
-            assert not torch.equal(orig_values, loaded_weight.qdata[0])
+            # making sure param.data.qdata[0][0] is not the same as loaded_weight.qdata[0][0]
+            assert not torch.equal(orig_value, loaded_weight.qdata[0][0])
             param_data.copy_(loaded_weight)
             # making sure param.data is updated to loaded_weight
-            assert torch.equal(param_data.qdata[0], loaded_weight.qdata[0])
+            assert torch.equal(param_data.qdata[0][0], loaded_weight.qdata[0][0])
             if hasattr(param_data, "scale"):
                 assert torch.equal(param_data.scale, loaded_weight.scale)
             if hasattr(param_data, "zero_point"):

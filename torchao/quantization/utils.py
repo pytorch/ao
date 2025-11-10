@@ -723,12 +723,8 @@ def get_block_size(
                 f"Not all shapes in input shape {input_shape} are divisible by block size {block_size}"
             )
         return block_size
-    elif isinstance(granularity, PerToken):
+    elif isinstance(granularity, (PerRow, PerToken)):
         return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
-    elif isinstance(granularity, PerRow):
-        block_size = [1] * len(input_shape)
-        block_size[granularity.dim] = input_shape[granularity.dim]
-        return tuple(block_size)
     elif isinstance(granularity, PerGroup):
         assert input_shape[-1] % granularity.group_size == 0, (
             f"Last dimension of input {input_shape[-1]} is not divisible by group size {granularity.group_size}"

@@ -179,8 +179,6 @@ class Float8Tensor(TorchAOBaseTensor):
             and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
-            # fbgemm path only supports quantizing along the last dim
-            and granularity.dim in (-1, len(hp_tensor.shape) - 1)
             and float8_dtype == torch.float8_e4m3fn
             and hp_value_lb is None
         ):
@@ -477,7 +475,7 @@ def _(func, types, args, kwargs):
 
         res = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
             a_data,
-            b_data.transpose(-2, -1).contiguous(),
+            b_data.transpose(-2, -1),
             a_scale,
             b_scale.transpose(-2, -1),
             b_scale,
