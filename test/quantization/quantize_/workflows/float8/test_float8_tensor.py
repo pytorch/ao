@@ -15,6 +15,7 @@ from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import run_tests
 
+from torchao.core.config import config_from_dict, config_to_dict
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8Tensor,
@@ -634,6 +635,44 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sqnr = compute_error(original, quantized)
         self.assertTrue(sqnr > 20)
 
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
+    def test_bmm_weight_in_bkn_layout(self):
+        # Tests rowwise quantization of a 3d weight stored with shape (B, K, N)
+        # and contigous with that shape. Since the `K` dimension is not last, we
+        # need to specify granularity with `PerRow(1)`.
+
+        # only support per row quantization
+        granularity = [PerRow(), PerRow(1)]
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+
+        class Model(torch.nn.Module):
+            def __init__(self, weight):
+                super().__init__()
+                self.weight = weight
+
+            def forward(self, x):
+                return torch.bmm(x, self.weight)
+
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        B, M, K, N = 10, 32, 128, 256
+
+        input = torch.randn(B, M, K, dtype=dtype, device=device)
+        weight = torch.randn(B, K, N, dtype=dtype, device=device)
+        m = Model(weight).eval()
+        original = m(input)
+        quantize_(m, config, filter_fn=lambda x, fqn: True)
+
+        assert m.weight.scale.shape == (B, 1, N), (
+            f"unexpected scale shape {m.weight.scale.shape}"
+        )
+
+        quantized = m(input)
+        sqnr = compute_error(original, quantized)
+        self.assertTrue(sqnr > 20)
+
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize(
         "sizes",
@@ -1006,6 +1045,32 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         torch.testing.assert_close(x_fp8_t.scale, x_fp8.scale.t(), atol=0, rtol=0)
         self.assertEqual(x_fp8.block_size, (1, 512), atol=0, rtol=0)
         self.assertEqual(x_fp8_t.block_size, (512, 1), atol=0, rtol=0)
+
+    def test_per_row_config_before_dim(self):
+        """
+        Test that loading a serialized config of `PerRow` before the `dim`
+        argument was introduced works properly
+        """
+
+        # create a config with PerRow granularity
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(),
+        )
+
+        # serialize it
+        config_ser = config_to_dict(config)
+
+        # manually modify the serialized config to match v1
+        # reference: https://gist.github.com/vkuzo/d347c4f8b8121819483d2d31e79f7335
+        del config_ser["_data"]["granularity"][0]["_data"]["dim"]
+        del config_ser["_data"]["granularity"][1]["_data"]["dim"]
+        assert len(config_ser["_data"]["granularity"][0]["_data"]) == 0
+        assert len(config_ser["_data"]["granularity"][1]["_data"]) == 0
+
+        # load the modified version, verify that granularity is as expected
+        config_deser = config_from_dict(config_ser)
+        assert config_deser.granularity[0].dim == -1
+        assert config_deser.granularity[1].dim == -1
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
