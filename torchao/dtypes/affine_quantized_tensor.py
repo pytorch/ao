@@ -136,7 +136,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import Float8Layout 
+        from torchao.dtypes.floatx import Float8Layout
         from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
 
         if isinstance(self._layout, FloatxTensorCoreLayout):

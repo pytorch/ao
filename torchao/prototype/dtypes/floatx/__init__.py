@@ -6,7 +6,4 @@
 
 from .floatx_tensor_core_layout import FloatxTensorCoreLayout
 
-
-__all__ = [
-    "FloatxTensorCoreLayout"
-]
+__all__ = ["FloatxTensorCoreLayout"]

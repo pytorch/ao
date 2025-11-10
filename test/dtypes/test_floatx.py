@@ -14,6 +14,10 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_floatx_unpacked,
+    _floatx_unpacked_to_f32,
+)
 from torchao.prototype.dtypes.floatx import (
     FloatxTensorCoreLayout,
     from_scaled_tc_floatx,
@@ -23,10 +27,6 @@ from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
     FloatxTensorCoreAQTTensorImpl,
     _pack_tc_floatx,
     _pack_tc_fp6,
-)
-from torchao.prototype.custom_fp_utils import (
-    _f32_to_floatx_unpacked,
-    _floatx_unpacked_to_f32,
 )
 from torchao.quantization import (
     FPXWeightOnlyConfig,
