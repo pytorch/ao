@@ -7,12 +7,12 @@
 from .block_sparse_layout import BlockSparseLayout
 from .cutlass_int4_packed_layout import CutlassInt4PackedLayout
 from .dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
+from .gemlite_layout import GemlitePackedLayout
 from .marlin_qqq_tensor import (
     MarlinQQQLayout,
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
 )
-from .gemlite_layout import GemlitePackedLayout
 
 __all__ = [
     "BlockSparseLayout",

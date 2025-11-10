@@ -7,11 +7,11 @@
 from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
+    GemlitePackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
-    GemlitePackedLayout,
 )
 
 __all__ = [
