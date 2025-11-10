@@ -12,6 +12,7 @@ from .uintx import (
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
 )
+from .floatx import FloatxTensorCoreLayout
 
 __all__ = [
     "BlockSparseLayout",
@@ -20,4 +21,5 @@ __all__ = [
     "MarlinQQQLayout",
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
+    "FloatxTensorCoreLayout",
 ]

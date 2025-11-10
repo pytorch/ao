@@ -19,7 +19,7 @@ from torchao.dtypes.floatx import (
     from_scaled_tc_floatx,
     to_scaled_tc_floatx,
 )
-from torchao.dtypes.floatx.floatx_tensor_core_layout import (
+from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
     FloatxTensorCoreAQTTensorImpl,
     _pack_tc_floatx,
     _pack_tc_fp6,

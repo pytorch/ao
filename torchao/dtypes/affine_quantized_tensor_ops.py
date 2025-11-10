@@ -21,7 +21,7 @@ from torchao.dtypes.floatx.float8_layout import (
     _linear_fp_act_fp8_weight_check,
     _linear_fp_act_fp8_weight_impl,
 )
-from torchao.dtypes.floatx.floatx_tensor_core_layout import (
+from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
     _linear_f16_bf16_act_floatx_weight_check,
     _linear_f16_bf16_act_floatx_weight_impl,
 )
