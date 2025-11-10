@@ -539,6 +539,7 @@ def _quantize_and_scaled_conv3d(
 
     # move C_in to last dim
     # after permute: (C_out, K1, K2, K3, C_in)
+
     weight_qdata = weight_tensor.qdata.permute([0, 2, 3, 4, 1])
 
     assert act_qdata.is_contiguous() and weight_qdata.is_contiguous(), (
@@ -574,18 +575,53 @@ def _(func, types, args, kwargs):
         groups,
     ) = args
     assert not transposed, "transposed conv is not supported currently"
-    assert tuple(output_padding) == (0, 0, 0), (
-        f"Only (0, 0, 0) is supported for `output_padding`, got: f{output_padding}"
-    )
+    dim = len(output_padding)
+    assert dim in [2, 3], "Only 2d or 3d convs are supported"
     assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
-    return _quantize_and_scaled_conv3d(
-        input_tensor,
-        weight_tensor,
-        bias,
-        stride,
-        padding,
-        dilation,
-    )
+
+    if dim == 2:
+        assert input_tensor.is_contiguous(
+            memory_format=torch.channels_last
+        ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last), (
+            "Please make sure both activation and weights are in the `channels_last` memory_format"
+        )
+        # (N, C, H, W) --> (N, C, 1, H, W)
+        input_tensor = input_tensor.unsqueeze(2)
+        weight_tensor = weight_tensor.unsqueeze(2)
+        assert tuple(output_padding) == (0, 0), (
+            f"Only (0, 0) is supported for `output_padding`, got: f{output_padding}"
+        )
+        padding = [0, *padding]
+        stride = [1, *stride]
+        dilation = [1, *dilation]
+        res = _quantize_and_scaled_conv3d(
+            input_tensor,
+            weight_tensor,
+            bias,
+            stride,
+            padding,
+            dilation,
+        )
+        assert res.shape[2] == 1
+        res = res.squeeze(2)
+        return res
+    else:
+        assert input_tensor.is_contiguous(
+            memory_format=torch.channels_last_3d
+        ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last_3d), (
+            "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
+        )
+        assert tuple(output_padding) == (0, 0, 0), (
+            f"Only (0, 0, 0) is supported for `output_padding`, got: f{output_padding}"
+        )
+        return _quantize_and_scaled_conv3d(
+            input_tensor,
+            weight_tensor,
+            bias,
+            stride,
+            padding,
+            dilation,
+        )
 
 
 @implements(aten.conv3d.default)
@@ -599,7 +635,11 @@ def _(func, types, args, kwargs):
         dilation,
         groups,
     ) = fill_defaults(args, 7, [None, [1, 1, 1], [0, 0, 0], [1, 1, 1], 1])
-    assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
+    assert input_tensor.is_contiguous(
+        memory_format=torch.channels_last_3d
+    ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last_3d), (
+        "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
+    )
     return _quantize_and_scaled_conv3d(
         input_tensor,
         weight_tensor,
@@ -608,6 +648,48 @@ def _(func, types, args, kwargs):
         padding,
         dilation,
     )
+
+
+@implements(aten.conv2d.default)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        groups,
+    ) = fill_defaults(args, 7, [None, [1, 1], [0, 0], [1, 1], 1])
+    # (N, C, H, W) --> (N, C, 1, H, W)
+    # memory_format of both tensors should be torch.channels_last
+    # and it should be preserved with unsqueeze(2) (becoming torch.channels_last_3d)
+    assert input_tensor.is_contiguous(
+        memory_format=torch.channels_last
+    ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last), (
+        "Please make sure both activation and weights are in the `channels_last` memory_format"
+    )
+    input_tensor = input_tensor.unsqueeze(2)
+    weight_tensor = weight_tensor.unsqueeze(2)
+
+    assert input_tensor.is_contiguous(
+        memory_format=torch.channels_last_3d
+    ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last_3d)
+
+    padding = [0, *padding]
+    stride = [1, *stride]
+    dilation = [1, *dilation]
+    res = _quantize_and_scaled_conv3d(
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+    )
+    assert res.shape[2] == 1
+    res = res.squeeze(2)
+    return res
 
 
 @implements(aten.slice.Tensor)
@@ -839,7 +921,6 @@ def _(func, types, args, kwargs):
 @implements(aten.unsqueeze.default)
 def _(func, types, args, kwargs):
     self, dim = args
-    assert dim == 0, f"Only dim == 0 is supported, got: {dim}"
     qdata = self.qdata.unsqueeze(dim=dim)
     scale = self.scale.unsqueeze(dim=dim)
     block_size = []

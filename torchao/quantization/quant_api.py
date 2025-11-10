@@ -1816,13 +1816,19 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     _check_hardware_support(granularity)
     activation_granularity, weight_granularity = granularity
 
-    if weight.dim() == 5:
-        # weights for conv3d
+    # Note: right now we assume it's weights of conv2d and conv3d purely based
+    # on the dimension of weight, currently there is no conflict with linear 2d
+    # and moe weights 3d
+    # if we need to support conv1d, which also has 3d weight, we may have to
+    # pass around the module as well to distinguish between conv1d and 3d moe weight
+    if weight.dim() in [4, 5]:
+        # weights for conv2d or 3d
         assert isinstance(activation_granularity, PerTensor) and isinstance(
             weight_granularity, PerTensor
-        ), "5D tensor only supports per tensor activation and weight quantization"
+        ), "4D/5D tensor only supports per tensor activation and weight quantization"
 
-        # weight dim: (C_out, C_in, K1, K2, K3)
+        # conv3d weight dim: (C_out, C_in, K1, K2, K3)
+        # conv2d weight dim: (C_out, C_in, K1, K2)
         # skip quantization when either C_out or C_in
         # is not a multiple of 16
         if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
