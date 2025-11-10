@@ -25,7 +25,7 @@ jobs:
         include:
           - name: H100
             runs-on: linux.aws.h100
-            torch-spec: '--pre torch torchvision torchaudio fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
     permissions:
