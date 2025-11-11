@@ -98,7 +98,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    TorchAOBaseTensor,
     _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
@@ -416,16 +415,17 @@ def _embedding_extra_repr(self):
     return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
 
 
-def _module_extra_repr(self, original_extra_repr):
-    module_torchao_param_extra_repr = [
-        f"{name}={_quantization_type(getattr(self, name))}"
-        for name, param in self.named_parameters()
-        if isinstance(param, TorchAOBaseTensor)
-    ]
+def _module_extra_repr(self, original_extra_repr, parameter_name):
+    module_torchao_extra_repr = []
+
     original_extra_repr_str = original_extra_repr()
     if len(original_extra_repr_str) > 0:
-        module_torchao_param_extra_repr.insert(0, original_extra_repr_str)
-    return ", ".join(module_torchao_param_extra_repr)
+        module_torchao_extra_repr.append(original_extra_repr_str)
+
+    module_torchao_extra_repr.append(
+        f"{parameter_name}={_quantization_type(getattr(self, parameter_name))}"
+    )
+    return ", ".join(module_torchao_extra_repr)
 
 
 def _get_linear_subclass_inserter(
@@ -1396,7 +1396,12 @@ def _int8_weight_only_transform(
         torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
     module.extra_repr = types.MethodType(
-        partial(_module_extra_repr, original_extra_repr=module.extra_repr), module
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
     )
     return module
 
@@ -1692,7 +1697,12 @@ def _float8_weight_only_transform(
         torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
     module.extra_repr = types.MethodType(
-        partial(_module_extra_repr, original_extra_repr=module.extra_repr), module
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
     )
     return module
 
@@ -1941,7 +1951,12 @@ def _float8_dynamic_activation_float8_weight_transform(
         torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
     module.extra_repr = types.MethodType(
-        partial(_module_extra_repr, original_extra_repr=module.extra_repr), module
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
     )
     return module
 
