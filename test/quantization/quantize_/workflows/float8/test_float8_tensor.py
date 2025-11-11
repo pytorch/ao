@@ -15,6 +15,7 @@ from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import run_tests
 
+from torchao.core.config import config_from_dict, config_to_dict
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8Tensor,
@@ -86,6 +87,8 @@ class ToyConvModel(torch.nn.Module):
         )
         if dim == 3:
             self.conv = self.conv.to(memory_format=torch.channels_last_3d)
+        elif dim == 2:
+            self.conv = self.conv.to(memory_format=torch.channels_last)
 
     def forward(self, x):
         return self.conv(x)
@@ -336,12 +339,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("inference_mode", [True, False])
-    # only test for 3D conv for now
-    # Inputs are (N, C_in, C_out, D, H, W)
+    # test for 2D/3D conv
+    # Inputs are (N, C_in, C_out, (D, H, W) or
+    # (N, C_in, C_out, (H, W)
     @common_utils.parametrize(
         "sizes",
         [
-            (4, 16, 64, 32, 32, 32),
+            (4, 16, 64, (32, 32, 32)),
+            (4, 16, 64, (32, 32)),
         ],
     )
     def test_fp8_conv_variants(
@@ -349,20 +354,28 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         dtype: torch.dtype,
         compile: bool,
         inference_mode: bool,
-        kernel_preference: KernelPreference,
         sizes: Tuple,
     ):
+        torch.compiler.reset()
         granularity = PerTensor()
         kernel_preference = KernelPreference.AUTO
-        N, C_in, C_out, D, H, W = sizes
-        dim = 3
+
+        N, C_in, C_out, spatial_dims = sizes
+        dim = len(spatial_dims)
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        assert dim in convs, f"Unsupported dim: {dim}"
+        conv_class = convs[dim]
+
         kernel_size = 3
 
         # Note: this is channel last memory format
-        input_tensor = torch.randn(N, C_in, D, H, W, dtype=dtype, device="cuda")
-        input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+        input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device="cuda")
+        if dim == 3:
+            input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+        else:
+            assert dim == 2
+            input_tensor = input_tensor.to(memory_format=torch.channels_last)
 
-        # Create a linear layer with bfloat16 dtype
         model = ToyConvModel(
             dim,
             C_in,
@@ -381,9 +394,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             kernel_preference=kernel_preference,
         )
 
-        _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+        _is_conv = lambda m, fqn: isinstance(m, conv_class)
 
-        quantize_(quantized_model, config, filter_fn=_is_conv3d)
+        quantize_(quantized_model, config, filter_fn=_is_conv)
 
         if compile:
             quantized_model = torch.compile(quantized_model, fullgraph=True)
@@ -407,13 +420,16 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         "Requires fbgemm_gpu_genai to be installed",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
-    # only test for 3D conv for now
-    # Inputs are (N, C_in, C_out, D, H, W)
+    # test for 2D/3D conv
+    # Inputs are (N, C_in, C_out, (D, H, W) or
+    # (N, C_in, C_out, (H, W)
     @common_utils.parametrize(
         "sizes",
         [
-            (4, 12, 64, 32, 32, 32),
-            (4, 16, 12, 32, 32, 32),
+            (4, 12, 64, (32, 32, 32)),
+            (4, 16, 12, (32, 32, 32)),
+            (4, 12, 64, (32, 32)),
+            (4, 16, 12, (32, 32)),
         ],
     )
     def test_fp8_conv_skip_quant(
@@ -426,14 +442,23 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         """
         granularity = PerTensor()
         kernel_preference = KernelPreference.AUTO
-        N, C_in, C_out, D, H, W = sizes
-        dim = 3
+
+        N, C_in, C_out, spatial_dims = sizes
+
+        dim = len(spatial_dims)
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        assert dim in convs, f"Unsupported dim: {dim}"
+        conv_class = convs[dim]
+
         kernel_size = 3
 
         # Note: this is channel last memory format
-        input_tensor = torch.randn(N, C_in, D, H, W, dtype=dtype, device="cuda")
-        input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
-        # Create a linear layer with bfloat16 dtype
+        input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device="cuda")
+        if dim == 3:
+            input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+        else:
+            input_tensor = input_tensor.to(memory_format=torch.channels_last)
+
         model = ToyConvModel(
             dim,
             C_in,
@@ -452,9 +477,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             kernel_preference=kernel_preference,
         )
 
-        _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+        _is_conv = lambda m, fqn: isinstance(m, conv_class)
 
-        quantize_(quantized_model, config, filter_fn=_is_conv3d)
+        quantize_(quantized_model, config, filter_fn=_is_conv)
         assert not isinstance(quantized_model.conv.weight, Float8Tensor)
 
         output_original = model(input_tensor)
@@ -634,6 +659,44 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sqnr = compute_error(original, quantized)
         self.assertTrue(sqnr > 20)
 
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
+    def test_bmm_weight_in_bkn_layout(self):
+        # Tests rowwise quantization of a 3d weight stored with shape (B, K, N)
+        # and contigous with that shape. Since the `K` dimension is not last, we
+        # need to specify granularity with `PerRow(1)`.
+
+        # only support per row quantization
+        granularity = [PerRow(), PerRow(1)]
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+
+        class Model(torch.nn.Module):
+            def __init__(self, weight):
+                super().__init__()
+                self.weight = weight
+
+            def forward(self, x):
+                return torch.bmm(x, self.weight)
+
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        B, M, K, N = 10, 32, 128, 256
+
+        input = torch.randn(B, M, K, dtype=dtype, device=device)
+        weight = torch.randn(B, K, N, dtype=dtype, device=device)
+        m = Model(weight).eval()
+        original = m(input)
+        quantize_(m, config, filter_fn=lambda x, fqn: True)
+
+        assert m.weight.scale.shape == (B, 1, N), (
+            f"unexpected scale shape {m.weight.scale.shape}"
+        )
+
+        quantized = m(input)
+        sqnr = compute_error(original, quantized)
+        self.assertTrue(sqnr > 20)
+
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize(
         "sizes",
@@ -793,7 +856,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         ],
     )
     def test_unsqueeze_operation(self, granularity, sizes):
-        """Test aten.unsqueeze.default operation on Float8Tensor"""
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
         device = "cuda"
@@ -806,7 +868,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         original_weight = linear.weight
         original_shape = original_weight.shape
 
-        # Test unsqueeze operation at dim=0 (only supported dimension)
+        # Test unsqueeze operation at dim=0
         unsqueezed_weight = original_weight.unsqueeze(0)
 
         # Verify the unsqueezed tensor has correct shape
@@ -848,22 +910,84 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         self.assertEqual(unsqueezed_dequant, expected_dequant)
 
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    def test_unsqueeze_error_cases(self, granularity):
-        """Test error cases for aten.unsqueeze.default operation"""
+    def test_unsqueeze_conv2d_weight(self):
+        granularity = PerTensor()
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
         device = "cuda"
+        N, C_in, C_out, spatial_dims = 4, 16, 64, (32, 32)
+        dim = len(spatial_dims)
+        kernel_size = 3
 
-        # Create a linear layer and quantize it
-        linear = torch.nn.Linear(128, 256, bias=False, dtype=dtype, device=device)
-        quantize_(linear, config)
+        input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device=device)
+        input_tensor = input_tensor.to(memory_format=torch.channels_last)
+        model = ToyConvModel(
+            dim,
+            C_in,
+            C_out,
+            kernel_size,
+            bias=False,
+            padding=0,
+            dtype=dtype,
+            device=device,
+        ).eval()
 
-        weight = linear.weight
+        quantized_model = copy.deepcopy(model)
 
-        # Test that unsqueezing on unsupported dimensions raises an error
-        with self.assertRaisesRegex(AssertionError, "Only dim == 0 is supported"):
-            weight.unsqueeze(1)  # dim=1 should not be supported
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+        )
+
+        _is_conv = lambda m, fqn: isinstance(m, torch.nn.Conv2d)
+
+        quantize_(quantized_model, config, filter_fn=_is_conv)
+
+        original_weight = quantized_model.conv.weight
+        original_shape = original_weight.shape
+
+        # Test unsqueeze operation at dim=2
+        unsqueezed_weight = original_weight.unsqueeze(2)
+
+        # Verify the unsqueezed tensor has correct shape
+        original_shape_list = list(original_shape)
+        expected_shape = original_shape_list[:2] + [1] + original_shape_list[2:]
+        scale_shape_list = list(original_weight.scale.shape)
+        expected_scale_shape = scale_shape_list[:2] + [1] + scale_shape_list[2:]
+
+        self.assertEqual(unsqueezed_weight.shape, torch.Size(expected_shape))
+        # Verify qdata and scale shapes
+        expected_qdata_shape = expected_shape
+
+        self.assertEqual(
+            unsqueezed_weight.qdata.shape, torch.Size(expected_qdata_shape)
+        )
+        self.assertEqual(
+            unsqueezed_weight.scale.shape, torch.Size(expected_scale_shape)
+        )
+
+        # Verify block_size is correctly updated
+        expected_block_size = []
+        for i in range(len(expected_shape)):
+            expected_block_size.append(expected_shape[i] // expected_scale_shape[i])
+
+        self.assertEqual(unsqueezed_weight.block_size, expected_block_size)
+
+        # Test that metadata is preserved
+        self.assertEqual(unsqueezed_weight.mm_config, original_weight.mm_config)
+        self.assertEqual(
+            unsqueezed_weight.act_quant_kwargs, original_weight.act_quant_kwargs
+        )
+        self.assertEqual(
+            unsqueezed_weight.kernel_preference, original_weight.kernel_preference
+        )
+        self.assertEqual(unsqueezed_weight.dtype, original_weight.dtype)
+
+        # Test numerical correctness
+        original_dequant = original_weight.dequantize()
+        unsqueezed_dequant = unsqueezed_weight.dequantize()
+        expected_dequant = original_dequant.unsqueeze(2)
+
+        self.assertEqual(unsqueezed_dequant, expected_dequant)
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize("slice_dim", [0, 1, 2])
@@ -1006,6 +1130,32 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         torch.testing.assert_close(x_fp8_t.scale, x_fp8.scale.t(), atol=0, rtol=0)
         self.assertEqual(x_fp8.block_size, (1, 512), atol=0, rtol=0)
         self.assertEqual(x_fp8_t.block_size, (512, 1), atol=0, rtol=0)
+
+    def test_per_row_config_before_dim(self):
+        """
+        Test that loading a serialized config of `PerRow` before the `dim`
+        argument was introduced works properly
+        """
+
+        # create a config with PerRow granularity
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(),
+        )
+
+        # serialize it
+        config_ser = config_to_dict(config)
+
+        # manually modify the serialized config to match v1
+        # reference: https://gist.github.com/vkuzo/d347c4f8b8121819483d2d31e79f7335
+        del config_ser["_data"]["granularity"][0]["_data"]["dim"]
+        del config_ser["_data"]["granularity"][1]["_data"]["dim"]
+        assert len(config_ser["_data"]["granularity"][0]["_data"]) == 0
+        assert len(config_ser["_data"]["granularity"][1]["_data"]) == 0
+
+        # load the modified version, verify that granularity is as expected
+        config_deser = config_from_dict(config_ser)
+        assert config_deser.granularity[0].dim == -1
+        assert config_deser.granularity[1].dim == -1
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
