@@ -1842,8 +1842,32 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
+    is_cpu = weight.device.type == "cpu"
 
-    if weight.device.type != "cpu" and isinstance(weight_granularity, PerRow):
+    # Note: right now we assume it's weights of conv2d and conv3d purely based
+    # on the dimension of weight, currently there is no conflict with linear 2d
+    # and moe weights 3d
+    # if we need to support conv1d, which also has 3d weight, we may have to
+    # pass around the module as well to distinguish between conv1d and 3d moe weight
+    if weight.dim() in [4, 5]:
+        # weights for conv2d or 3d
+        assert isinstance(activation_granularity, PerTensor) and isinstance(
+            weight_granularity, PerTensor
+        ), "4D/5D tensor only supports per tensor activation and weight quantization"
+
+        # conv3d weight dim: (C_out, C_in, K1, K2, K3)
+        # conv2d weight dim: (C_out, C_in, K1, K2)
+        # skip quantization when either C_out or C_in
+        # is not a multiple of 16
+        if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+            return weight
+
+    elif not is_cpu and not _fp8_mm_compat(weight):
+        # TODO(future PR): this should really throw an exception instead of silently
+        # not doing what the user asked
+        return weight
+
+    if not is_cpu and isinstance(weight_granularity, PerRow):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
@@ -1854,23 +1878,6 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         )
 
         _check_hardware_support(granularity)
-        if weight.dim() == 5:
-            # weights for conv3d
-            assert isinstance(activation_granularity, PerTensor) and isinstance(
-                weight_granularity, PerTensor
-            ), "5D tensor only supports per tensor activation and weight quantization"
-
-            # weight dim: (C_out, C_in, K1, K2, K3)
-            # skip quantization when either C_out or C_in
-            # is not a multiple of 16
-            if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
-                return weight
-
-        elif not _fp8_mm_compat(weight):
-            # TODO(future PR): this should really throw an exception instead of silently
-            # not doing what the user asked
-            return weight
-
         block_size = get_block_size(weight.shape[-2:], weight_granularity)
         if weight.dim() == 3:
             block_size = tuple([1] + list(block_size))
