@@ -853,6 +853,51 @@ common_utils.instantiate_parametrized_tests(TestQuantFlow)
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
 class TestFqnToConfig(TestCase):
+    def test_fqn_to_config_repr_custom(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_parameter(
+                    "x", torch.nn.Parameter(torch.randn(128, 128, dtype=torch.bfloat16))
+                )
+                self.register_parameter(
+                    "y", torch.nn.Parameter(torch.randn(128, 128, dtype=torch.bfloat16))
+                )
+
+        custom_module = TestModule().cuda().eval()
+        custom_module_config = FqnToConfig(
+            {
+                "x": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+        quantize_(
+            custom_module,
+            custom_module_config,
+            filter_fn=None,
+        )
+        expected_str = "TestModule(x=Float8Tensor(self.act_quant_kwargs=QuantizeTensorToFloat8Kwargs(float8_dtype=torch.float8_e4m3fn, granularity=PerTensor(), mm_config=None, hp_value_lb=None, hp_value_ub=None, kernel_preference=<KernelPreference.AUTO: 'auto'>), self.block_size=[128, 128], self.mm_config=Float8MMConfig(emulate=False, use_fast_accum=True, pad_inner_dim=False), self.scale.shape=torch.Size([1, 1]), self.kernel_preference=<KernelPreference.AUTO: 'auto'>))"
+        assert str(custom_module) == expected_str
+
+    def test_fqn_to_config_repr_linear(self):
+        linear_model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+        linear_quant_config = FqnToConfig(
+            {
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+        quantize_(
+            linear_model,
+            linear_quant_config,
+            filter_fn=None,
+        )
+        expected_str = "Linear(in_features=64, out_features=32, bias=False, weight=Float8Tensor(self.act_quant_kwargs=QuantizeTensorToFloat8Kwargs(float8_dtype=torch.float8_e4m3fn, granularity=PerTensor(), mm_config=None, hp_value_lb=None, hp_value_ub=None, kernel_preference=<KernelPreference.AUTO: 'auto'>), self.block_size=[32, 64], self.mm_config=Float8MMConfig(emulate=False, use_fast_accum=True, pad_inner_dim=False), self.scale.shape=torch.Size([1, 1]), self.kernel_preference=<KernelPreference.AUTO: 'auto'>))"
+
+        assert str(linear_model.linear1) == expected_str
+
     def test_quantize_param_fqn_exact(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
