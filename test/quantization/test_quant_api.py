@@ -1180,7 +1180,7 @@ class TestFqnToConfig(TestCase):
 
     def test_fqn_config_module_config_and_fqn_config_both_specified(self):
         with self.assertRaises(ValueError):
-            config = FqnToConfig(
+            FqnToConfig(
                 fqn_to_config={"test": Float8WeightOnlyConfig()},
                 module_fqn_to_config={"test2": Float8WeightOnlyConfig()},
             )
