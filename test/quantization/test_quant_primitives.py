@@ -43,6 +43,7 @@ torch.manual_seed(_SEED)
 
 _DEVICE = auto_detect_device()
 
+
 # Helper function to run a function twice
 # and verify that the result is the same.
 # Adds some verification to avoid side effects.

@@ -499,6 +499,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming(self):
         device_module = torch.get_device_module(_DEVICE)
+
         def reset_memory():
             gc.collect()
             device_module.empty_cache()
@@ -1110,6 +1111,7 @@ class TestFqnToConfig(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming_fqn_config(self):
         device_module = torch.get_device_module(_DEVICE)
+
         def reset_memory():
             gc.collect()
             device_module.empty_cache()
