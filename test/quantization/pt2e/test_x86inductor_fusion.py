@@ -512,9 +512,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
     def _qconv2d_unary_test_helper(
         self,
         device="cpu",
-        int8_mixed_bf16=False,
+        mixed_bf16=False,
         unary_op=torch.nn.ReLU(),
         qconv_unary_matcher_nodes=None,
+        is_fp8=False,
     ):
         class M(torch.nn.Module):
             def __init__(
@@ -563,8 +564,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
             mod,
             (v,),
             check_quantization=True,
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+            check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
             matcher_check_fn=matcher_check_fn,
+            is_fp8=is_fp8,
         )
 
     @skipIfNoDynamoSupport
@@ -576,13 +578,22 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_unary_test_helper(device="cpu")
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_relu_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->ReLU pattern.
+        """
+        self._qconv2d_unary_test_helper(device="cpu", is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_relu_int8_mixed_bf16_xpu(self):
         r"""
         This testcase will quantize Conv2d->ReLU pattern with int8_mixed_bf16 quantization.
         """
-        self._qconv2d_unary_test_helper(int8_mixed_bf16=True)
+        self._qconv2d_unary_test_helper(mixed_bf16=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -594,11 +605,29 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_relu6_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->ReLU6 pattern.
+        """
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.ReLU6(), is_fp8=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
     def test_qconv2d_hardtanh_cpu(self):
         r"""
         This testcase will quantize Conv2d->Hardtanh pattern.
         """
         self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardtanh())
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_hardtanh_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardtanh pattern.
+        """
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardtanh(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -612,8 +641,26 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.Hardtanh(),
-            int8_mixed_bf16=True,
+            mixed_bf16=True,
             qconv_unary_matcher_nodes=11,
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_hardtanh_fp8_mixed_bf16_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardtanh pattern.
+        Match.nodes:
+            [qconv2d_pointwise_default, convert_element_type, clamp_min, clamp_max, convert_element_type, quantize_per_tensor]
+            [qconv2d_pointwise_default, convert_element_type, clamp_min, clamp_max, convert_element_type]
+        """
+        self._qconv2d_unary_test_helper(
+            unary_op=torch.nn.Hardtanh(),
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=11,
+            is_fp8=True,
         )
 
     @skipIfNoDynamoSupport
@@ -623,6 +670,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
         This testcase will quantize Conv2d->Hardswish pattern.
         """
         self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardswish())
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_hardswish_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardswish pattern.
+        """
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardswish(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -637,8 +693,27 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.Hardswish(),
-            int8_mixed_bf16=True,
+            mixed_bf16=True,
             qconv_unary_matcher_nodes=17,
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_hardswish_fp8_mixed_bf16_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardswish pattern.
+        Match.nodes:
+            [qconv2d_pointwise_default, convert_element_type, add, clamp_min,
+             clamp_max, mul, div, convert_element_type, quantize_per_tensor]
+            [qconv2d_pointwise_default, convert_element_type, add, clamp_min, clamp_max, mul, div, convert_element_type]
+        """
+        self._qconv2d_unary_test_helper(
+            unary_op=torch.nn.Hardswish(),
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=17,
+            is_fp8=True,
         )
 
     @skipIfNoDynamoSupport
@@ -648,6 +723,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
         This testcase will quantize Conv2d->SiLU pattern.
         """
         self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.SiLU())
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_silu_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->SiLU pattern.
+        """
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.SiLU(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -662,8 +746,27 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
-            int8_mixed_bf16=True,
+            mixed_bf16=True,
             qconv_unary_matcher_nodes=11,
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_silu_fp8_mixed_bf16_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->SiLU pattern.
+        Match.nodes:
+            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul,
+             convert_element_type, quantize_per_tensor]
+            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
+        """
+        self._qconv2d_unary_test_helper(
+            unary_op=torch.nn.SiLU(),
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=11,
+            is_fp8=True,
         )
 
     def _qconv2d_add_test_helper(
