@@ -108,8 +108,8 @@ jobs:
         conda create -n venv python=3.10 -y
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
-        dnf install -y gcc-toolset-10-binutils
-        export PATH=/opt/rh/gcc-toolset-10/root/usr/bin/:$PATH
+        dnf install -y gcc-toolset-13-binutils
+        export PATH=/opt/rh/gcc-toolset-13/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
