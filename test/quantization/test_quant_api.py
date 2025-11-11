@@ -1178,6 +1178,13 @@ class TestFqnToConfig(TestCase):
         assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
 
+    def test_fqn_config_module_config_and_fqn_config_both_specified(self):
+        with self.assertRaises(ValueError):
+            config = FqnToConfig(
+                fqn_to_config={"test": Float8WeightOnlyConfig()},
+                module_fqn_to_config={"test2": Float8WeightOnlyConfig()},
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
