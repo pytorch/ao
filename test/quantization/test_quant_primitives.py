@@ -10,6 +10,7 @@ import unittest
 
 import torch
 
+from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
@@ -27,6 +28,7 @@ from torchao.quantization.quant_primitives import (
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
     _quantize_activation_per_token_absmax,
+    get_block_size,
     get_group_qparams_symmetric,
     groupwise_affine_dequantize_tensor_from_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
@@ -843,6 +845,29 @@ class TestQuantPrimitives(unittest.TestCase):
 
         torch.testing.assert_close(scale, ref_scale, atol=0, rtol=0)
         torch.testing.assert_close(data.float(), ref_data.float(), atol=0, rtol=0)
+
+    def test_float8_rowwise_scaling_3d_weight_axis_1(self):
+        """
+        Test scaling a weight with shape (B, K, N) and row-major memory layout
+        across the K dimension.
+        """
+
+        B, K, N = 8, 16, 32
+        hp_tensor = torch.randn(B, K, N, dtype=torch.float)
+
+        granularity = PerRow(1)
+        block_size = get_block_size(hp_tensor.shape, granularity)
+        scale = _choose_scale_float8(
+            hp_tensor,
+            float8_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            hp_value_lb=None,
+            hp_value_ub=None,
+        )
+        data = _quantize_affine_float8(hp_tensor, scale, torch.float8_e4m3fn)
+
+        assert scale.shape == (B, 1, N)
+        assert data.shape == (B, K, N)
 
 
 if __name__ == "__main__":
