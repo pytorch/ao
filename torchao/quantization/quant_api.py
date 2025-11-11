@@ -1380,7 +1380,10 @@ def _int8_weight_only_quantize_tensor(weight, config):
         )
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
-        block_size = [weight.shape[0], weight.shape[1]]
+        group_size = config.group_size
+        if group_size is None:
+            group_size = weight.shape[-1]
+        block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
         new_weight = Int8Tensor.from_hp(weight, block_size=block_size)
     return new_weight
 

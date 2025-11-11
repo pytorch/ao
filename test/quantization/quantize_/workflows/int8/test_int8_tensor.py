@@ -9,6 +9,7 @@ import unittest
 
 import torch
 from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
 from torchao.quantization import (
@@ -145,12 +146,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
         quantize_(linear, config)
 
-        # Dynamic: per-row (1D scale [N]), Weight-only: per-tensor (scalar)
-        if isinstance(config, Int8DynamicActivationInt8WeightConfig):
-            self.assertEqual(linear.weight.scale.shape, (N,))
-            self.assertEqual(linear.weight.scale.ndim, 1)
-        else:
-            self.assertEqual(linear.weight.scale.numel(), 1)
+        self.assertEqual(linear.weight.scale.shape, (N,))
+        self.assertEqual(linear.weight.scale.ndim, 1)
 
     @common_utils.parametrize(
         "config",
@@ -162,7 +159,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("device", ["cpu", "cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_slice(self, config, device, dtype):
-        """Test tensor slicing"""
+        """Test tensor slicing with per-row quantization"""
         tensor_size = 256
         slice_sizes = (64, 128)
 
@@ -176,19 +173,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, slice_sizes[0]))
         self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, slice_sizes[1]))
-
-        # Int8DynamicActivationInt8WeightConfig uses per-row (PerRow)
-        # Int8WeightOnlyConfig uses per-tensor (PerTensor)
-        if isinstance(config, Int8DynamicActivationInt8WeightConfig):
-            # PerRow: dim 0 slicing affects scale, dim 1 doesn't
-            self.assertEqual(
-                weight1.scale, dummy.weight.scale.narrow(0, 0, slice_sizes[0])
-            )
-            self.assertEqual(weight2.scale, dummy.weight.scale)
-        else:
-            # PerTensor: scale unchanged by slicing
-            self.assertEqual(weight1.scale, dummy.weight.scale)
-            self.assertEqual(weight2.scale, dummy.weight.scale)
+        self.assertEqual(weight1.scale, dummy.weight.scale.narrow(0, 0, slice_sizes[0]))
+        self.assertEqual(weight2.scale, dummy.weight.scale)
         with self.assertRaises(NotImplementedError):
             _ = dummy.weight[::2]
 
@@ -230,13 +216,15 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         tensor = linear.weight
         dequantized = tensor.dequantize()
         self.assertEqual(dequantized.shape, test_data.shape)
-        self.assertLess(
-            torch.abs(dequantized - test_data).max().item(),
-            0.1,
-            msg=f"Dequantization error exceeds tolerance of {0.1}",
+        assert compute_error(dequantized, test_data) > 20, (
+            f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, test_data)}"
         )
 
-    def test_available_gpu_kernels(self):
+    @common_utils.parametrize(
+        "kernel",
+        ["triton_per_fused", "extern_kernels._int_mm", "triton_poi_fused"],
+    )
+    def test_available_gpu_kernels(self, kernel):
         """Check which GPU kernels are available"""
         M, K, N = 128, 256, 512
         m = torch.nn.Sequential(
@@ -248,14 +236,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
         out, code = run_and_get_code(m, x)
-        has_triton = "triton" in code[0].lower()  # Trition
-        has_fbgemm = "fbgemm" in code[0].lower()  # FB-GEMM
-        has_int_mm = "_int_mm" in code[0]  # Int8 MatMul
-
-        self.assertTrue(
-            has_triton or has_fbgemm or has_int_mm,
-            f"No int8 quantization kernels found. has_triton={has_triton}, has_fbgemm={has_fbgemm}, has_int_mm={has_int_mm}",
-        )
+        FileCheck().check(kernel).run(code[0])
 
 
 if __name__ == "__main__":
