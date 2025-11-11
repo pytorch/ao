@@ -1377,7 +1377,8 @@ def _int8_weight_only_transform(
         getattr(module, parameter_name), config
     )
     setattr(module, parameter_name, torch.nn.Parameter(new_weight, requires_grad=False))
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    if isinstance(torch.nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
@@ -1671,7 +1672,8 @@ def _float8_weight_only_transform(
         parameter_name,
         torch.nn.Parameter(new_weight, requires_grad=False),
     )
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    if isinstance(torch.nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
@@ -1918,7 +1920,8 @@ def _float8_dynamic_activation_float8_weight_transform(
         parameter_name,
         torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    if isinstance(torch.nn.Linear):
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
