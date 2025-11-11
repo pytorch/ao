@@ -12,7 +12,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import (
     _slice_scale_for_dimension,
-    preprocess_scale,
 )
 from torchao.kernel import int_scaled_matmul
 from torchao.quantization.quant_primitives import (
@@ -169,21 +168,6 @@ def _(func, types, args, kwargs):
         f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
     )
 
-    # Store original shape for reshaping result
-    original_weight_shape = weight_tensor.qdata.shape
-
-    # Reshape 3D weights to 2D: (B, N, K) -> (B*N, K)
-    if weight_tensor.qdata.dim() == 3:
-        w_q_2d = weight_tensor.qdata.reshape(-1, original_weight_shape[-1])
-        w_scale_2d = (
-            weight_tensor.scale.reshape(-1)
-            if weight_tensor.scale.numel() > 1
-            else weight_tensor.scale
-        )
-    else:
-        w_q_2d = weight_tensor.qdata
-        w_scale_2d = weight_tensor.scale
-
     if weight_tensor.act_quant_kwargs is not None:
         if not isinstance(activation_tensor, Int8Tensor):
             # Dynamic activation quantization
@@ -202,35 +186,52 @@ def _(func, types, args, kwargs):
                 activation_tensor, act_kwargs
             )
 
-        x_vals = activation_tensor.qdata.reshape(-1, activation_tensor.qdata.shape[-1])
-        x_scales = preprocess_scale(activation_tensor.scale, x_vals.shape)
-        w_vals_t = w_q_2d.contiguous().t()
+        # 1. do the matrix form of dot(X_i, W_j)
+        #
+        # 2. rescale the output
+        #
+        # in cases with large matrices, y_dot_int32 can grow sufficiently
+        # large that y_dot_int32 * a FP16 scale is greater than the maximum
+        # value of a FP16, (which results in a value of inf even if multiplying
+        # by the other scale would bring it within the expected range)
+
+        x_vals_int8 = activation_tensor.qdata
+        x_scales = activation_tensor.scale
+        w_vals_int8_t = weight_tensor.qdata.contiguous().t()
+        w_scales = weight_tensor.scale
+        tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+        x_scales_dtype = x_scales.dtype
+        # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
         intermediate_dtype = (
-            torch.float if x_scales.dtype == torch.half else x_scales.dtype
+            torch.float if x_scales_dtype == torch.half else x_scales_dtype
         )
-
         y_dot_scaled = int_scaled_matmul(
-            x_vals, w_vals_t, x_scales.to(intermediate_dtype)
+            tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
         )
-        y_dot_scaled = y_dot_scaled.to(activation_tensor.scale.dtype)
+        y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
 
-        result = (y_dot_scaled * w_scale_2d).reshape(
-            *activation_tensor.shape[:-1], *original_weight_shape[:-1]
+        y = (y_dot_scaled * w_scales).reshape(
+            *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
         )
-        result = result.to(activation_tensor.dtype)
+
+        # can downcast only at the very end
+        output_dtype = activation_tensor.dtype
+        y = y.to(output_dtype)
+        if bias is not None:
+            y += bias
+        return y
     else:
         # FP × INT8 (weight-only)
-        w_vals_int8_t = w_q_2d.t()
+        w_vals_int8_t = weight_tensor.qdata.t()
         m = torch.mm(
             activation_tensor.reshape(-1, activation_tensor.shape[-1]),
             w_vals_int8_t.to(activation_tensor.dtype),
         )
-        result = m * w_scale_2d.to(m.dtype)
-        result = result.reshape(
-            *activation_tensor.shape[:-1], *original_weight_shape[:-1]
-        )
-
-    return result + bias if bias is not None else result
+        y = m * weight_tensor.scale.to(m.dtype)
+        y = y.reshape(*activation_tensor.shape[:-1], weight_tensor.qdata.shape[0])
+        if bias is not None:
+            y += bias
+        return y
 
 
 @implements(aten.slice.Tensor)
