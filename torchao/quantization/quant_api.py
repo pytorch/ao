@@ -1373,10 +1373,14 @@ def _int8_weight_only_transform(
         "applying int8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
-    new_weight = _int8_weight_only_quantize_tensor(
+    quantized_tensor = _int8_weight_only_quantize_tensor(
         getattr(module, parameter_name), config
     )
-    setattr(module, parameter_name, torch.nn.Parameter(new_weight, requires_grad=False))
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_tensor, requires_grad=False),
+    )
     if isinstance(torch.nn.Linear):
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -1663,14 +1667,14 @@ def _float8_weight_only_transform(
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-    new_weight = _float8_weight_only_quant_tensor(
+    quantized_tensor = _float8_weight_only_quant_tensor(
         getattr(module, parameter_name), config
     )
 
     setattr(
         module,
         parameter_name,
-        torch.nn.Parameter(new_weight, requires_grad=False),
+        torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
     if isinstance(torch.nn.Linear):
         module.extra_repr = types.MethodType(_linear_extra_repr, module)
