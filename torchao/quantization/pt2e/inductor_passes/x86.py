@@ -191,9 +191,14 @@ def get_dequantize_to_bf16_clone_weight_pattern(dequant_wgt_pattern):
     return get_dequantize_clone_weight_pattern(get_dequantize_to_bf16_weight_pattern(dequant_wgt_pattern))
 
 
-def get_qconv_pt2e_pattern(users=1):
+def get_qconv_pt2e_pattern(x_scale_zp_are_tensors=False, users=1):
+    qconv_op = (
+        torch.ops.onednn.qconv_pointwise.tensor
+        if x_scale_zp_are_tensors
+        else torch.ops.onednn.qconv_pointwise.default
+    )
     return CallFunction(
-        torch.ops.onednn.qconv_pointwise.default,
+        qconv_op,
         KeywordArg("x"),
         KeywordArg("x_scale"),
         KeywordArg("x_zp"),
@@ -211,35 +216,6 @@ def get_qconv_pt2e_pattern(users=1):
         KeywordArg("postop_name"),
         KeywordArg("postop_args"),
         KeywordArg("postop_algorithm"),
-        _users=users,
-    )
-
-
-def get_qconv2d_binary_pt2e_pattern(users=1):
-    return CallFunction(
-        torch.ops.onednn.qconv2d_pointwise.binary,
-        KeywordArg("x"),
-        KeywordArg("x_scale"),
-        KeywordArg("x_zp"),
-        KeywordArg("packed_weight"),
-        KeywordArg("w_scale"),
-        KeywordArg("w_zp"),
-        KeywordArg("accum"),
-        KeywordArg("b"),
-        KeywordArg("stride"),
-        KeywordArg("padding"),
-        KeywordArg("dilation"),
-        KeywordArg("groups"),
-        KeywordArg("output_scale"),
-        KeywordArg("output_zero_point"),
-        KeywordArg("output_dtype"),
-        KeywordArg("accum_scale"),
-        KeywordArg("accum_zero_point"),
-        KeywordArg("binary_op_name"),
-        KeywordArg("alpha"),
-        KeywordArg("unary_op_name"),
-        KeywordArg("unary_op_args"),
-        KeywordArg("unary_op_algorithm"),
         _users=users,
     )
 
@@ -2070,13 +2046,19 @@ def _register_qconv_post_op_fusion_pass(
             kwargs["groups"],
         )
         output_dtype = _get_pattern_output_dtype(match)
-        assert output_dtype in [torch.int8, torch.uint8, torch.float32, torch.bfloat16]
+        assert output_dtype in [torch.int8, torch.uint8, torch.float8_e4m3fn, torch.float32, torch.bfloat16]
         # Output QParams
-        o_inv_scale = (
-            kwargs["o_inv_scale"]
-            if (output_dtype == torch.uint8 or output_dtype == torch.int8)
-            else 1.0
-        )
+        if output_dtype == torch.float8_e4m3fn:
+            # For float8, torchao.quantize_affine_float8 requires tensor as scale
+            # Support scale node is full firstly
+            assert kwargs["o_inv_scale"].target is torch.ops.aten.full.default
+            o_inv_scale = kwargs["o_inv_scale"].args[1]
+        else:
+            o_inv_scale = (
+                kwargs["o_inv_scale"]
+                if (output_dtype == torch.uint8 or output_dtype == torch.int8)
+                else 1.0
+            )
         o_zero_point = (
             kwargs["o_zp"]
             if (output_dtype == torch.uint8 or output_dtype == torch.int8)
@@ -2182,56 +2164,69 @@ def _register_qconv_unary_fusion():
         _silu_fusion,
     )
 
-    for original_pattern_output_dtype in [torch.float32, torch.bfloat16]:
+    combinations = itertools.product(
+        [torch.float32, torch.bfloat16], [False, True], [False, True]
+    )
+    for original_pattern_output_dtype, x_scale_zp_are_tensors, is_fp8 in combinations:
         # Priority 1 to match: QConv2d Unary pattern with int8 output
         # If a pattern1 is a sub-set of pattern2, we should try to match pattern2 firstly.
         # For example: pattern1 is qconv_fp32 -> relu, pattern2 is qconv_fp32 -> relu -> quant
         is_bf16 = original_pattern_output_dtype == torch.bfloat16
+        computation_op = (
+            torch.ops.onednn.qconv_pointwise.tensor
+            if x_scale_zp_are_tensors
+            else torch.ops.onednn.qconv_pointwise.default
+        )
         conv_unary_replace_patterns = {
             PostOpAttr(
                 "none", None, "none", [], ""
             ): generate_pattern_with_output_quant(
-                get_qconv_pt2e_pattern(1),
+                get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1),
+                is_fp8=is_fp8,
             ),
             PostOpAttr(
                 "none", None, "relu", [], ""
             ): generate_pattern_with_output_quant(
                 generate_pattern_with_unary(
-                    get_qconv_pt2e_pattern(1), aten.relu.default
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1), aten.relu.default
                 ),
+                is_fp8=is_fp8,
             ),
             PostOpAttr(
                 "none", None, "hardtanh", [], ""
             ): generate_pattern_with_output_quant(
                 _unary_fusion_pattern(
                     _hardtanh_fusion,
-                    get_qconv_pt2e_pattern(1),
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1),
                     1,
                     is_bf16,
                 ),
                 with_dtype_convert=is_bf16,
+                is_fp8=is_fp8,
             ),
             PostOpAttr(
                 "none", None, "hardswish", [], ""
             ): generate_pattern_with_output_quant(
                 _unary_fusion_pattern(
                     _hardswish_fusion,
-                    get_qconv_pt2e_pattern(1 if is_bf16 else 2),
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1 if is_bf16 else 2),
                     2,
                     is_bf16,
                 ),
                 with_dtype_convert=is_bf16,
+                is_fp8=is_fp8,
             ),
             PostOpAttr(
                 "none", None, "swish", [], ""
             ): generate_pattern_with_output_quant(
                 _unary_fusion_pattern(
                     _silu_fusion,
-                    get_qconv_pt2e_pattern(1 if is_bf16 else 2),
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1 if is_bf16 else 2),
                     2,
                     is_bf16,
                 ),
                 with_dtype_convert=is_bf16,
+                is_fp8=is_fp8,
             ),
         }
 
@@ -2240,21 +2235,21 @@ def _register_qconv_unary_fusion():
             _register_qconv_post_op_fusion_pass(
                 patterns,
                 3,  # pass_number
-                torch.ops.onednn.qconv_pointwise.default,  # computation_op
+                computation_op,  # computation_op
                 unary_attr,  # unary_attr
             )
 
         # Priority 2 to match: QConv2d Unary pattern with fp32/bfloat16 output
         conv_unary_replace_float_out_patterns = {
             PostOpAttr("none", None, "relu", [], ""): generate_pattern_with_unary(
-                get_qconv_pt2e_pattern(1), aten.relu.default
+                get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1), aten.relu.default
             ),
             PostOpAttr(
                 "none", None, "hardtanh", [], ""
             ): _may_generate_pattern_with_dtype_convert(
                 _unary_fusion_pattern(
                     _hardtanh_fusion,
-                    get_qconv_pt2e_pattern(1),
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1),
                     1,
                     is_bf16,
                 ),
@@ -2266,7 +2261,7 @@ def _register_qconv_unary_fusion():
             ): _may_generate_pattern_with_dtype_convert(
                 _unary_fusion_pattern(
                     _hardswish_fusion,
-                    get_qconv_pt2e_pattern(1 if is_bf16 else 2),
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1 if is_bf16 else 2),
                     2,
                     is_bf16,
                 ),
@@ -2278,7 +2273,7 @@ def _register_qconv_unary_fusion():
             ): _may_generate_pattern_with_dtype_convert(
                 _unary_fusion_pattern(
                     _silu_fusion,
-                    get_qconv_pt2e_pattern(1 if is_bf16 else 2),
+                    get_qconv_pt2e_pattern(x_scale_zp_are_tensors, 1 if is_bf16 else 2),
                     2,
                     is_bf16,
                 ),
@@ -2292,7 +2287,7 @@ def _register_qconv_unary_fusion():
             _register_qconv_post_op_fusion_pass(
                 patterns,
                 4,  # pass_number
-                torch.ops.onednn.qconv_pointwise.default,  # computation_op
+                computation_op,  # computation_op
                 unary_attr,  # unary_attr
             )
 
@@ -2310,7 +2305,7 @@ def _register_qconv_binary_fusion():
                     ): generate_pattern_with_output_quant(
                         generate_pattern_with_binary(
                             aten.add.Tensor,
-                            get_qconv_pt2e_pattern(1),
+                            get_qconv_pt2e_pattern(users=1),
                             dequantize_accum_pattern,
                             int8_mixed_bf16_with_inplace_add,
                             swap_inputs=swap_inputs,
@@ -2322,7 +2317,7 @@ def _register_qconv_binary_fusion():
                         generate_pattern_with_unary(
                             generate_pattern_with_binary(
                                 aten.add.Tensor,
-                                get_qconv_pt2e_pattern(1),
+                                get_qconv_pt2e_pattern(users=1),
                                 dequantize_accum_pattern,
                                 int8_mixed_bf16_with_inplace_add,
                                 swap_inputs=swap_inputs,
@@ -2349,7 +2344,7 @@ def _register_qconv_binary_fusion():
                     PostOpAttr("sum", 1.0, "relu", [], ""): generate_pattern_with_unary(
                         generate_pattern_with_binary(
                             aten.add.Tensor,
-                            get_qconv_pt2e_pattern(1),
+                            get_qconv_pt2e_pattern(users=1),
                             KeywordArg("accum_after_dequant"),
                             int8_mixed_bf16_with_inplace_add,
                             swap_inputs=swap_inputs,
@@ -2387,7 +2382,7 @@ def _register_qconv_binary_fusion():
                         "sum", 1.0, "none", [], ""
                     ): generate_pattern_with_binary(
                         aten.add.Tensor,
-                        get_qconv_pt2e_pattern(1),
+                        get_qconv_pt2e_pattern(users=1),
                         KeywordArg("accum_after_dequant"),
                         int8_mixed_bf16_with_inplace_add,
                         swap_inputs=swap_inputs,
