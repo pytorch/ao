@@ -956,6 +956,72 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
 
+@implements(aten.split.Tensor)
+def _(func, types, args, kwargs):
+    tensor, split_size_or_sections, dim = args
+    assert isinstance(split_size_or_sections, int), "unimplemented"
+
+    # 2D case
+    #
+    # orig
+    #   qdata.shape [M, K]
+    #   scale.shape [M, 1]
+    #   block_size [1, K]
+    #
+    # split with size (K // 2) across dim -1:
+    #   qdata.shape [M, K // 2], [M, K // 2]
+    #   scale.shape [M, 1], [M, 1]
+    #   block_size [1, K // 2], [1, K // 2]
+    #
+    # split with size (M // 2) across dim 0:
+    #   qdata.shape [M // 2, K], [M // 2, K]
+    #   scale.shape [M // 2, 1], [M // 2, 1]
+    #   block_size [1, K], [1, K]
+
+    # split the qdata
+    new_qdatas = func(tensor.qdata, split_size_or_sections, dim)
+    num_chunks = len(new_qdatas)
+
+    # split the scale
+    new_scales = []
+    new_block_sizes = []
+    if tensor.scale.shape[dim] == 1 and tensor.block_size[dim] == tensor.shape[dim]:
+        # repeat the scale, split block_size
+        for _ in range(num_chunks):
+            new_scales.append(tensor.scale)
+            new_block_size = tensor.block_size
+            new_block_size[dim] = new_block_size[dim] // split_size_or_sections
+            new_block_sizes.append(new_block_size)
+
+    elif tensor.scale.shape[dim] == tensor.shape[dim] and tensor.block_size[dim] == 1:
+        # repeat the block size, split scale
+        new_scales = func(tensor.scale, split_size_or_sections, dim)
+        for _ in range(num_chunks):
+            new_block_sizes.append(tensor.block_size)
+
+    else:
+        raise AssertionError(
+            f"`aten.split.Tensor` with {dim=} and {tensor.scale.shape=} is not yet implemented"
+        )
+
+    new_tensors_list = []
+    for idx in range(num_chunks):
+        new_tensor = tensor.__class__(
+            new_qdatas[idx],
+            new_scales[idx],
+            new_block_sizes[idx],
+            tensor.mm_config,
+            tensor.act_quant_kwargs,
+            tensor.kernel_preference,
+            tensor.dtype,
+        )
+        new_tensor = return_and_correct_aliasing(func, args, kwargs, new_tensor)
+        new_tensors_list.append(new_tensor)
+
+    new_tensors_tuple = tuple(new_tensors_list)
+    return new_tensors_tuple
+
+
 Float8Tensor.__module__ = "torchao.quantization"
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
