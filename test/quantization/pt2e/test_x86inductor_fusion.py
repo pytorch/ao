@@ -770,7 +770,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         )
 
     def _qconv2d_add_test_helper(
-        self, device="cpu", use_relu=False, int8_mixed_bf16=False
+        self, device="cpu", use_relu=False, mixed_bf16=False, is_fp8=False
     ):
         r"""
         This testcase will quantize a Conv2d->Add pattern as:
@@ -844,11 +844,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (v,),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+                check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
+                is_fp8=is_fp8,
             )
 
     def _qconv2d_add_test_helper2(
-        self, device="cpu", use_relu=False, int8_mixed_bf16=False
+        self, device="cpu", use_relu=False, mixed_bf16=False, is_fp8=False
     ):
         r"""
         This testcase will quantize two Conv2d->Add patterns as:
@@ -907,8 +908,11 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     res = self.relu2(res)
                 return res
 
+        add_fn_list = quantization_add_fn_list
+        if not is_fp8:
+            add_fn_list = add_fn_list + quantization_inplace_add_fn_list
         for add_fn, swap_inputs in itertools.product(
-            quantization_add_fn_list + quantization_inplace_add_fn_list, [False, True]
+            add_fn_list, [False, True]
         ):
             mod = M(add_fn, use_relu, swap_inputs).eval().to(device=device)
             x = torch.randn(
@@ -941,7 +945,8 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (x, x2, x3),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+                check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
+                is_fp8=is_fp8,
             )
 
     @skipIfNoDynamoSupport
@@ -951,11 +956,26 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_add_test_helper2()
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_add_fp8_cpu(self):
+        self._qconv2d_add_test_helper(is_fp8=True)
+        self._qconv2d_add_test_helper2(is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_add_int8_mixed_bf16(self):
-        self._qconv2d_add_test_helper(int8_mixed_bf16=True)
-        self._qconv2d_add_test_helper2(int8_mixed_bf16=True)
+        self._qconv2d_add_test_helper(mixed_bf16=True)
+        self._qconv2d_add_test_helper2(mixed_bf16=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_add_fp8_mixed_bf16(self):
+        self._qconv2d_add_test_helper(mixed_bf16=True, is_fp8=True)
+        self._qconv2d_add_test_helper2(mixed_bf16=True, is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -964,11 +984,26 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_add_test_helper2(use_relu=True)
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_add_relu_fp8_cpu(self):
+        self._qconv2d_add_test_helper(use_relu=True, is_fp8=True)
+        self._qconv2d_add_test_helper2(use_relu=True, is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_add_relu_int8_mixed_bf16(self):
-        self._qconv2d_add_test_helper(use_relu=True, int8_mixed_bf16=True)
-        self._qconv2d_add_test_helper2(use_relu=True, int8_mixed_bf16=True)
+        self._qconv2d_add_test_helper(use_relu=True, mixed_bf16=True)
+        self._qconv2d_add_test_helper2(use_relu=True, mixed_bf16=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    def test_qconv2d_add_relu_fp8_mixed_bf16(self):
+        self._qconv2d_add_test_helper(use_relu=True, mixed_bf16=True, is_fp8=True)
+        self._qconv2d_add_test_helper2(use_relu=True, mixed_bf16=True, is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
