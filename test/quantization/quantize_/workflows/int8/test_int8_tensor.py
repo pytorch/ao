@@ -59,10 +59,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.batch_size = 32
 
         torch.manual_seed(42)
-        self.weight_fp = torch.randn(*self.test_shape, dtype=self.dtype)
-        self.input_fp = torch.randn(*self.test_shape, dtype=self.dtype)
-        self.bias = torch.randn(self.test_shape[0], dtype=self.dtype)
-        self.block_size = list(self.test_shape)
 
     @common_utils.parametrize(
         "config",
@@ -80,16 +76,13 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             dtype=self.dtype,
             device="cuda",
         )
-        linear.weight.data = self.weight_fp.cuda()
         quantize_(linear, config)
 
-        tensor = linear.weight
+        w = linear.weight
 
-        self.assertEqual(tensor.shape, self.test_shape)
-        self.assertEqual(tensor.qdata.dtype, torch.int8)
-        self.assertTrue(
-            torch.all(tensor.qdata >= -128) and torch.all(tensor.qdata <= 127)
-        )
+        self.assertEqual(w.shape, self.test_shape)
+        self.assertEqual(w.qdata.dtype, torch.int8)
+        self.assertTrue(torch.all(w.qdata >= -128) and torch.all(w.qdata <= 127))
 
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
@@ -122,6 +115,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         quantize_(model_q, config)
 
+        self.assertEqual(model_q.linear2.weight.scale.shape, (K,))
+        self.assertEqual(model_q.linear2.weight.scale.ndim, 1)
+
         if compile:
             model_q = torch.compile(model_q, fullgraph=True)
 
@@ -131,23 +127,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         assert compute_error(output_fp, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
         )
-
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
-        ],
-    )
-    def test_per_row_scale_shape(self, dtype, config):
-        """Test per-row quantization maintains 1D scale"""
-        N, K = 64, 128
-        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
-        quantize_(linear, config)
-
-        self.assertEqual(linear.weight.scale.shape, (N,))
-        self.assertEqual(linear.weight.scale.ndim, 1)
 
     @common_utils.parametrize(
         "config",
