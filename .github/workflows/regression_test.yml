@@ -105,11 +105,8 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0  -y 
         conda activate venv
-        echo "::group::Install newer objcopy that supports --set-section-alignment"
-        dnf install -y gcc-toolset-10-binutils
-        export PATH=/opt/rh/gcc-toolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
