@@ -2466,6 +2466,15 @@ class FqnToConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
 
+        if (
+            len(self.fqn_to_config) > 0
+            and len(self.module_fqn_to_config) > 0
+            and self.fqn_to_config != self.module_fqn_to_config
+        ):
+            raise ValueError(
+                "`fqn_to_config` and `module_fqn_to_config` are both specified and are not equal!"
+            )
+
         # This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.
         if len(self.module_fqn_to_config) > 0 and len(self.fqn_to_config) == 0:
             self.fqn_to_config = self.module_fqn_to_config
@@ -2478,6 +2487,18 @@ class FqnToConfig(AOBaseConfig):
             warnings.warn(
                 "Config Deprecation: _default is deprecated and will no longer be supported in a future release. Please see https://github.com/pytorch/ao/issues/3229 for more details."
             )
+
+    def __str__(self):
+        return "\n".join(
+            [
+                "FqnToConfig({",
+                *(
+                    f"  '{key}':\n    {value},"
+                    for key, value in self.fqn_to_config.items()
+                ),
+                "})",
+            ]
+        )
 
 
 # maintain BC
