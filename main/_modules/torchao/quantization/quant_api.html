@@ -1485,7 +1485,7 @@
 
     <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
 
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.gemlite_layout</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_gemlite_aqt_kwargs</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.dtypes.uintx.gemlite_layout</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_gemlite_aqt_kwargs</span>
 
     <span class="n">use_hqq</span> <span class="o">=</span> <span class="kc">True</span> <span class="k">if</span> <span class="n">bit_width</span> <span class="o">==</span> <span class="mi">4</span> <span class="k">else</span> <span class="kc">False</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
