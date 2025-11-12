@@ -13,6 +13,12 @@ from .marlin_qqq_tensor import (
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
 )
+from .uintx_layout import (
+    UintxAQTTensorImpl,
+    UintxLayout,
+    UintxTensor,
+    to_uintx,
+)
 
 __all__ = [
     "BlockSparseLayout",
@@ -22,4 +28,8 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "GemlitePackedLayout",
+    "UintxLayout",
+    "UintxTensor",
+    "UintxAQTTensorImpl",
+    "to_uintx",
 ]
