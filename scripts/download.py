@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--repo_id",
         type=str,
-        default="checkpoints/meta-llama/llama-2-7b-chat-hf",
+        default="meta-llama/llama-2-7b-chat-hf",
         help="Repository ID to download from.",
     )
     parser.add_argument(

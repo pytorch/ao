@@ -205,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--local_batch_size",
         type=int,
-        default=8,
+        default=12,
     )
     parser.add_argument(
         "--hidden_dim",
