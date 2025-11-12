@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from torchao.dtypes import to_affine_quantized_fpx
-from torchao.dtypes.floatx import FloatxTensorCoreLayout
+from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
 from torchao.utils import benchmark_torch_function_in_microseconds
 
 
