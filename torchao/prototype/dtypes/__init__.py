@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+from .floatx import FloatxTensorCoreLayout
 from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
@@ -26,6 +27,7 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "GemlitePackedLayout",
+    "FloatxTensorCoreLayout",
     "UintxLayout",
     "UintxTensor",
     "UintxAQTTensorImpl",

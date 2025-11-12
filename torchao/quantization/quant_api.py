@@ -2401,7 +2401,7 @@ def _fpx_weight_only_transform(
         module = _unwrap_float8_linear(module)
 
     from torchao.dtypes import to_affine_quantized_fpx
-    from torchao.dtypes.floatx import FloatxTensorCoreLayout
+    from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
 
     assert weight.dim() == 2, f"floatx only works for 2-d Tensor, got: {weight.dim()}"
     out_dim, in_dim = weight.shape

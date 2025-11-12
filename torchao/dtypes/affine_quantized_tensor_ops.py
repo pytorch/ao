@@ -21,10 +21,6 @@ from torchao.dtypes.floatx.float8_layout import (
     _linear_fp_act_fp8_weight_check,
     _linear_fp_act_fp8_weight_impl,
 )
-from torchao.dtypes.floatx.floatx_tensor_core_layout import (
-    _linear_f16_bf16_act_floatx_weight_check,
-    _linear_f16_bf16_act_floatx_weight_impl,
-)
 from torchao.dtypes.uintx.int4_cpu_layout import (
     _linear_fp_act_uint4_weight_cpu_check,
     _linear_fp_act_uint4_weight_cpu_impl,
@@ -71,6 +67,10 @@ from torchao.dtypes.uintx.semi_sparse_layout import (
 from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
+)
+from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
+    _linear_f16_bf16_act_floatx_weight_check,
+    _linear_f16_bf16_act_floatx_weight_impl,
 )
 from torchao.prototype.dtypes.uintx.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_check,
