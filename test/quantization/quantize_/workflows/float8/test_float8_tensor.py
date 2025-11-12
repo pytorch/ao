@@ -670,7 +670,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self._test_slice_and_copy_similar_to_vllm(config)
 
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Nedd sm90+"
+        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_bmm(self):
@@ -700,7 +700,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self.assertTrue(sqnr > 20)
 
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Nedd sm90+"
+        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_bmm_weight_in_bkn_layout(self):
@@ -831,7 +831,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         "This requires rowwise scaling for weight in layout BKN across axis 1 to work"
     )
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Nedd sm90+"
+        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_moe_weight_reshape_ops(self):
@@ -844,7 +844,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     # that should be moved here after v1 config is deprecated:
     # https://github.com/pytorch/ao/issues/2649
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Nedd sm90+"
+        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
     def test_expected_gpu_kernel_fbgemm(self):
@@ -877,7 +877,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         ).run(code[0])
 
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Nedd sm90+"
+        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     def test_index_select(self):
         """
