@@ -67,7 +67,7 @@ jobs:
             dev-requirements-overrides: ""
           - name: CUDA 2.7
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.7.0'
+            torch-spec: 'torch==2.7.1'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
@@ -92,7 +92,7 @@ jobs:
             dev-requirements-overrides: ""
           - name: CPU 2.7
             runs-on: linux.4xlarge
-            torch-spec: 'torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""
