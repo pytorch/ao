@@ -16,32 +16,7 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     quantize_,
 )
-
-
-class ToyLinearModel(torch.nn.Module):
-    """Single linear for m * k * n problem size"""
-
-    def __init__(
-        self, m=64, n=32, k=64, has_bias=False, dtype=torch.float, device="cuda"
-    ):
-        super().__init__()
-        self.m = m
-        self.dtype = dtype
-        self.device = device
-        self.linear = torch.nn.Linear(k, n, bias=has_bias).to(
-            dtype=self.dtype, device=self.device
-        )
-
-    def example_inputs(self):
-        return (
-            torch.randn(
-                self.m, self.linear.in_features, dtype=self.dtype, device=self.device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear(x)
-        return x
+from torchao.testing.model_architectures import ToySingleLinearModel
 
 
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
@@ -70,8 +45,8 @@ torch._dynamo.config.cache_size_limit = 50000
 
 @torch.no_grad
 def _bench_quantized_tensor_subclass_perf(api, config, M, N, K):
-    m = ToyLinearModel(
-        M, N, K, has_bias=True, dtype=torch.bfloat16, device="cuda"
+    m = ToySingleLinearModel(
+        K, N, dtype=torch.bfloat16, device="cuda", has_bias=True
     ).eval()
     m_bf16 = copy.deepcopy(m)
     example_inputs = m.example_inputs()

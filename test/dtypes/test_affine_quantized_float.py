@@ -38,6 +38,7 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
 )
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -46,18 +47,6 @@ from torchao.utils import (
 
 random.seed(0)
 torch.manual_seed(0)
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 class TestAffineQuantizedFloat8Compile(InductorTestCase):
@@ -122,7 +111,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             }
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyLinearModel(K, N).eval().to(dtype).to("cuda")
+            model = ToyTwoLinearModel(K, N, K).eval().to(dtype).to("cuda")
 
             quantized_model = copy.deepcopy(model)
             factory = mode_map[mode]()
@@ -179,7 +168,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             AssertionError,
             match="PerRow quantization only works for bfloat16 precision",
         ):
-            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
+            model = ToyTwoLinearModel(64, 64, 64).eval().to(torch.float32).to("cuda")
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
@@ -192,7 +181,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     def test_serialization(self, mode: str):
         # Create and quantize the model
-        model = ToyLinearModel(16, 32).to(device="cuda")
+        model = ToyTwoLinearModel(16, 32, 16).to(device="cuda")
 
         mode_map = {
             "dynamic": partial(
@@ -224,7 +213,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         # Create a new model and load the state dict
         with torch.device("meta"):
-            new_model = ToyLinearModel(16, 32)
+            new_model = ToyTwoLinearModel(16, 32, 16)
             if mode == "static":
                 quantize_(new_model, factory)
             new_model.load_state_dict(loaded_state_dict, assign=True)
@@ -266,7 +255,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     def test_fp8_weight_dimension_warning(self):
         # Create model with incompatible dimensions (not multiples of 16)
-        model = ToyLinearModel(10, 25).cuda()  # 10x25 and 25x10 weights
+        model = ToyTwoLinearModel(10, 25, 10).cuda()  # 10x25 and 25x10 weights
 
         # Set up logging capture
         with self.assertLogs(
