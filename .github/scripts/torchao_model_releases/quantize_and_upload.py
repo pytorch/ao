@@ -720,11 +720,17 @@ def quantize_and_upload(
             int4_packing_format="tile_packed_to_4d",
             int4_choose_qparams_algorithm="hqq",
         )
-        quant_config = AWQConfig(base_config, step="prepare")
-        quantize_(
-            model,
-            quant_config,
-        )
+
+        def filter_fn_skip_lmhead(module, fqn):
+            from torchao.quantization.quant_api import _is_linear
+
+            if fqn == "lm_head":
+                return False
+            return _is_linear(module, fqn)
+
+        awq_config = AWQConfig(base_config, step="prepare")
+        quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+
         TransformerEvalWrapper(
             model=model,
             tokenizer=tokenizer,
@@ -733,42 +739,17 @@ def quantize_and_upload(
             tasks=tasks,
             limit=calibration_limit,
         )
-        # quant_config = AWQConfig(base_config, step="convert")
 
+        awq_config = AWQConfig(base_config, step="convert")
+        quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+        quantized_model = model
 
-        # quantized_model = model
-        # quant_config = AWQConfig(base_config, step="prepare_for_loading")
-
-        awq_config = AWQConfig(base_config, step="prepare_for_loading")
-        # quant_config = ModuleFqnToConfig({"_default": awq_config, "lm_head": None})
-        # import re
-        # name_to_config = {}
-
-        # for name, module in model.named_modules():
-        #     print(f"name: {name}")
-        #     if re.fullmatch(r"lm_head", name):
-        #         print("skipping lm_head")
-        #         continue
-        #     if re.fullmatch(r".*\.model.embed_tokens.*", name):
-        #         print("skipping embed_tokens")
-        #         continue
-        #     if isinstance(module, torch.nn.Linear):
-        #         print("found linear")
-        #         name_to_config[name] = awq_config
-
-        # print("printing keys")
-        # print(name_to_config.keys())
-
-        # quant_config = ModuleFqnToConfig(name_to_config)
-        quant_config = ModuleFqnToConfig({"_default": awq_config, "lm_head": None})
-        quantize_(model, quant_config, filter_fn = None)
-
+        quant_config = AWQConfig(base_config, step="prepare_for_loading")
         quantization_config = TorchAoConfig(quant_config).to_dict()
         quantized_model.config.quantization_config = quantization_config
 
         hf_quantizer, _, _, _ = get_hf_quantizer(
             config=quantized_model.config,
-            # quantization_config=quantization_config.to_dict(),
             quantization_config=None,
             dtype=torch.bfloat16,
             device_map="cuda:0",
@@ -780,16 +761,6 @@ def quantize_and_upload(
             },
         )
         quantized_model.hf_quantizer = hf_quantizer
-        # get_hf_quantizer(
-        #     config, quantization_config, dtype, device_map, weights_only, user_agent
-        # )
-        # quantized_model = AutoModelForCausalLM.from_pretrained(
-        #     temp_quantized_model,
-        #     device_map="cuda:0",
-        #     torch_dtype=torch.bfloat16,
-        #     quantization_config=quantization_config,
-        # )
-
     elif quant == "SmoothQuant-INT8-INT8":
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
