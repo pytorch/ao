@@ -7,6 +7,7 @@
 from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
+    GemlitePackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
@@ -20,4 +21,5 @@ __all__ = [
     "MarlinQQQLayout",
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
+    "GemlitePackedLayout",
 ]
