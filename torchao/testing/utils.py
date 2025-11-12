@@ -641,6 +641,15 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         quantize_(l, config)
         _w_slice = l.weight[0]
 
+    def _test_chunk_similar_to_vllm_llama4(self, ao_tensor, dim):
+        # source code in vLLM LLaMa 4:
+        # https://github.com/vllm-project/vllm/blob/34553b9d2702dd2a27a578fec819e88e76dcbfb4/vllm/model_executor/models/llama4.py#L455
+        ao_tensor_chunked = ao_tensor.chunk(2, dim=dim)
+        ao_tensor_unchunked = torch.cat(ao_tensor_chunked, dim=dim)
+        torch.testing.assert_close(
+            ao_tensor.dequantize(), ao_tensor_unchunked.dequantize(), atol=0, rtol=0
+        )
+
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
 common_utils.instantiate_parametrized_tests(TorchAOCompileTestCase)
