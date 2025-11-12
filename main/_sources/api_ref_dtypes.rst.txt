@@ -20,7 +20,6 @@ Layouts and Tensor Subclasses
     TensorCoreTiledLayout
     Float8Layout
     FloatxTensor
-    FloatxTensorCoreLayout
     MarlinSparseLayout
     Int4CPULayout
     CutlassSemiSparseLayout
@@ -52,6 +51,7 @@ Prototype
     Int8DynamicActInt4WeightCPULayout
     MarlinQQQTensor
     MarlinQQQLayout
+    FloatxTensorCoreLayout
     UintxLayout
 
 ..

@@ -2831,7 +2831,7 @@
         <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
 
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_fpx</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
 
     <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;floatx only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
     <span class="n">out_dim</span><span class="p">,</span> <span class="n">in_dim</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>

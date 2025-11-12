@@ -566,7 +566,8 @@
         <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">output_dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
 
-        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Layout</span><span class="p">,</span> <span class="n">FloatxTensorCoreLayout</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Layout</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">FloatxTensorCoreLayout</span><span class="p">):</span>
             <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
@@ -969,7 +970,7 @@
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7.&quot;&quot;&quot;</span>
-        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
 
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_layout</span><span class="p">,</span> <span class="n">FloatxTensorCoreLayout</span><span class="p">),</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Only FloatxTensorCoreLayout is supported for floatx, got </span><span class="si">{</span><span class="n">_layout</span><span class="si">}</span><span class="s2">&quot;</span>
