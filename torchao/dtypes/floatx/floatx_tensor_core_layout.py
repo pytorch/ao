@@ -17,28 +17,15 @@ warnings.warn(
 )
 
 # Re-export all public symbols from the new location for backward compatibility
-from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
-    FloatxTensorCoreAQTTensorImpl,
-    FloatxTensorCoreLayout,
-    _linear_f16_bf16_act_floatx_weight_check,
-    _linear_f16_bf16_act_floatx_weight_impl,
-    _pack_tc_floatx,
-    _pack_tc_fp6,
-    from_scaled_tc_floatx,
-    pack_tc_floatx,
-    to_scaled_tc_floatx,
-    unpack_tc_floatx,
+from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (  # noqa: F401
+    FloatxTensorCoreAQTTensorImpl,  # noqa: F401
+    FloatxTensorCoreLayout,  # noqa: F401
+    _linear_f16_bf16_act_floatx_weight_check,  # noqa: F401
+    _linear_f16_bf16_act_floatx_weight_impl,  # noqa: F401
+    _pack_tc_floatx,  # noqa: F401
+    _pack_tc_fp6,  # noqa: F401
+    from_scaled_tc_floatx,  # noqa: F401
+    pack_tc_floatx,  # noqa: F401
+    to_scaled_tc_floatx,  # noqa: F401
+    unpack_tc_floatx,  # noqa: F401
 )
-
-__all__ = [
-    "FloatxTensorCoreAQTTensorImpl",
-    "FloatxTensorCoreLayout",
-    "_linear_f16_bf16_act_floatx_weight_check",
-    "_linear_f16_bf16_act_floatx_weight_impl",
-    "_pack_tc_floatx",
-    "_pack_tc_fp6",
-    "from_scaled_tc_floatx",
-    "pack_tc_floatx",
-    "to_scaled_tc_floatx",
-    "unpack_tc_floatx",
-]

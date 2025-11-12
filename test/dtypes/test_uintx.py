@@ -9,7 +9,7 @@ import warnings
 import pytest
 import torch
 
-from torchao.dtypes.uintx.uintx_layout import to_uintx
+from torchao.prototype.dtypes.uintx.uintx_layout import to_uintx
 from torchao.quantization.quant_api import UIntXWeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -183,6 +183,7 @@ def test_uintx_api_deprecation():
         ("CutlassInt4PackedLayout", "torchao.dtypes.uintx.cutlass_int4_packed_layout"),
         ("BlockSparseLayout", "torchao.dtypes.uintx.block_sparse_layout"),
         ("MarlinQQQLayout", "torchao.dtypes.uintx.marlin_qqq_tensor"),
+        ("UintxLayout", "torchao.dtypes.uintx.uintx_layout"),
     ]
 
     for api_name, module_path in deprecated_apis:

@@ -21,7 +21,6 @@ Layouts and Tensor Subclasses
     Float8Layout
     FloatxTensor
     MarlinSparseLayout
-    UintxLayout
     Int4CPULayout
     CutlassSemiSparseLayout
 
@@ -53,6 +52,7 @@ Prototype
     MarlinQQQTensor
     MarlinQQQLayout
     FloatxTensorCoreLayout
+    UintxLayout
 
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring

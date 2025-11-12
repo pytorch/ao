@@ -12,7 +12,11 @@ from .uintx import (
     Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
+    UintxAQTTensorImpl,
+    UintxLayout,
+    UintxTensor,
     to_marlinqqq_quantized_intx,
+    to_uintx,
 )
 
 __all__ = [
@@ -24,4 +28,8 @@ __all__ = [
     "to_marlinqqq_quantized_intx",
     "GemlitePackedLayout",
     "FloatxTensorCoreLayout",
+    "UintxLayout",
+    "UintxTensor",
+    "UintxAQTTensorImpl",
+    "to_uintx",
 ]
