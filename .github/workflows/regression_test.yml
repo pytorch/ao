@@ -45,7 +45,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
@@ -105,7 +105,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 "libgcc-ng>=13.0,<14.0" "libstdcxx-ng>=13.0,<14.0" -c conda-forge -y 
+        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
