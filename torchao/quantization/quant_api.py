@@ -1057,7 +1057,7 @@ def _gemlite_uintx_weight_only_transform(
 
     weight = module.weight
 
-    from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+    from torchao.prototype.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
 
     use_hqq = True if bit_width == 4 else False
     new_weight = to_affine_quantized_intx(

@@ -724,7 +724,7 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
     @classmethod
     def from_float(cls, weight):
         from torchao.dtypes import to_affine_quantized_intx
-        from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+        from torchao.prototype.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
 
         if weight.dtype != torch.float16:
             weight = weight.to(torch.float16)
