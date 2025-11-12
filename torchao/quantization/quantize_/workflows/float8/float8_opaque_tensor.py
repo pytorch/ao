@@ -256,7 +256,7 @@ def _(func, types, args, kwargs):
         packed_weight,
         scale,
         bias.float() if bias is not None else bias,  # requires bias to be float
-        torch.float,  # out_dtype
+        orig_dtype,  # out_dtype
     )
 
     # remove out_feature padding
@@ -264,7 +264,7 @@ def _(func, types, args, kwargs):
     y = y[:, :orig_out_features]
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
-    return y.to(orig_dtype)
+    return y
 
 
 Float8OpaqueTensor.__module__ = "torchao.quantization"
