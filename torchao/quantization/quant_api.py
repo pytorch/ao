@@ -1842,7 +1842,6 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
-    is_cpu = weight.device.type == "cpu"
 
     # Note: right now we assume it's weights of conv2d and conv3d purely based
     # on the dimension of weight, currently there is no conflict with linear 2d
@@ -1862,12 +1861,16 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
             return weight
 
-    elif not is_cpu and not _fp8_mm_compat(weight):
+    elif float8_packing_format == Float8PackingFormat.PLAIN and not _fp8_mm_compat(
+        weight
+    ):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight
 
-    if not is_cpu and isinstance(weight_granularity, PerRow):
+    if float8_packing_format == Float8PackingFormat.PLAIN and isinstance(
+        weight_granularity, PerRow
+    ):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
@@ -1939,6 +1942,13 @@ def _float8_dynamic_activation_float8_weight_transform(
     *,
     parameter_name: str = "weight",
 ):
+    if config.float8_packing_format == Float8PackingFormat.PLAIN:
+        assert is_sm_at_least_89() or is_MI300(), (
+            "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
+        )
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
     assert hasattr(module, parameter_name), (
         f"applying float8 dynamic activation quant requires module to have parameter {parameter_name} attribute"
         + f" but {module} does not have one"

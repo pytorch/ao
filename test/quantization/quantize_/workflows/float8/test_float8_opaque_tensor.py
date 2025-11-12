@@ -15,11 +15,14 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao import quantize_
-from torchao.quantization import PerGroup, PerRow, PerTensor
-from torchao.quantization.quant_api import (
+from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    PerGroup,
+    PerRow,
+    PerTensor,
 )
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import (
     torch_version_at_least,
 )
@@ -33,26 +36,12 @@ def get_config(granularity):
     )
 
 
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, K=64, N=32, bias=False):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(K, N, bias=bias).to(torch.float)
-        self.linear2 = torch.nn.Linear(N, K, bias=bias).to(torch.float)
-
-    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
-        return (
-            torch.rand(batch_size, self.linear1.in_features, dtype=dtype, device=device)
-            * 0.1,
-        )
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
-
+@common_utils.instantiate_parametrized_tests
 class TestFloat8OpaqueTensor(TestCase):
     """Test cases for Float8OpaqueTensor on CPU"""
+
+    def setUp(self):
+        torch.set_grad_enabled(False)
 
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_cpu"),
@@ -80,26 +69,25 @@ class TestFloat8OpaqueTensor(TestCase):
             if w_granularity.group_size != x_granularity.group_size:
                 return
         device = "cpu"
-        m = ToyLinearModel(256, 256, bias=bias).eval().to(dtype).to(device)
-        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
+        m = ToyTwoLinearModel(256, 256, 256, dtype, device, bias).eval()
+        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
         y = m(*example_inputs)
 
-        with torch.no_grad():
-            quantize_(
-                m,
-                get_config([x_granularity, w_granularity]),
-            )
-            y1 = m(*example_inputs)
-            assert compute_error(y, y1) > 20
-            y2, code = torch._inductor.utils.run_and_get_code(
-                torch.compile(m, fullgraph=True, dynamic=True),
-                *example_inputs,
-            )
-            # ensure the expected op is in the code
-            assert "torch.ops.torchao.float8_linear_cpu.default" in code[0]
-            assert compute_error(y, y2) > 20
+        quantize_(
+            m,
+            get_config([x_granularity, w_granularity]),
+        )
+        y1 = m(*example_inputs)
+        assert compute_error(y, y1) > 20
+        y2, code = torch._inductor.utils.run_and_get_code(
+            torch.compile(m, fullgraph=True, dynamic=True),
+            *example_inputs,
+        )
+        # ensure the expected op is in the code
+        assert "torch.ops.torchao.float8_linear_cpu.default" in code[0]
+        assert compute_error(y, y2) > 20
 
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_cpu"),
@@ -110,29 +98,30 @@ class TestFloat8OpaqueTensor(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("bs", [4, 128])
-    def test_dynamic_float8_linear_ref(self, dtype, x_dim, bias, bs):
+    def test_dynamic_float8_linear_fallback_path(self, dtype, x_dim, bias, bs):
+        """
+        Test the fallback implementation with a shape that is not supported by the optimized kernel
+        """
         device = "cpu"
-        # the shape is not supported by cpp kernel, so the ref path will be used.
-        m = ToyLinearModel(120, 120, bias=bias).eval().to(dtype).to(device)
-        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
+        m = ToyTwoLinearModel(120, 120, 120, dtype, device, bias).eval()
+        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
         y = m(*example_inputs)
 
-        with torch.no_grad():
-            quantize_(
-                m,
-                get_config(PerRow()),
-            )
-            y1 = m(*example_inputs)
-            assert compute_error(y, y1) > 20
-            y2, code = torch._inductor.utils.run_and_get_code(
-                torch.compile(m, fullgraph=True, dynamic=True),
-                *example_inputs,
-            )
-            # ensure the expected op is in the code
-            assert "torch.ops.torchao.float8_linear_cpu.default" in code[0]
-            assert compute_error(y, y2) > 20
+        quantize_(
+            m,
+            get_config(PerRow()),
+        )
+        y1 = m(*example_inputs)
+        assert compute_error(y, y1) > 20
+        y2, code = torch._inductor.utils.run_and_get_code(
+            torch.compile(m, fullgraph=True, dynamic=True),
+            *example_inputs,
+        )
+        # ensure the expected op is in the code
+        assert "torch.ops.torchao.float8_linear_cpu.default" in code[0]
+        assert compute_error(y, y2) > 20
 
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_cpu"),
@@ -155,9 +144,6 @@ class TestFloat8OpaqueTensor(TestCase):
                 str(type(state_dict["weight"])),
                 "<class 'torchao.quantization.Float8OpaqueTensor'>",
             )
-
-
-common_utils.instantiate_parametrized_tests(TestFloat8OpaqueTensor)
 
 
 if __name__ == "__main__":
