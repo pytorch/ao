@@ -21,7 +21,6 @@ from .uintx import (
     QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
-    UintxLayout,
 )
 from .uintx.block_sparse_layout import BlockSparseLayout
 from .uintx.cutlass_int4_packed_layout import CutlassInt4PackedLayout
@@ -31,6 +30,7 @@ from .uintx.marlin_qqq_tensor import (
     MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
 )
+from .uintx.uintx_layout import UintxLayout
 from .utils import (
     Layout,
     PlainLayout,
