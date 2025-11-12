@@ -29,6 +29,7 @@ from torchao.quantization import (
     PerRow,
     quantize_,
 )
+from torchao.quantization.quant_api import _is_linear
 
 
 def _get_username():
@@ -44,7 +45,7 @@ def _untie_weights_and_save_locally(model_id):
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    from transformers.modeling_utils import find_tied_parameters
+    from accelerate.utils.modeling import find_tied_parameters
 
     if getattr(
         untied_model.config.get_text_config(decoder=True), "tie_word_embeddings"
@@ -722,8 +723,6 @@ def quantize_and_upload(
         )
 
         def filter_fn_skip_lmhead(module, fqn):
-            from torchao.quantization.quant_api import _is_linear
-
             if fqn == "lm_head":
                 return False
             return _is_linear(module, fqn)
