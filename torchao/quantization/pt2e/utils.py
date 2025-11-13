@@ -859,6 +859,15 @@ def _get_aten_graph_module_for_pattern(
         ):
             aten_pattern.graph.erase_node(node)  # type: ignore[operator, union-attr]
 
+    # PyTorch 2.9+ adds _guards_fn nodes to exported graphs.
+    # These should not be part of pattern matching, so remove them.
+    for node in list(aten_pattern.graph.nodes):  # type: ignore[union-attr]
+        if node.op == "call_module" and node.name == "_guards_fn":
+            aten_pattern.graph.erase_node(node)  # type: ignore[operator, union-attr]
+            # Also remove the _guards_fn module from the graph module if it exists
+            if hasattr(aten_pattern, "_guards_fn"):
+                delattr(aten_pattern, "_guards_fn")
+
     aten_pattern.graph.eliminate_dead_code()  # type: ignore[operator, union-attr]
     aten_pattern.recompile()  # type: ignore[operator]
 
