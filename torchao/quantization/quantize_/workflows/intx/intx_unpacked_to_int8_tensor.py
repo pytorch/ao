@@ -355,6 +355,19 @@ def _(func, types, args, kwargs):
     return torch.nn.functional.embedding(indices, weight_tensor, **kwargs)
 
 
+@implements(aten.add.Tensor)
+def _(func, types, args, kwargs):
+    assert len(args) == 2
+    t1, t2 = args[0], args[1]
+    if isinstance(t1, IntxUnpackedToInt8Tensor):
+        assert t1.activation_quantization is None
+        t1 = t1.dequantize()
+    if isinstance(t2, IntxUnpackedToInt8Tensor):
+        assert t2.activation_quantization is None
+        t2 = t2.dequantize()
+    return t1 + t2
+
+
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
