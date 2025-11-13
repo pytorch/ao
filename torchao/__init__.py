@@ -41,7 +41,8 @@ def _parse_version(version_string):
             patch = -1
         return [major, minor, patch]
     else:
-        raise ValueError(f"Invalid version string format: {version_string}")
+        logger.warning(f"Invalid version string format: {version_string}")
+        return []
 
 
 skip_loading_so_files = False
@@ -80,7 +81,7 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
 
     skip_loading_so_files = True
     for torchao_v, torch_v in torchao_pytorch_compatible_versions:
-        if current_torchao_version == torchao_v and current_torch_version == torch_v:
+        if current_torchao_version and current_torchao_version == torchao_v and current_torch_version == torch_v:
             skip_loading_so_files = False
             break
 
