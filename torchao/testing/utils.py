@@ -100,7 +100,7 @@ def skip_if_rocm(message=None):
 
 def skip_if_no_xpu(message=None):
     """Decorator to skip tests on ROCm platform with custom message.
-    
+
     Args:
         message (str, optional): Additional information about why the test is skipped.
     """
@@ -124,7 +124,7 @@ def skip_if_no_xpu(message=None):
 def skip_if_xpu(message=None):
     """
     Decorator to skip tests if XPU is available.
-    
+
     Args:
         message (str, optional): Additional information about why the test is skipped.
     """

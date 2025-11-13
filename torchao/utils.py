@@ -142,8 +142,8 @@ def auto_detect_device():
         return torch.accelerator.current_accelerator()
     else:
         return None
-    
-    
+
+
 def get_compute_capability():
     if torch.cuda.is_available():
         capability = torch.cuda.get_device_capability()
