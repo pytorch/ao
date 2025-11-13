@@ -198,3 +198,13 @@ def _auto_filter_for_tensorwise(
     if K <= 4096 and N <= 1024:
         return False
     return True
+
+
+def _populate_debug_fqns(model: nn.Module):
+    """Populates the `_debug_fqn` attribute on each `Float8Linear` child of
+    `model`, useful for debugging. Note that this API is prototype and may
+    change in the future.
+    """
+    for name, mod in model.named_modules():
+        if isinstance(mod, Float8Linear):
+            mod._debug_fqn = name
