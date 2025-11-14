@@ -73,7 +73,10 @@ def generate_model_profile(model, input_data, profile_file_path):
 
 
 def generate_memory_profile(model, input_data, profile_file_path):
-    """Function to generate CUDA memory profile.
+    """Generate CUDA memory profile with snapshot and peak statistics.
+
+    This function generates a memory snapshot pickle file and collects peak
+    memory statistics. HTML visualization is done separately via visualize_memory_profile().
 
     Args:
         model: The model to profile
@@ -81,11 +84,12 @@ def generate_memory_profile(model, input_data, profile_file_path):
         profile_file_path: Path to save the memory profile (.pickle)
 
     Returns:
-        str: Path to the saved profile file.
+        tuple: (profile_file_path, memory_stats) where memory_stats contains
+               peak memory usage in MB
     """
     if not torch.cuda.is_available():
         print("Warning: CUDA is not available. Memory profiling requires CUDA.")
-        return None
+        return None, {}
     if model is None or input_data is None:
         raise ValueError("Model and input_data must not be None.")
 
