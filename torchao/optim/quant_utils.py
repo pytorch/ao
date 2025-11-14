@@ -5,13 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import torch
 from torch import Tensor
-try:
-    from torch.distributed.tensor import DTensor
-except Exception:
-    try:
-        from torch.distributed._tensor import DTensor
-    except Exception:
-        DTensor = tuple()
+from torch.distributed.tensor import DTensor
 
 
 # https://github.com/TimDettmers/bitsandbytes/blob/dada530149212d64d4b69534716202659ef37ec8/bitsandbytes/functional.py#L339-L391
