@@ -861,7 +861,7 @@ def _get_aten_graph_module_for_pattern(
 
     if torch.__version__.startswith("2.9"):
         # PyTorch 2.9 adds _guards_fn nodes to exported graphs.
-        # These have errors only on torch 2.9 and 2.9.0
+        # These have errors only on torch 2.9.0 and 2.9.1
         for node in list(aten_pattern.graph.nodes):  # type: ignore[union-attr]
             if node.op == "call_module" and node.name == "_guards_fn":
                 aten_pattern.graph.erase_node(node)  # type: ignore[operator, union-attr]
