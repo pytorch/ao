@@ -127,7 +127,8 @@ def int_scaled_matmul(
     assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
-    scales1 = scales1.expand((M, N))
+    if scales1.device.type != "cpu":
+        scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
 
     if check_cpu_version(scales1.device):
