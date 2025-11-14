@@ -64,12 +64,12 @@ class ToyTwoLinearModel(torch.nn.Module):
         )
 
     # Note: Tiny-GEMM kernel only uses BF16 inputs
-    def example_inputs(self, batch_size=1, dtype=None):
+    def example_inputs(self, batch_size=1):
         return (
             torch.randn(
                 batch_size,
                 self.linear1.in_features,
-                dtype=dtype or self.dtype,
+                dtype=self.dtype,
                 device=self.device,
             ),
         )

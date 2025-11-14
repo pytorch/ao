@@ -1718,22 +1718,6 @@ def _input_activation_quant_func_fp8(
     return activation
 
 
-def _input_activation_quant_cpu_fp8(
-    x: torch.Tensor,
-    activation_granularity: FP8Granularity,
-    activation_dtype: torch.dtype,
-):
-    """Dynamic quantize activation to fp8 for CPU."""
-    block_size = get_block_size(x.shape, activation_granularity)
-    return to_affine_quantized_floatx(
-        input_float=x,
-        block_size=block_size,
-        target_dtype=activation_dtype,
-        scale_dtype=torch.float32,
-        _layout=PlainLayout(),
-    )
-
-
 def _fp8_mm_compat(weight: torch.Tensor) -> bool:
     """
     Check if a weight tensor meets float8 quantization requirements.
@@ -1843,37 +1827,36 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     # Ensure works on device
     activation_granularity, weight_granularity = granularity
 
-    # Note: right now we assume it's weights of conv2d and conv3d purely based
-    # on the dimension of weight, currently there is no conflict with linear 2d
-    # and moe weights 3d
-    # if we need to support conv1d, which also has 3d weight, we may have to
-    # pass around the module as well to distinguish between conv1d and 3d moe weight
-    if weight.dim() in [4, 5]:
-        # weights for conv2d or 3d
-        assert isinstance(activation_granularity, PerTensor) and isinstance(
-            weight_granularity, PerTensor
-        ), "4D/5D tensor only supports per tensor activation and weight quantization"
+    if float8_packing_format == Float8PackingFormat.PLAIN:
+        # Note: right now we assume it's weights of conv2d and conv3d purely based
+        # on the dimension of weight, currently there is no conflict with linear 2d
+        # and moe weights 3d
+        # if we need to support conv1d, which also has 3d weight, we may have to
+        # pass around the module as well to distinguish between conv1d and 3d moe weight
+        if weight.dim() in [4, 5]:
+            # weights for conv2d or 3d
+            assert isinstance(activation_granularity, PerTensor) and isinstance(
+                weight_granularity, PerTensor
+            ), (
+                "4D/5D tensor only supports per tensor activation and weight quantization"
+            )
 
-        # conv3d weight dim: (C_out, C_in, K1, K2, K3)
-        # conv2d weight dim: (C_out, C_in, K1, K2)
-        # skip quantization when either C_out or C_in
-        # is not a multiple of 16
-        if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+            # conv3d weight dim: (C_out, C_in, K1, K2, K3)
+            # conv2d weight dim: (C_out, C_in, K1, K2)
+            # skip quantization when either C_out or C_in
+            # is not a multiple of 16
+            if weight.shape[0] % 16 != 0 or weight.shape[1] % 16 != 0:
+                return weight
+
+        elif not _fp8_mm_compat(weight):
+            # TODO(future PR): this should really throw an exception instead of silently
+            # not doing what the user asked
             return weight
 
-    elif float8_packing_format == Float8PackingFormat.PLAIN and not _fp8_mm_compat(
-        weight
-    ):
-        # TODO(future PR): this should really throw an exception instead of silently
-        # not doing what the user asked
-        return weight
-
-    if float8_packing_format == Float8PackingFormat.PLAIN and isinstance(
-        weight_granularity, PerRow
-    ):
-        assert weight.dtype == torch.bfloat16, (
-            "PerRow quantization only works for bfloat16 precision input weight"
-        )
+        if isinstance(weight_granularity, PerRow):
+            assert weight.dtype == torch.bfloat16, (
+                "PerRow quantization only works for bfloat16 precision input weight"
+            )
 
     if config.version == 1:
         warnings.warn(

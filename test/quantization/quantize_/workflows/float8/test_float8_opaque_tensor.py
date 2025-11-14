@@ -70,7 +70,7 @@ class TestFloat8OpaqueTensor(TestCase):
                 return
         device = "cpu"
         m = ToyTwoLinearModel(256, 256, 256, dtype, device, bias).eval()
-        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype)
+        example_inputs = m.example_inputs(batch_size=bs)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
         y = m(*example_inputs)
@@ -104,7 +104,7 @@ class TestFloat8OpaqueTensor(TestCase):
         """
         device = "cpu"
         m = ToyTwoLinearModel(120, 120, 120, dtype, device, bias).eval()
-        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype)
+        example_inputs = m.example_inputs(batch_size=bs)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
         y = m(*example_inputs)

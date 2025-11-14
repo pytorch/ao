@@ -18,7 +18,9 @@ from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
     _quantize_affine_float8,
 )
-from torchao.quantization.utils import get_block_size
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
 from torchao.utils import (
     TorchAOBaseTensor,
 )
@@ -237,13 +239,11 @@ def _(func, types, args, kwargs):
                     "input and weight should have the same group size but got"
                     f" {weight_tensor.block_size[1]} and {group_size}"
                 )
-        act_block_size = get_block_size(act_mat.shape, granularity)
-        act_scale = _choose_scale_float8(
-            act_mat,
-            float8_dtype=torch.float8_e4m3fn,
-            block_size=act_block_size,
+        input_tensor = _choose_quant_func_and_quantize_tensor(
+            act_mat, weight_tensor.act_quant_kwargs
         )
-        act_mat = _quantize_affine_float8(act_mat, act_scale, torch.float8_e4m3fn)
+        act_mat = input_tensor.qdata
+        act_scale = input_tensor.scale
     else:
         raise NotImplementedError(
             "Activation quantization args not provided for Float8OpaqueTensor"
