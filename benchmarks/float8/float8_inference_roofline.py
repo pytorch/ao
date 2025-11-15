@@ -370,13 +370,27 @@ def run(
         if do_benchmarks:
             # create the model
             if op_name == "conv2d":
-                m_orig = nn.Sequential(
-                    nn.Conv2d(K_val, N_val, kernel_size, bias=False)
-                ).to(memory_format=torch.channels_last)
+                if not enable_fusion_modeling:
+                    m_orig = nn.Sequential(
+                        nn.Conv2d(K_val, N_val, kernel_size, bias=False)
+                    ).to(memory_format=torch.channels_last)
+                else:
+                    m_orig = nn.Sequential(
+                        nn.ReLU(),
+                        nn.Conv2d(K_val, N_val, kernel_size, bias=False),
+                        nn.ReLU(),
+                    ).to(memory_format=torch.channels_last)
             elif op_name == "conv3d":
-                m_orig = nn.Sequential(
-                    nn.Conv3d(K_val, N_val, kernel_size, bias=False)
-                ).to(memory_format=torch.channels_last_3d)
+                if not enable_fusion_modeling:
+                    m_orig = nn.Sequential(
+                        nn.Conv3d(K_val, N_val, kernel_size, bias=False)
+                    ).to(memory_format=torch.channels_last_3d)
+                else:
+                    m_orig = nn.Sequential(
+                        nn.ReLU(),
+                        nn.Conv3d(K_val, N_val, kernel_size, bias=False),
+                        nn.ReLU(),
+                    ).to(memory_format=torch.channels_last_3d)
             else:
                 if not enable_fusion_modeling:
                     m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
