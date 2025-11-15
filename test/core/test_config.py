@@ -23,6 +23,7 @@ from torchao.prototype.awq import (
     AWQConfig,
     AWQStep,
 )
+from torchao.quantization import PerBlock
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -45,6 +46,9 @@ configs = [
     Float8DynamicActivationFloat8WeightConfig(),
     Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
     Float8DynamicActivationFloat8WeightConfig(granularity=[PerRow(), PerRow()]),
+    Float8DynamicActivationFloat8WeightConfig(
+        granularity=[PerBlock([1, 128]), PerBlock([128, 128])]
+    ),
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),

@@ -14,7 +14,11 @@ from torchao.quantization import (
     Int4Tensor,
     IntxUnpackedToInt8Tensor,
 )
-from torchao.utils import TorchAOBaseTensor, _is_fbgemm_gpu_genai_available
+from torchao.utils import (
+    TorchAOBaseTensor,
+    _is_fbgemm_gpu_genai_available,
+    is_sm_at_least_90,
+)
 
 
 def _convert_linear_weight_to_int8_lut_tensor(module):
@@ -187,6 +191,7 @@ def convert_to_packed_tensor_based_on_current_hardware(tensor: TorchAOBaseTensor
         isinstance(tensor, Int4Tensor)
         and is_device("cuda", tensor.device)
         and _is_fbgemm_gpu_genai_available()
+        and is_sm_at_least_90()
     ):
         return Int4PreshuffledTensor.from_int4_tensor(tensor)
     return tensor

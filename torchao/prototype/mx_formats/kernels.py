@@ -880,17 +880,19 @@ if torch_version_at_least("2.7.0") and has_triton():
         # sweep over a small set of shapes, it's likely that this
         # can be improved in the future.
         results = []
-        for ROW_TILE_SIZE in (64, 128):
-            for COL_TILE_SIZE in (64, 128):
-                for num_warps in (1, 2, 4):
-                    config = triton.Config(
-                        {
-                            "ROW_TILE_SIZE": ROW_TILE_SIZE,
-                            "COL_TILE_SIZE": COL_TILE_SIZE,
-                        },
-                        num_warps=num_warps,
-                    )
-                    results.append(config)
+        for ROW_TILE_SIZE in (128, 256, 512):
+            for COL_TILE_SIZE in (128, 256, 512):
+                for num_warps in (4, 8):
+                    for num_stages in (2, 3):
+                        config = triton.Config(
+                            {
+                                "ROW_TILE_SIZE": ROW_TILE_SIZE,
+                                "COL_TILE_SIZE": COL_TILE_SIZE,
+                            },
+                            num_warps=num_warps,
+                            num_stages=num_stages,
+                        )
+                        results.append(config)
         return results
 
     @triton.autotune(
@@ -1139,7 +1141,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         * `scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
         """
         assert x.is_contiguous(), "`x` must be contiguous"
-        assert inner_block_size <= 32
+        assert inner_block_size <= 32, "inner_block_size must be <= 32"
+        assert x.dtype == torch.bfloat16, "only bfloat16 inputs are supported"
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
@@ -1276,6 +1279,106 @@ if torch_version_at_least("2.7.0") and has_triton():
             x_hp_d1_normalized.t(),
             scale_e8m0_dim1,
         )
+
+    @triton_op("torchao::triton_mxfp8_dequant_dim0", mutates_args={})
+    def triton_mxfp8_dequant_dim0(
+        e4m3_data: torch.Tensor,
+        e8m0_scales: torch.Tensor,
+        out_dtype: torch.dtype,
+        scale_block_size: int = 32,
+    ) -> torch.Tensor:
+        assert scale_block_size == 32, "scale_block_size must be 32 for now"
+        assert out_dtype in (torch.bfloat16, torch.float32), (
+            "out_dtype must be bf16 or fp32"
+        )
+
+        # Input shape must be 2D.
+        orig_shape = e4m3_data.shape
+        e4m3_data = e4m3_data.reshape(-1, orig_shape[-1])
+        out_buffer = torch.empty_like(e4m3_data, dtype=out_dtype)
+        out_dtype_tl = tl.bfloat16 if out_dtype == torch.bfloat16 else tl.float32
+
+        grid = lambda META: (
+            triton.cdiv(e4m3_data.shape[0], META["ROW_TILE_SIZE"]),
+            triton.cdiv(e4m3_data.shape[1], META["COL_TILE_SIZE"]),
+        )
+        wrap_triton(_dequant_mxfp8_kernel)[grid](
+            e4m3_data,
+            e8m0_scales.to(torch.uint8),
+            out_buffer,
+            e4m3_data.size(0),
+            e4m3_data.size(1),
+            e8m0_scales.size(0),
+            e8m0_scales.size(1),
+            out_dtype=out_dtype_tl,
+            SCALE_BLOCK_SIZE=scale_block_size,
+        )
+        return out_buffer.reshape(orig_shape)
+
+    @triton.autotune(
+        configs=_get_mxfp8_quant_autotune_configs(),
+        key=["input_num_cols", "SCALE_BLOCK_SIZE"],
+    )
+    @triton.jit
+    def _dequant_mxfp8_kernel(
+        e4m3_data,
+        e8m0_scales,
+        out_buffer,
+        input_num_rows,
+        input_num_cols,
+        scale_num_rows,
+        scale_num_cols,
+        out_dtype: tl.constexpr,
+        SCALE_BLOCK_SIZE: tl.constexpr,
+        ROW_TILE_SIZE: tl.constexpr,
+        COL_TILE_SIZE: tl.constexpr,
+    ):
+        pid_row = tl.program_id(0)
+        pid_col = tl.program_id(1)
+        SCALE_BLOCKS_PER_COL_TILE: tl.constexpr = COL_TILE_SIZE // SCALE_BLOCK_SIZE
+
+        # Load block of e4m3 data
+        row_offs = pid_row * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)
+        col_offs = pid_col * COL_TILE_SIZE + tl.arange(0, COL_TILE_SIZE)
+        block_offs = row_offs[:, None] * input_num_cols + col_offs[None, :]
+        mask = (row_offs[:, None] < input_num_rows) & (
+            col_offs[None, :] < input_num_cols
+        )
+        e4m3_data_block = tl.load(e4m3_data + block_offs, mask=mask)
+
+        # Load block of e8m0 scales
+        scale_col_offs = pid_col * SCALE_BLOCKS_PER_COL_TILE + tl.arange(
+            0, SCALE_BLOCKS_PER_COL_TILE
+        )
+        scale_block_offs = row_offs[:, None] * scale_num_cols + scale_col_offs[None, :]
+        scale_mask = (row_offs[:, None] < scale_num_rows) & (
+            scale_col_offs[None, :] < scale_num_cols
+        )
+        e8m0_scale_block = tl.load(e8m0_scales + scale_block_offs, mask=scale_mask)
+
+        # Dequantize and return output
+        e4m3_data_block_r = e4m3_data_block.reshape(
+            ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE
+        )
+        e8m0_scale_block_r = e8m0_scale_block.reshape(
+            ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, 1
+        )
+        fp32_scale = _e8m0_to_fp32(e8m0_scale_block_r)
+        data_hp = e4m3_data_block_r.to(tl.float32) * fp32_scale
+
+        # Write to output buffer
+        out_buffer_block = data_hp.to(out_dtype)
+        out_buffer_block = out_buffer_block.reshape(ROW_TILE_SIZE, COL_TILE_SIZE)
+        tl.store(out_buffer + block_offs, out_buffer_block, mask=mask)
+
+    @triton.jit
+    def _e8m0_to_fp32(scale_e8m0):
+        e8m0_nan_val = 255
+        e8m0_exponent_bias = 127
+        s_offset = scale_e8m0.to(tl.int16) - e8m0_exponent_bias
+        s_fp = tl.exp2(s_offset.to(tl.float32))
+        s_fp = tl.where(scale_e8m0 != e8m0_nan_val, s_fp, float("nan"))
+        return s_fp.to(tl.float32)
 
     @triton.jit
     def triton_scale_swizzle(
@@ -1639,6 +1742,14 @@ else:
     def triton_quantize_nvfp4(
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs torch version 2.8+ and triton")
+
+    def triton_mxfp8_dequant_dim0(
+        e4m3_data: torch.Tensor,
+        e8m0_scales: torch.Tensor,
+        out_dtype: torch.dtype,
+        inner_block_size=32,
+    ) -> torch.Tensor:
         raise AssertionError("needs torch version 2.8+ and triton")
 
 

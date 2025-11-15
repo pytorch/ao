@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 
-from torchao.dtypes import MarlinQQQLayout
+from torchao.prototype.dtypes import MarlinQQQLayout
 from torchao.quantization.marlin_qqq import (
     pack_to_marlin_qqq,
     unpack_from_marlin_qqq,

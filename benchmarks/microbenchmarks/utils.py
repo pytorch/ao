@@ -218,7 +218,7 @@ def string_to_config(
         )
     if "marlin" in quantization:
         if "qqq" in quantization:
-            from torchao.dtypes import MarlinQQQLayout
+            from torchao.prototype.dtypes import MarlinQQQLayout
 
             return Int8DynamicActivationInt4WeightConfig(
                 group_size=128,

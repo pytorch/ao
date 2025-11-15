@@ -189,7 +189,7 @@ def apply_auto_round():
                 quant_min = 0
                 quant_max = _auto_round_config.bits**2 - 1
                 block_size = (1, observed_linear.group_size)
-                from torchao.dtypes.uintx.uintx import (
+                from torchao.prototype.dtypes.uintx.uintx_layout import (
                     _BIT_WIDTH_TO_DTYPE,
                     UintxLayout,
                 )

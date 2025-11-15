@@ -54,22 +54,21 @@ assert isinstance(config, AOBaseConfig)
 All quantization configurations inherit from {class}`torchao.core.config.AOBaseConfig`, which provides serialization and validation capabilities.
 ```
 
-(module-level-configuration)=
-### 3. Module-Level Configuration
+(fqn-configuration)=
+### 3. FQN Configuration
 
-For granular control, use `ModuleFqnToConfig`:
+For granular control, use `FqnToConfig`:
 
 ```python
-from torchao.quantization import ModuleFqnToConfig, Int4WeightOnlyConfig, Int8WeightOnlyConfig
+from torchao.quantization import FqnToConfig, Int4WeightOnlyConfig, Int8WeightOnlyConfig
 
-config = ModuleFqnToConfig({
+config = FqnToConfig({
     "model.layers.0.self_attn.q_proj": Int4WeightOnlyConfig(group_size=64),
     "model.layers.0.self_attn.k_proj": Int4WeightOnlyConfig(group_size=64),
     "model.layers.0.mlp.gate_proj": Int8WeightOnlyConfig(),
     "_default": Int4WeightOnlyConfig(group_size=128, version=1)  # Default for other modules
 })
 ```
-
 (usage-examples)=
 ## Usage Examples
 

@@ -39,12 +39,14 @@ class PerAxis(Granularity):
     This granularity type calculates different quantization parameters
     along a specified axis of the tensor.
 
-    For example if the input tensor is shape [8, 16] and axis=0, then
-    the quantization parameters are calculated for each row of the tensor.
-    Giving a total of 8 quantization parameters.
+    Examples:
+    * input_tensor shape [A, B], axis 0 -> scale_shape [A, 1]
+    * input_tensor shape [A, B], axis 1 -> scale_shape [1, B]
+    * input_tensor shape [A, B, C], axis 1 -> scale_shape [1, B, 1]
 
     Attributes:
-        axis (int): The axis along which reduction is performed.
+        axis (int): The axis which is kept, reduction is performed across all
+          the other axes
     """
 
     axis: int
@@ -76,12 +78,17 @@ class PerRow(Granularity):
     """
     Represents row-wise granularity in quantization.
 
-    This is a special case of per-axis quantization and is unique to Float8 matmuls
-    where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
-    is quantized with a block_size of (1, weight.shape[1]).
+    Examples:
+    * input_tensor shape [A, B], dim 0 -> scale_shape [1, B]
+    * input_tensor shape [A, B], dim 1 -> scale_shape [A, 1]
+    * input_tensor shape [A, B], dim -1 -> scale_shape [A, 1]
+    * input_tensor shape [A, B, C], dim 1 -> scale_shape [A, 1, C]
+
+    Attributes:
+        dim (int): The dim which is reduced across, all other dims are kept
     """
 
-    pass
+    dim: int = -1
 
 
 @dataclass(frozen=True)
@@ -106,11 +113,28 @@ class PerToken(Granularity):
 @dataclass(frozen=True)
 class PerBlock(Granularity):
     """
-    Represents per-block granularity in quantization. See
-    :func:`~torchao.quantization.quant_primitives.quantize_affine` for docs for
-    `block_size`
+    Represents multidimensional per-block granularity in quantization.
+
+    Example:
+    * block_size has shape [X, Y]
+    * input_tensor shape [A] -> scaling undefined
+    * input_tensor shape [A, B] -> scale shape [A // X, B // Y]
+    * input_tensor shape [A, B, C] -> scale shape [A, B // X, C // Y]
+    * input_tensor shape [A, B, C, D] -> scale shape [A, B, C // X, D // Y], and so on
+
+    Note that `PerBlock((1, Y))` is equivalent to `PerGroup(Y)`
+
     Attributes:
         block_size (tuple[int, ...]): The size of each quantization group
     """
 
+    # TODO(future PR): consider renaming this attribute to make the meaning
+    #   of `block_size` consistent.
+    # 1. `block_size` in this class can support tensors of multiple ranks
+    # 2. `block_size` in other places in the codebase has rank equal to the
+    #    corresponding tensor
+    # TODO(future PR): change to list or support serialization with tuples,
+    # currently serialization only works when `block_size` is specified as a
+    # list. Example error:
+    # https://gist.github.com/vkuzo/ab4d6aec83cb98ad9417898d2c024a2c
     block_size: tuple[int, ...]

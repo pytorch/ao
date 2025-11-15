@@ -11,7 +11,7 @@ from packaging import version
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
-from torchao.prototype.blockwise_fp8_inference.blockwise_quantization import (
+from torchao.kernel.blockwise_quantization import (
     blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_dequant,
@@ -66,6 +66,7 @@ def test_blockwise_fp8_gemm(M, N, K, dtype):
     A_q, A_s = fp8_blockwise_act_quant(A, dtype=dtype)
     B_q, B_s = fp8_blockwise_weight_quant(B, dtype=dtype)
     C_q = blockwise_fp8_gemm(A_q, A_s, B_q, B_s)
+    assert C_q.dtype == torch.bfloat16, "unsupported"
     error = torch.linalg.vector_norm(C - C_q) / torch.linalg.vector_norm(C)
     print(f"Relative Error: {error.item():.6f}")
 

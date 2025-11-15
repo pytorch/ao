@@ -7,7 +7,7 @@
 import torch
 from torch import nn
 
-from torchao.prototype.blockwise_fp8_inference.blockwise_quantization import (
+from torchao.kernel.blockwise_quantization import (
     blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
 )

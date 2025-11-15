@@ -65,9 +65,9 @@ try:
         ExpertTensorParallel,
         NoParallel,
         TensorParallel,
-        set_token_group_alignment_size_m,
     )
     from torchtitan.models.moe import MoE, MoEArgs
+    from torchtitan.models.moe.utils import set_token_group_alignment_size_m
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True

@@ -73,6 +73,7 @@ Below is a toy training loop. For an example real training loop, see our torchti
 ```python
 import torch
 from torchao.quantization import quantize_
+import torchao.prototype.mx_formats
 from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice, ScaleCalculationMode
 
 # on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
@@ -105,6 +106,7 @@ import copy
 import torch
 import torch.nn as nn
 from torchao.quantization import quantize_
+import torchao.prototype.mx_formats
 from torchao.prototype.mx_formats.config import (
     MXGemmKernelChoice,
 )

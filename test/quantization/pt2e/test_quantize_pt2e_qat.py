@@ -8,7 +8,7 @@
 import copy
 import operator
 import unittest
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import torch
 from torch.ao.quantization import QConfigMapping
@@ -46,6 +46,7 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,
     Quantizer,
+    SharedQuantizationSpec,
 )
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
@@ -878,6 +879,57 @@ class TestQuantizePT2EQAT_ConvBn2d(TestQuantizePT2EQAT_ConvBn_Base):
     conv_transpose_class = torch.nn.ConvTranspose2d
     bn_class = torch.nn.BatchNorm2d
 
+    def test_qat_shared_qspec(self):
+        """
+        Test that nodes used in the keys of `input_qspec_map` refer to the
+        new nodes after QAT fusion, not the old nodes that no longer exist.
+        """
+        m = DoubleConvBnModel()
+        example_inputs = (torch.randn(1, 3, 5, 5),)
+        m = torch.export.export_for_training(m, example_inputs, strict=True).module()
+        old_nodes = set(m.graph.nodes)
+        m = prepare_qat_pt2e(m, DoubleConvBnQuantizer())
+        new_nodes = set(m.graph.nodes)
+        old_nodes = old_nodes - new_nodes
+        assert old_nodes.isdisjoint(new_nodes), "bad test setup"
+        assert len(old_nodes) == 4, (
+            f"bad test setup, old nodes should have 2 convs and 2 bns: {old_nodes}"
+        )
+
+        # first, gather a list of nodes to check from input and output qspecs
+        nodes_to_check = set()
+        for n in m.graph.nodes:
+            annotations = n.meta.get("quantization_annotation")
+            if annotations is None:
+                continue
+            nodes_to_check.update(list(annotations.input_qspec_map.keys()))
+            for qspec in list(annotations.input_qspec_map.values()) + [
+                annotations.output_qspec
+            ]:
+                if isinstance(qspec, SharedQuantizationSpec):
+                    if isinstance(qspec.edge_or_node, torch.fx.Node):
+                        nodes_to_check.add(qspec.edge_or_node)
+                    else:
+                        (src, dest) = qspec.edge_or_node
+                        nodes_to_check.update([src, dest])
+
+        # assert that none of the nodes refer to old nodes
+        self.assertEqual(len(nodes_to_check), 5)
+        num_batch_norm_nodes_checked = 0
+        for n in nodes_to_check:
+            if n.target == torch.ops.aten.batch_norm.default:
+                num_batch_norm_nodes_checked += 1
+            self.assertTrue(
+                n not in old_nodes,
+                f"found old node {n} in qspec, old nodes: {old_nodes}",
+            )
+            self.assertTrue(
+                n in new_nodes, f"found node {n} in qspec not in new nodes: {new_nodes}"
+            )
+        assert num_batch_norm_nodes_checked == 2, (
+            f"bad test setup, didn't check 2 bns, only checked these: {nodes_to_check}"
+        )
+
 
 def _is_conv_node(n: torch.fx.Node):
     return n.op == "call_function" and n.target in [
@@ -911,6 +963,107 @@ def _get_conv_bn_getitem_nodes(model: torch.fx.GraphModule):
             getitem_node = n
     assert conv_node is not None, "bad test setup"
     return (conv_node, bn_node, getitem_node)
+
+
+class DoubleConvBnModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(3, 3, 3, bias=False)
+        self.bn1 = torch.nn.BatchNorm2d(3)
+        self.conv2 = torch.nn.Conv2d(3, 3, 3, bias=False)
+        self.bn2 = torch.nn.BatchNorm2d(3)
+
+    def forward(self, x):
+        x1 = self.conv1(x)
+        x1 = self.bn1(x1)
+        x2 = self.conv2(x)
+        x2 = self.bn2(x2)
+        return torch.cat((x1, x2))
+
+
+class DoubleConvBnQuantizer(Quantizer):
+    """
+    Dummy quantizer that a model with double conv-bn, followed by a torch.cat
+    of the two conv-bns.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.act_qspec = QuantizationSpec(
+            dtype=torch.uint8,
+            quant_min=0,
+            quant_max=255,
+            qscheme=torch.per_tensor_affine,
+            observer_or_fake_quant_ctr=default_fake_quant,
+        )
+        self.weight_qspec = QuantizationSpec(
+            dtype=torch.uint8,
+            quant_min=0,
+            quant_max=255,
+            qscheme=torch.per_tensor_affine,
+            observer_or_fake_quant_ctr=default_fake_quant,
+        )
+
+    def _get_all_nodes(self, model: torch.nn.Module) -> Tuple:
+        """
+        Return a 5-tuple of (conv1, bn1, conv2, bn2, cat) nodes.
+        """
+        conv1, bn1, conv2, bn2, cat = None, None, None, None, None
+        for n in model.graph.nodes:
+            if _is_conv_node(n):
+                if conv1 is None:
+                    conv1 = n
+                else:
+                    conv2 = n
+            if n.target == torch.ops.aten.batch_norm.default:
+                if bn1 is None:
+                    bn1 = n
+                else:
+                    bn2 = n
+            if n.target == torch.ops.aten.cat.default:
+                cat = n
+        assert conv1 is not None and bn1 is not None, "bad test setup"
+        assert conv2 is not None and bn2 is not None, "bad test setup"
+        assert cat is not None, "bad test setup"
+        return (conv1, bn1, conv2, bn2, cat)
+
+    def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+        (conv1, bn1, conv2, bn2, cat) = self._get_all_nodes(model)
+        conv1.meta["quantization_annotation"] = QuantizationAnnotation(
+            input_qspec_map={
+                conv1.args[0]: self.act_qspec,
+                conv1.args[1]: self.weight_qspec,
+            },
+            _annotated=True,
+        )
+        bn1.meta["quantization_annotation"] = QuantizationAnnotation(
+            output_qspec=self.act_qspec,
+            _annotated=True,
+        )
+
+        conv2.meta["quantization_annotation"] = QuantizationAnnotation(
+            input_qspec_map={
+                conv2.args[0]: self.act_qspec,
+                conv2.args[1]: self.weight_qspec,
+            },
+            _annotated=True,
+        )
+        bn2.meta["quantization_annotation"] = QuantizationAnnotation(
+            output_qspec=self.act_qspec,
+            _annotated=True,
+        )
+        cat.meta["quantization_annotation"] = QuantizationAnnotation(
+            input_qspec_map={
+                bn1: SharedQuantizationSpec(bn1),
+                bn2: SharedQuantizationSpec(bn2),
+            },
+            output_qspec=self.act_qspec,
+            _annotated=True,
+        )
+        return model
+
+    def validate(self, model: torch.fx.GraphModule):
+        pass
 
 
 class ConvBnInt32WeightQuantizer(Quantizer):

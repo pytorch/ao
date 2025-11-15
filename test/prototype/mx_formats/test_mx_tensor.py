@@ -116,8 +116,6 @@ def test_some_zeros(elem_dtype):
     _test_mx(data, elem_dtype, block_size)
 
 
-# TODO(future PR): fix and reenable this test
-@pytest.mark.skip(reason="does not pass on B200 yet")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_to_mx_rceil():
     # nan
@@ -131,11 +129,7 @@ def test_to_mx_rceil():
         ],
         dtype=torch.uint32,
     ).view(torch.float32)
-    # fmt: on
-    ground_truth_scale = torch.tensor([255], dtype=torch.uint8).view(
-        torch.float8_e8m0fnu
-    )
-    # fmt: off
+
     ground_truth_fp8 = torch.tensor(
         [
         127, 0, 0, 0, 0, 0, 0, 0,
@@ -149,7 +143,7 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    torch.testing.assert_close(data_mx.scale, ground_truth_scale)
+    assert torch.isnan(data_mx.scale)
     assert torch.isnan(data_mx.qdata[0])
     assert torch.all(data_mx.qdata[1:] == 0)
     # fp32 denorm

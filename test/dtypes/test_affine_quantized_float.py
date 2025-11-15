@@ -152,7 +152,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     def test_mismatched_granularity(self):
         with pytest.raises(
             ValueError,
-            match="Different granularities for activation and weight are not supported",
+            match="Unsupported granularity types",
         ):
             Float8DynamicActivationFloat8WeightConfig(
                 granularity=(PerTensor(), PerRow())
@@ -165,7 +165,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         class UnsupportedGranularity:
             pass
 
-        with pytest.raises(ValueError, match="Invalid granularity types"):
+        with pytest.raises(ValueError, match="Unsupported granularity types"):
             Float8DynamicActivationFloat8WeightConfig(
                 granularity=(UnsupportedGranularity(), UnsupportedGranularity()),
             )

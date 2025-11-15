@@ -52,6 +52,7 @@ from .quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -68,6 +69,7 @@ from .quant_api import (
     float8_static_activation_float8_weight,
     float8_weight_only,
     fpx_weight_only,
+    fqn_matches_fqn_config,
     gemlite_uintx_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
@@ -90,6 +92,7 @@ from .quant_primitives import (
     quantize_affine,
 )
 from .quantize_.workflows import (
+    Float8OpaqueTensor,
     Float8Tensor,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
@@ -142,6 +145,7 @@ __all__ = [
     "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
+    "fqn_matches_fqn_config",
     "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
     "Int4DynamicActivationInt4WeightConfig",
@@ -160,6 +164,7 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
+    "FqnToConfig",
     "ModuleFqnToConfig",
     # tensor subclasses
     "Int4Tensor",
@@ -172,6 +177,7 @@ __all__ = [
     "Int8Tensor",
     "Float8Tensor",
     "Int4OpaqueTensor",
+    "Float8OpaqueTensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",

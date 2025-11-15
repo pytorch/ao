@@ -73,7 +73,7 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
                 tokens_per_ep_rank,
                 dim,
                 device=self.device,
-                dtype=torch.float32,
+                dtype=torch.bfloat16,
                 requires_grad=True,
             )
             ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
@@ -107,7 +107,7 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
                 total_tokens_on_rank_after_a2a,
                 dim,
                 device=self.device,
-                dtype=torch.float32,
+                dtype=torch.bfloat16,
             )
 
             # Do the actual all_to_all_single
@@ -188,7 +188,7 @@ class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
                 tokens_per_ep_rank,
                 dim,
                 device=self.device,
-                dtype=torch.float32,
+                dtype=torch.bfloat16,
                 requires_grad=True,
             )
             ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)

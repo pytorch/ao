@@ -11,14 +11,72 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# TODO: Refactor torchao and tests to use these models
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
+class ToySingleLinearModel(torch.nn.Module):
+    def __init__(
+        self,
+        input_dim,
+        output_dim,
+        dtype,
+        device,
+        has_bias=False,
+    ):
         super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
+        self.dtype = dtype
+        self.device = device
+        self.linear1 = torch.nn.Linear(
+            input_dim, output_dim, bias=has_bias, dtype=dtype, device=device
+        )
+
+    def example_inputs(self, batch_size=1):
+        return (
+            torch.randn(
+                batch_size,
+                self.linear1.in_features,
+                dtype=self.dtype,
+                device=self.device,
+            ),
+        )
 
     def forward(self, x):
         x = self.linear1(x)
+        return x
+
+
+# TODO: Refactor torchao and tests to use these models
+class ToyTwoLinearModel(torch.nn.Module):
+    def __init__(
+        self,
+        input_dim,
+        hidden_dim,
+        output_dim,
+        dtype,
+        device,
+        has_bias=False,
+    ):
+        super().__init__()
+        self.dtype = dtype
+        self.device = device
+        self.linear1 = torch.nn.Linear(
+            input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device
+        )
+        self.linear2 = torch.nn.Linear(
+            hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
+        )
+
+    # Note: Tiny-GEMM kernel only uses BF16 inputs
+    def example_inputs(self, batch_size=1):
+        return (
+            torch.randn(
+                batch_size,
+                self.linear1.in_features,
+                dtype=self.dtype,
+                device=self.device,
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -179,8 +237,8 @@ def create_model_and_input_data(
         m, k, n (int): dimensions of the model and input data
     """
     if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
+        model = ToySingleLinearModel(k, n, device=device, dtype=high_precision_dtype)
+        input_data = model.example_inputs(batch_size=m)[0]
     elif "ln_linear" in model_type:
         # Extract activation type from model_type string
         match = re.search(r"ln_linear_?(\w+)?", model_type)

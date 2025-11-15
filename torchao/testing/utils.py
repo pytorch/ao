@@ -444,7 +444,9 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
         # making the weight different
         dummy_l.weight = torch.nn.Parameter(
-            dummy_l.weight + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
+            dummy_l.weight
+            + 1.0
+            + 2 * torch.randn(1024, 1024, device=device, dtype=dtype),
             requires_grad=False,
         )
         quantize_(dummy_l, config)
@@ -456,15 +458,15 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
             param = l.weight
             param_data = param.data
             param_data = param_data.narrow(output_dim, start_idx, shard_size)
-            orig_value = param_data.qdata[0][0]
+            orig_values = param_data.qdata[0]
             loaded_weight = dummy_l.weight
             loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
 
-            # making sure param.data.qdata[0][0] is not the same as loaded_weight.qdata[0][0]
-            assert not torch.equal(orig_value, loaded_weight.qdata[0][0])
+            # making sure param.data.qdata[0] is not the same as loaded_weight.qdata[0]
+            assert not torch.equal(orig_values, loaded_weight.qdata[0])
             param_data.copy_(loaded_weight)
             # making sure param.data is updated to loaded_weight
-            assert torch.equal(param_data.qdata[0][0], loaded_weight.qdata[0][0])
+            assert torch.equal(param_data.qdata[0], loaded_weight.qdata[0])
             if hasattr(param_data, "scale"):
                 assert torch.equal(param_data.scale, loaded_weight.scale)
             if hasattr(param_data, "zero_point"):
@@ -638,6 +640,15 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         )
         quantize_(l, config)
         _w_slice = l.weight[0]
+
+    def _test_chunk_similar_to_vllm_llama4(self, ao_tensor, dim):
+        # source code in vLLM LLaMa 4:
+        # https://github.com/vllm-project/vllm/blob/34553b9d2702dd2a27a578fec819e88e76dcbfb4/vllm/model_executor/models/llama4.py#L455
+        ao_tensor_chunked = ao_tensor.chunk(2, dim=dim)
+        ao_tensor_unchunked = torch.cat(ao_tensor_chunked, dim=dim)
+        torch.testing.assert_close(
+            ao_tensor.dequantize(), ao_tensor_unchunked.dequantize(), atol=0, rtol=0
+        )
 
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)

@@ -15,7 +15,7 @@ from torchao.utils import (
 
 
 def torch_to_blocked_2d_M_groups(
-    x_scales: Tensor, group_offs: Tensor, K: int, block_size: int = 32
+    x_scales: Tensor, group_offs: Tensor, block_size: int = 32
 ) -> Tuple[Tensor, Tensor]:
     """
     Convert scales to blocked format for a 2D tensor (input activations / token groups),
@@ -34,14 +34,14 @@ def torch_to_blocked_2d_M_groups(
 
     assert x_scales.ndim == 2, "x_scales must be 2D"
     assert block_size == 32, "Only block_size=32 is supported for now"
-    total_M, _ = x_scales.shape
+    total_M, scale_cols = x_scales.shape
     num_groups = group_offs.shape[0]
 
     # Each group will require a variable amount of padding, so to avoid d2h sync causing by iterating over each group,
     # the Triton kernenl will use an upper bound of adding 128 padding rows to each group.
     # (This torch impl is used as a reference for correctness, so we must match the triton kernel's impl).
     total_M_padded = total_M + num_groups * 128
-    blocked_scales = x_scales.new_zeros(total_M_padded, K // block_size)
+    blocked_scales = x_scales.new_zeros(total_M_padded, scale_cols)
     start_row_after_padding_list = [0]
     group_start_idx = 0
     for i, group_end_idx in enumerate(group_offs.tolist()):
@@ -56,8 +56,7 @@ def torch_to_blocked_2d_M_groups(
         group_scales_blocked = to_blocked(group_scales)
 
         # Calculate the start row after padding
-        scaling_groups_per_row = K // block_size
-        rows_for_group = group_scales_blocked.numel() // scaling_groups_per_row
+        rows_for_group = group_scales_blocked.numel() // scale_cols
         new_start_row = prev_start_row_after_padding + rows_for_group
         start_row_after_padding_list.append(new_start_row)
 
@@ -67,7 +66,7 @@ def torch_to_blocked_2d_M_groups(
             prev_start_row_after_padding : prev_start_row_after_padding
             + group_rows_padded,
             :,
-        ] = group_scales_blocked.reshape(-1, K // block_size)
+        ] = group_scales_blocked.reshape(-1, scale_cols)
 
         # Update next group start index
         group_start_idx = group_end_idx
@@ -175,7 +174,7 @@ def compute_blocked_scale_offsets_for_M_groups(offsets: torch.Tensor):
         - starting_row_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
     """
     # Calculate group sizes
-    zero = torch.tensor([0], dtype=offsets.dtype, device=offsets.device)
+    zero = torch.zeros(1, dtype=offsets.dtype, device=offsets.device)
     group_sizes = torch.diff(offsets, prepend=zero)
 
     # Round each group size up to the nearest multiple of 128
@@ -203,8 +202,8 @@ def compute_blocked_scale_offsets_for_K_groups(
         - starting_col_after_padding: 1D integer tensor representing the starting row after padding each to blocked format.
     """
     # Calculate group sizes
-    zero = torch.tensor(
-        [0], dtype=scale_group_offsets.dtype, device=scale_group_offsets.device
+    zero = torch.zeros(
+        1, dtype=scale_group_offsets.dtype, device=scale_group_offsets.device
     )
     group_sizes = torch.diff(scale_group_offsets, prepend=zero)
 
@@ -223,7 +222,6 @@ def compute_blocked_scale_offsets_for_K_groups(
 def triton_mx_block_rearrange_2d_M_groups(
     scales_tensor: torch.Tensor,
     input_group_end_offsets: torch.Tensor,
-    output_group_start_offsets: torch.Tensor,
 ) -> torch.Tensor:
     """
     Rearranges an E8M0 tensor scale to block-scaled swizzle format,
@@ -275,15 +273,14 @@ def triton_mx_block_rearrange_2d_M_groups(
         scales_tensor.stride(1),
         rows,
         cols,
-        num_groups,
         # Original offsets (to read from)
         input_group_end_offsets,
         # Output scales tensor and group offsets after padding (to write to)
         output.view(torch.uint8),
         output.stride(0),
-        output_group_start_offsets,
         output_stride_per_block,
         output_stride_per_row_of_blocks,
+        num_groups=num_groups,
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
     )
@@ -297,13 +294,12 @@ def triton_scale_swizzle_M_groups(
     scales_stride_dim1,
     scale_rows,
     scale_cols,
-    num_groups,
     orig_offsets,  # (num_groups,)
     output_scales_ptr,
     output_scales_stride_dim0,
-    output_scales_group_offsets,  # (num_groups,)
     output_stride_per_block,
     output_stride_per_row_of_blocks,
+    num_groups: tl.constexpr,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_COLS: tl.constexpr,
 ):
@@ -316,10 +312,13 @@ def triton_scale_swizzle_M_groups(
     input_group_end_row = tl.load(
         orig_offsets + group_pid, mask=group_pid < num_groups, other=0
     )
-    # Output scales start row we will begin writing to
-    output_group_start_row = tl.load(
-        output_scales_group_offsets + group_pid, mask=group_pid < num_groups, other=0
+
+    # Calculate this group's start row after blocked format padding, by doing a prefix sum
+    # of each previous group's padded size.
+    output_group_start_row = _blocked_group_start_idx(
+        group_pid, orig_offsets, num_groups, 128
     )
+
     # Calculate destination indices for each row and col in block swizzled layout.
     # We can reuse this swizzle transformation on each block of data we read.
     row_offs = tl.arange(0, BLOCK_ROWS)[:, None]
@@ -489,7 +488,6 @@ def triton_scale_swizzle_per_group_3d(
 def triton_mx_block_rearrange_2d_K_groups(
     scales_tensor: torch.Tensor,
     input_group_end_offsets: torch.Tensor,
-    output_group_start_offsets: torch.Tensor,
 ) -> torch.Tensor:
     """
     Rearranges an E8M0 tensor scale to block-scaled swizzle format on a per group basis,
@@ -538,13 +536,10 @@ def triton_mx_block_rearrange_2d_K_groups(
         rows,
         cols,
         padded_rows,
-        num_groups,
-        # Original offsets (to read from)
         input_group_end_offsets,
-        # Output scales tensor and group offsets after padding (to write to)
         output.view(torch.uint8),
-        output_group_start_offsets,
         output_stride_per_block,
+        num_groups=num_groups,
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
         DEBUG=False,
@@ -560,11 +555,10 @@ def triton_scale_swizzle_2d_K_groups(
     scale_rows,
     scale_cols,
     padded_rows,
-    num_groups,
     orig_offsets,  # (num_groups,)
     output_scales_ptr,
-    output_scales_group_offsets,  # (num_groups,)
     output_stride_per_block,
+    num_groups: tl.constexpr,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_COLS: tl.constexpr,
     DEBUG: tl.constexpr = False,
@@ -578,8 +572,11 @@ def triton_scale_swizzle_2d_K_groups(
     )
     input_group_end_col = tl.load(orig_offsets + group_pid)
 
-    # Output scales start row we will begin writing to
-    output_group_start_col = tl.load(output_scales_group_offsets + group_pid)
+    # Calculate this group's start row after blocked format padding, by doing a prefix sum
+    # of each previous group's padded size.
+    output_group_start_col = _blocked_group_start_idx(
+        group_pid, orig_offsets, num_groups, 4
+    )
 
     row_offs = tl.arange(0, BLOCK_ROWS)[:, None]
     col_offs = tl.arange(0, BLOCK_COLS)[None, :]
@@ -649,6 +646,31 @@ def _dest_indices_for_block(
     # Flatten
     dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
     return dest_indices_flat
+
+
+@triton.jit
+def _blocked_group_start_idx(
+    group_pid,
+    orig_offsets,
+    num_groups: tl.constexpr,
+    padding_size: tl.constexpr,
+):
+    """Prefix sum to compute the start index of a given group."""
+    offsets = tl.load(orig_offsets + tl.arange(0, num_groups))
+    prev_offsets = tl.load(
+        orig_offsets + tl.arange(0, num_groups) - 1,
+        mask=tl.arange(0, num_groups) > 0,
+        other=0,
+    )
+    group_sizes = tl.where(
+        tl.arange(0, num_groups) > 0,
+        offsets - prev_offsets,
+        offsets,
+    )
+    padded_sizes = tl.cdiv(group_sizes, padding_size) * padding_size
+    prefix_mask = tl.arange(0, num_groups) < group_pid
+    group_start_idx = tl.sum(tl.where(prefix_mask, padded_sizes, 0))
+    return group_start_idx
 
 
 mxfp8_cuda_extension_available = False

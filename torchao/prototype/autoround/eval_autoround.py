@@ -111,7 +111,9 @@ def main(args):
                 )
             elif args.uintx:
                 msg += f" (uintx {args.bits} bits)"
-                from torchao.dtypes.uintx.uintx import _BIT_WIDTH_TO_DTYPE
+                from torchao.prototype.dtypes.uintx.uintx_layout import (
+                    _BIT_WIDTH_TO_DTYPE,
+                )
                 from torchao.quantization.quant_api import (
                     UIntXWeightOnlyConfig,
                     quantize_,

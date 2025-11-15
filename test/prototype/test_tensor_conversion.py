@@ -34,7 +34,10 @@ from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
     _is_kernel_library_loaded,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import _is_fbgemm_gpu_genai_available
+from torchao.utils import (
+    _is_fbgemm_gpu_genai_available,
+    is_sm_at_least_90,
+)
 
 
 class ToyLinearModelWithTiedEmbedding(torch.nn.Module):
@@ -206,5 +209,9 @@ def test_int4_tensor_conversion():
         convert_to_packed_tensor_based_on_current_hardware(weight), requires_grad=False
     )
     after_conversion = m(*example_inputs)
-    assert isinstance(m[0].weight, Int4PreshuffledTensor)
+    if is_sm_at_least_90():
+        assert isinstance(m[0].weight, Int4PreshuffledTensor)
+    else:
+        assert isinstance(m[0].weight, Int4Tensor)
+
     assert torch.equal(before_conversion, after_conversion)

@@ -43,6 +43,22 @@ gpu_name_to_specs = {
         # TODO(future): measure once we have the hardware
         "pct_achievable_mem_bw": 0.92,
     },
+    "NVIDIA GB200": {
+        # https://resources.nvidia.com/en-us-blackwell-architecture, page 19,
+        # divide by 2 because no sparsity
+        "bf16_peak_tops": 2.25e15,
+        "fp8_peak_tops": 4.5e15,
+        "fp4_peak_tops": 9.0e15,
+        # https://resources.nvidia.com/en-us-blackwell-architecture, page 20
+        # 8.0 TB per second
+        "peak_mem_bw_bytes_sec": 8.0e12,
+        # for now, copy over from H100
+        # TODO(future): measure once we have the hardware
+        "pct_achievable_gemm_tops": 0.78,
+        # for now, copy over from H100
+        # TODO(future): measure once we have the hardware
+        "pct_achievable_mem_bw": 0.92,
+    },
     "AMD Instinct MI300X": {
         # https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/data-sheets/amd-instinct-mi300x-data-sheet.pdf, page 1,
         "bf16_peak_tops": 1307e12,

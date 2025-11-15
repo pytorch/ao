@@ -22,10 +22,10 @@ from .testing_utils import _validate_model_conversion
 
 # this test requires torchtitan
 try:
-    from torchtitan.distributed.expert_parallel import (
+    from torchtitan.models.moe import MoE, MoEArgs
+    from torchtitan.models.moe.utils import (
         set_token_group_alignment_size_m,
     )
-    from torchtitan.models.moe import MoE, MoEArgs
 except ImportError:
     pytest.skip(
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
