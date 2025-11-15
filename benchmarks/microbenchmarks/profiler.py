@@ -124,7 +124,7 @@ def generate_memory_profile(model, input_data, profile_file_path):
                     torch.cuda.synchronize()
 
                 # Take memory snapshot after inference and save to temporary pickle file
-                torch.cuda.memory._dump_snapshot(profile_file_path)
+                # torch.cuda.memory._dump_snapshot(profile_file_path)
 
                 if _validate_pickle_file(profile_file_path):
                     print(f"Saved memory profile to {profile_file_path}")
