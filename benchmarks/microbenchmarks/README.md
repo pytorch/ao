@@ -52,17 +52,18 @@ model_params:
   device: "cuda"  # Options: "cuda", "mps", "xpu", "cpu"
   model_type: "linear"  # Options: "linear", "ln_linear_sigmoid"
   enable_profiler: true  # Enable standard profiling
-  enable_memory_profiler: true  # Enable CUDA memory profiling
+  # enable_memory_visualizer: true  # Enable HTML memory visualization (slow)
 ```
 
 ## Configuration Options
 
 ### Profiling Options
 - `enable_profiler`: Enable standard PyTorch profiling (default: false)
-- `enable_memory_profiler`: Enable CUDA memory profiling (default: false)
+- `enable_memory_visualizer`: Enable HTML memory visualization (default: false)
+  - Memory profiling (pickle snapshots + peak stats) ALWAYS runs automatically
   - Only works when device is set to "cuda"
-  - Generates memory snapshots before and after inference
-  - Creates visualizations of memory usage
+  - Generates HTML visualizations from memory snapshots (can be slow for large models)
+  - Set to `true` only when debugging memory issues
   - Outputs are saved in the memory_profiler subdirectory
 
 ### Quantization Methods

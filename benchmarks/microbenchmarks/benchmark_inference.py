@@ -213,7 +213,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
             ndigits=2,
         )
 
-        # Run profiler if enabled
+        # Run performance profiler if enabled
         if config.enable_profiler:
             print("Running profiler...")
             try:
@@ -230,42 +230,42 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
             except Exception as e:
                 print(f"Error running profiler: {e}")
 
-        # Run memory profiler if enabled
-        if config.enable_memory_profiler:
-            print("Running memory profiler...")
-            try:
-                # Create memory profiler directory if it doesn't exist
-                memory_profiler_dir = os.path.join(
-                    config.output_dir, "memory_profiler/pickle"
-                )
-                os.makedirs(memory_profiler_dir, exist_ok=True)
+        # Always run memory profiler to get peak stats and save pickle snapshot (fast)
+        print("Running memory profiler...")
+        try:
+            # Create memory profiler directory if it doesn't exist
+            memory_profiler_dir = os.path.join(
+                config.output_dir, "memory_profiler/pickle"
+            )
+            os.makedirs(memory_profiler_dir, exist_ok=True)
 
-                # Save memory profile with .pickle extension
-                result.memory_profile_path, result.memory_stats = (
-                    generate_memory_profile(
-                        model=m_copy,
-                        input_data=input_data,
-                        profile_file_path=os.path.join(
-                            memory_profiler_dir,
-                            f"{config._file_name}_memory_profile.pickle",
-                        ),
-                    )
-                )
+            # Save memory profile with .pickle extension
+            result.memory_profile_path, result.memory_stats = generate_memory_profile(
+                model=m_copy,
+                input_data=input_data,
+                profile_file_path=os.path.join(
+                    memory_profiler_dir,
+                    f"{config._file_name}_memory_profile.pickle",
+                ),
+            )
 
+            # Generate HTML visualization ONLY if explicitly enabled (slow: minutes to hours)
+            if config.enable_memory_visualizer:
+                print("Generating HTML visualization (this may take a while)...")
                 if result.memory_profile_path:
                     result.memory_visualization_path = visualize_memory_profile(
                         result.memory_profile_path
                     )
-            except ValueError as e:
-                if "not enough values to unpack" in str(e):
-                    print(
-                        "Failed due to existing bugs, re‑run the code to generate memory profile. Please raise an issue if it persists."
-                    )
-            except Exception as e:
-                print(f"Error running memory profiler: {e}")
-                import traceback
+        except ValueError as e:
+            if "not enough values to unpack" in str(e):
+                print(
+                    "Failed due to existing bugs, re‑run the code to generate memory profile. Please raise an issue if it persists."
+                )
+        except Exception as e:
+            print(f"Error running memory profiler: {e}")
+            import traceback
 
-                traceback.print_exc()
+            traceback.print_exc()
 
         return result
     except Exception as e:
