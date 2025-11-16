@@ -212,23 +212,27 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, weight_fp)}"
         )
 
-    @common_utils.parametrize(
-        "kernel",
-        ["triton_per_fused", "extern_kernels._int_mm", "triton_poi_fused"],
-    )
-    def test_available_gpu_kernels(self, kernel):
-        """Check which GPU kernels are available"""
+    def test_available_gpu_kernels(self):
+        """Check which GPU kernels are used"""
+        torch.compiler.reset()
+
         M, K, N = 128, 256, 512
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
         )
+
         config = Int8DynamicActivationInt8WeightConfig(version=2)
         quantize_(m, config)
+
         m = torch.compile(m)
         x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
         out, code = run_and_get_code(m, x)
-        FileCheck().check(kernel).run(code[0])
+
+        # Check expected kernels are present
+        FileCheck().check_count("triton_per_fused", 1).check_count(
+            "extern_kernels._int_mm", 1
+        ).check_count("triton_poi_fused", 1).run(code[0])
 
 
 if __name__ == "__main__":
