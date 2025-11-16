@@ -35,7 +35,9 @@ def _load_hadamard_matrices() -> Dict[str, torch.Tensor]:
 def _get_hadamard_matrix(name: str) -> torch.Tensor:
     matrices = _load_hadamard_matrices()
     try:
-        return matrices[name].clone()  # return a fresh tensor like the previous implementation
+        return matrices[
+            name
+        ].clone()  # return a fresh tensor like the previous implementation
     except KeyError as exc:  # pragma: no cover - defensive guard
         raise ValueError(f"Unknown Hadamard matrix '{name}'.") from exc
 
