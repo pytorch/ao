@@ -111,9 +111,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             }
 
             # Create a linear layer with bfloat16 dtype
-            model = ToyTwoLinearModel(
-                K, N, K, device="cuda", dtype=torch.bfloat16
-            ).eval()
+            model = ToyTwoLinearModel(K, N, K, device="cuda", dtype=dtype).eval()
 
             quantized_model = copy.deepcopy(model)
             factory = mode_map[mode]()
