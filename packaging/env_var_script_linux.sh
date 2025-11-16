@@ -17,3 +17,10 @@ TORCH_CUDA_ARCH_LIST="8.0;8.6"
 if [[ ${CU_VERSION:-} == "cu124" ]]; then
   TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST};9.0"
 fi
+
+# CI-ONLY: Disable PEP 517 build isolation to reuse pre-installed build tools
+# from pre_build_script.sh (setuptools, wheel), significantly reducing build time.
+# This is safe in CI because the build environment is controlled and reproducible.
+# WARNING: Do not use this in local development unless you understand the implications
+# for build reproducibility and dependency management.
+export PIP_NO_BUILD_ISOLATION=1
