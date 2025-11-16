@@ -21,6 +21,7 @@ import types
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, List, Optional, Tuple, Union
 from typing import OrderedDict as OrderedDictType
 
@@ -414,6 +415,19 @@ def _linear_extra_repr(self):
 
 def _embedding_extra_repr(self):
     return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
+
+
+def _module_extra_repr(self, original_extra_repr, parameter_name):
+    module_torchao_extra_repr = []
+
+    original_extra_repr_str = original_extra_repr()
+    if len(original_extra_repr_str) > 0:
+        module_torchao_extra_repr.append(original_extra_repr_str)
+
+    module_torchao_extra_repr.append(
+        f"{parameter_name}={_quantization_type(getattr(self, parameter_name))}"
+    )
+    return ", ".join(module_torchao_extra_repr)
 
 
 def _get_linear_subclass_inserter(
@@ -1375,11 +1389,22 @@ def _int8_weight_only_transform(
         "applying int8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
-    new_weight = _int8_weight_only_quantize_tensor(
+    quantized_tensor = _int8_weight_only_quantize_tensor(
         getattr(module, parameter_name), config
     )
-    setattr(module, parameter_name, torch.nn.Parameter(new_weight, requires_grad=False))
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_tensor, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -1664,16 +1689,23 @@ def _float8_weight_only_transform(
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-    new_weight = _float8_weight_only_quant_tensor(
+    quantized_tensor = _float8_weight_only_quant_tensor(
         getattr(module, parameter_name), config
     )
 
     setattr(
         module,
         parameter_name,
-        torch.nn.Parameter(new_weight, requires_grad=False),
+        torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -1946,7 +1978,14 @@ def _float8_dynamic_activation_float8_weight_transform(
         parameter_name,
         torch.nn.Parameter(quantized_tensor, requires_grad=False),
     )
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
