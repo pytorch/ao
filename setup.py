@@ -774,6 +774,7 @@ setup(
     include_package_data=True,
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
+        "torchao.prototype.spinquant": ["_hadamard_matrices.pkl"],
     },
     ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
