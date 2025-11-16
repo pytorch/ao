@@ -17,6 +17,7 @@ from torchao.quantization import (
     Int8WeightOnlyConfig,
     quantize_,
 )
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
@@ -160,23 +161,34 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize(
         "config",
         [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
+            Int8DynamicActivationInt8WeightConfig,
+            Int8WeightOnlyConfig,
         ],
     )
-    def test_index_select(self, config):
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_index_select(self, config, granularity):
         """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
         x = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
         linear.weight.data = x
+
+        config = config(version=2, granularity=granularity)
         quantize_(linear, config)
 
         x_int8 = linear.weight
         x_int8_0 = x_int8[0]
+
+        # Test dequantization consistency
         torch.testing.assert_close(
             x_int8.dequantize()[0], x_int8_0.dequantize(), atol=0, rtol=0
         )
+
+        # Test block_size granularity
+        if isinstance(granularity, PerRow):
+            self.assertEqual(x_int8.block_size, [1, K])
+        elif isinstance(granularity, PerTensor):
+            self.assertEqual(x_int8.block_size, [N, K])
 
     @common_utils.parametrize(
         "config",
@@ -187,16 +199,17 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     )
     def test_dequantization_accuracy(self, config):
         """Test dequantization accuracy separately"""
-        test_data = torch.tensor([[1.0, -1.0]], dtype=torch.bfloat16, device="cuda")
-        linear = torch.nn.Linear(2, 1, bias=False, dtype=torch.bfloat16, device="cuda")
-        linear.weight.data = test_data
+        linear = torch.nn.Linear(
+            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+        )
+        weight_fp = copy.deepcopy(linear.weight)
         quantize_(linear, config)
 
         tensor = linear.weight
         dequantized = tensor.dequantize()
-        self.assertEqual(dequantized.shape, test_data.shape)
-        assert compute_error(dequantized, test_data) > 20, (
-            f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, test_data)}"
+        self.assertEqual(dequantized.shape, weight_fp.shape)
+        assert compute_error(dequantized, weight_fp) > 20, (
+            f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, weight_fp)}"
         )
 
     @common_utils.parametrize(

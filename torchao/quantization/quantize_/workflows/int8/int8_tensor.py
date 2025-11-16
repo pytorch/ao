@@ -14,6 +14,7 @@ from torchao.float8.inference import (
     _slice_scale_for_dimension,
 )
 from torchao.kernel import int_scaled_matmul
+from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
     _maybe_expand_scale_to_tensor_shape,
@@ -24,6 +25,7 @@ from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.utils import get_block_size
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 __all__ = ["Int8Tensor", "QuantizeTensorToInt8Kwargs"]
@@ -37,10 +39,12 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     Args:
         block_size (list[int]): block size for quantization granularity
+        granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         # TODO: Static quantization support using `static_scale`, `static_zero_point`
     """
 
     block_size: list[int]
+    granularity = PerRow()
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -101,26 +105,28 @@ class Int8Tensor(TorchAOBaseTensor):
     @classmethod
     def from_hp(
         cls,
-        w: torch.Tensor,
-        block_size: list[int],
+        w_hp: torch.Tensor,
+        granularity=PerRow(),
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
-        if w.dim() not in [2, 3] or len(block_size) != w.dim():
+        block_size = list(get_block_size(w_hp.shape, granularity))
+
+        if w_hp.dim() not in [2, 3] or len(block_size) != w_hp.dim():
             raise ValueError("Expected 2D or 3D tensor with same block_size length")
 
         scale, zero_point = choose_qparams_affine(
-            input=w,
+            input=w_hp,
             mapping_type=MappingType.SYMMETRIC,
             block_size=block_size,
             target_dtype=torch.int8,
             quant_min=-128,
             quant_max=127,
-            scale_dtype=w.dtype,
+            scale_dtype=w_hp.dtype,
             zero_point_dtype=torch.int8,
         )
 
         int_data = quantize_affine(
-            w,
+            w_hp,
             block_size=block_size,
             scale=scale,
             zero_point=zero_point,
@@ -132,7 +138,7 @@ class Int8Tensor(TorchAOBaseTensor):
             scale,
             block_size,
             act_quant_kwargs=act_quant_kwargs,
-            dtype=w.dtype,
+            dtype=w_hp.dtype,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -290,7 +296,7 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             selected_qdata,
             selected_scale,
-            [selected_qdata.shape[-1]],
+            self.block_size[1:],
             self.act_quant_kwargs,
             self.dtype,
         ),

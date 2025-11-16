@@ -142,18 +142,7 @@ def _slice_scale_for_dimension(
     """
     aten = torch.ops.aten
 
-    # Per-tensor quantization (scalar scale)
-    if scale.numel() == 1:
-        return scale
-
-    # Per-row quantization (1D scale)
-    if scale.ndim == 1:
-        if dim == 0:
-            return aten.slice.Tensor(scale, 0, start, end, step)
-        else:
-            return scale
-
-    # Block-wise quantization (2D scale)
+    # Unsupported case for now, this would be 1 scale per data element
     if scale.shape == data_shape:
         return aten.slice.Tensor(scale, dim, start, end, step)
 
@@ -171,12 +160,6 @@ def _slice_scale_for_dimension(
         # Slice away as normal
         return aten.slice.Tensor(scale, dim, start, end, step)
     else:
-        # Error on Step > 1
-        if step > 1:
-            raise NotImplementedError(
-                "Slicing with step > 1 is not implemented for scale tensors."
-            )
-
         # There is blocking in this dimension
         # Calculate which scale elements correspond to the sliced data
         scale_start = start // block_size_for_dim if start is not None else None
@@ -185,6 +168,12 @@ def _slice_scale_for_dimension(
             if end is not None
             else None
         )
+
+        # Error on Step > 1
+        if step > 1:
+            raise NotImplementedError(
+                "Slicing with step > 1 is not implemented for scale tensors."
+            )
 
         return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
 

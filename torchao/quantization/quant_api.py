@@ -1339,13 +1339,16 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
 
     Args:
-        group_size: Optional[int] = None - Controls the granularity of quantization. If None, applies per-channel quantization.
-            Otherwise, applies per-group quantization with the specified group size.
+        group_size (version 1) - Controls the granularity of quantization.
+        If None, applies per-channel quantization. Otherwise, applies per-group quantization with the specified group size.
+        granularity (version 2) - Quantization granularity.
+            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
     """
 
     group_size: Optional[int] = None
+    granularity: Optional[Union[PerRow, PerTensor]] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1380,11 +1383,7 @@ def _int8_weight_only_quantize_tensor(weight, config):
         )
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
-        group_size = config.group_size
-        if group_size is None:
-            group_size = weight.shape[-1]
-        block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
-        new_weight = Int8Tensor.from_hp(weight, block_size=block_size)
+        new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
     return new_weight
 
 
@@ -1583,17 +1582,17 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         else:
             input_quant_func = _int8_asymm_per_token_quant
 
-    if isinstance(config.granularity, PerTensor):
-        # Tensor granularity
-        block_size = weight.shape
-    else:
-        # Per row granularity
-        block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
-
     if config.version == 1:
         warnings.warn(
             "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
         )
+        if isinstance(config.granularity, PerTensor):
+            block_size = weight.shape
+        else:
+            block_size = tuple(
+                [1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]]
+            )
+
         quantized_weight = to_affine_quantized_intx(
             weight,
             mapping_type,
@@ -1613,10 +1612,13 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
 
         assert config.version == 2, f"Unexpected version: {config.version}"
+        # Compute block_size from granularity for activation quantization kwargs
+        block_size = get_block_size(weight.shape, config.granularity)
+
         quantized_weight = Int8Tensor.from_hp(
             weight,
-            block_size,
-            act_quant_kwargs=QuantizeTensorToInt8Kwargs(block_size=block_size),
+            granularity=config.granularity,
+            act_quant_kwargs=QuantizeTensorToInt8Kwargs(block_size=list(block_size)),
         )
 
     return quantized_weight

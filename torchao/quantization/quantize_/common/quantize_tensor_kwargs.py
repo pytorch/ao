@@ -57,7 +57,7 @@ def _choose_quant_func_and_quantize_tensor(
     elif isinstance(quant_kwargs, QuantizeTensorToInt8Kwargs):
         return Int8Tensor.from_hp(
             tensor,
-            quant_kwargs.block_size,
+            granularity=quant_kwargs.granularity,
             act_quant_kwargs=quant_kwargs,
         )
 
