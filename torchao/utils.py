@@ -137,7 +137,7 @@ def get_available_devices():
     return devices
 
 
-def auto_detect_device():
+def get_current_accelerator_device():
     if torch.accelerator.is_available():
         return torch.accelerator.current_accelerator()
     else:
