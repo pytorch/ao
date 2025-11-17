@@ -11,10 +11,10 @@ model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
       - name: "small_sweep"
-        min_power: 10
+        min_power: 14
         max_power: 15
     high_precision_dtype: "torch.bfloat16"
-    torch_compile_mode: "max-autotune"
+    torch_compile_mode: "default"
     device: "cuda"
     model_type: "linear"
     enable_memory_profiler: true
