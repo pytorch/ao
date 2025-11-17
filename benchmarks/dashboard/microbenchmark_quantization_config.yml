@@ -12,7 +12,7 @@ model_params:
     matrix_shapes:
       - name: "small_sweep"
         min_power: 10
-        max_power: 15
+        max_power: 14
     high_precision_dtype: "torch.bfloat16"
     torch_compile_mode: "max-autotune"
     device: "cuda"
