@@ -105,7 +105,6 @@ from torchao.utils import (
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
-_GPU_IS_AVAILABLE = torch.accelerator.is_available()
 _DEVICE = get_current_accelerator_device()
 
 
@@ -603,7 +602,7 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
+    @unittest.skipIf(_DEVICE is None, "skipping when gpu is not available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
