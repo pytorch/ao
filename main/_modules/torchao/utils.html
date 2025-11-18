@@ -567,6 +567,13 @@
     <span class="k">return</span> <span class="n">devices</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">get_current_accelerator_device</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">accelerator</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">accelerator</span><span class="o">.</span><span class="n">current_accelerator</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">get_compute_capability</span><span class="p">():</span>
     <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
         <span class="n">capability</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_capability</span><span class="p">()</span>
