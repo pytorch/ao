@@ -100,10 +100,12 @@ from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     is_fbcode,
     is_sm_at_least_89,
+    get_current_accelerator_device,
 )
 
 # TODO: put this in a common test utils file
-_CUDA_IS_AVAILABLE = torch.cuda.is_available()
+_GPU_IS_AVAILABLE = torch.accelerator.is_available()
+_DEVICE = get_current_accelerator_device()
 
 
 class Sub(torch.nn.Module):
@@ -347,7 +349,7 @@ class TestQAT(TestCase):
                 group_size,
             )
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                q_weight.to("cuda"),
+                q_weight.to(_DEVICE),
                 qat_linear.inner_k_tiles,
             )
             ptq_linear.weight = q_weight
@@ -600,13 +602,13 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
         inner_k_tiles = 8
         scales_precision = torch.bfloat16
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256, dtype=dtype, device=device)
@@ -651,13 +653,13 @@ class TestQAT(TestCase):
 
         self._assert_close_4w(qat_out, ptq_out)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     def test_qat_4w_linear(self):
         from torchao.quantization.GPTQ import WeightOnlyInt4Linear
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
 
         group_size = 128
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         qat_linear = Int4WeightOnlyQATLinear(
@@ -692,14 +694,14 @@ class TestQAT(TestCase):
         quantizer = Int4WeightOnlyQATQuantizer(groupsize=32, inner_k_tiles=8)
         self._test_qat_quantized_gradients(quantizer)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
         group_size = 32
         inner_k_tiles = 8
-        device = torch.device("cuda")
+        device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
         m = M().to(device).to(dtype)
@@ -1870,6 +1872,7 @@ class TestQAT(TestCase):
         sqnr = compute_error(out, out_expected)
         self.assertGreater(sqnr, 16)
 
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     def _test_quantize_api_against_ptq(
         self,
         base_config: AOBaseConfig,
@@ -1891,12 +1894,12 @@ class TestQAT(TestCase):
         torch.manual_seed(self.SEED)
 
         if module_type == "linear":
-            m = M().to(dtype).cuda()
-            example_inputs = (m.example_inputs()[0].to(dtype).cuda(),)
+            m = M().to(dtype).to(_DEVICE)
+            example_inputs = (m.example_inputs()[0].to(dtype).to(_DEVICE),)
             filter_fn = lambda m, fqn: isinstance(m, torch.nn.Linear)
         elif module_type == "embedding":
-            m = M3().to(dtype).cuda()
-            example_inputs = (m.example_inputs()[0].cuda(),)
+            m = M3().to(dtype).to(_DEVICE)
+            example_inputs = (m.example_inputs()[0].to(_DEVICE),)
             filter_fn = lambda m, fqn: isinstance(m, torch.nn.Embedding)
         else:
             raise ValueError(f"Unknown module type {module_type}")
@@ -1919,7 +1922,7 @@ class TestQAT(TestCase):
         self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
 
     @parametrize("granularity", [PerTensor(), PerRow()])
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     def test_quantize_api_fp8_fp8(self, granularity: Granularity):
         """
@@ -1933,7 +1936,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(
         not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
@@ -1950,7 +1953,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @unittest.skipIf(
         not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
@@ -1971,7 +1974,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     def test_quantize_api_int8_int4(self):
         """
         Test the following:
@@ -1984,7 +1987,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @parametrize(
         "weight_dtype, weight_granularity, dtype",
         [
@@ -2009,7 +2012,7 @@ class TestQAT(TestCase):
             dtype=dtype,
         )
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @parametrize(
         "weight_dtype, granularity, dtype, module_type",
         [
@@ -2092,7 +2095,7 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @parametrize("use_per_tensor_scale", [True, False])
     def test_qat_nvfp4(self, use_per_tensor_scale: bool):
         """
@@ -2102,7 +2105,7 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import NVFP4FakeQuantizeConfig
 
         torch.manual_seed(self.SEED)
-        m = M().cuda()
+        m = M().to(_DEVICE)
         baseline_model = copy.deepcopy(m)
         quantize_(
             baseline_model,
@@ -2117,13 +2120,13 @@ class TestQAT(TestCase):
 
         # Compare prepared values
         torch.manual_seed(self.SEED)
-        x = m.example_inputs("cuda")
+        x = m.example_inputs(_DEVICE)
         out = m(*x)
         baseline_out = baseline_model(*x)
         sqnr = compute_error(out, baseline_out).item()
         self.assertGreaterEqual(sqnr, float("inf"))
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @unittest.skipIf(
         not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
@@ -2141,7 +2144,7 @@ class TestQAT(TestCase):
             _quantize_affine_float8,
         )
 
-        x1 = torch.randn([128, 256], dtype=torch.bfloat16).cuda()
+        x1 = torch.randn([128, 256], dtype=torch.bfloat16).to(_DEVICE)
         x2 = copy.deepcopy(x1)
 
         # (1) Just call `quantize_fp8_row`
@@ -2163,7 +2166,7 @@ class TestQAT(TestCase):
         self.assertGreater(sqnr, 40)
         self.assertGreater(scale_sqnr, 50)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @unittest.skipIf(
         not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
@@ -2188,7 +2191,7 @@ class TestQAT(TestCase):
         )
 
         group_size = 128
-        x1 = torch.randn([128, 256], dtype=torch.bfloat16).cuda()
+        x1 = torch.randn([128, 256], dtype=torch.bfloat16).to(_DEVICE)
         x2 = copy.deepcopy(x1)
         x3 = copy.deepcopy(x1)
 
@@ -2245,7 +2248,7 @@ class TestQAT(TestCase):
         )
         self.assertGreater(sqnr_q1_q3_preshuffle, 32)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     @unittest.skipIf(
         not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
     )
@@ -2263,7 +2266,7 @@ class TestQAT(TestCase):
         )
 
         group_size = 128
-        x1 = torch.randn([128, 256], dtype=torch.bfloat16).cuda()
+        x1 = torch.randn([128, 256], dtype=torch.bfloat16).to(_DEVICE)
         x2 = copy.deepcopy(x1)
         x3 = copy.deepcopy(x1)
 
