@@ -10,6 +10,7 @@ from typing import List
 import torch
 from huggingface_hub import ModelCard, get_token, whoami
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+from transformers.quantizers.auto import get_hf_quantizer
 
 from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
@@ -28,6 +29,7 @@ from torchao.quantization import (
     PerRow,
     quantize_,
 )
+from torchao.quantization.quant_api import _is_linear
 
 
 def _get_username():
@@ -117,7 +119,7 @@ model_to_quantize = "{untied_model}"
 USER_ID = "YOUR_USER_ID"
 MODEL_NAME = model_id.split("/")[-1]
 save_to = f"{{USER_ID}}/{{MODEL_NAME}}-{quant}"
-quantized_model.push_to_hub(save_to, safe_serialization=False)
+quantized_model.push_to_hub(save_to)
 tokenizer.push_to_hub(save_to)
 
 # Manual Testing
@@ -719,11 +721,15 @@ def quantize_and_upload(
             int4_packing_format="tile_packed_to_4d",
             int4_choose_qparams_algorithm="hqq",
         )
-        quant_config = AWQConfig(base_config, step="prepare")
-        quantize_(
-            model,
-            quant_config,
-        )
+
+        def filter_fn_skip_lmhead(module, fqn):
+            if fqn == "lm_head":
+                return False
+            return _is_linear(module, fqn)
+
+        awq_config = AWQConfig(base_config, step="prepare")
+        quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+
         TransformerEvalWrapper(
             model=model,
             tokenizer=tokenizer,
@@ -732,12 +738,28 @@ def quantize_and_upload(
             tasks=tasks,
             limit=calibration_limit,
         )
-        quant_config = AWQConfig(base_config, step="convert")
-        quantize_(model, quant_config)
 
+        awq_config = AWQConfig(base_config, step="convert")
+        quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
         quantized_model = model
+
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
-        quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+        quantization_config = TorchAoConfig(quant_config).to_dict()
+        quantized_model.config.quantization_config = quantization_config
+
+        hf_quantizer, _, _, _ = get_hf_quantizer(
+            config=quantized_model.config,
+            quantization_config=None,
+            dtype=torch.bfloat16,
+            device_map="cuda:0",
+            weights_only=True,
+            user_agent={
+                "file_type": "model",
+                "framework": "pytorch",
+                "from_auto_class": False,
+            },
+        )
+        quantized_model.hf_quantizer = hf_quantizer
     elif quant == "SmoothQuant-INT8-INT8":
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
@@ -836,12 +858,12 @@ def quantize_and_upload(
 
     # Push to hub
     if push_to_hub:
-        quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
+        quantized_model.push_to_hub(quantized_model_id)
         tokenizer.push_to_hub(quantized_model_id)
         if populate_model_card_template:
             card.push_to_hub(quantized_model_id)
     else:
-        quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
+        quantized_model.save_pretrained(quantized_model_id)
         tokenizer.save_pretrained(quantized_model_id)
 
     # Manual Testing
