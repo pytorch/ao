@@ -835,19 +835,25 @@ class TestQuantFlow(TestCase):
             uintx_weight_only: (torch.uint4,),
         }
 
-        with warnings.catch_warnings(record=True) as _warnings:
-            # Call each deprecated API twice
-            for cls, args in deprecated_apis_to_args.items():
+        # Call each deprecated API twice
+        for cls, args in deprecated_apis_to_args.items():
+            with warnings.catch_warnings(record=True) as _warnings:
                 cls(*args)
                 cls(*args)
 
-            # Each call should trigger the warning only once
-            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
-            for w in _warnings:
-                self.assertIn(
-                    "is deprecated and will be removed in a future release",
-                    str(w.message),
-                )
+                # Each call should have at least one warning.
+                # Some of them can have two warnings - one for deprecation,
+                # one for moving to prototype
+                # 1 warning - just deprecation
+                # 2 warnings - deprecation and prototype warnings
+                self.assertTrue(len(_warnings) in (1, 2))
+                found_deprecated = False
+                for w in _warnings:
+                    if "is deprecated and will be removed in a future release" in str(
+                        w.message
+                    ):
+                        found_deprecated = True
+                    self.assertTrue(found_deprecated)
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
@@ -1132,6 +1138,63 @@ class TestFqnToConfig(TestCase):
         for param in m.parameters():
             assert param.device.type == _DEVICE.type
         self.assertLess(memory_streaming, memory_baseline)
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    def test_fqn_config_quantized_nested_module(self):
+        class NestedModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+
+        class TopLevelModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.nested = NestedModule()
+                self.linear1 = torch.nn.Linear(16, 16)
+
+        m = TopLevelModule()
+        quant_config = FqnToConfig(
+            {
+                "nested.linear": Int8WeightOnlyConfig(),
+                "linear1": Int8WeightOnlyConfig(),
+            }
+        )
+        quantize_(m, quant_config, filter_fn=None)
+
+        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
+        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    def test_fqn_config_quantized_nested_module_param(self):
+        class NestedModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+
+        class TopLevelModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.nested = NestedModule()
+                self.linear1 = torch.nn.Linear(16, 16)
+
+        m = TopLevelModule()
+        quant_config = FqnToConfig(
+            {
+                "nested.linear.weight": Int8WeightOnlyConfig(),
+                "linear1.weight": Int8WeightOnlyConfig(),
+            }
+        )
+        quantize_(m, quant_config, filter_fn=None)
+
+        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
+        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    def test_fqn_config_module_config_and_fqn_config_both_specified(self):
+        with self.assertRaises(ValueError):
+            FqnToConfig(
+                fqn_to_config={"test": Float8WeightOnlyConfig()},
+                module_fqn_to_config={"test2": Float8WeightOnlyConfig()},
+            )
 
 
 if __name__ == "__main__":

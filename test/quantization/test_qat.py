@@ -603,9 +603,7 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(
-        not _GPU_IS_AVAILABLE, "skipping when cuda or xpu is not available"
-    )
+    @unittest.skipIf(not _GPU_IS_AVAILABLE, "skipping when gpu is not available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
@@ -709,7 +707,6 @@ class TestQAT(TestCase):
         torch.manual_seed(self.SEED)
         m = M().to(device).to(dtype)
         m2 = copy.deepcopy(m)
-
         qat_quantizer = Int4WeightOnlyQATQuantizer(
             groupsize=group_size,
             inner_k_tiles=inner_k_tiles,
