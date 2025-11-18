@@ -5,14 +5,18 @@
 
 import copy
 import glob
+import json
 import os
+import pickle
 import subprocess
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from setuptools import Extension, find_packages, setup
+from setuptools.command.build_py import build_py as build_py_orig
 
 current_date = datetime.now().strftime("%Y%m%d")
 
@@ -38,6 +42,39 @@ def read_requirements(file_path):
 def read_version(file_path="version.txt"):
     with open(file_path, "r") as file:
         return file.readline().strip()
+
+
+SPINQUANT_REL_PATH = Path("torchao") / "prototype" / "spinquant"
+HADAMARD_JSON = "_hadamard_matrices.json"
+HADAMARD_PKL = "_hadamard_matrices.pkl"
+
+
+def ensure_hadamard_pickle(root_dir: Optional[Path] = None, *, quiet: bool = True):
+    """
+    Guarantee that the Hadamard pickle exists (and is newer than the JSON source)
+    so setup.py packaging has an observable, reproducible rule.
+    """
+
+    base_dir = Path(root_dir) if root_dir is not None else Path(__file__).parent.resolve()
+    spinquant_dir = base_dir / SPINQUANT_REL_PATH
+    json_path = spinquant_dir / HADAMARD_JSON
+    if not json_path.exists():
+        return
+
+    pkl_path = spinquant_dir / HADAMARD_PKL
+    if pkl_path.exists() and pkl_path.stat().st_mtime >= json_path.stat().st_mtime:
+        return
+
+    with json_path.open("r") as source:
+        raw_matrices = json.load(source)
+
+    pkl_path.parent.mkdir(parents=True, exist_ok=True)
+    with pkl_path.open("wb") as sink:
+        pickle.dump(raw_matrices, sink, protocol=pickle.HIGHEST_PROTOCOL)
+
+    if not quiet:
+        rel_path = pkl_path.relative_to(base_dir)
+        print(f"[setup.py] regenerated {rel_path} from JSON source")
 
 
 # Use Git commit ID if VERSION_SUFFIX is not set
@@ -763,6 +800,12 @@ def get_extensions():
     return ext_modules
 
 
+class TorchAOBuildPy(build_py_orig):
+    def run(self):
+        ensure_hadamard_pickle()
+        super().run()
+
+
 # Only check submodules if we're going to build C++ extensions
 if use_cpp != "0":
     check_submodules()
@@ -774,7 +817,10 @@ setup(
     include_package_data=True,
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
-        "torchao.prototype.spinquant": ["_hadamard_matrices.pkl"],
+        "torchao.prototype.spinquant": [
+            "_hadamard_matrices.json",
+            "_hadamard_matrices.pkl",
+        ],
     },
     ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
@@ -782,6 +828,6 @@ setup(
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
-    cmdclass={"build_ext": TorchAOBuildExt},
+    cmdclass={"build_ext": TorchAOBuildExt, "build_py": TorchAOBuildPy},
     options={"bdist_wheel": {"py_limited_api": "cp310"}},
 )

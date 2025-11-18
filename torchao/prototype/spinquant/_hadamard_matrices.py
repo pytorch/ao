@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pickle
 from pathlib import Path
 from typing import Dict, Optional
@@ -9,7 +10,40 @@ from typing import Dict, Optional
 import torch
 
 _DATA_FILENAME = "_hadamard_matrices.pkl"
+_JSON_FILENAME = "_hadamard_matrices.json"
 _HADAMARD_CACHE: Optional[Dict[str, torch.Tensor]] = None
+
+
+def _write_pickle(raw_matrices: Dict[str, list], pickle_path: Path) -> None:
+    pickle_path.parent.mkdir(parents=True, exist_ok=True)
+    with pickle_path.open("wb") as sink:
+        pickle.dump(raw_matrices, sink, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _load_raw_matrices() -> Dict[str, list]:
+    data_path = Path(__file__).with_name(_DATA_FILENAME)
+    json_path = Path(__file__).with_name(_JSON_FILENAME)
+
+    if data_path.exists():
+        with data_path.open("rb") as source:
+            return pickle.load(source)
+
+    if not json_path.exists():
+        raise FileNotFoundError(
+            f"Expected Hadamard data file '{_DATA_FILENAME}' or '{_JSON_FILENAME}' "
+            f"next to {__file__}."
+        )
+
+    with json_path.open("r") as source:
+        raw_matrices = json.load(source)
+
+    try:
+        _write_pickle(raw_matrices, data_path)
+    except OSError:
+        # Best-effort cache priming; safe to ignore when running from read-only envs.
+        pass
+
+    return raw_matrices
 
 
 def _load_hadamard_matrices() -> Dict[str, torch.Tensor]:
@@ -18,13 +52,7 @@ def _load_hadamard_matrices() -> Dict[str, torch.Tensor]:
     global _HADAMARD_CACHE
 
     if _HADAMARD_CACHE is None:
-        data_path = Path(__file__).with_name(_DATA_FILENAME)
-        if not data_path.exists():
-            raise FileNotFoundError(
-                f"Expected Hadamard data file '{_DATA_FILENAME}' next to {__file__}."
-            )
-        with data_path.open("rb") as source:
-            raw_matrices = pickle.load(source)
+        raw_matrices = _load_raw_matrices()
         _HADAMARD_CACHE = {
             name: torch.tensor(values, dtype=torch.float32)
             for name, values in raw_matrices.items()
