@@ -24,7 +24,6 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
     _quantize_activation_per_token_absmax,
@@ -36,8 +35,8 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
-    is_fbcode,
     get_current_accelerator_device,
+    is_fbcode,
 )
 
 _SEED = 1234
