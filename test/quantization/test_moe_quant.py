@@ -33,9 +33,7 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_90, get_current_accelerator_device
-
-_DEVICE = get_current_accelerator_device()
+from torchao.utils import is_sm_at_least_90
 
 if torch.version.hip is not None:
     pytest.skip(
@@ -56,7 +54,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         base_class=AffineQuantizedTensor,
         tensor_impl_class=None,
         dtype=torch.bfloat16,
-        device=_DEVICE,
+        device="cuda",
         fullgraph=False,
     ):
         """
