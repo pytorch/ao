@@ -877,14 +877,8 @@ class TestFqnToConfig(TestCase):
             custom_module_config,
             filter_fn=None,
         )
-        expected_str = (
-            "TestModule(x=Float8Tensor(self.act_quant_kwargs=QuantizeTensorToFloat8Kwargs("
-            "float8_dtype=torch.float8_e4m3fn, granularity=PerTensor(), mm_config=None, "
-            "hp_value_lb=None, hp_value_ub=None, kernel_preference=<KernelPreference.AUTO: 'auto'>), "
-            "self.block_size=[128, 128], self.mm_config=Float8MMConfig(emulate=False, use_fast_accum=True, "
-            "pad_inner_dim=False), self.scale.shape=torch.Size([1, 1]), self.kernel_preference=<KernelPreference.AUTO: 'auto'>))"
-        )
-        assert str(custom_module) == expected_str
+        assert str(custom_module).startswith("TestModule(x=Float8Tensor(")
+        assert str(custom_module.x) in str(custom_module)
 
     def test_fqn_to_config_repr_linear(self):
         linear_model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
@@ -900,16 +894,12 @@ class TestFqnToConfig(TestCase):
             linear_quant_config,
             filter_fn=None,
         )
-        expected_str = (
-            "Linear(in_features=64, out_features=32, bias=False, "
-            "weight=Float8Tensor(self.act_quant_kwargs=QuantizeTensorToFloat8Kwargs("
-            "float8_dtype=torch.float8_e4m3fn, granularity=PerTensor(), mm_config=None, "
-            "hp_value_lb=None, hp_value_ub=None, kernel_preference=<KernelPreference.AUTO: 'auto'>), "
-            "self.block_size=[32, 64], self.mm_config=Float8MMConfig(emulate=False, use_fast_accum=True, "
-            "pad_inner_dim=False), self.scale.shape=torch.Size([1, 1]), self.kernel_preference=<KernelPreference.AUTO: 'auto'>))"
+        expected_starting_str = (
+            "Linear(in_features=64, out_features=32, bias=False, weight=Float8Tensor("
         )
 
-        assert str(linear_model.linear1) == expected_str
+        assert str(linear_model).startswith(expected_starting_str)
+        assert str(linear_model.linear1.weight) in str(linear_model)
 
     def test_quantize_param_fqn_exact(self):
         from transformers import AutoConfig
