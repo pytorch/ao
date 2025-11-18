@@ -71,8 +71,12 @@ use_hqq = False
 quantize_(model, Int4WeightOnlyConfig(group_size=group_size, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
 ```
 
-Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
-
+Note: 
+- The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
+- Third-party backend CI status:
+  - Ascend NPU(requires torch_npu ≥ 2.7.1)
+  [![Ascend NPU](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg)](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml)
+  
 #### A16W8 Int8 WeightOnly Quantization
 
 ```python
