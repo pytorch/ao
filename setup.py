@@ -55,7 +55,9 @@ def ensure_hadamard_pickle(root_dir: Optional[Path] = None, *, quiet: bool = Tru
     so setup.py packaging has an observable, reproducible rule.
     """
 
-    base_dir = Path(root_dir) if root_dir is not None else Path(__file__).parent.resolve()
+    base_dir = (
+        Path(root_dir) if root_dir is not None else Path(__file__).parent.resolve()
+    )
     spinquant_dir = base_dir / SPINQUANT_REL_PATH
     json_path = spinquant_dir / HADAMARD_JSON
     if not json_path.exists():
