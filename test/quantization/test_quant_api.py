@@ -853,6 +853,54 @@ common_utils.instantiate_parametrized_tests(TestQuantFlow)
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
 class TestFqnToConfig(TestCase):
+    def test_fqn_to_config_repr_custom(self):
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_parameter(
+                    "x", torch.nn.Parameter(torch.randn(128, 128, dtype=torch.bfloat16))
+                )
+                self.register_parameter(
+                    "y", torch.nn.Parameter(torch.randn(128, 128, dtype=torch.bfloat16))
+                )
+
+        custom_module = TestModule().cuda().eval()
+        custom_module_config = FqnToConfig(
+            {
+                "x": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+        quantize_(
+            custom_module,
+            custom_module_config,
+            filter_fn=None,
+        )
+        assert str(custom_module).startswith("TestModule(x=Float8Tensor(")
+        assert str(custom_module.x) in str(custom_module)
+
+    def test_fqn_to_config_repr_linear(self):
+        linear_model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+        linear_quant_config = FqnToConfig(
+            {
+                "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerTensor(),
+                ),
+            }
+        )
+        quantize_(
+            linear_model,
+            linear_quant_config,
+            filter_fn=None,
+        )
+        expected_starting_str = (
+            "Linear(in_features=64, out_features=32, bias=False, weight=Float8Tensor("
+        )
+
+        assert str(linear_model).startswith(expected_starting_str)
+        assert str(linear_model.linear1.weight) in str(linear_model)
+
     def test_quantize_param_fqn_exact(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
