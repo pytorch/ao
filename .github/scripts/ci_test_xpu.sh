@@ -14,14 +14,9 @@ python3 -c "import torch; import torchao; print(f'Torch version: {torch.__versio
 
 pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0'
 
-pytest -v -s torchao/test/quantization/
-
-pytest -v -s torchao/test/dtypes/
-
-pytest -v -s torchao/test/float8/
-
-pytest -v -s torchao/test/integration/test_integration.py
-
-pytest -v -s torchao/test/prototype/
-
-pytest -v -s torchao/test/test_ao_models.py
+pytest -v -s torchao/test/quantization/ \
+        torchao/test/dtypes/ \
+        torchao/test/float8/ \
+        torchao/test/integration/test_integration.py \
+        torchao/test/prototype/ \
+        torchao/test/test_ao_models.py
