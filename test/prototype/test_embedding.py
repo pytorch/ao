@@ -18,10 +18,9 @@ from torchao.prototype.quantization.embedding.api import (
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
-    FromIntXQuantizationAwareTrainingConfig,
     Int4WeightOnlyEmbeddingQATQuantizer,
     IntxFakeQuantizeConfig,
-    IntXQuantizationAwareTrainingConfig,
+    QATConfig,
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
@@ -257,7 +256,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_identical_to_IntXQuantizationAwareTrainingConfig(
+    def test_identical_to_QATConfig(
         self, weight_dtype, granularity, mapping_type, scale_dtype, model_dtype
     ):
         # ASYMMETRIC in QAT is very different that PTQ configs
@@ -288,12 +287,12 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         )
         quantize_(
             model,
-            IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
+            QATConfig(weight_config=weight_config, step="prepare"),
             embedding_filter,
         )
         prepared_out = model(indices)
 
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
+        quantize_(model, QATConfig(step="convert"), embedding_filter)
         quantize_(
             model,
             IntxWeightOnlyConfig(
@@ -355,7 +354,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         prepared_out = model(indices)
 
         # Convert model method 1
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
+        quantize_(model, QATConfig(step="convert"), embedding_filter)
         quantize_(
             model,
             IntxWeightOnlyConfig(
