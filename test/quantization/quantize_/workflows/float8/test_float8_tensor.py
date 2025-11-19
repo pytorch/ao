@@ -85,10 +85,6 @@ class ToyConvModel(torch.nn.Module):
             dtype=dtype,
             device=device,
         )
-        if dim == 3:
-            self.conv = self.conv.to(memory_format=torch.channels_last_3d)
-        elif dim == 2:
-            self.conv = self.conv.to(memory_format=torch.channels_last)
 
     def forward(self, x):
         return self.conv(x)
@@ -340,14 +336,26 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("inference_mode", [True, False])
     # test for 2D/3D conv
-    # Inputs are (N, C_in, C_out, (D, H, W) or
-    # (N, C_in, C_out, (H, W)
+    # Inputs are (N, C_in, C_out, (D, H, W), kernel_size or
+    # (N, C_in, C_out, (H, W), kernel_size
     @common_utils.parametrize(
         "sizes",
         [
-            (4, 16, 64, (32, 32, 32)),
-            (4, 16, 64, (32, 32)),
+            (1, 160, 320, (3, 194, 130), 3),
+            # Note: kernel_size can't be 1, otherwise
+            # the weight will be channels_last even though
+            # it's contiguous because of the value of
+            # stride
+            (1, 320, 640, (96, 64), 3),
         ],
+    )
+    @common_utils.parametrize(
+        "is_input_channels_last",
+        [True, False],
+    )
+    @common_utils.parametrize(
+        "is_weight_channels_last",
+        [True, False],
     )
     def test_fp8_conv_variants(
         self,
@@ -355,26 +363,20 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         compile: bool,
         inference_mode: bool,
         sizes: Tuple,
+        is_input_channels_last: bool,
+        is_weight_channels_last: bool,
     ):
         torch.compiler.reset()
         granularity = PerTensor()
         kernel_preference = KernelPreference.AUTO
 
-        N, C_in, C_out, spatial_dims = sizes
+        N, C_in, C_out, spatial_dims, kernel_size = sizes
         dim = len(spatial_dims)
         convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
         assert dim in convs, f"Unsupported dim: {dim}"
         conv_class = convs[dim]
 
-        kernel_size = 3
-
-        # Note: this is channel last memory format
         input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device="cuda")
-        if dim == 3:
-            input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
-        else:
-            assert dim == 2
-            input_tensor = input_tensor.to(memory_format=torch.channels_last)
 
         model = ToyConvModel(
             dim,
@@ -386,6 +388,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             dtype=dtype,
             device="cuda",
         ).eval()
+
+        channels_last_memory_format = (
+            torch.channels_last_3d if dim == 3 else torch.channels_last
+        )
+        if is_input_channels_last:
+            input_tensor = input_tensor.to(memory_format=channels_last_memory_format)
+        if is_weight_channels_last:
+            model = model.to(memory_format=channels_last_memory_format)
 
         quantized_model = copy.deepcopy(model)
 
@@ -405,6 +415,20 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         with inference_mode_ctx:
             output_original = model(input_tensor)
             output_quantized = quantized_model(input_tensor)
+
+        # making sure quantized kernel produces tensor with memory_format
+        # that's aligned with bf16 kernel
+        is_bf16_output_channels_last = output_original.is_contiguous(
+            memory_format=channels_last_memory_format
+        )
+        is_quantized_output_channels_last = output_quantized.is_contiguous(
+            memory_format=channels_last_memory_format
+        )
+
+        assert is_bf16_output_channels_last == is_quantized_output_channels_last, (
+            "unexpected output strides for quantized model: "
+            f"{output_original.stride()} {output_quantized.stride()}"
+        )
 
         error = compute_error(output_original, output_quantized)
         assert compute_error(output_original, output_quantized) > 20, (
@@ -452,13 +476,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         kernel_size = 3
 
-        # Note: this is channel last memory format
         input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device="cuda")
-        if dim == 3:
-            input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
-        else:
-            input_tensor = input_tensor.to(memory_format=torch.channels_last)
-
         model = ToyConvModel(
             dim,
             C_in,
@@ -469,6 +487,13 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             dtype=dtype,
             device="cuda",
         ).eval()
+
+        if dim == 3:
+            input_tensor = input_tensor.to(memory_format=torch.channels_last_3d)
+            model = model.to(memory_format=torch.channels_last_3d)
+        else:
+            input_tensor = input_tensor.to(memory_format=torch.channels_last)
+            model = model.to(memory_format=torch.channels_last)
 
         quantized_model = copy.deepcopy(model)
 
@@ -931,6 +956,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             dtype=dtype,
             device=device,
         ).eval()
+
+        model = model.to(memory_format=torch.channels_last)
 
         quantized_model = copy.deepcopy(model)
 
