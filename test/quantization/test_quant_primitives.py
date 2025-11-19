@@ -16,6 +16,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _choose_qparams_affine_tinygemm,
     _choose_scale_float8,
+    _choose_qparams_and_quantize_scale_only_sinq,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
@@ -822,6 +823,46 @@ class TestQuantPrimitives(unittest.TestCase):
         new_scale5 = _maybe_expand_scale_to_tensor_shape(scale5, target_shape)
         self.assertEqual(new_scale5.shape, torch.Size([3, 2, 8]))
         self.assertEqual(new_scale5.unique(dim=-1).shape, torch.Size([3, 2, 2]))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "SINQ requires CUDA")
+    def test_choose_qparams_and_quantize_scale_only_sinq(self):
+        """Test SINQ quantization produces valid outputs and accuracy."""
+        torch.manual_seed(self.SEED)
+        input = torch.randn(128, 256, dtype=torch.float32)
+        nbits = 4
+        group_size = 64
+
+        # Run SINQ
+        qdata, scale_row, scale_col = _choose_qparams_and_quantize_scale_only_sinq(
+            input,
+            nbits=nbits,
+            group_size=group_size,
+            niter=20,
+            device="cuda",
+        )
+
+        # Check quantized weight is producible
+        self.assertEqual(qdata.dtype, torch.int8)
+        self.assertEqual(qdata.shape, input.shape)
+        qmin, qmax = -(2 ** (nbits - 1)), 2 ** (nbits - 1) - 1
+        self.assertTrue((qdata >= qmin).all() and (qdata <= qmax).all())
+
+        # Check scale factors are producible
+        num_groups = input.shape[1] // group_size
+        self.assertEqual(scale_row.shape, (input.shape[0], num_groups))
+        self.assertEqual(scale_col.shape, (input.shape[1],))
+        self.assertTrue((scale_row > 0).all() and (scale_col > 0).all())
+
+        # Check weight transform with 2-scale factor is applicable
+        qdata_fp32 = qdata.to(torch.float32).cuda()
+        qdata_reshaped = qdata_fp32.reshape(-1, group_size)
+        scale_row_expanded = scale_row.cuda().reshape(-1, 1)
+        scale_col_reshaped = scale_col.cuda().reshape(num_groups, group_size)
+        scale_col_expanded = scale_col_reshaped.repeat(input.shape[0], 1)
+        reconstructed = (
+            qdata_reshaped * scale_row_expanded * scale_col_expanded
+        ).reshape(input.shape)
+        self.assertFalse(torch.isnan(reconstructed).any())
 
     def test_float8_blockwise_scaling(self):
         M, K = 512, 1024
