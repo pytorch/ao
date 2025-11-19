@@ -122,6 +122,7 @@ torch/utils/benchmark/utils/valgrind_wrapper/callgrind.h
 torch/utils/benchmark/utils/valgrind_wrapper/valgrind.h
 torch/version.py
 minifier_launcher.py
+torchao/prototype/spinquant/_hadamard_matrices.pkl
 # Root level file used in CI to specify certain env configs.
 # E.g., see .circleci/config.yaml
 env
