@@ -69,7 +69,6 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
-    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -187,7 +186,6 @@ class TestQuantFlow(TestCase):
         # compiled = m(*example_inputs)
         # torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    @unittest.skip("skipping for now due to torch.compile error")
     def test_dynamic_quant_gpu_unified_api_unified_impl(self):
         quantizer = XNNPackDynamicQuantizer()
         m = ToyLinearModel().eval()
@@ -202,9 +200,6 @@ class TestQuantFlow(TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    @unittest.skip(
-        "FAILED test/quantization/test_quant_api.py::TestQuantFlow::test_dynamic_quant_gpu_unified_api_eager_mode_impl - AssertionError: Tensor-likes are not equal!"
-    )
     def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
         quantizer = TorchCompileDynamicQuantizer()
         m = ToyLinearModel().eval()
@@ -216,7 +211,6 @@ class TestQuantFlow(TestCase):
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
-    @unittest.skipIf(not torch_version_at_least("2.8.0"), "only works for torch 2.8+")
     def test_int4_wo_quant_save_load(self):
         m = ToyLinearModel().eval().cpu()
 
@@ -498,23 +492,21 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming(self):
-        device_module = torch.get_device_module(_DEVICE)
-
         def reset_memory():
             gc.collect()
-            device_module.empty_cache()
-            device_module.reset_peak_memory_stats()
+            torch.accelerator.empty_cache()
+            torch.accelerator.reset_peak_memory_stats()
 
         reset_memory()
         m = ToyLinearModel()
         quantize_(m.to(device=_DEVICE), Int8WeightOnlyConfig())
-        memory_baseline = device_module.max_memory_allocated()
+        memory_baseline = torch.accelerator.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
         quantize_(m, Int8WeightOnlyConfig(), device=_DEVICE)
-        memory_streaming = device_module.max_memory_allocated()
+        memory_streaming = torch.accelerator.max_memory_allocated()
 
         for param in m.parameters():
             assert param.device.type == _DEVICE.type
