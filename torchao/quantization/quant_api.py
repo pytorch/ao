@@ -77,6 +77,7 @@ from torchao.quantization.quantize_.workflows import (
     Float8OpaqueTensor,
     Float8PackingFormat,
     Float8Tensor,
+    Float8SemiSparseTensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
@@ -2003,43 +2004,94 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     layout: Layout = CutlassSemiSparseLayout()
     activation_dtype: torch.dtype = e5m2_dtype
     weight_dtype: torch.dtype = e4m3_dtype
+    version: int = 2
+    weight_granularity: Optional[
+        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
+    ] = PerRow()
+    activation_granularity: Optional[
+        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
+    ] = PerRow()
+    activation_value_lb: Optional[float] = None
+    activation_value_ub: Optional[float] = None
+    kernel_preference = KernelPreference.AUTO
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
         )
 
-
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
+    module: torch.nn.Module,
+    config: Float8DynamicActivationFloat8SemiSparseWeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-    weight = module.weight
+
+    unquantized_param= getattr(module, parameter_name)
     weight_dtype = config.weight_dtype
     activation_dtype = config.activation_dtype
-    layout = config.layout
+    version = config.version
+    kernel_preference = config.kernel_preference
+    activation_granularity = config.activation_granularity
+    weight_granularity = config.weight_granularity
 
-    if not isinstance(layout, CutlassSemiSparseLayout):
-        raise NotImplementedError(
-            f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
-        )
-
-    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
-    weight = to_linear_activation_quantized(
-        weight,
-        _float8_cutlass_quant,
-        quant_kwargs={"target_dtype": activation_dtype},
+    activation_value_lb = config.activation_value_lb
+    activation_value_ub = config.activation_value_ub
+    act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+        activation_dtype,
+        activation_granularity,
+        hp_value_lb=activation_value_lb,
+        hp_value_ub=activation_value_ub,
+        kernel_preference=kernel_preference,
     )
 
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
 
+    if version == 2:
+        quantized_param= Float8SemiSparseTensor.from_hp(
+            unquantized_param,
+            float8_dtype=weight_dtype,
+            granularity=weight_granularity,
+            kernel_preference=kernel_preference,
+            act_quant_kwargs=act_quant_kwargs,
+        )
+    elif version == 1:
+        weight_dtype = config.weight_dtype
+        activation_dtype = config.activation_dtype
+
+        layout = config.layout
+
+        if not isinstance(layout, CutlassSemiSparseLayout):
+            raise NotImplementedError(
+                f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
+            )
+
+        quantized_param = _float8_cutlass_quant_sparse(unquantized_param, weight_dtype)
+        quantized_param= to_linear_activation_quantized(
+            quantized_param,
+            _float8_cutlass_quant,
+            quant_kwargs={"target_dtype": activation_dtype},
+        )
+
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_param, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
+    return module
 
 @dataclass
 class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):

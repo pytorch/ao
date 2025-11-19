@@ -95,7 +95,7 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
 
 
 
-common_utils.instantiate_parametrized_tests(TestQuantSemiSparse)
+common_utils.instantiate_parametrized_tests(TestFloat8SemiSparseTensor)
 
 if __name__ == "__main__":
     unittest.main()
