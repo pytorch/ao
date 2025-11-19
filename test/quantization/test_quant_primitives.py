@@ -824,7 +824,6 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertEqual(new_scale5.shape, torch.Size([3, 2, 8]))
         self.assertEqual(new_scale5.unique(dim=-1).shape, torch.Size([3, 2, 2]))
 
-    @unittest.skipIf(not torch.cuda.is_available(), "SINQ requires CUDA")
     def test_choose_qparams_and_quantize_scale_only_sinq(self):
         """Test SINQ quantization produces valid outputs and accuracy."""
         torch.manual_seed(self.SEED)
@@ -838,7 +837,7 @@ class TestQuantPrimitives(unittest.TestCase):
             nbits=nbits,
             group_size=group_size,
             niter=20,
-            device="cuda",
+            device="cpu",
         )
 
         # Check quantized weight is producible
