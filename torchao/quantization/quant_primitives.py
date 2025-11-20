@@ -2243,14 +2243,14 @@ def _choose_qparams_and_quantize_scale_only_sinq(
         device: Target device for computation (default: "cuda")
 
     Returns:
-        Tuple of (W_q, scale_row, zero, scale_col, shape)
+        Tuple of (qdata, scale_row, scale_col)
     """
     if group_size is not None:
         assert _is_divisible(tensor.numel(), group_size), (
             f"group_size must divide tensor elements. shape: {tensor.shape}, group_size: {group_size}"
         )
 
-    W = tensor.to(device=device, dtype=torch.float32)
+    W = tensor.to(device=device, dtype=compute_dtype)
     shape = W.shape
 
     # Reshape for 1D tiling
@@ -2261,8 +2261,8 @@ def _choose_qparams_and_quantize_scale_only_sinq(
     q_min = max(q_min, 1e-8)
 
     W_hat = W.clone()
-    scale_col_sinkhorn = torch.ones(W.shape[1], device=device, dtype=torch.float32)
-    scale_row_sinkhorn = torch.ones(W.shape[0], device=device, dtype=torch.float32)
+    scale_col_sinkhorn = torch.ones(W.shape[1], device=device, dtype=compute_dtype)
+    scale_row_sinkhorn = torch.ones(W.shape[0], device=device, dtype=compute_dtype)
 
     for _ in range(niter):
         # Normalize columns (dim=0)
@@ -2278,23 +2278,23 @@ def _choose_qparams_and_quantize_scale_only_sinq(
         scale_row_sinkhorn = scale_row_sinkhorn * q_row
 
     # INT8 symmetric quantization
+    # TODO: Consider custom bitwidth for SIMD vadd4
     nbits_i = int(nbits)
     qmin = -(2 ** (nbits_i - 1))
     qmax = 2 ** (nbits_i - 1) - 1
-    qabs = max(abs(qmin), abs(qmax)) or 1
 
-    scale_s = (W_hat.abs().amax(dim=1, keepdim=True) / float(qabs)).clamp_min(1e-8)
-    # TODO: Find better rounding strategy
+    scale_s = (W_hat.abs().amax(dim=1, keepdim=True) / float(qmax)).clamp_min(1e-8)
+    # TODO: Find better rounding strategy like stochastic rounding
     Q = _Round.apply(W_hat / scale_s).clamp(qmin, qmax)
     # TODO: PERF test for scale factor dtype (FP16 vs. INT8)
-    # Although FP16 has high accuracy, it is not efficient in Tensor Core
-    # FP16×INT8 can't be computed in Tensor Core directly, transforming INT8 to FP16 first is needed.
-    qdata = Q.view(shape).contiguous().to(torch.float16)
+    # Although FP16 has high accuracy, FP16×INT8 can't be computed in Tensor Core
+    # directly, requiring INT8 to FP16 ops.
+    qdata = Q.view(shape).contiguous().to(torch.int8)
 
     # Combine RTN scale with row Sinkhorn factor
-    scale_row = (scale_s.squeeze() * scale_row_sinkhorn).view(shape[0], -1)
+    scale_row = (scale_s.view(-1) * scale_row_sinkhorn).view(shape[0], -1)
     num_groups = shape[1] // group_size
-    scale_col = scale_col_sinkhorn.repeat(num_groups)
+    scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]]
 
     return qdata, scale_row, scale_col
 
