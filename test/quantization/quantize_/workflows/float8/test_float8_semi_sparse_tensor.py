@@ -11,17 +11,14 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
 from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
 )
 from torchao.quantization.quant_api import (
-    Int4WeightOnlyConfig,
-    Int8DynamicActivationInt8WeightConfig,
     quantize_,
 )
-from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
+from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
@@ -68,8 +65,8 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
             apply_fake_sparsity(model)
             quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
 
-            original = model.weight.original_weight_tensor.tensor_impl.get_plain()
-            cloned = model.weight.original_weight_tensor.tensor_impl.clone().get_plain()
+            original = model.weight.dequantize()
+            cloned = model.weight.clone().dequantize()
 
             for o, c in zip(original, cloned):
                 torch.testing.assert_close(o, c, atol=0.0, rtol=0.0)
@@ -87,12 +84,11 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
             quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
 
             original = torch.ops.aten.to.dtype_layout(
-                model.weight.original_weight_tensor.tensor_impl,
+                model.weight,
                 dtype=torch.float,
                 layout=torch.strided,
             )
             torch.testing.assert_close(expected, original, atol=1e-1, rtol=1e-1)
-
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8SemiSparseTensor)

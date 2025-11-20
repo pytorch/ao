@@ -5,47 +5,43 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from dataclasses import dataclass
 from typing import List, Optional
 
 import torch
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import (
     FP8Granularity,
 )
-from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.ops import (
+    rowwise_scaled_linear_sparse_cutlass_f8f8,
+    to_sparse_semi_structured_cutlass_sm9x_f8,
+)
+from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
     _quantize_affine_float8,
 )
 from torchao.quantization.quantize_.common import (
     KernelPreference,
-    QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
-    _is_fbgemm_gpu_genai_available,
-    fill_defaults,
     is_sm_at_least_90,
-)
-from torchao.ops import (
-    rowwise_scaled_linear_sparse_cutlass_f8f8,
-    to_sparse_semi_structured_cutlass_sm9x_f8,
 )
 
 __all__ = [
-    "Float8Tensor",
-    "QuantizeTensorToFloat8Kwargs",
+    "Float8SemiSparseTensor",
 ]
 
 aten = torch.ops.aten
 
 
-from .float8_tensor import (
-    QuantizeTensorToFloat8Kwargs
-)
+from .float8_tensor import QuantizeTensorToFloat8Kwargs
+
+
 class Float8SemiSparseTensor(TorchAOBaseTensor):
     """
     Float8 Quantized + 2:4 sparse (weight) Tensor, with float8 dynamic quantization for activation.
@@ -128,16 +124,15 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         input = plain_input.to(dtype=self.sparse_quantized_data.dtype)
         plain_input_scale = torch.ones((cols,), device=self.sparse_quantized_data.device)
         input_scale = plain_input_scale.to(dtype=self.scale.dtype)
-        sparse_scale = torch.ones_like(self.scale)
 
         out_dtype = torch.bfloat16
         dense = (
             rowwise_scaled_linear_sparse_cutlass_f8f8(
                 input,
                 input_scale,
-                self.sparse,
-                self.meta,
-                sparse_scale,
+                self.sparse_quantized_data,
+                self.sparse_metadata,
+                self.scale,
                 out_dtype=out_dtype,
             )
             .to(output_dtype)
@@ -176,12 +171,9 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         elif kernel_preference == KernelPreference.SPARSE_CUTLASS:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
             assert is_sm_at_least_90(), (
-                "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
+                "Specified sparse_cutlass kernel and hardware is not >= SM 9.0 (>= H100)"
             )
             kernel_choice = "sparse_cutlass"
-        else:
-            # fallback quantize kernel for everything else will be torch, which will leverage cuSPARSELt
-            kernel_choice = "torch"
 
         scale = _choose_scale_float8(
             hp_tensor,
@@ -239,33 +231,19 @@ def _(func, types, args, kwargs):
     )
     return out
 
-@implements(aten.matmul.default)
-@implements_torch_function(torch.matmul)
+@implements(aten.clone.default)
 def _(func, types, args, kwargs):
-    input_tensor, weight_tensor = args[0], args[1]
-    return _float8_addmm_impl(input_tensor, weight_tensor)
-
-
-@implements(aten.mm.default)
-@implements_torch_function(torch.mm)
-def _(func, types, args, kwargs):
-    input_tensor, weight_tensor = args[0], args[1]
-    return _float8_addmm_impl(input_tensor, weight_tensor)
-
-
-@implements(aten.addmm_.default)
-def _(func, types, args, kwargs):
-    bias_tensor, input_tensor, weight_tensor = (
-        args[0],
-        args[1],
-        args[2],
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
-    assert kwargs.get("alpha", 1) == 1, "only alpha=1 is supported"
-    assert kwargs.get("beta", 1) == 1, "only beta=1 is supported"
-    out = _float8_addmm_impl(input_tensor, weight_tensor)
-    return bias_tensor.add_(out)
 
-Float8SemiSparseTensor.__module__ = "torchao.quantization"
+@implements(aten.to.dtype_layout)
+def _(func, types, args, kwargs):
+    return args[0].dequantize().to(
+        *args[1:],
+        dtype=kwargs.get("dtype", args[0].dtype),
+        device=kwargs.get("device", args[0].device),
+    )
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Float8SemiSparseTensor, QuantizeTensorToFloat8Kwargs])
