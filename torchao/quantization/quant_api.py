@@ -2337,8 +2337,8 @@ def _intx_weight_only_quantize_tensor(
     intx_packing_format = config.intx_packing_format
     intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
-    assert weight.dim() == 2, (
-        f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
+    assert weight.dim() in [2, 4], (
+        f"IntxWeightOnlyConfig only works for 2-d and 4-d Tensors, got: {weight.dim()}"
     )
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
@@ -2350,7 +2350,11 @@ def _intx_weight_only_quantize_tensor(
     else:
         raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
 
-    block_size = (1, group_size)
+    if weight.dim() == 2:
+        block_size = (1, group_size)
+    else:
+        assert weight.dim() == 4
+        block_size = (1, group_size, 1, 1)
 
     if config.version == 2:
         if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
