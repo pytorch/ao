@@ -1612,13 +1612,11 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
 
         assert config.version == 2, f"Unexpected version: {config.version}"
-        # Compute block_size from granularity for activation quantization kwargs
-        block_size = get_block_size(weight.shape, config.granularity)
 
         quantized_weight = Int8Tensor.from_hp(
             weight,
             granularity=config.granularity,
-            act_quant_kwargs=QuantizeTensorToInt8Kwargs(block_size=list(block_size)),
+            act_quant_kwargs=QuantizeTensorToInt8Kwargs(granularity=config.granularity),
         )
 
     return quantized_weight

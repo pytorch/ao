@@ -18,7 +18,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.utils import compute_error
+from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
 
@@ -186,9 +186,13 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         # Test block_size granularity
         if isinstance(granularity, PerRow):
-            self.assertEqual(x_int8.block_size, [1, K])
+            self.assertEqual(
+                list(get_block_size(x_int8.shape, x_int8.granularity)), [1, K]
+            )
         elif isinstance(granularity, PerTensor):
-            self.assertEqual(x_int8.block_size, [N, K])
+            self.assertEqual(
+                list(get_block_size(x_int8.shape, x_int8.granularity)), [N, K]
+            )
 
     @common_utils.parametrize(
         "config",

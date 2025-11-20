@@ -17,8 +17,8 @@ from torchao.kernel import int_scaled_matmul
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
-    _maybe_expand_scale_to_tensor_shape,
     choose_qparams_affine,
+    dequantize_affine,
     quantize_affine,
 )
 from torchao.quantization.quantize_.common import (
@@ -38,13 +38,11 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor (either activation or weight)
 
     Args:
-        block_size (list[int]): block size for quantization granularity
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         # TODO: Static quantization support using `static_scale`, `static_zero_point`
     """
 
-    block_size: list[int]
-    granularity = PerRow()
+    granularity: object = PerRow()
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -56,12 +54,12 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: scale factors for dequantization
 
     Non-Tensor Attributes:
-        block_size: block size for quantization granularity
+        granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = ["block_size"]
+    tensor_attribute_names = ["granularity"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
         "dtype",
@@ -86,20 +84,20 @@ class Int8Tensor(TorchAOBaseTensor):
         self,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: list[int],
+        granularity,
         act_quant_kwargs=None,
         dtype=None,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale = scale
-        self.block_size = block_size
+        self.granularity = granularity
         self.act_quant_kwargs = act_quant_kwargs
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.block_size=}, {self.shape=}, {self.device=}, {self.dtype=})"
+            f"{self.granularity=}, {self.shape=}, {self.device=}, {self.dtype=})"
         )
 
     @classmethod
@@ -109,7 +107,7 @@ class Int8Tensor(TorchAOBaseTensor):
         granularity=PerRow(),
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
-        block_size = list(get_block_size(w_hp.shape, granularity))
+        block_size = get_block_size(w_hp.shape, granularity)
 
         if w_hp.dim() not in [2, 3] or len(block_size) != w_hp.dim():
             raise ValueError("Expected 2D or 3D tensor with same block_size length")
@@ -136,7 +134,7 @@ class Int8Tensor(TorchAOBaseTensor):
         return cls(
             int_data,
             scale,
-            block_size,
+            granularity,
             act_quant_kwargs=act_quant_kwargs,
             dtype=w_hp.dtype,
         )
@@ -147,13 +145,18 @@ class Int8Tensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        qdata_fp = self.qdata.to(output_dtype)
-        scale = self.scale
-        while scale.ndim < qdata_fp.ndim:
-            scale = scale.unsqueeze(-1)
+        block_size = get_block_size(self.qdata.shape, self.granularity)
 
-        scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, qdata_fp.shape)
-        return qdata_fp * scale_expanded.to(output_dtype)
+        return dequantize_affine(
+            input=self.qdata,
+            block_size=block_size,
+            scale=self.scale,
+            zero_point=None,
+            input_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            output_dtype=output_dtype,
+        )
 
 
 implements = Int8Tensor.implements
@@ -178,15 +181,6 @@ def _(func, types, args, kwargs):
         if not isinstance(activation_tensor, Int8Tensor):
             # Dynamic activation quantization
             act_kwargs = weight_tensor.act_quant_kwargs
-            input_ndim = activation_tensor.ndim
-
-            # Ensure block_size matches input tensor dimensions
-            if len(act_kwargs.block_size) != input_ndim:
-                if input_ndim == 3 and len(act_kwargs.block_size) == 2:
-                    block_size_updated = [1] + list(act_kwargs.block_size)
-                else:
-                    block_size_updated = list(act_kwargs.block_size)[-input_ndim:]
-                act_kwargs = QuantizeTensorToInt8Kwargs(block_size=block_size_updated)
 
             activation_tensor = _choose_quant_func_and_quantize_tensor(
                 activation_tensor, act_kwargs
@@ -261,10 +255,6 @@ def _(func, types, args, kwargs):
         self.scale, self.qdata.shape, dim, start, end, step
     )
 
-    block_size = list(self.block_size)
-    for i in range(len(block_size)):
-        block_size[i] = min(block_size[i], sliced_qdata.shape[i])
-
     return return_and_correct_aliasing(
         func,
         args,
@@ -272,7 +262,7 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             sliced_qdata,
             sliced_scale,
-            block_size,
+            self.granularity,
             self.act_quant_kwargs,
             dtype=self.dtype,
         ),
@@ -296,7 +286,7 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             selected_qdata,
             selected_scale,
-            self.block_size[1:],
+            self.granularity,
             self.act_quant_kwargs,
             self.dtype,
         ),
