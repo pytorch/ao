@@ -34,11 +34,13 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
+from torchao.utils import get_current_accelerator_device
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_DEVICE = get_current_accelerator_device()
 
 
 def _reset():
@@ -341,7 +343,7 @@ class TestFSDP2(FSDPTest):
             dropout_p=0,
         )
         torch.manual_seed(42)
-        base_model = Transformer(model_args).cuda()
+        base_model = Transformer(model_args).to(_DEVICE)
         fsdp_model = copy.deepcopy(base_model)
 
         quantize_(base_model.layers, quantize_fn)
@@ -361,7 +363,7 @@ class TestFSDP2(FSDPTest):
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
-            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
+            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device=_DEVICE)
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = fsdp_model(inp).sum()
             fsdp_loss.backward()
@@ -392,7 +394,9 @@ class TestFSDP2(FSDPTest):
             precompute_bitnet_scale_for_fsdp,
         )
 
-        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).to(
+            _DEVICE
+        )
         model_fsdp = copy.deepcopy(model)
         quantize_(model_fsdp, bitnet_training())
         fully_shard(model_fsdp)
