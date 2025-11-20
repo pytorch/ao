@@ -134,8 +134,17 @@ def int_scaled_matmul(
     if check_cpu_version(scales1.device):
         # CPU prefers decomposed version of int_scaled_matmul
         # to leverage the fusion capability of Inductor
-        c = torch._int_mm(a, b)
-        return c.to(scales1.dtype) * scales1
+
+        if not torch.cpu._is_amx_tile_supported() and torch.cpu._is_vnni_supported():# uint8 path
+            a = (a.to(torch.int32) + 128).to(torch.uint8)
+            c = torch._int_mm(a, b)
+            zp = a.fill_(128)
+            zpb = torch._int_mm(zp, b)
+            c = c - zpb
+            return c.to(scales1.dtype) * scales1
+        else: # int8 path
+            c = torch._int_mm(a, b)
+            return c.to(scales1.dtype) * scales1
 
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
