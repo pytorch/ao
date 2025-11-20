@@ -57,7 +57,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
-from torchao.float8.config import e4m3_dtype, e5m2_dtype
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
@@ -76,8 +76,8 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.quantize_.workflows import (
     Float8OpaqueTensor,
     Float8PackingFormat,
-    Float8Tensor,
     Float8SemiSparseTensor,
+    Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
@@ -2001,24 +2001,19 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
         `weight_dtype`: data type for quantized weight tensor.
     """
 
-    layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = e5m2_dtype
+    activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    version: int = 2
-    weight_granularity: Optional[
-        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
-    ] = PerRow()
-    activation_granularity: Optional[
-        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
-    ] = PerRow()
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
-    kernel_preference = KernelPreference.AUTO
+    kernel_preference: KernelPreference = KernelPreference.AUTO
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
         )
+
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
@@ -2032,15 +2027,12 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-
-    unquantized_param= getattr(module, parameter_name)
+    unquantized_param = getattr(module, parameter_name)
     weight_dtype = config.weight_dtype
     activation_dtype = config.activation_dtype
     version = config.version
     kernel_preference = config.kernel_preference
-    activation_granularity = config.activation_granularity
-    weight_granularity = config.weight_granularity
-
+    activation_granularity, weight_granularity = config.granularity
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
@@ -2051,31 +2043,17 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
         kernel_preference=kernel_preference,
     )
 
-
     if version == 2:
-        quantized_param= Float8SemiSparseTensor.from_hp(
+        quantized_param = Float8SemiSparseTensor.from_hp(
             unquantized_param,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
             kernel_preference=kernel_preference,
             act_quant_kwargs=act_quant_kwargs,
         )
-    elif version == 1:
-        weight_dtype = config.weight_dtype
-        activation_dtype = config.activation_dtype
-
-        layout = config.layout
-
-        if not isinstance(layout, CutlassSemiSparseLayout):
-            raise NotImplementedError(
-                f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
-            )
-
-        quantized_param = _float8_cutlass_quant_sparse(unquantized_param, weight_dtype)
-        quantized_param= to_linear_activation_quantized(
-            quantized_param,
-            _float8_cutlass_quant,
-            quant_kwargs={"target_dtype": activation_dtype},
+    else:
+        raise NotImplementedError(
+            f"Only version 2 of Float8DynamicActivationFloat8SemiSparseWeightConfig is supported. Received {version}."
         )
 
     setattr(
@@ -2092,6 +2070,7 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
         module,
     )
     return module
+
 
 @dataclass
 class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
