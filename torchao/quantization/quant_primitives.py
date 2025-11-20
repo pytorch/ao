@@ -2226,7 +2226,6 @@ def _choose_qparams_and_quantize_scale_only_sinq(
     group_size: int = 64,
     niter: int = 20,
     compute_dtype: torch.dtype = torch.float16,
-    device: str = "cuda",
 ) -> tuple:
     """
     SINQ: Sinkhorn-Normalized Quantization (https://www.arxiv.org/abs/2509.22944)
@@ -2240,7 +2239,6 @@ def _choose_qparams_and_quantize_scale_only_sinq(
         group_size: Quantization group size (default: 64)
         niter: Number of Sinkhorn iterations (default: 20)
         compute_dtype: Target compute dtype (default: torch.float16)
-        device: Target device for computation (default: "cuda")
 
     Returns:
         Tuple of (qdata, scale_row, scale_col)
@@ -2250,7 +2248,7 @@ def _choose_qparams_and_quantize_scale_only_sinq(
             f"group_size must divide tensor elements. shape: {tensor.shape}, group_size: {group_size}"
         )
 
-    W = tensor.to(device=device, dtype=compute_dtype)
+    W = tensor.to(dtype=compute_dtype)
     shape = W.shape
 
     # Reshape for 1D tiling
@@ -2261,8 +2259,8 @@ def _choose_qparams_and_quantize_scale_only_sinq(
     q_min = max(q_min, 1e-8)
 
     W_hat = W.clone()
-    scale_col_sinkhorn = torch.ones(W.shape[1], device=device, dtype=compute_dtype)
-    scale_row_sinkhorn = torch.ones(W.shape[0], device=device, dtype=compute_dtype)
+    scale_col_sinkhorn = torch.ones(W.shape[1], device=W.device, dtype=compute_dtype)
+    scale_row_sinkhorn = torch.ones(W.shape[0], device=W.device, dtype=compute_dtype)
 
     for _ in range(niter):
         # Normalize columns (dim=0)
@@ -2292,9 +2290,11 @@ def _choose_qparams_and_quantize_scale_only_sinq(
     qdata = Q.view(shape).contiguous().to(torch.int8)
 
     # Combine RTN scale with row Sinkhorn factor
-    scale_row = (scale_s.view(-1) * scale_row_sinkhorn).view(shape[0], -1)
+    scale_row = (
+        (scale_s.view(-1) * scale_row_sinkhorn).view(shape[0], -1).to(compute_dtype)
+    )
     num_groups = shape[1] // group_size
-    scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]]
+    scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]].to(compute_dtype)
 
     return qdata, scale_row, scale_col
 

@@ -837,7 +837,6 @@ class TestQuantPrimitives(unittest.TestCase):
             nbits=nbits,
             group_size=group_size,
             niter=20,
-            device="cpu",
         )
 
         # Check quantized weight is producible
