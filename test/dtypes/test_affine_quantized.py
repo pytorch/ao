@@ -50,6 +50,7 @@ is_cusparselt_available = (
 )
 _DEVICE = get_current_accelerator_device()
 
+
 def get_quantization_functions(
     do_sparse: bool, do_int4: bool, device: str = _DEVICE, int4_zp_int: bool = False
 ):

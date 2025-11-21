@@ -49,6 +49,7 @@ random.seed(0)
 torch.manual_seed(0)
 _DEVICE = get_current_accelerator_device()
 
+
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
@@ -141,14 +142,16 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     def test_invalid_granularity(self):
         with pytest.raises(ValueError, match="Invalid granularity specification"):
             Float8DynamicActivationFloat8WeightConfig(granularity="invalid")
 
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     def test_mismatched_granularity(self):
         with pytest.raises(
@@ -160,7 +163,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     def test_unsupported_granularity(self):
         class UnsupportedGranularity:
@@ -356,7 +360,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
@@ -399,7 +404,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
@@ -432,7 +438,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     def test_dequantize_affine_float8_scale_broadcasting(self):
         """Test that scale broadcasting works correctly for block-wise quantization"""
