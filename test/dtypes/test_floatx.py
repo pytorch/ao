@@ -33,10 +33,11 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_fbcode
+from torchao.utils import is_fbcode, get_current_accelerator_device
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else []) + (["xpu"] if torch.xpu.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
+_DEVICE = get_current_accelerator_device()
 
 
 class TestFloatxTensorCoreAQTTensorImpl(TestCase):
@@ -87,7 +88,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         )
         torch.testing.assert_close(actual, expected)
 
-    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), reason="GPU not available")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     def test_to_copy_device(self, ebits, mbits):
         from torchao.quantization.quant_primitives import (
@@ -101,12 +102,12 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         _layout = FloatxTensorCoreLayout(ebits, mbits)
         floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(
             x, scale, None, _layout
-        ).cuda()
-        assert floatx_tensor_impl.device.type == "cuda"
+        ).to(_DEVICE)
+        assert floatx_tensor_impl.device.type == _DEVICE
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
 
-    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), reason="GPU not available")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
@@ -114,7 +115,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @skip_if_rocm("ROCm enablement in progress")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
-        device = "cuda"
+        device = _DEVICE
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=dtype)
         fpx_linear = copy.deepcopy(linear)
