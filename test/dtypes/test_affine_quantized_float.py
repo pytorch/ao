@@ -299,9 +299,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 f"Expected warning message containing: {expected}",
             )
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     @common_utils.parametrize(
         "in_features,out_features", [(512, 1024), (256, 768), (1024, 512)]
@@ -462,9 +462,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         # Verify shapes match
         self.assertEqual(dequantized.shape, input_tensor.shape)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_float8_tensor_slicing_basic(self, granularity):
@@ -777,9 +777,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             torch.testing.assert_close(expected_dequantized, test_dq)
 
     @torch.no_grad()
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
     )
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize("float8_config_version", [1, 2])
