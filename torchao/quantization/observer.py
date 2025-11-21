@@ -12,11 +12,7 @@ import torch
 
 from torchao.quantization.quant_primitives import _fake_quantize_affine
 
-from .granularity import (
-    Granularity,
-    PerRow,
-    PerTensor,
-)
+from .granularity import Granularity
 from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
@@ -350,7 +346,3 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.preserve_zero,
             self.zero_point_domain,
         )
-
-
-# Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([PerRow, PerTensor])
