@@ -103,11 +103,11 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(
             x, scale, None, _layout
         ).to(_DEVICE)
-        assert floatx_tensor_impl.device.type == _DEVICE
+        assert floatx_tensor_impl.device.type == _DEVICE.type
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
 
-    @unittest.skipIf(not torch.accelerator.is_available(), reason="GPU not available")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
