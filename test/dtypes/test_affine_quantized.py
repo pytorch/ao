@@ -39,17 +39,16 @@ from torchao.testing.utils import skip_if_no_cuda, skip_if_no_gemlite, skip_if_r
 from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
+    get_current_accelerator_device,
     is_fbcode,
     is_ROCM,
     is_sm_at_least_89,
-    get_current_accelerator_device,
 )
 
 is_cusparselt_available = (
     hasattr(torch.backends, "cusparselt") and torch.backends.cusparselt.is_available()
 )
 _DEVICE = get_current_accelerator_device()
-
 
 def get_quantization_functions(
     do_sparse: bool, do_int4: bool, device: str = _DEVICE, int4_zp_int: bool = False
