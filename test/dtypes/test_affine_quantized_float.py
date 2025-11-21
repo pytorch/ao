@@ -171,9 +171,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 granularity=(UnsupportedGranularity(), UnsupportedGranularity()),
             )
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_per_row_with_float32(self):
         with pytest.raises(
@@ -261,9 +261,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     original_layer.weight.scale, new_layer.weight.scale
                 ), f"Scales do not match for {layer_name}"
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_fp8_weight_dimension_warning(self):
         # Create model with incompatible dimensions (not multiples of 16)
