@@ -35,7 +35,11 @@ from torchao.quantization import (
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_fbcode, get_current_accelerator_device
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else []) + (["xpu"] if torch.xpu.is_available() else [])
+_DEVICES = (
+    ["cpu"]
+    + (["cuda"] if torch.cuda.is_available() else [])
+    + (["xpu"] if torch.xpu.is_available() else [])
+)
 _Floatx_DTYPES = [(3, 2), (2, 2)]
 _DEVICE = get_current_accelerator_device()
 
