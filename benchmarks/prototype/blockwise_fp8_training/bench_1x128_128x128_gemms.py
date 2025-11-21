@@ -11,11 +11,9 @@ from typing import List
 
 import torch
 from tabulate import tabulate
+from torch.nn.functional import ScalingType, scaled_mm
 from tqdm import tqdm
 from triton.testing import do_bench
-
-from torch.nn.functional import scaled_mm, ScalingType
-
 
 from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_blockwise_act_quant_lhs,
@@ -166,10 +164,8 @@ def print_results(experiments: List[Experiment]):
     for experiment in experiments:
         m, n, k = experiment.config.m, experiment.config.n, experiment.config.k
         flops = 2 * m * n * k
-        bf16_mm_tflops_per_sec = (flops / 1e12) / \
-            (experiment.result.bf16_mm_us / 1e6)
-        triton_tflops_per_sec = (flops / 1e12) / \
-            (experiment.result.fp8_triton_us / 1e6)
+        bf16_mm_tflops_per_sec = (flops / 1e12) / (experiment.result.bf16_mm_us / 1e6)
+        triton_tflops_per_sec = (flops / 1e12) / (experiment.result.fp8_triton_us / 1e6)
         scaled_mm_tflops_per_sec = (flops / 1e12) / (
             experiment.result.fp8_scaled_mm_us / 1e6
         )
