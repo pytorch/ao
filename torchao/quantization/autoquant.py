@@ -59,6 +59,16 @@ aten = torch.ops.aten
 
 _AUTOQUANT_CACHE = {}
 
+# Sentinel object to indicate that the default mode should be used.
+# We use this instead of directly setting mode=["relu", None] as a default argument
+# because lists are mutable in Python. If we used a list as a default, modifying
+# it in one call would affect all future calls that use the default.
+_DEFAULT_MODE_SENTINEL = object()
+
+
+def _resolve_autoquant_mode(mode):
+    return ["relu", None] if mode is _DEFAULT_MODE_SENTINEL else mode
+
 
 def _check_cache(cls, shapes_and_dtype):
     return _AUTOQUANT_CACHE.get((cls,) + shapes_and_dtype, None)
@@ -89,7 +99,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         weight,
         qtensor_class_list,
         *args,
-        mode=["relu", None],
+        mode=_DEFAULT_MODE_SENTINEL,
         min_sqnr=None,
         **kwargs,
     ):
@@ -109,10 +119,11 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         weight,
         qtensor_class_list,
         *args,
-        mode=["relu", None],
+        mode=_DEFAULT_MODE_SENTINEL,
         min_sqnr=None,
         **kwargs,
     ):
+        mode = _resolve_autoquant_mode(mode)
         self.weight = weight
         self.qtensor_class_list = qtensor_class_list
         self.logged_data = {}
@@ -393,7 +404,10 @@ class AQMixin:
     """
 
     @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
+    def _autoquant_test(
+        cls, act_mat, weight, bias, best_time, mode=_DEFAULT_MODE_SENTINEL
+    ):
+        mode = _resolve_autoquant_mode(mode)
         w_qtensor = cls.from_float(weight)
         if _is_interpolate_mode(mode):
             q_c_op = torch.compile(
@@ -466,7 +480,9 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         return weight
 
     @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
+    def _autoquant_test(
+        cls, act_mat, weight, bias, best_time, mode=_DEFAULT_MODE_SENTINEL
+    ):
         """
         Tests and benchmarks the autoquantization process with special handling for interpolate mode.
 
@@ -481,6 +497,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         Returns:
             float: The benchmarked time for the autoquantization process.
         """
+        mode = _resolve_autoquant_mode(mode)
         if not _is_interpolate_mode(mode):
             return super()._autoquant_test(act_mat, weight, bias, best_time, mode)
 
@@ -531,7 +548,9 @@ class AQInt8DynamicallyQuantizedSemiSparseLinearWeight(
     aq_layout: Layout = SemiSparseLayout()
 
     @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
+    def _autoquant_test(
+        cls, act_mat, weight, bias, best_time, mode=_DEFAULT_MODE_SENTINEL
+    ):
         return super()._autoquant_test(act_mat, weight, bias, best_time, None)
 
 
