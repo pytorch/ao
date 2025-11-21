@@ -141,14 +141,14 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(
-        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_invalid_granularity(self):
         with pytest.raises(ValueError, match="Invalid granularity specification"):
             Float8DynamicActivationFloat8WeightConfig(granularity="invalid")
 
     @unittest.skipIf(
-        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_mismatched_granularity(self):
         with pytest.raises(
@@ -160,7 +160,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(
-        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_unsupported_granularity(self):
         class UnsupportedGranularity:
