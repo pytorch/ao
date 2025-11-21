@@ -6,6 +6,9 @@ from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
 )
+from .float8.float8_semi_sparse_tensor import (
+    Float8SemiSparseTensor,
+)
 from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 from .int4.int4_marlin_sparse_tensor import (
     Int4MarlinSparseTensor,

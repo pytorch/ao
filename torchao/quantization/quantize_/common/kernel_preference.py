@@ -30,5 +30,9 @@ class KernelPreference(str, Enum):
     """
     FBGEMM = "fbgemm"
 
+    """Use torchao cutlass kernel for fp8 + 2:4 sparse mm, requires building torchao with CUDA
+    """
+    SPARSE_CUTLASS = "sparse_cutlass"
+
 
 torch.serialization.add_safe_globals([KernelPreference])
