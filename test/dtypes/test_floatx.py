@@ -33,7 +33,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_fbcode, get_current_accelerator_device
+from torchao.utils import get_current_accelerator_device, is_fbcode
 
 _DEVICES = (
     ["cpu"]
