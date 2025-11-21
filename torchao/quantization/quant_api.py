@@ -2003,7 +2003,7 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
 
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = PerRow()
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
     kernel_preference: KernelPreference = KernelPreference.AUTO
@@ -2032,7 +2032,9 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     activation_dtype = config.activation_dtype
     version = config.version
     kernel_preference = config.kernel_preference
-    activation_granularity, weight_granularity = config.granularity
+    activation_granularity, weight_granularity = _normalize_granularity(
+        config.granularity
+    )
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     act_quant_kwargs = QuantizeTensorToFloat8Kwargs(

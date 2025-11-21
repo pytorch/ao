@@ -31,31 +31,36 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_fp8_cutlass_sparse(self, compile):
-        input = torch.rand((256, 256)).half().cuda()
-        model = (
-            nn.Sequential(
-                nn.Linear(256, 1024),
-                nn.Linear(1024, 256),
+        with torch.inference_mode():
+            input = torch.rand((256, 256)).half().cuda()
+            model = (
+                nn.Sequential(
+                    nn.Linear(256, 1024),
+                    nn.Linear(1024, 256),
+                )
+                .half()
+                .cuda()
+                .eval()
             )
-            .half()
-            .cuda()
-            .eval()
-        )
 
-        apply_fake_sparsity(model)
-        model_copy = copy.deepcopy(model)
+            apply_fake_sparsity(model)
+            model_copy = copy.deepcopy(model)
 
-        # Quantized
-        quantize_(model_copy.bfloat16(), Float8DynamicActivationFloat8WeightConfig())
-        dense_result = model_copy(input.bfloat16()).half()
+            # Quantized
+            quantize_(
+                model_copy.bfloat16(), Float8DynamicActivationFloat8WeightConfig()
+            )
+            dense_result = model_copy(input.bfloat16()).half()
 
-        # Sparse + quantized
-        quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
-        if compile:
-            model = torch.compile(model)
-        sparse_result = model(input)
+            # Sparse + quantized
+            quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
+            if compile:
+                model = torch.compile(model)
+            sparse_result = model(input)
 
-        torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
+            torch.testing.assert_close(
+                dense_result, sparse_result, atol=3e-1, rtol=3e-1
+            )
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

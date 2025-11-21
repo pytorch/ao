@@ -176,6 +176,8 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
                 "Specified sparse_cutlass kernel and hardware is not >= SM 9.0 (>= H100)"
             )
             kernel_choice = "sparse_cutlass"
+        else:
+            raise ValueError("Configuration not supported currently!")
 
         scale = _choose_scale_float8(
             hp_tensor,
