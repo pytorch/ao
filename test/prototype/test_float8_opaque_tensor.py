@@ -15,8 +15,10 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao import quantize_
+from torchao.prototype.float8_opaque_tensor import (
+    Float8DynamicActivationFloat8WeightOpaqueTensorConfig,
+)
 from torchao.quantization import (
-    Float8DynamicActivationFloat8WeightConfig,
     PerGroup,
     PerRow,
     PerTensor,
@@ -29,10 +31,8 @@ from torchao.utils import (
 
 
 def get_config(granularity):
-    return Float8DynamicActivationFloat8WeightConfig(
-        activation_dtype=torch.float8_e4m3fn,
+    return Float8DynamicActivationFloat8WeightOpaqueTensorConfig(
         granularity=granularity,
-        float8_packing_format="opaque",
     )
 
 
@@ -133,7 +133,7 @@ class TestFloat8OpaqueTensor(TestCase):
         quantize_(linear, get_config(PerRow()))
         self.assertEqual(
             str(type(linear.weight)),
-            "<class 'torchao.quantization.Float8OpaqueTensor'>",
+            "<class 'torchao.prototype.float8_opaque_tensor.Float8OpaqueTensor'>",
         )
 
         with tempfile.NamedTemporaryFile() as f:
@@ -142,7 +142,7 @@ class TestFloat8OpaqueTensor(TestCase):
             state_dict = torch.load(f)
             self.assertEqual(
                 str(type(state_dict["weight"])),
-                "<class 'torchao.quantization.Float8OpaqueTensor'>",
+                "<class 'torchao.prototype.float8_opaque_tensor.Float8OpaqueTensor'>",
             )
 
 
