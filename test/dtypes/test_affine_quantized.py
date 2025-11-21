@@ -233,7 +233,7 @@ class TestAffineQuantized(TestCase):
                     ql = apply_quant(linear)
                 assert "AffineQuantizedTensor" in str(ql)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(
         "apply_quant", get_quantization_functions(False, True, _DEVICE, False)
     )
@@ -339,7 +339,7 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", [_DEVICE])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_no_cuda()
     @skip_if_rocm("ROCm enablement in progress")
     def test_slice_int4wo(self, device, dtype):
         # in_feature not divisible by 1024
@@ -453,7 +453,7 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", [_DEVICE])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_no_cuda()
     @skip_if_rocm("ROCm enablement in progress")
     def test_slice_and_copy_int4wo(self, device, dtype):
         l = torch.nn.Linear(1024, 1024).to(_DEVICE).to(torch.bfloat16)
