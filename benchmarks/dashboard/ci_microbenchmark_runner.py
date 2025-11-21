@@ -68,7 +68,7 @@ def create_benchmark_result(
         else "unknown"
     )
 
-    # Format shape as api_M_K_N
+    # Format shape as quant-type-M-K-N
     mkn_name = (
         f"{quant_type}-{shape[0]}-{shape[1]}-{shape[2]}"
         if len(shape) == 3
@@ -87,7 +87,7 @@ def create_benchmark_result(
             },
         },
         "model": {
-            "name": mkn_name,  # name in dtype-M-K-N format (e.g., float8wo-1024-1024-1024)
+            "name": mkn_name,  # name in quant-type-M-K-N format (e.g., float8wo-1024-1024-1024)
             "type": "micro-benchmark custom layer",  # type
             "origins": ["torchao"],
         },
