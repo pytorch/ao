@@ -186,9 +186,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
             )
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     def test_serialization(self, mode: str):
@@ -500,9 +500,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self.assertTrue(isinstance(sliced_1, Float8AQTTensorImpl))
         self.assertTrue(isinstance(sliced_both, Float8AQTTensorImpl))
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_float8_tensor_slicing_per_tensor(self):
         """Test slicing with per-tensor quantization (scale should not change)"""
@@ -530,12 +530,12 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self.assertTrue(torch.equal(original_scale, sliced_impl.scale))
         self.assertEqual(sliced_impl.scale.numel(), 1)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_90(),
+        not is_sm_at_least_90(),
         "Per-row quantization requires compute capability >= 9.0",
     )
     def test_float8_tensor_slicing_per_row(self):
@@ -573,9 +573,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self.assertEqual(sliced_cols_impl.scale.shape, (32, 1))
         self.assertTrue(torch.equal(sliced_cols_impl.scale, original_scale))
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     def test_float8_tensor_slicing_edge_cases(self):
         """Test edge cases in slicing"""
@@ -605,13 +605,13 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         large_slice = original_weight[:100]  # More than available rows
         self.assertEqual(large_slice.shape, (32, 64))  # Should clamp to available
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @unittest.skipIf(
-        _DEVICE == "cuda" and is_sm_version(8, 9),
+        is_sm_version(8, 9),
         "TODO: AssertionError: tensor(-2.1562, device='cuda:0', dtype=torch.bfloat16) not greater than 15",
     )
     def test_float8_tensor_slicing_functional_correctness(self, granularity):
