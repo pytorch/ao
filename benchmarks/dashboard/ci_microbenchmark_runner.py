@@ -87,7 +87,7 @@ def create_benchmark_result(
             },
         },
         "model": {
-            "name": mkn_name,  # name in api-M-K-N format (e.g., float8wo-1024-1024-1024)
+            "name": mkn_name,  # name in dtype-M-K-N format (e.g., float8wo-1024-1024-1024)
             "type": "micro-benchmark custom layer",  # type
             "origins": ["torchao"],
         },
