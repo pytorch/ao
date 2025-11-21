@@ -11,6 +11,7 @@ from typing import List
 
 import torch
 from tabulate import tabulate
+from torch.nn.functional import ScalingType, scaled_mm
 from tqdm import tqdm
 from triton.testing import do_bench
 
@@ -112,25 +113,31 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Warm up then run torch bench
-    # scaled_mm requires A_s and B_t_s be in column-major format
     A_s = A_s.t().contiguous().t()
 
+    scale_recipe_a = ScalingType.BlockWise1x128
+    scale_recipe_b = ScalingType.BlockWise128x128
+
     warmup(
-        torch._scaled_mm,
+        scaled_mm,
         A_q,
         B_t_q,
         1.0 / A_s,
+        scale_recipe_a,
         1.0 / B_t_s,
-        out_dtype=config.out_dtype,
+        scale_recipe_b,
+        output_dtype=config.out_dtype,
     )
 
     fp8_scaled_mm_us = benchmark_cuda_function_in_microseconds(
-        torch._scaled_mm,
+        scaled_mm,
         A_q,
         B_t_q,
         1.0 / A_s,
+        scale_recipe_a,
         1.0 / B_t_s,
-        out_dtype=config.out_dtype,
+        scale_recipe_b,
+        output_dtype=config.out_dtype,
     )
 
     return ExperimentResult(
