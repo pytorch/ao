@@ -59,13 +59,14 @@ class Int8Tensor(TorchAOBaseTensor):
     # TODO: Static quantization support using `static_scale`
     tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = ["granularity"]
-    optional_tensor_attribute_names = ["act_quant_kwargs", "dtype"]
+    optional_tensor_attribute_names = ["act_quant_kwargs", "block_size", "dtype"]
 
     def __new__(
         cls: type,
         qdata: torch.Tensor,
         scale: torch.Tensor,
         granularity: Granularity,
+        block_size: Optional[torch.Size] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
     ):
@@ -81,6 +82,7 @@ class Int8Tensor(TorchAOBaseTensor):
         qdata: torch.Tensor,
         scale: torch.Tensor,
         granularity: Granularity,
+        block_size: Optional[torch.Size] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
     ):
@@ -88,6 +90,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.qdata = qdata
         self.scale = scale
         self.granularity = granularity
+        self.block_size = block_size or get_block_size(qdata.shape, granularity)
         self.act_quant_kwargs = act_quant_kwargs
 
     def __repr__(self):
@@ -97,6 +100,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
             f"granularity={self.granularity}, "
+            f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
             f"dtype={self.dtype})"
@@ -141,6 +145,7 @@ class Int8Tensor(TorchAOBaseTensor):
             int_data,
             scale,
             granularity,
+            block_size=block_size,
             act_quant_kwargs=act_quant_kwargs,
             dtype=w_hp.dtype,
         )
@@ -264,7 +269,8 @@ def _(func, types, args, kwargs):
             sliced_qdata,
             sliced_scale,
             self.granularity,
-            self.act_quant_kwargs,
+            block_size=get_block_size(sliced_qdata.shape, self.granularity),
+            act_quant_kwargs=self.act_quant_kwargs,
             dtype=self.dtype,
         ),
     )
@@ -290,8 +296,9 @@ def _(func, types, args, kwargs):
             selected_qdata,
             selected_scale,
             self.granularity,
-            self.act_quant_kwargs,
-            self.dtype,
+            block_size=get_block_size(selected_qdata.shape, self.granularity),
+            act_quant_kwargs=self.act_quant_kwargs,
+            dtype=self.dtype,
         ),
     )
 

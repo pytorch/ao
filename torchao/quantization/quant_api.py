@@ -1348,7 +1348,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     """
 
     group_size: Optional[int] = None
-    granularity: Optional[Union[PerRow, PerTensor]] = PerRow()
+    granularity: Optional[Granularity] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1573,15 +1573,6 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int64
 
-    if weight_only_decode:
-        input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
-    else:
-        # input settings
-        if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant
-        else:
-            input_quant_func = _int8_asymm_per_token_quant
-
     if config.version == 1:
         warnings.warn(
             "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
@@ -1592,6 +1583,15 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             block_size = tuple(
                 [1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]]
             )
+
+        if weight_only_decode:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
+        else:
+            # input settings
+            if act_mapping_type == MappingType.SYMMETRIC:
+                input_quant_func = _int8_symm_per_token_reduced_range_quant
+            else:
+                input_quant_func = _int8_asymm_per_token_quant
 
         quantized_weight = to_affine_quantized_intx(
             weight,
