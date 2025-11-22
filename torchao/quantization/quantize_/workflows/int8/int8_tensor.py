@@ -19,10 +19,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.quantization.quantize_.common import (
-    QuantizeTensorKwargs,
-    _choose_quant_func_and_quantize_tensor,
-)
+from torchao.quantization.quantize_.common import QuantizeTensorKwargs
 from torchao.quantization.utils import get_block_size
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
@@ -65,7 +62,7 @@ class Int8Tensor(TorchAOBaseTensor):
         cls: type,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        granularity: Granularity,
+        granularity: Optional[Granularity] = None,
         block_size: Optional[torch.Size] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
@@ -189,11 +186,10 @@ def _(func, types, args, kwargs):
     output_dtype = activation_tensor.dtype
 
     if weight_tensor.act_quant_kwargs is not None:
+        activation_tensor = Int8Tensor.from_hp(
+            activation_tensor, weight_tensor.act_quant_kwargs.granularity
+        )
         # Dynamic activation quantization path
-        if not isinstance(activation_tensor, Int8Tensor):
-            activation_tensor = _choose_quant_func_and_quantize_tensor(
-                activation_tensor, weight_tensor.act_quant_kwargs
-            )
 
         # 1. do the matrix form of dot(X_i, W_j)
         #
