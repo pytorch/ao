@@ -15,8 +15,8 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_tinygemm,
-    _choose_scale_float8,
     _choose_qparams_and_quantize_scale_only_sinq,
+    _choose_scale_float8,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
@@ -828,21 +828,22 @@ class TestQuantPrimitives(unittest.TestCase):
         """Test SINQ quantization produces valid outputs and accuracy."""
         torch.manual_seed(self.SEED)
         input = torch.randn(128, 256, dtype=torch.float32)
-        nbits = 4
         group_size = 64
+        qmin = -(2 ** (4 - 1))
+        qmax = 2 ** (4 - 1) - 1
 
         # Run SINQ
         qdata, scale_row, scale_col = _choose_qparams_and_quantize_scale_only_sinq(
             input,
-            nbits=nbits,
             group_size=group_size,
+            qmin=qmin,
+            qmax=qmax,
             niter=20,
         )
 
         # Check quantized weight is producible
         self.assertEqual(qdata.dtype, torch.int8)
         self.assertEqual(qdata.shape, input.shape)
-        qmin, qmax = -(2 ** (nbits - 1)), 2 ** (nbits - 1) - 1
         self.assertTrue((qdata >= qmin).all() and (qdata <= qmax).all())
 
         # Check scale factors are producible

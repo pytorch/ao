@@ -2222,7 +2222,8 @@ def _choose_qparams_and_quantize_scale_only_hqq(
 
 def _choose_qparams_and_quantize_scale_only_sinq(
     tensor: torch.Tensor,
-    nbits: float = 4,
+    qmin: int = -(2 ** (4 - 1)),
+    qmax: int = 2 ** (4 - 1) - 1,
     group_size: int = 64,
     niter: int = 20,
     compute_dtype: torch.dtype = torch.float16,
@@ -2235,7 +2236,6 @@ def _choose_qparams_and_quantize_scale_only_sinq(
 
     Args:
         tensor: Input weight tensor
-        nbits: Number of quantization bits (default: 4)
         group_size: Quantization group size (default: 64)
         niter: Number of Sinkhorn iterations (default: 20)
         compute_dtype: Target compute dtype (default: torch.float16)
@@ -2276,17 +2276,13 @@ def _choose_qparams_and_quantize_scale_only_sinq(
         scale_row_sinkhorn = scale_row_sinkhorn * q_row
 
     # INT8 symmetric quantization
-    # TODO: Consider custom bitwidth for SIMD vadd4
-    nbits_i = int(nbits)
-    qmin = -(2 ** (nbits_i - 1))
-    qmax = 2 ** (nbits_i - 1) - 1
-
+    # TODO: Consider custom bitwidth for SIMD acceleration like vadd4
     scale_s = (W_hat.abs().amax(dim=1, keepdim=True) / float(qmax)).clamp_min(1e-8)
     # TODO: Find better rounding strategy like stochastic rounding
     Q = _Round.apply(W_hat / scale_s).clamp(qmin, qmax)
     # TODO: PERF test for scale factor dtype (FP16 vs. INT8)
-    # Although FP16 has high accuracy, FP16×INT8 can't be computed in Tensor Core
-    # directly, requiring INT8 to FP16 ops.
+    # Although FP16 has high accuracy, FP16×INT8 can't be computed
+    # in Tensor Core directly, requiring INT8 to FP16 ops.
     qdata = Q.view(shape).contiguous().to(torch.int8)
 
     # Combine RTN scale with row Sinkhorn factor
