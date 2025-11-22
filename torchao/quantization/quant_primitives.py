@@ -33,6 +33,7 @@ __all__ = [
     "_choose_qparams_affine_floatx",
     "_choose_qparams_and_quantize_affine_hqq",
     "_choose_qparams_and_quantize_scale_only_hqq",
+    "_choose_qparams_and_quantize_scale_only_sinq",
     "_choose_qparams_and_quantize_affine_qqq",
     "_choose_scale_float8",
     "_choose_qparams_gguf",
@@ -2217,6 +2218,81 @@ def _choose_qparams_and_quantize_scale_only_hqq(
     scale = scale.to(out_dtype)
 
     return qdata, scale
+
+
+def _choose_qparams_and_quantize_scale_only_sinq(
+    tensor: torch.Tensor,
+    qmin: int = -(2 ** (4 - 1)),
+    qmax: int = 2 ** (4 - 1) - 1,
+    group_size: int = 64,
+    niter: int = 20,
+    compute_dtype: torch.dtype = torch.float16,
+) -> tuple:
+    """
+    SINQ: Sinkhorn-Normalized Quantization (https://www.arxiv.org/abs/2509.22944)
+
+    Iteratively normalizes row and column standard deviations to minimize
+    matrix imbalance before quantization with dual scales.
+
+    Args:
+        tensor: Input weight tensor
+        group_size: Quantization group size (default: 64)
+        niter: Number of Sinkhorn iterations (default: 20)
+        compute_dtype: Target compute dtype (default: torch.float16)
+
+    Returns:
+        Tuple of (qdata, scale_row, scale_col)
+    """
+    if group_size is not None:
+        assert _is_divisible(tensor.numel(), group_size), (
+            f"group_size must divide tensor elements. shape: {tensor.shape}, group_size: {group_size}"
+        )
+
+    W = tensor.to(dtype=compute_dtype)
+    shape = W.shape
+
+    # Reshape for 1D tiling
+    W = W.reshape(-1, group_size)  # [N*num_groups, group_size]
+
+    # Algorithm 1: Sinkhorn Normalization
+    q_min = min(W.std(dim=0).min().item(), W.std(dim=1).min().item())
+    q_min = max(q_min, 1e-8)
+
+    W_hat = W.clone()
+    scale_col_sinkhorn = torch.ones(W.shape[1], device=W.device, dtype=compute_dtype)
+    scale_row_sinkhorn = torch.ones(W.shape[0], device=W.device, dtype=compute_dtype)
+
+    for _ in range(niter):
+        # Normalize columns (dim=0)
+        q_col = W_hat.std(dim=0) / q_min
+        q_col = torch.clamp(q_col, min=1e-8)
+        W_hat = W_hat / q_col.unsqueeze(0)
+        scale_col_sinkhorn = scale_col_sinkhorn * q_col
+
+        # Normalize rows (dim=1)
+        q_row = W_hat.std(dim=1) / q_min
+        q_row = torch.clamp(q_row, min=1e-8)
+        W_hat = W_hat / q_row.unsqueeze(1)
+        scale_row_sinkhorn = scale_row_sinkhorn * q_row
+
+    # INT8 symmetric quantization
+    # TODO: Consider custom bitwidth for SIMD acceleration like vadd4
+    scale_s = (W_hat.abs().amax(dim=1, keepdim=True) / float(qmax)).clamp_min(1e-8)
+    # TODO: Find better rounding strategy like stochastic rounding
+    Q = _Round.apply(W_hat / scale_s).clamp(qmin, qmax)
+    # TODO: PERF test for scale factor dtype (FP16 vs. INT8)
+    # Although FP16 has high accuracy, FP16×INT8 can't be computed
+    # in Tensor Core directly, requiring INT8 to FP16 ops.
+    qdata = Q.view(shape).contiguous().to(torch.int8)
+
+    # Combine RTN scale with row Sinkhorn factor
+    scale_row = (
+        (scale_s.view(-1) * scale_row_sinkhorn).view(shape[0], -1).to(compute_dtype)
+    )
+    num_groups = shape[1] // group_size
+    scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]].to(compute_dtype)
+
+    return qdata, scale_row, scale_col
 
 
 def _choose_qparams_affine_floatx(
