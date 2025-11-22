@@ -19,34 +19,8 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.utils import compute_error, get_block_size
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
-
-
-# TODO: Refactor after https://github.com/pytorch/ao/pull/2729 is merged
-class ToyTwoLinearModel(torch.nn.Module):
-    def __init__(
-        self,
-        input_dim,
-        hidden_dim,
-        output_dim,
-        has_bias=False,
-        dtype=None,
-        device=None,
-    ):
-        super().__init__()
-        self.dtype = dtype
-        self.device = device
-        self.linear1 = torch.nn.Linear(
-            input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device
-        )
-        self.linear2 = torch.nn.Linear(
-            hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
-        )
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
