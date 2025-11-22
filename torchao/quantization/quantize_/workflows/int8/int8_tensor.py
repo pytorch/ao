@@ -205,16 +205,13 @@ def _(func, types, args, kwargs):
         w_scales = weight_tensor.scale
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-        x_scales_dtype = x_scales.dtype
         # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
         intermediate_dtype = (
-            torch.float if x_scales_dtype == torch.half else x_scales_dtype
+            torch.float if x_scales.dtype == torch.half else x_scales.dtype
         )
         y_dot_scaled = int_scaled_matmul(
             tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
-        )
-        y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
-
+        ).to(output_dtype)
         y = (y_dot_scaled * w_scales).reshape(
             *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
         )
@@ -224,7 +221,7 @@ def _(func, types, args, kwargs):
         w_vals_int8_t = weight_tensor.qdata.t()
         m = torch.mm(
             activation_tensor.reshape(-1, activation_tensor.shape[-1]),
-            w_vals_int8_t.to(activation_tensor.dtype),
+            w_vals_int8_t.to(output_dtype),
         )
         y = m * weight_tensor.scale.to(m.dtype)
         y = y.reshape(*activation_tensor.shape[:-1], weight_tensor.qdata.shape[0])
