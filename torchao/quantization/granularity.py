@@ -6,6 +6,8 @@
 
 from dataclasses import dataclass
 
+import torch
+
 
 @dataclass(frozen=True)
 class Granularity:
@@ -138,3 +140,6 @@ class PerBlock(Granularity):
     # list. Example error:
     # https://gist.github.com/vkuzo/ab4d6aec83cb98ad9417898d2c024a2c
     block_size: tuple[int, ...]
+
+
+torch.serialization.add_safe_globals([PerBlock, PerRow, PerTensor])
