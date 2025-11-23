@@ -333,10 +333,10 @@ def insert_observers_(
     ```
         import torch
         import torch.nn as nn
+        from torchao.quantization import PerTensor
         from torchao.quantization.linear_observer_tensor import insert_observers_
         from torchao.quantization.observer import (
             AffineQuantizedMinMaxObserver,
-            PerTensor,
             MappingType
         )
 
