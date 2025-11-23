@@ -161,26 +161,21 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         n_chunks = 3
         in_channels = 1
         out_channels = 32
-        m = ConvWithSharedWeightInExportedModel(n_chunks, in_channels, out_channels)
-        m.bn.running_var = torch.nn.Parameter(
-            torch.rand(out_channels) * 1e-2, requires_grad=False
-        )
+        for bias in [True, False]:
+            m = ConvWithSharedWeightInExportedModel(
+                n_chunks, in_channels, out_channels, bias=bias
+            )
+            m.bn.running_var = torch.nn.Parameter(
+                torch.rand(out_channels) * 1e-2, requires_grad=False
+            )
 
-        m.eval()
-        example_inputs = (torch.rand(batch_size, n_chunks, 32, 32),)
-        ref_outputs = m(*example_inputs)
-        traced_model = torch.export.export(m, example_inputs, strict=True).module()
-        traced_outputs = traced_model(*example_inputs)
-        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
-        prepared_outputs = prepared_model(*example_inputs)
-
-        if isinstance(ref_outputs, (tuple, list)):
-            for ref, prepared, traced in zip(
-                ref_outputs, prepared_outputs, traced_outputs
-            ):
-                torch.testing.assert_close(ref, traced)
-                torch.testing.assert_close(traced, prepared)
-        else:
+            m.eval()
+            example_inputs = (torch.rand(batch_size, n_chunks, 32, 32),)
+            ref_outputs = m(*example_inputs)
+            traced_model = torch.export.export(m, example_inputs, strict=True).module()
+            traced_outputs = traced_model(*example_inputs)
+            prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+            prepared_outputs = prepared_model(*example_inputs)
             torch.testing.assert_close(ref_outputs, traced_outputs)
             torch.testing.assert_close(traced_outputs, prepared_outputs)
 
