@@ -5,7 +5,7 @@ from torchao.prototype.mx_formats.config import (
 
 # Note: Prototype and subject to change
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
+    MXDynamicActivationMXWeightConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
@@ -17,7 +17,7 @@ import torchao.prototype.mx_formats.mx_linear  # noqa: F401
 __all__ = [
     "MXLinearConfig",
     "MXLinearRecipeName",
-    "MXFPInferenceConfig",
+    "MXDynamicActivationMXWeightConfig",
     "NVFP4InferenceConfig",
     "NVFP4MMConfig",
 ]
