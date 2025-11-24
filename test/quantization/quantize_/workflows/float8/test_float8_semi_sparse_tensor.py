@@ -18,7 +18,7 @@ from torchao.quantization import (
 from torchao.quantization.quant_api import (
     quantize_,
 )
-from torchao.quantization.quantize_.workflows.float8.float8_packing_format import (
+from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
 )
 from torchao.sparsity import apply_fake_sparsity
