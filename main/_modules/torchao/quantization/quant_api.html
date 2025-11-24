@@ -504,8 +504,6 @@
     <span class="n">KernelPreference</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.workflows</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Float8OpaqueTensor</span><span class="p">,</span>
-    <span class="n">Float8PackingFormat</span><span class="p">,</span>
     <span class="n">Float8Tensor</span><span class="p">,</span>
     <span class="n">Int4ChooseQParamsAlgorithm</span><span class="p">,</span>
     <span class="n">Int4MarlinSparseTensor</span><span class="p">,</span>
@@ -2238,23 +2236,14 @@
     <span class="n">kernel_preference</span><span class="p">:</span> <span class="n">KernelPreference</span> <span class="o">=</span> <span class="n">KernelPreference</span><span class="o">.</span><span class="n">AUTO</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
-    <span class="n">float8_packing_format</span><span class="p">:</span> <span class="n">Float8PackingFormat</span> <span class="o">=</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
             <span class="s2">&quot;torchao.quantization.Float8DynamicActivationFloat8WeightConfig&quot;</span>
         <span class="p">)</span>
-        <span class="k">if</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span>
-            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">float8_packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">OPAQUE</span>
-        <span class="p">):</span>
-            <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">Float8OpaqueTensor</span><span class="o">.</span><span class="n">_normalize_and_check_granularity</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">)</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
-            <span class="p">)</span>
+        <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
+        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">[</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">]</span>
 
         <span class="n">default_use_fast_accum</span> <span class="o">=</span> <span class="kc">True</span>
@@ -2284,48 +2273,43 @@
     <span class="n">activation_value_lb</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_value_lb</span>
     <span class="n">activation_value_ub</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_value_ub</span>
     <span class="n">kernel_preference</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">kernel_preference</span>
-    <span class="n">float8_packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">float8_packing_format</span>
 
     <span class="c1"># Ensure works on device</span>
+    <span class="n">_check_hardware_support</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
     <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">granularity</span>
 
-    <span class="k">if</span> <span class="n">float8_packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span><span class="p">:</span>
-        <span class="c1"># Note: right now we assume it&#39;s weights of conv2d and conv3d purely based</span>
-        <span class="c1"># on the dimension of weight, currently there is no conflict with linear 2d</span>
-        <span class="c1"># and moe weights 3d</span>
-        <span class="c1"># if we need to support conv1d, which also has 3d weight, we may have to</span>
-        <span class="c1"># pass around the module as well to distinguish between conv1d and 3d moe weight</span>
-        <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">]:</span>
-            <span class="c1"># weights for conv2d or 3d</span>
-            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
-                <span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
-            <span class="p">),</span> <span class="p">(</span>
-                <span class="s2">&quot;4D/5D tensor only supports per tensor activation and weight quantization&quot;</span>
-            <span class="p">)</span>
+    <span class="c1"># Note: right now we assume it&#39;s weights of conv2d and conv3d purely based</span>
+    <span class="c1"># on the dimension of weight, currently there is no conflict with linear 2d</span>
+    <span class="c1"># and moe weights 3d</span>
+    <span class="c1"># if we need to support conv1d, which also has 3d weight, we may have to</span>
+    <span class="c1"># pass around the module as well to distinguish between conv1d and 3d moe weight</span>
+    <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">]:</span>
+        <span class="c1"># weights for conv2d or 3d</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
+            <span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
+        <span class="p">),</span> <span class="s2">&quot;4D/5D tensor only supports per tensor activation and weight quantization&quot;</span>
 
-            <span class="c1"># conv3d weight dim: (C_out, C_in, K1, K2, K3)</span>
-            <span class="c1"># conv2d weight dim: (C_out, C_in, K1, K2)</span>
-            <span class="c1"># skip quantization when either C_out or C_in</span>
-            <span class="c1"># is not a multiple of 16</span>
-            <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">weight</span>
-
-        <span class="k">elif</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
-            <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
-            <span class="c1"># not doing what the user asked</span>
+        <span class="c1"># conv3d weight dim: (C_out, C_in, K1, K2, K3)</span>
+        <span class="c1"># conv2d weight dim: (C_out, C_in, K1, K2)</span>
+        <span class="c1"># skip quantization when either C_out or C_in</span>
+        <span class="c1"># is not a multiple of 16</span>
+        <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">weight</span>
+    <span class="k">elif</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
+        <span class="c1"># not doing what the user asked</span>
+        <span class="k">return</span> <span class="n">weight</span>
 
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
-                <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
-            <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
         <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
             <span class="s2">&quot;Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details&quot;</span>
         <span class="p">)</span>
 
-        <span class="n">_check_hardware_support</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:],</span> <span class="n">weight_granularity</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
             <span class="n">block_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">block_size</span><span class="p">))</span>
@@ -2356,26 +2340,14 @@
             <span class="n">kernel_preference</span><span class="o">=</span><span class="n">kernel_preference</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="k">if</span> <span class="n">float8_packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span><span class="p">:</span>
-            <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
-                <span class="n">weight</span><span class="p">,</span>
-                <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span>
-                <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span>
-                <span class="n">mm_config</span><span class="o">=</span><span class="n">mm_config</span><span class="p">,</span>
-                <span class="n">kernel_preference</span><span class="o">=</span><span class="n">kernel_preference</span><span class="p">,</span>
-                <span class="n">act_quant_kwargs</span><span class="o">=</span><span class="n">act_quant_kwargs</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="n">float8_packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">OPAQUE</span><span class="p">:</span>
-            <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">)</span>
-            <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8OpaqueTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
-                <span class="n">weight</span><span class="p">,</span>
-                <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
-                <span class="n">act_quant_kwargs</span><span class="o">=</span><span class="n">act_quant_kwargs</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Unsupported float8 packing format: </span><span class="si">{</span><span class="n">float8_packing_format</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span>
+        <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span>
+            <span class="n">mm_config</span><span class="o">=</span><span class="n">mm_config</span><span class="p">,</span>
+            <span class="n">kernel_preference</span><span class="o">=</span><span class="n">kernel_preference</span><span class="p">,</span>
+            <span class="n">act_quant_kwargs</span><span class="o">=</span><span class="n">act_quant_kwargs</span><span class="p">,</span>
+        <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">quantized_weight</span>
 
@@ -2387,10 +2359,9 @@
     <span class="o">*</span><span class="p">,</span>
     <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">float8_packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
-            <span class="s2">&quot;Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+&quot;</span>
-        <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
+        <span class="s2">&quot;Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
