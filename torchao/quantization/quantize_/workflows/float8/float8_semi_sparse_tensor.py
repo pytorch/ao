@@ -25,9 +25,6 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
-from torchao.quantization.quantize_.workflows.float8.float8_packing_format import (
-    Float8PackingFormat,
-)
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -41,7 +38,29 @@ __all__ = [
 aten = torch.ops.aten
 
 
+from enum import Enum
+
 from .float8_tensor import QuantizeTensorToFloat8Kwargs
+
+
+# can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
+# after python 3.10 is end of life (https://devguide.python.org/versions/)
+class Float8SemiSparseTensorPackingFormat(str, Enum):
+    """
+    Sparse packing formats for 2:4 sparsity + FP8 quantization
+
+    SPARSE_CUTLASS will pack the quantized_data into two tensors, sparse_qdata and sparse_metadata, for the specified values and metadata respectively.
+    This packing format will dispatch to `rowwise_scaled_linear_sparse_cutlass_f8f8`, which will fuse the per-row scaling into the sparse matmul.
+
+    """
+
+    SPARSE_CUTLASS = "sparse_cutlass"
+
+    """
+    SPARSE_CUSPARSELT will pack the quantized_data into a single tensor, sparse_qdata, which contains both the specified values and appends the metadata. 
+    This packing format will dispatch to `_cslt_sparse_mm`, which does not fuse per-row scaling into the matmul.
+    """
+    SPARSE_CUSPARSELT = "sparse_cusparselt"
 
 
 class Float8SemiSparseTensor(TorchAOBaseTensor):
@@ -79,12 +98,12 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+        packing_format=Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
         dtype: Optional[torch.dtype] = None,
     ):
-        if packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+        if packing_format == Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS:
             shape = sparse_qdata.shape[0], 2 * sparse_qdata.shape[1]
-        elif packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
+        elif packing_format == Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT:
             shape = scale.shape[0], block_size[-1]
 
         kwargs = {}
@@ -100,7 +119,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+        packing_format=Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
@@ -155,7 +174,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         granularity: FP8Granularity = PerRow(),
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
-        packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+        packing_format=Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -171,7 +190,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         hp_dtype = hp_tensor.dtype
 
         if (
-            packing_format == Float8PackingFormat.SPARSE_CUTLASS
+            packing_format == Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
             # fbgemm path only supports quantizing along the last dim
@@ -184,7 +203,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
             sparse_qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(
                 data
             )
-        elif packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
+        elif packing_format == Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
             assert is_sm_at_least_90(), (
                 "Specified sparse_cutlass kernel and hardware is not >= SM 9.0 (>= H100)"
@@ -223,7 +242,10 @@ def _(func, types, args, kwargs):
     )
     from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
 
-    if weight_tensor.packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+    if (
+        weight_tensor.packing_format
+        == Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS
+    ):
         act_quant_kwargs = weight_tensor.act_quant_kwargs
         # quantize activation, if `act_quant_kwargs` is specified
         if act_quant_kwargs is not None:
@@ -244,7 +266,10 @@ def _(func, types, args, kwargs):
             input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
         )
         return out
-    elif weight_tensor.packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
+    elif (
+        weight_tensor.packing_format
+        == Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT
+    ):
         act_quant_kwargs = weight_tensor.act_quant_kwargs
         # quantize activation, if `act_quant_kwargs` is specified
         if act_quant_kwargs is not None:

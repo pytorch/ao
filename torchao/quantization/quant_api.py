@@ -74,8 +74,8 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
-    Float8PackingFormat,
     Float8SemiSparseTensor,
+    Float8SemiSparseTensorPackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
@@ -1978,7 +1978,9 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = PerRow()
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
-    float8_packing_format: Float8PackingFormat = Float8PackingFormat.SPARSE_CUTLASS
+    float8_packing_format: Float8SemiSparseTensorPackingFormat = (
+        Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS
+    )
     version: int = 2
 
     def __post_init__(self):
@@ -1987,8 +1989,8 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
         )
 
         assert self.float8_packing_format in {
-            Float8PackingFormat.SPARSE_CUTLASS,
-            Float8PackingFormat.SPARSE_CUSPARSELT,
+            Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
+            Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT,
         }, f"{self.float8_packing_format} is not supported"
 
 
