@@ -29,13 +29,14 @@
 - [Sept 25] MXFP8 training achieved [1.28x speedup on Crusoe B200 cluster](https://pytorch.org/blog/accelerating-2k-scale-pre-training-up-to-1-28x-with-torchao-mxfp8-and-torchtitan-on-crusoe-b200-cluster/) with virtually identical loss curve to bfloat16!
 - [Sept 19] [TorchAO Quantized Model and Quantization Recipes Now Available on Huggingface Hub](https://pytorch.org/blog/torchao-quantized-models-and-quantization-recipes-now-available-on-huggingface-hub/)!
 - [Jun 25] Our [TorchAO paper](https://openreview.net/attachment?id=HpqH0JakHf&name=pdf) was accepted to CodeML @ ICML 2025!
-- [May 25] QAT is now integrated into [Axolotl](https://github.com/axolotl-ai-cloud/axolotl) for fine-tuning ([docs](https://docs.axolotl.ai/docs/qat.html))!
-- [Apr 25] Float8 rowwise training yielded [1.34-1.43x training speedup](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/) at 2k H100 GPU scale
-- [Apr 25] TorchAO is added as a [quantization backend to vLLM](https://docs.vllm.ai/en/latest/features/quantization/torchao.html) ([docs](https://docs.vllm.ai/en/latest/features/quantization/torchao.html))!
+
 
 <details>
   <summary>Older news</summary>
 
+- [May 25] QAT is now integrated into [Axolotl](https://github.com/axolotl-ai-cloud/axolotl) for fine-tuning ([docs](https://docs.axolotl.ai/docs/qat.html))!
+- [Apr 25] Float8 rowwise training yielded [1.34-1.43x training speedup](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/) at 2k H100 GPU scale
+- [Apr 25] TorchAO is added as a [quantization backend to vLLM](https://docs.vllm.ai/en/latest/features/quantization/torchao.html) ([docs](https://docs.vllm.ai/en/latest/features/quantization/torchao.html))!
 - [Mar 25] Our [2:4 Sparsity paper](https://openreview.net/pdf?id=O5feVk7p6Y) was accepted to SLLM @ ICLR 2025!
 - [Jan 25] Our [integration with GemLite and SGLang](https://pytorch.org/blog/accelerating-llm-inference/) yielded 1.1-2x faster inference with int4 and float8 quantization across different batch sizes and tensor parallel sizes
 - [Jan 25] We added [1-8 bit ARM CPU kernels](https://pytorch.org/blog/hi-po-low-bit-operators/) for linear and embedding ops
@@ -51,13 +52,39 @@
 
 ## 🌅 Overview
 
-TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models. Key features include:
-* Float8 [training](torchao/float8/README.md) and [inference](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html) for speedups without compromising accuracy
-* [MX training and inference](torchao/prototype/mx_formats/README.md), provides MX tensor formats based on native PyTorch MX dtypes (prototype)
-* [Low precision MoE training](torchao/prototype/moe_training/README.md) provides training speedups with comparable numerics to bfloat16 training.
-* [Quantization-Aware Training (QAT)](torchao/quantization/qat/README.md) for mitigating quantization degradation
-* [Post-Training Quantization (PTQ)](torchao/quantization/README.md) for int4, int8, fp6 etc, with matching kernels targeting a variety of backends including CUDA, ARM CPU, and XNNPACK
-* [Sparsity](torchao/sparsity/README.md), includes different techniques such as 2:4 sparsity and block sparsity
+TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models. 
+
+### Stable Workflows
+
+🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported
+
+| recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
+| -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
+| H100, B200 GPUs | float8 rowwise | float8 rowwise | 🟢 [(link)](torchao/float8) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling) |
+| H100 GPUs | int4 | float8 rowwise | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟠 | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L1296) |
+| A100 GPUs | int4 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [HQQ](torchao/prototype/hqq/README.md), [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
+| A100 GPUs | int8 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a16w8-int8-weightonly-quantization) |
+| A100 GPUs | int8 | int8 | 🟡 [(link)](torchao/prototype/quantized_training) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
+| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) | 
+| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L702) |
+
+### Prototype Workflows
+
+🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported
+
+| recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
+| -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
+| B200, MI350x GPUs | mxfp8 | mxfp8 | 🟡 [(dense)](torchao/prototype/mx_formats#mx-training), [(moe)](torchao/prototype/moe_training) | ⚪ | ⚪ | 🟡 [(link)](torchao/prototype/mx_formats#mx-inference) |
+| B200 GPUs | nvfp4 | nvfp4 | 🟠 | 🟡 [(link)](torchao/prototype/qat/nvfp4.py) | ⚪ |  🟡 [(link)](torchao/prototype/mx_formats#mx-inference) |
+| B200, MI350x GPUs | mxfp4 | mxfp4 | ⚪ not supported | 🟠 | 🟠 | 🟡 [(link)](torchao/prototype/mx_formats#mx-inference) |
+| H100 | float8 128x128 (blockwise) | float8 1x128 | 🟠 | ⚪ | ⚪ | 🟡 |
+
+### Other
+
+* [Quantization-Aware Training (QAT) README.md](torchao/quantization/qat/README.md)
+* [Post-Training Quantization (PTQ) README.md](torchao/quantization/README.md)
+* [Sparsity README.md](torchao/sparsity/README.md), includes different techniques such as 2:4 sparsity and block sparsity
+* [the prototype folder](torchao/prototype) for other prototype features
 
 Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
 

@@ -533,36 +533,60 @@ def _quantize_and_scaled_conv3d(
             )
 
     assert kernel_choice == "fbgemm", "Only fbgemm kernel choice is supported currently"
+    input_qdata = input_tensor.qdata
+    weight_qdata = weight_tensor.qdata
+
+    is_input_channels_last = input_qdata.is_contiguous(
+        memory_format=torch.channels_last_3d
+    )
+    is_weight_channels_last = weight_qdata.is_contiguous(
+        memory_format=torch.channels_last_3d
+    )
+
+    # convert the input/weight to channels_last_3d memory_format here
+    # to make sure we can call the fbgemm conv
+    # kernel, it should be a no-op if both activation and weight are in
+    # channels_last_3d memory_format
+    input_qdata = input_qdata.contiguous(memory_format=torch.channels_last_3d)
+    weight_qdata = weight_qdata.contiguous(memory_format=torch.channels_last_3d)
+
     # move C_in to last dim
     # after permute: (N, D, H, W, C_in)
-    act_qdata = input_tensor.qdata.permute([0, 2, 3, 4, 1])
+    input_qdata = input_qdata.permute([0, 2, 3, 4, 1])
 
     # move C_in to last dim
     # after permute: (C_out, K1, K2, K3, C_in)
+    weight_qdata = weight_qdata.permute([0, 2, 3, 4, 1])
 
-    weight_qdata = weight_tensor.qdata.permute([0, 2, 3, 4, 1])
-
-    assert act_qdata.is_contiguous() and weight_qdata.is_contiguous(), (
-        "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
-    )
-
-    act_scale = input_tensor.scale
+    input_scale = input_tensor.scale
     weight_scale = weight_tensor.scale
     output = torch.ops.fbgemm.f8f8bf16_conv(
-        act_qdata,
+        input_qdata,
         weight_qdata,
-        act_scale * weight_scale,
+        input_scale * weight_scale,
         padding,
         stride,
         dilation,
     )
     # output shape after permute: N, C_out, D_out, H_out, W_out
     output = output.permute([0, 4, 1, 2, 3])
+
+    # aligning the semantics with bfloat16 conv ops, the
+    # output should use contiguous_format if none of the input/weight
+    # are in channels_last format, otherwise, the output is already
+    # in channels_last format (from fbgemm kernel)
+    if not (is_input_channels_last or is_weight_channels_last):
+        output = output.contiguous()
     return output
 
 
 @implements(aten.convolution.default)
 def _(func, types, args, kwargs):
+    """The semantics of memory_format will match high precision counterparts
+    i.e. if any of input or weight are in channels_last_3d format
+    the output will be in channels_last_3d format, otherwise the output
+    will be contiguous
+    """
     (
         input_tensor,
         weight_tensor,
@@ -580,11 +604,6 @@ def _(func, types, args, kwargs):
     assert groups == 1, f"Only 1 is supported for `groups`, got: {groups}"
 
     if dim == 2:
-        assert input_tensor.is_contiguous(
-            memory_format=torch.channels_last
-        ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last), (
-            "Please make sure both activation and weights are in the `channels_last` memory_format"
-        )
         # (N, C, H, W) --> (N, C, 1, H, W)
         input_tensor = input_tensor.unsqueeze(2)
         weight_tensor = weight_tensor.unsqueeze(2)
@@ -606,11 +625,6 @@ def _(func, types, args, kwargs):
         res = res.squeeze(2)
         return res
     else:
-        assert input_tensor.is_contiguous(
-            memory_format=torch.channels_last_3d
-        ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last_3d), (
-            "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
-        )
         assert tuple(output_padding) == (0, 0, 0), (
             f"Only (0, 0, 0) is supported for `output_padding`, got: f{output_padding}"
         )
@@ -626,6 +640,11 @@ def _(func, types, args, kwargs):
 
 @implements(aten.conv3d.default)
 def _(func, types, args, kwargs):
+    """The semantics of memory_format will match high precision counterparts
+    i.e. if any of input or weight are in channels_last_3d format
+    the output will be in channels_last_3d format, otherwise the output
+    will be contiguous
+    """
     (
         input_tensor,
         weight_tensor,
@@ -635,12 +654,7 @@ def _(func, types, args, kwargs):
         dilation,
         groups,
     ) = fill_defaults(args, 7, [None, [1, 1, 1], [0, 0, 0], [1, 1, 1], 1])
-    assert input_tensor.is_contiguous(
-        memory_format=torch.channels_last_3d
-    ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last_3d), (
-        "Please make sure both activation and weights are in the `channels_last_3d` memory_format"
-    )
-    return _quantize_and_scaled_conv3d(
+    conv3d_output = _quantize_and_scaled_conv3d(
         input_tensor,
         weight_tensor,
         bias,
@@ -648,10 +662,16 @@ def _(func, types, args, kwargs):
         padding,
         dilation,
     )
+    return conv3d_output
 
 
 @implements(aten.conv2d.default)
 def _(func, types, args, kwargs):
+    """The semantics of memory_format will match high precision counterparts
+    i.e. if any of input or weight are in channels_last_3d format
+    the output will be in channels_last_3d format, otherwise the output
+    will be contiguous
+    """
     (
         input_tensor,
         weight_tensor,
@@ -662,19 +682,8 @@ def _(func, types, args, kwargs):
         groups,
     ) = fill_defaults(args, 7, [None, [1, 1], [0, 0], [1, 1], 1])
     # (N, C, H, W) --> (N, C, 1, H, W)
-    # memory_format of both tensors should be torch.channels_last
-    # and it should be preserved with unsqueeze(2) (becoming torch.channels_last_3d)
-    assert input_tensor.is_contiguous(
-        memory_format=torch.channels_last
-    ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last), (
-        "Please make sure both activation and weights are in the `channels_last` memory_format"
-    )
     input_tensor = input_tensor.unsqueeze(2)
     weight_tensor = weight_tensor.unsqueeze(2)
-
-    assert input_tensor.is_contiguous(
-        memory_format=torch.channels_last_3d
-    ) and weight_tensor.qdata.is_contiguous(memory_format=torch.channels_last_3d)
 
     padding = [0, *padding]
     stride = [1, *stride]

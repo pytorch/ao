@@ -137,6 +137,13 @@ def get_available_devices():
     return devices
 
 
+def get_current_accelerator_device():
+    if torch.accelerator.is_available():
+        return torch.accelerator.current_accelerator()
+    else:
+        return None
+
+
 def get_compute_capability():
     if torch.cuda.is_available():
         capability = torch.cuda.get_device_capability()
