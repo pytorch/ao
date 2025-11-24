@@ -33,12 +33,13 @@ from torchao.float8.float8_training_tensor import (
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.utils import (
+    get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
-    get_current_accelerator_device,
 )
 
 _DEVICE = get_current_accelerator_device()
+
 
 def _test_compile_base(
     backend: str,
@@ -201,7 +202,8 @@ def test_inductor_from_config_params(
 )
 @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 @unittest.skipIf(
-    torch.accelerator.is_available() and not is_sm_at_least_90(), "CUDA with capability 9.0 or greater not available"
+    torch.accelerator.is_available() and not is_sm_at_least_90(),
+    "CUDA with capability 9.0 or greater not available",
 )
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()

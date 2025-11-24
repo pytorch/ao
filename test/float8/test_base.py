@@ -44,9 +44,9 @@ from torchao.float8.float8_utils import (
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
+    get_current_accelerator_device,
     is_MI300,
     is_ROCM,
-    get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
