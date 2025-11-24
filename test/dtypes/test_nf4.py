@@ -43,7 +43,7 @@ from torchao.dtypes.nf4tensor import (
     to_nf4,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import torch_version_at_least, get_current_accelerator_device
+from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
 bnb_available = False
 
