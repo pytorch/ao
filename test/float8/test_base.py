@@ -379,7 +379,7 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "linear_dtype", [torch.bfloat16, torch.float16, torch.float32]
     )
-    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
     )
@@ -432,7 +432,7 @@ class TestFloat8Linear:
         m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
 
         # autocast off
-        x = torch.randn(16, 32, device=_DEVICE, dtype=linear_dtype)
+        x = torch.randn(16, 32, device=_DEVICE.type, dtype=linear_dtype)
         y = m(x)
         assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
 
@@ -576,9 +576,8 @@ class TestScaledMM:
         ):
             a @ b
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_89(),
+        not is_sm_at_least_89(),
         "CUDA not available",
     )
     @pytest.mark.parametrize(
