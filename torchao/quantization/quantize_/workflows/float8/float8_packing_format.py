@@ -24,13 +24,14 @@ class Float8PackingFormat(str, Enum):
     PLAIN = "plain"
 
     """
+    Sparse packing formats for 2:4 sparsity + FP8 quantization
+    """
+    SPARSE_CUTLASS = "sparse_cutlass"
+    SPARSE_CUSPARSELT = "sparse_cusparselt"
+
+    """
     Opaque packing format that's used for tensors that does not have a predefined packing format
     (that may be decided on hardware, tensor shape, library availability etc.) and it's not
     needed for the rest of the system to understand the specific format that's adopted.
     """
     OPAQUE = "opaque"
-    """
-    Sparse packing formats for 2:4 sparsity + FP8 quantization
-    """
-    SPARSE_CUTLASS = "sparse_cutlass"
-    SPARSE_CUSPARSELT = "sparse_cusparselt"

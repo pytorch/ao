@@ -1,7 +1,3 @@
-from .float8.float8_opaque_tensor import (
-    Float8OpaqueTensor,
-)
-from .float8.float8_packing_format import Float8PackingFormat
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -44,9 +40,7 @@ __all__ = [
     "Int4MarlinSparseTensor",
     "Int4PlainInt32Tensor",
     "Int4TilePackedTo4dTensor",
-    "Float8OpaqueTensor",
     "Float8Tensor",
-    "Float8PackingFormat",
     "QuantizeTensorToFloat8Kwargs",
     "Int4OpaqueTensor",
     "Int4ChooseQParamsAlgorithm",
