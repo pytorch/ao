@@ -31,7 +31,7 @@ dtypes = (
 
 group_sizes = [32, 64, 128]
 _DEVICE = get_current_accelerator_device()
-devices = ["cpu", _DEVICE]
+devices = ["cpu", _DEVICE.type]
 
 
 @pytest.fixture(autouse=True)
