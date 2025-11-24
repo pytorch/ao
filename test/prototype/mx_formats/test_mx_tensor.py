@@ -12,7 +12,6 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
@@ -25,6 +24,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
     to_dtype,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     is_sm_at_least_89,
@@ -375,7 +375,7 @@ def test_exponent_nan_out(elem_dtype):
         elem_dtype,
         block_size,
         torch.float,
-        MXGemmKernelChoice.EMULATED,
+        KernelPreference.EMULATED,
         None,
         False,
     )

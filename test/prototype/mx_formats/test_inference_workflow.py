@@ -12,15 +12,13 @@ import torch
 import torch.nn as nn
 from torch.profiler import ProfilerActivity, profile
 
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
     MXFPInferenceConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
 from torchao.quantization import quantize_
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
@@ -105,15 +103,13 @@ def test_inference_workflow_mx(
     m_mx = copy.deepcopy(m)
 
     if emulate:
-        kernel_choice = MXGemmKernelChoice.EMULATED
-    elif elem_dtype == torch.float4_e2m1fn_x2:
-        kernel_choice = MXGemmKernelChoice.CUTLASS
+        kernel_choice = KernelPreference.EMULATED
     else:
-        kernel_choice = MXGemmKernelChoice.CUBLAS
+        kernel_choice = KernelPreference.AUTO
     config = MXFPInferenceConfig(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
-        gemm_kernel_choice=kernel_choice,
+        kernel_preference=kernel_choice,
     )
     quantize_(m_mx, config=config)
     if compile:
@@ -254,7 +250,7 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         config = MXFPInferenceConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
-            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+            kernel_preference=KernelPreference.EMULATED,
         )
         self._test_slice_and_copy_similar_to_vllm(config)
 
@@ -267,7 +263,7 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         config = MXFPInferenceConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
-            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+            kernel_preference=KernelPreference.EMULATED,
         )
         self._test_narrow_similar_to_vllm(config)
 

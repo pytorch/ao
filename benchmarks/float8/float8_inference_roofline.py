@@ -38,9 +38,6 @@ from utils import (
 )
 
 import torchao
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
     MXFPInferenceConfig,
     NVFP4InferenceConfig,
@@ -439,13 +436,13 @@ def run(
                 config = MXFPInferenceConfig(
                     activation_dtype=torch.float8_e4m3fn,
                     weight_dtype=torch.float8_e4m3fn,
-                    gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                    kernel_preference=KernelPreference.AUTO,
                 )
             elif recipe_name == "mxfp4_cutlass":
                 config = MXFPInferenceConfig(
                     activation_dtype=torch.float4_e2m1fn_x2,
                     weight_dtype=torch.float4_e2m1fn_x2,
-                    gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+                    kernel_preference=KernelPreference.AUTO,
                 )
             elif recipe_name == "nvfp4":
                 config = NVFP4InferenceConfig(

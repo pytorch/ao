@@ -74,13 +74,13 @@ Below is a toy training loop. For an example real training loop, see our torchti
 import torch
 from torchao.quantization import quantize_
 import torchao.prototype.mx_formats
-from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice, ScaleCalculationMode
+from torchao.prototype.mx_formats import MXLinearConfig, ScaleCalculationMode
+from torchao.quantization.quantize_.common import KernelPreference
 
-# on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
-gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
-# gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
-# on older NVIDIA gpus, you can run training with emulated MX gemm
-# gemm_kernel_choice = MXGemmKernelChoice.EMULATED
+# low precision gemm, requires CUDA capability 10.0+
+kernel_preference = KernelPreference.AUTO
+# or, emulated gemm
+# kernel_preference = KernelPreference.EMULATED
 
 scale_calculation_mode = ScaleCalculationMode.FLOOR
 # other supported modes: RCEIL, CEIL, EVEN
@@ -89,7 +89,7 @@ m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 config = MXLinearConfig(
     elem_dtype=torch.float8_e4m3fn,
     block_size=32,
-    gemm_kernel_choice=gemm_kernel_choice,
+    kernel_preference=kernel_preference,
     scale_calculation_mode=scale_calculation_mode,
 )
 quantize_(m, config)
@@ -107,14 +107,12 @@ import torch
 import torch.nn as nn
 from torchao.quantization import quantize_
 import torchao.prototype.mx_formats
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
     MXFPInferenceConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 
 m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device="cuda")
 x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
@@ -125,7 +123,7 @@ m_mxfp8 = copy.deepcopy(m)
 config = MXFPInferenceConfig(
     activation_dtype=torch.float8_e4m3fn,
     weight_dtype=torch.float8_e4m3fn,
-    gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+    kernel_preference=KernelPreference.AUTO,
 )
 quantize_(m_mxfp8, config=config)
 m_mxfp8 = torch.compile(m_mxfp8, fullgraph=True)
@@ -137,7 +135,7 @@ m_mxfp4 = copy.deepcopy(m)
 config = MXFPInferenceConfig(
     activation_dtype=torch.float4_e2m1fn_x2,
     weight_dtype=torch.float4_e2m1fn_x2,
-    gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+    kernel_preference=KernelPreference.AUTO,
 )
 quantize_(m_mxfp4, config=config)
 m_mxfp4 = torch.compile(m_mxfp4, fullgraph=True)
