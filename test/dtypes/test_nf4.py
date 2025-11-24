@@ -259,7 +259,7 @@ class TestNF4Linear(TestCase):
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
@@ -560,7 +560,7 @@ class TestFSDPOps(TestCase):
             to_nf4(linear.weight.detach()), requires_grad=False
         )
         linear.to(_DEVICE)
-        self.assertEqual(linear.weight.device.type, _DEVICE)
+        self.assertEqual(linear.weight.device.type, _DEVICE.type)
         weight = linear.weight.get_original_weight()
         self.assertEqual(weight.device.type, _DEVICE.type)
 
