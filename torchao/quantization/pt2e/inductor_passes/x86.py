@@ -773,7 +773,10 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
         if has_free_symbols(x_shape):
             # For dynamic shape case, we can't get activation shape ahead of runtime.
             x_shape = None
-        if is_fp8 and w_scale.target is torch.ops.aten.full.default:
+        if is_fp8:
+            # For float8, we assume the scales are from aten.full.default instead of
+            # a constant buffer to avoid constant folding of q/dq before fusion passes.
+            assert w_scale.target is torch.ops.aten.full.default and x_scale.target is torch.ops.aten.full.default
             with torch.utils._python_dispatch._disable_current_modes():
                 w_scale_tensor = torch.tensor([w_scale.args[1]])
             match.graph.owning_module.register_buffer("w_scale", w_scale_tensor)
@@ -784,7 +787,7 @@ def _register_qconv_weight_prepack_pass(pattern, pass_number, dtype=torch.float3
             packed_weight_inputs = (
                 qw,
                 w_scale,
-                x_scale.args[1] if is_fp8 and x_scale.target is torch.ops.aten.full.default else x_scale,
+                x_scale.args[1] if is_fp8 else x_scale,
                 0,
                 stride,
                 padding,
@@ -2050,8 +2053,8 @@ def _register_qconv_post_op_fusion_pass(
         assert output_dtype in [torch.int8, torch.uint8, torch.float8_e4m3fn, torch.float32, torch.bfloat16]
         # Output QParams
         if output_dtype == torch.float8_e4m3fn:
-            # For float8, torchao.quantize_affine_float8 requires tensor as scale
-            # Support scale node is full firstly
+            # For float8, we assume the scale is from aten.full.default instead of
+            # a constant buffer to avoid constant folding of q/dq before fusion passes.
             assert kwargs["o_inv_scale"].target is torch.ops.aten.full.default
             o_inv_scale = kwargs["o_inv_scale"].args[1]
         else:
@@ -2447,8 +2450,8 @@ def _register_qlinear_post_op_fusion_pass(
 
         # Output QParams
         if output_dtype == torch.float8_e4m3fn:
-            # For float8, torchao.quantize_affine_float8 requires tensor as scale
-            # Support scale node is full firstly
+            # For float8, we assume the scale is from aten.full.default instead of
+            # a constant buffer to avoid constant folding of q/dq before fusion passes.
             assert kwargs["o_inv_scale"].target is torch.ops.aten.full.default
             o_inv_scale = kwargs["o_inv_scale"].args[1]
         else:
