@@ -49,13 +49,13 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
     Float8 Quantized + 2:4 sparse (weight) Tensor, with float8 dynamic quantization for activation.
 
     Tensor Attributes:
-        sparse_quantized_data: float8 raw data
+        sparse_qdata: float8 raw data
         sparse_metadata: metadata for 2:4 sparse tensor
         scale: the scale for float8 Tensor
 
     Non-Tensor Attributes:
         block_size (List[int]): the block size for float8 quantization, meaning the shape of the elements
-        sharing the same set of quantization parameters (scale), have the same rank as sparse_quantized_data or
+        sharing the same set of quantization parameters (scale), have the same rank as sparse_qdata or
         is an empty list (representing per tensor quantization)
         act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8SemiSparseTensor.from_hp
         packing_format (Float8PackingFormat): the preference for quantize, mm etc. kernel to use,
@@ -63,7 +63,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         dtype: Original Tensor dtype
     """
 
-    tensor_data_names = ["sparse_quantized_data", "sparse_metadata", "scale"]
+    tensor_data_names = ["sparse_qdata", "sparse_metadata", "scale"]
     tensor_attribute_names = []
     optional_tensor_attribute_names = [
         "block_size",
@@ -74,7 +74,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
 
     def __new__(
         cls,
-        sparse_quantized_data: torch.Tensor,
+        sparse_qdata: torch.Tensor,
         sparse_metadata: torch.Tensor,
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
@@ -83,19 +83,19 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         dtype: Optional[torch.dtype] = None,
     ):
         if packing_format == Float8PackingFormat.SPARSE_CUTLASS:
-            shape = sparse_quantized_data.shape[0], 2 * sparse_quantized_data.shape[1]
+            shape = sparse_qdata.shape[0], 2 * sparse_qdata.shape[1]
         elif packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
             shape = scale.shape[0], block_size[-1]
 
         kwargs = {}
-        kwargs["device"] = sparse_quantized_data.device
+        kwargs["device"] = sparse_qdata.device
         kwargs["dtype"] = dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
         self,
-        sparse_quantized_data: torch.Tensor,
+        sparse_qdata: torch.Tensor,
         sparse_metadata: torch.Tensor,
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
@@ -104,7 +104,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
-        self.sparse_quantized_data = sparse_quantized_data
+        self.sparse_qdata = sparse_qdata
         self.sparse_metadata = sparse_metadata
         self.scale = scale
         self.block_size = block_size
@@ -113,7 +113,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.sparse_quantized_data=}, {self.sparse_metadata=}, {self.scale=}, "
+            f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.sparse_qdata=}, {self.sparse_metadata=}, {self.scale=}, "
             f"{self.block_size=}, {self.packing_format=} "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
@@ -126,11 +126,9 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         # semi-structured format, so multiplying with identity matrix,
         # and using identity scale factors, for the conversion.
         cols = self.shape[1]
-        plain_input = torch.eye(cols, device=self.sparse_quantized_data.device)
-        input = plain_input.to(dtype=self.sparse_quantized_data.dtype)
-        plain_input_scale = torch.ones(
-            (cols,), device=self.sparse_quantized_data.device
-        )
+        plain_input = torch.eye(cols, device=self.sparse_qdata.device)
+        input = plain_input.to(dtype=self.sparse_qdata.dtype)
+        plain_input_scale = torch.ones((cols,), device=self.sparse_qdata.device)
         input_scale = plain_input_scale.to(dtype=self.scale.dtype)
 
         out_dtype = torch.bfloat16
@@ -138,7 +136,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
             rowwise_scaled_linear_sparse_cutlass_f8f8(
                 input,
                 input_scale,
-                self.sparse_quantized_data,
+                self.sparse_qdata,
                 self.sparse_metadata,
                 self.scale,
                 out_dtype=out_dtype,
@@ -183,15 +181,15 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         ):
             # if packing_format is SPARSE_CUTLASS and per row quantization and we are on sm90
             # we'll use CUTLASS rowwise fp8 + 2:4 sparse mm kernel
-            sparse_quantized_data, sparse_metadata = (
-                to_sparse_semi_structured_cutlass_sm9x_f8(data)
+            sparse_qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(
+                data
             )
         elif packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
             assert is_sm_at_least_90(), (
                 "Specified sparse_cutlass kernel and hardware is not >= SM 9.0 (>= H100)"
             )
-            sparse_quantized_data, sparse_metadata = (
+            sparse_qdata, sparse_metadata = (
                 torch._cslt_compress(data),
                 torch.Tensor([]),
             )
@@ -201,7 +199,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
             )
 
         return Float8SemiSparseTensor(
-            sparse_quantized_data,
+            sparse_qdata,
             sparse_metadata,
             scale,
             block_size=block_size,
@@ -237,7 +235,7 @@ def _(func, types, args, kwargs):
             )
         input = input_tensor.qdata
         input_scale = input_tensor.scale.squeeze(1)
-        weight = weight_tensor.sparse_quantized_data
+        weight = weight_tensor.sparse_qdata
         weight_meta = weight_tensor.sparse_metadata
         weight_scale = weight_tensor.scale.squeeze(1)
         out_dtype = input_tensor.dtype
@@ -258,7 +256,7 @@ def _(func, types, args, kwargs):
             )
         input = input_tensor.qdata
         input_scale = input_tensor.scale
-        weight = weight_tensor.sparse_quantized_data
+        weight = weight_tensor.sparse_qdata
         weight_meta = weight_tensor.sparse_metadata
         weight_scale = weight_tensor.scale
         out_dtype = input_tensor.dtype
