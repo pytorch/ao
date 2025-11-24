@@ -44,9 +44,9 @@ from torchao.float8.float8_utils import (
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    get_current_accelerator_device,
     is_MI300,
     is_ROCM,
+    get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
@@ -432,16 +432,16 @@ class TestFloat8Linear:
         m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
 
         # autocast off
-        x = torch.randn(16, 32, device=_DEVICE.type, dtype=linear_dtype)
+        x = torch.randn(16, 32, device=_DEVICE, dtype=linear_dtype)
         y = m(x)
         assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
 
         # autocast on
-        with torch.autocast(_DEVICE):
+        with torch.autocast(_DEVICE.type):
             y = m(x)
         assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
 
-        with torch.autocast(_DEVICE, dtype=torch.bfloat16):
+        with torch.autocast(_DEVICE.type, dtype=torch.bfloat16):
             y = m(x)
         assert y.dtype == torch.bfloat16, (
             f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
