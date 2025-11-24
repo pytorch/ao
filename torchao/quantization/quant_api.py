@@ -1613,6 +1613,10 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
 
         assert config.version == 2, f"Unexpected version: {config.version}"
 
+        # TODO: Symmentric/Asymmetric choice for weight quantization
+        # https://github.com/pytorch/ao/pull/3241#discussion_r2551515539
+        # TODO: Add block_size args to return in from_hp
+        # https://github.com/pytorch/ao/pull/3241#discussion_r2552016429
         quantized_weight = Int8Tensor.from_hp(
             weight,
             granularity=config.granularity,

@@ -253,6 +253,7 @@ def _(func, types, args, kwargs):
         end = self.shape[dim]
 
     sliced_qdata = aten.slice.Tensor(self.qdata, dim, start, end, step)
+    # TODO: Direct implementation for scale slicing without importing _slice_scale_for_dimension
     sliced_scale = _slice_scale_for_dimension(
         self.scale, self.qdata.shape, dim, start, end, step
     )
