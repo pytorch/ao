@@ -59,6 +59,7 @@ logging.basicConfig(
 )
 _DEVICE = get_current_accelerator_device()
 
+
 def _build_input_weight(embed_dim: int, device: torch.device, dtype: torch.dtype):
     torch.manual_seed(0)
     input_weight = torch.empty(embed_dim, embed_dim, device=device, dtype=dtype)
@@ -68,7 +69,9 @@ def _build_input_weight(embed_dim: int, device: torch.device, dtype: torch.dtype
 
 def _build_bnb_linear(input_weight, device):
     assert bnb_available, "Needs bitsandbytes support"
-    param = bnb.nn.Params4bit(input_weight, requires_grad=False, quant_type="nf4").to(device)
+    param = bnb.nn.Params4bit(input_weight, requires_grad=False, quant_type="nf4").to(
+        device
+    )
     bnb_linear = bnb.nn.LinearNF4(
         input_weight.size(0), input_weight.size(1), bias=False
     )
