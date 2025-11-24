@@ -23,8 +23,10 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_float8,
 )
 from torchao.quantization.quantize_.common import (
-    KernelPreference,
     _choose_quant_func_and_quantize_tensor,
+)
+from torchao.quantization.quantize_.workflows.float8.float8_packing_format import (
+    Float8PackingFormat,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
@@ -56,7 +58,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         sharing the same set of quantization parameters (scale), have the same rank as sparse_quantized_data or
         is an empty list (representing per tensor quantization)
         act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8SemiSparseTensor.from_hp
-        kernel_preference (KernelPreference): the preference for quantize, mm etc. kernel to use,
+        packing_format (Float8PackingFormat): the preference for quantize, mm etc. kernel to use,
         by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
     """
@@ -66,7 +68,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
     optional_tensor_attribute_names = [
         "block_size",
         "act_quant_kwargs",
-        "kernel_preference",
+        "packing_format",
         "dtype",
     ]
 
@@ -77,10 +79,14 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        packing_format=Float8PackingFormat.SPARSE_CUTLASS,
         dtype: Optional[torch.dtype] = None,
     ):
-        shape = sparse_quantized_data.shape[0], 2 * sparse_quantized_data.shape[1]
+        if packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+            shape = sparse_quantized_data.shape[0], 2 * sparse_quantized_data.shape[1]
+        elif packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
+            shape = scale.shape[0], block_size[-1]
+
         kwargs = {}
         kwargs["device"] = sparse_quantized_data.device
         kwargs["dtype"] = dtype
@@ -94,7 +100,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        packing_format=Float8PackingFormat.SPARSE_CUTLASS,
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
@@ -103,17 +109,17 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         self.scale = scale
         self.block_size = block_size
         self.act_quant_kwargs = act_quant_kwargs
-        self.kernel_preference = kernel_preference
+        self.packing_format = packing_format
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.sparse_quantized_data=}, {self.sparse_metadata=}, {self.scale=}, "
-            f"{self.block_size=}, {self.kernel_preference=} "
+            f"{self.block_size=}, {self.packing_format=} "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
 
     def _quantization_type(self):
-        return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.scale.shape=}, {self.kernel_preference=}"
+        return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.scale.shape=}, {self.packing_format=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         # No support in CUTLASS to convert back to dense from sparse
@@ -151,34 +157,11 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         granularity: FP8Granularity = PerRow(),
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        packing_format=Float8PackingFormat.SPARSE_CUTLASS,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
-
-        kernel_choice = None
-        if (
-            kernel_preference == KernelPreference.AUTO
-            and is_sm_at_least_90()
-            and isinstance(granularity, PerRow)
-            # fbgemm path only supports quantizing along the last dim
-            and granularity.dim in (-1, len(hp_tensor.shape) - 1)
-            and float8_dtype == torch.float8_e4m3fn
-            and hp_value_lb is None
-        ):
-            # if kernel_preference is AUTO and per row quantization and we are on sm90
-            # we'll use CUTLASS rowwise fp8 + 2:4 sparse mm kernel
-            kernel_choice = "sparse_cutlass"
-        elif kernel_preference == KernelPreference.SPARSE_CUTLASS:
-            # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
-            assert is_sm_at_least_90(), (
-                "Specified sparse_cutlass kernel and hardware is not >= SM 9.0 (>= H100)"
-            )
-            kernel_choice = "sparse_cutlass"
-        else:
-            raise ValueError("Configuration not supported currently!")
-
         scale = _choose_scale_float8(
             hp_tensor,
             float8_dtype=float8_dtype,
@@ -187,13 +170,35 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
             hp_value_ub=hp_value_ub,
         )
         data = _quantize_affine_float8(hp_tensor, scale, float8_dtype)
-        if kernel_choice == "sparse_cutlass":
+        hp_dtype = hp_tensor.dtype
+
+        if (
+            packing_format == Float8PackingFormat.SPARSE_CUTLASS
+            and is_sm_at_least_90()
+            and isinstance(granularity, PerRow)
+            # fbgemm path only supports quantizing along the last dim
+            and granularity.dim in (-1, len(hp_tensor.shape) - 1)
+            and float8_dtype == torch.float8_e4m3fn
+            and hp_value_lb is None
+        ):
+            # if packing_format is SPARSE_CUTLASS and per row quantization and we are on sm90
+            # we'll use CUTLASS rowwise fp8 + 2:4 sparse mm kernel
             sparse_quantized_data, sparse_metadata = (
                 to_sparse_semi_structured_cutlass_sm9x_f8(data)
             )
+        elif packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
+            # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
+            assert is_sm_at_least_90(), (
+                "Specified sparse_cutlass kernel and hardware is not >= SM 9.0 (>= H100)"
+            )
+            sparse_quantized_data, sparse_metadata = (
+                torch._cslt_compress(data),
+                torch.Tensor([]),
+            )
         else:
-            raise ValueError("Only sparse_cutlass kernel is supported currently!")
-        hp_dtype = hp_tensor.dtype
+            raise ValueError(
+                f"packing_format={packing_format} is not supported currently!"
+            )
 
         return Float8SemiSparseTensor(
             sparse_quantized_data,
@@ -201,7 +206,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
             scale,
             block_size=block_size,
             act_quant_kwargs=act_quant_kwargs,
-            kernel_preference=kernel_preference,
+            packing_format=packing_format,
             dtype=hp_dtype,
         )
 
@@ -220,26 +225,52 @@ def _(func, types, args, kwargs):
     )
     from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
 
-    act_quant_kwargs = weight_tensor.act_quant_kwargs
-    # quantize activation, if `act_quant_kwargs` is specified
-    if act_quant_kwargs is not None:
-        assert not isinstance(input_tensor, TorchAOBaseTensor), (
-            "input tensor was already quantized"
-        )
-        input_tensor = _choose_quant_func_and_quantize_tensor(
-            input_tensor, act_quant_kwargs
-        )
-    input = input_tensor.qdata
-    input_scale = input_tensor.scale.squeeze(1)
-    weight = weight_tensor.sparse_quantized_data
-    weight_meta = weight_tensor.sparse_metadata
-    weight_scale = weight_tensor.scale.squeeze(1)
-    out_dtype = input_tensor.dtype
+    if weight_tensor.packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+        act_quant_kwargs = weight_tensor.act_quant_kwargs
+        # quantize activation, if `act_quant_kwargs` is specified
+        if act_quant_kwargs is not None:
+            assert not isinstance(input_tensor, TorchAOBaseTensor), (
+                "input tensor was already quantized"
+            )
+            input_tensor = _choose_quant_func_and_quantize_tensor(
+                input_tensor, act_quant_kwargs
+            )
+        input = input_tensor.qdata
+        input_scale = input_tensor.scale.squeeze(1)
+        weight = weight_tensor.sparse_quantized_data
+        weight_meta = weight_tensor.sparse_metadata
+        weight_scale = weight_tensor.scale.squeeze(1)
+        out_dtype = input_tensor.dtype
 
-    out = rowwise_scaled_linear_sparse_cutlass_f8f8(
-        input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
-    )
-    return out
+        out = rowwise_scaled_linear_sparse_cutlass_f8f8(
+            input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
+        )
+        return out
+    elif weight_tensor.packing_format == Float8PackingFormat.SPARSE_CUSPARSELT:
+        act_quant_kwargs = weight_tensor.act_quant_kwargs
+        # quantize activation, if `act_quant_kwargs` is specified
+        if act_quant_kwargs is not None:
+            assert not isinstance(input_tensor, TorchAOBaseTensor), (
+                "input tensor was already quantized"
+            )
+            input_tensor = _choose_quant_func_and_quantize_tensor(
+                input_tensor, act_quant_kwargs
+            )
+        input = input_tensor.qdata
+        input_scale = input_tensor.scale
+        weight = weight_tensor.sparse_quantized_data
+        weight_meta = weight_tensor.sparse_metadata
+        weight_scale = weight_tensor.scale
+        out_dtype = input_tensor.dtype
+
+        sparse_out = (
+            torch._cslt_sparse_mm(weight, input.t(), out_dtype=out_dtype)
+            .t()
+            .contiguous()
+        )
+
+        out = (input_scale * sparse_out * weight_scale.t()).to(out_dtype)
+        return out
 
 
 @implements(aten.clone.default)

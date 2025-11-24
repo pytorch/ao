@@ -29,3 +29,8 @@ class Float8PackingFormat(str, Enum):
     needed for the rest of the system to understand the specific format that's adopted.
     """
     OPAQUE = "opaque"
+    """
+    Sparse packing formats for 2:4 sparsity + FP8 quantization
+    """
+    SPARSE_CUTLASS = "sparse_cutlass"
+    SPARSE_CUSPARSELT = "sparse_cusparselt"

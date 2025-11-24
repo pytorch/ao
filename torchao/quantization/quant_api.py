@@ -2006,13 +2006,18 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = PerRow()
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
-    kernel_preference: KernelPreference = KernelPreference.AUTO
+    float8_packing_format: Float8PackingFormat = Float8PackingFormat.SPARSE_CUTLASS
     version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
         )
+
+        assert self.float8_packing_format in {
+            Float8PackingFormat.SPARSE_CUTLASS,
+            Float8PackingFormat.SPARSE_CUSPARSELT,
+        }, f"{self.float8_packing_format} is not supported"
 
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
@@ -2031,7 +2036,6 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     weight_dtype = config.weight_dtype
     activation_dtype = config.activation_dtype
     version = config.version
-    kernel_preference = config.kernel_preference
     activation_granularity, weight_granularity = _normalize_granularity(
         config.granularity
     )
@@ -2042,15 +2046,15 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
         activation_granularity,
         hp_value_lb=activation_value_lb,
         hp_value_ub=activation_value_ub,
-        kernel_preference=kernel_preference,
     )
+    packing_format = config.float8_packing_format
 
     if version == 2:
         quantized_param = Float8SemiSparseTensor.from_hp(
             unquantized_param,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
-            kernel_preference=kernel_preference,
+            packing_format=packing_format,
             act_quant_kwargs=act_quant_kwargs,
         )
     else:

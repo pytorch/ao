@@ -18,6 +18,9 @@ from torchao.quantization import (
 from torchao.quantization.quant_api import (
     quantize_,
 )
+from torchao.quantization.quantize_.workflows.float8.float8_packing_format import (
+    Float8PackingFormat,
+)
 from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
 
@@ -30,15 +33,19 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    def test_fp8_cutlass_sparse(self, compile):
+    @common_utils.parametrize(
+        "packing_format",
+        [Float8PackingFormat.SPARSE_CUTLASS, Float8PackingFormat.SPARSE_CUSPARSELT],
+    )
+    def test_fp8_cutlass_sparse(self, compile, packing_format):
         with torch.inference_mode():
-            input = torch.rand((256, 256)).half().cuda()
+            input = torch.rand((256, 256), dtype=torch.bfloat16, device="cuda")
             model = (
                 nn.Sequential(
                     nn.Linear(256, 1024),
                     nn.Linear(1024, 256),
                 )
-                .half()
+                .bfloat16()
                 .cuda()
                 .eval()
             )
@@ -47,19 +54,25 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
             model_copy = copy.deepcopy(model)
 
             # Quantized
-            quantize_(
-                model_copy.bfloat16(), Float8DynamicActivationFloat8WeightConfig()
-            )
-            dense_result = model_copy(input.bfloat16()).half()
+            quantize_(model_copy, Float8DynamicActivationFloat8WeightConfig())
+            dense_result = model_copy(input)
 
             # Sparse + quantized
-            quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
+            quantize_(
+                model,
+                Float8DynamicActivationFloat8SemiSparseWeightConfig(
+                    float8_packing_format=packing_format
+                ),
+            )
             if compile:
                 model = torch.compile(model)
             sparse_result = model(input)
 
             torch.testing.assert_close(
-                dense_result, sparse_result, atol=3e-1, rtol=3e-1
+                dense_result.to(torch.float),
+                sparse_result.to(torch.float),
+                atol=3e-1,
+                rtol=3e-1,
             )
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
