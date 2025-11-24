@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
+from itertools import product
 from typing import List, Tuple
 
 import torch
@@ -54,17 +55,8 @@ def get_configs() -> List[ExperimentConfig]:
     """
     # Common weight matrix shapes in transformers
     # Format: (in_features, out_features) for weight matrices
-    input_shapes = [
-        (512, 4096),
-        (1024, 4096),
-        (2048, 4096),
-        (4096, 4096),
-        (8192, 4096),
-        (16384, 4096),
-        (32768, 4096),
-        (65536, 4096),
-        (131_072, 4096),
-    ]
+    dimensions = [1024, 2048, 4096, 8192, 16384]
+    input_shapes = list(product(dimensions, repeat=2))
 
     configs = []
     block_sizes = [128]  # Standard block size for FP8
