@@ -76,6 +76,7 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
         (_parse_version("0.14.1"), _parse_version("2.10.0.dev")),
         # Current torchao version
         (_parse_version("0.15.0.dev"), _parse_version("2.9.0")),
+        (_parse_version("0.15.0.dev"), _parse_version("2.9.1")),
         (_parse_version("0.15.0.dev"), _parse_version("2.10.0.dev")),
     ]
 
