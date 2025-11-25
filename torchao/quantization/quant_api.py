@@ -77,7 +77,6 @@ from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
-    Int4OpaqueTensor,
     Int4PackingFormat,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
@@ -1163,12 +1162,9 @@ def _int4_weight_only_quantize_tensor(weight, config):
         block_size = list(block_size)
 
         if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
-            assert int4_packing_format in [
-                Int4PackingFormat.TILE_PACKED_TO_4D,
-                Int4PackingFormat.OPAQUE,
-            ], (
+            assert int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D, (
                 f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, "
-                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D and Int4PackingFormat.OPAQUE currently"
+                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D currently"
             )
 
         if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
@@ -1194,13 +1190,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
             new_weight = Int4MarlinSparseTensor.from_hp(
                 weight,
                 block_size,
-            )
-            return new_weight
-        elif int4_packing_format == Int4PackingFormat.OPAQUE:
-            new_weight = Int4OpaqueTensor.from_hp(
-                weight,
-                block_size,
-                int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
             )
             return new_weight
         elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:
