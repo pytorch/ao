@@ -10,7 +10,6 @@ from typing import Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
 from torchao.quantization.granularity import Granularity, PerRow
 from torchao.quantization.quant_primitives import (
@@ -170,6 +169,64 @@ implements = Int8Tensor.implements
 implements_torch_function = Int8Tensor.implements_torch_function
 
 
+def _slice_scale(
+    scale: torch.Tensor,
+    data_shape: list[int],
+    dim: int,
+    start: int,
+    end: int,
+    step: int,
+) -> torch.Tensor:
+    """
+    Slice the scale tensor appropriately based on the data tensor slicing.
+    This function calculates how the scale should be sliced when the data tensor
+    is sliced along a given dimension, taking into account the block structure.
+
+    Example:
+        If data_shape is [256, 128] and scale shape is [1] (indicating per-tensor scaling),
+        slicing along any dimension should return the same scale tensor.
+
+        If data_shape is [256, 128] and scale shape is [256] (indicating per-row scaling),
+        and we slice data along dim=0 from 64 to 192, the corresponding scale
+    """
+    aten = torch.ops.aten
+
+    # Case 1: Per-tensor quantization (scalar scale)
+    if scale.numel() <= 1:
+        return scale
+
+    # Case 2: Per-row quantization (1D scale)
+    # Scale is per-element along this dimension
+    if scale.ndim == 1:
+        if dim == 0:
+            return aten.slice.Tensor(scale, 0, start, end, step)
+        else:
+            return scale
+
+    # Case 3: Per-block quantization (2D scale)
+    block_sizes = tuple(
+        data_shape[i] // scale.shape[i] for i in range(len(scale.shape))
+    )
+
+    block_size_for_dim = block_sizes[dim]
+
+    if step > 1:
+        raise NotImplementedError(
+            "Slicing with step > 1 is not implemented for scale tensors."
+        )
+
+    # There is blocking in this dimension
+    # Calculate which scale elements correspond to the sliced data
+    scale_start = start // block_size_for_dim if start is not None else None
+    scale_end = (
+        (end + block_size_for_dim - 1) // block_size_for_dim
+        if end is not None
+        else None
+    )
+
+    return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
+
+
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
@@ -253,10 +310,7 @@ def _(func, types, args, kwargs):
         end = self.shape[dim]
 
     sliced_qdata = aten.slice.Tensor(self.qdata, dim, start, end, step)
-    # TODO: Direct implementation for scale slicing without importing _slice_scale_for_dimension
-    sliced_scale = _slice_scale_for_dimension(
-        self.scale, self.qdata.shape, dim, start, end, step
-    )
+    sliced_scale = _slice_scale(self.scale, self.qdata.shape, dim, start, end, step)
 
     return return_and_correct_aliasing(
         func,
@@ -281,7 +335,7 @@ def _(func, types, args, kwargs):
         raise NotImplementedError(f"Only dim=0 supported, got dim={dim}")
 
     selected_qdata = self.qdata[index]
-    selected_scale = _slice_scale_for_dimension(
+    selected_scale = _slice_scale(
         self.scale, self.qdata.shape, dim, index, index + 1, step=1
     ).squeeze(0)
 

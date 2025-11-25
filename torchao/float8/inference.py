@@ -139,50 +139,43 @@ def _slice_scale_for_dimension(
     Slice the scale tensor appropriately based on the data tensor slicing.
     This function calculates how the scale should be sliced when the data tensor
     is sliced along a given dimension, taking into account the block structure.
-
-    Example:
-        If data_shape is [256, 128] and scale shape is [1] (indicating per-tensor scaling),
-        slicing along any dimension should return the same scale tensor.
-
-        If data_shape is [256, 128] and scale shape is [256] (indicating per-row scaling),
-        and we slice data along dim=0 from 64 to 192, the corresponding scale
     """
     aten = torch.ops.aten
 
-    # Case 1: Per-tensor quantization (scalar scale)
-    if scale.numel() <= 1:
+    # Unsupported case for now, this would be 1 scale per data element
+    if scale.shape == data_shape:
+        return aten.slice.Tensor(scale, dim, start, end, step)
+
+    # Reconstruct block sizes based on data shape and scale shape
+    block_sizes = tuple(data_shape[i] // scale.shape[i] for i in range(len(data_shape)))
+
+    if dim >= len(block_sizes):
+        # Slicing beyond the dimensions we care about
         return scale
-
-    # Case 2: Per-row quantization (1D scale)
-    # Scale is per-element along this dimension
-    if scale.ndim == 1:
-        if dim == 0:
-            return aten.slice.Tensor(scale, 0, start, end, step)
-        else:
-            return scale
-
-    # Case 3: Per-block quantization (2D scale)
-    block_sizes = tuple(
-        data_shape[i] // scale.shape[i] for i in range(len(scale.shape))
-    )
 
     block_size_for_dim = block_sizes[dim]
 
-    if step > 1:
-        raise NotImplementedError(
-            "Slicing with step > 1 is not implemented for scale tensors."
+    if block_size_for_dim == 1:
+        # Scale is per-element along this dimension
+        # Slice away as normal
+        return aten.slice.Tensor(scale, dim, start, end, step)
+    else:
+        # There is blocking in this dimension
+        # Calculate which scale elements correspond to the sliced data
+        scale_start = start // block_size_for_dim if start is not None else None
+        scale_end = (
+            (end + block_size_for_dim - 1) // block_size_for_dim
+            if end is not None
+            else None
         )
 
-    # There is blocking in this dimension
-    # Calculate which scale elements correspond to the sliced data
-    scale_start = start // block_size_for_dim if start is not None else None
-    scale_end = (
-        (end + block_size_for_dim - 1) // block_size_for_dim
-        if end is not None
-        else None
-    )
+        # Error on Step > 1
+        if step > 1:
+            raise NotImplementedError(
+                "Slicing with step > 1 is not implemented for scale tensors."
+            )
 
-    return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
+        return aten.slice.Tensor(scale, dim, scale_start, scale_end, 1)
 
 
 def _is_rowwise_scaled(x: torch.Tensor) -> bool:
