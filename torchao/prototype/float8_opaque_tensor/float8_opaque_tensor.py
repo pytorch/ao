@@ -21,11 +21,12 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+    QuantizeTensorToFloat8Kwargs,
+)
 from torchao.utils import (
     TorchAOBaseTensor,
 )
-
-from .float8_tensor import QuantizeTensorToFloat8Kwargs
 
 __all__ = [
     "Float8OpaqueTensor",
@@ -267,7 +268,7 @@ def _(func, types, args, kwargs):
     return y
 
 
-Float8OpaqueTensor.__module__ = "torchao.quantization"
+Float8OpaqueTensor.__module__ = "torchao.prototype.float8_opaque_tensor"
 
 # Allow a model with Float8OpaqueTensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Float8OpaqueTensor])

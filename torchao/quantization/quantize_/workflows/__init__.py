@@ -1,7 +1,3 @@
-from .float8.float8_opaque_tensor import (
-    Float8OpaqueTensor,
-)
-from .float8.float8_packing_format import Float8PackingFormat
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -9,9 +5,6 @@ from .float8.float8_tensor import (
 from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 from .int4.int4_marlin_sparse_tensor import (
     Int4MarlinSparseTensor,
-)
-from .int4.int4_opaque_tensor import (
-    Int4OpaqueTensor,
 )
 from .int4.int4_packing_format import Int4PackingFormat
 from .int4.int4_plain_int32_tensor import (
@@ -49,9 +42,7 @@ __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
     "Float8Tensor",
-    "Float8PackingFormat",
     "QuantizeTensorToFloat8Kwargs",
-    "Int4OpaqueTensor",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
     "IntxChooseQParamsAlgorithm",
