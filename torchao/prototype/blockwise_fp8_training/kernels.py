@@ -116,10 +116,13 @@ def triton_fp8_gemm_1x128_128x128(
     K = a.size(1)
     N = b.size(1)
     c = a.new_empty(M, N, dtype=out_dtype)
-    grid = lambda META: (
-        triton.cdiv(M, META["BLOCK_SIZE_M"]),
-        triton.cdiv(N, META["BLOCK_SIZE_N"]),
-    )
+
+    def grid(META):
+        return (
+            triton.cdiv(M, META["BLOCK_SIZE_M"]),
+            triton.cdiv(N, META["BLOCK_SIZE_N"]),
+        )
+
     wrap_triton(triton_fp8_gemm_1x128_128x128_kernel)[grid](
         a,
         a.stride(0),
@@ -231,10 +234,13 @@ def triton_fp8_gemm_1x128_128x1(
     K = a.size(1)
     N = b.size(1)
     c = a.new_empty(M, N, dtype=out_dtype)
-    grid = lambda META: (
-        triton.cdiv(M, META["BLOCK_SIZE_M"]),
-        triton.cdiv(N, META["BLOCK_SIZE_N"]),
-    )
+
+    def grid(META):
+        return (
+            triton.cdiv(M, META["BLOCK_SIZE_M"]),
+            triton.cdiv(N, META["BLOCK_SIZE_N"]),
+        )
+
     wrap_triton(triton_fp8_gemm_1x128_128x1_kernel)[grid](
         a,
         a.stride(0),
@@ -350,10 +356,13 @@ def triton_fp8_blockwise_act_quant_lhs(
         (M, K // block_size),
         (1, M),
     )
-    grid = lambda meta: (
-        triton.cdiv(M, meta["NUM_GROUPS"]),
-        triton.cdiv(K, meta["BLOCK_SIZE"]),
-    )
+
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta["NUM_GROUPS"]),
+            triton.cdiv(K, meta["BLOCK_SIZE"]),
+        )
+
     wrap_triton(triton_fp8_blockwise_act_quant_lhs_kernel)[grid](
         x,
         x.stride(0),
@@ -443,10 +452,12 @@ def triton_fp8_blockwise_act_quant_rhs(
     y = y.as_strided(y.size(), (1, y.size(0)))
     s = x.new_empty(M_blocks, K, dtype=torch.float32)
 
-    grid = lambda meta: (
-        triton.cdiv(M, meta["BLOCK_SIZE"]),
-        triton.cdiv(K, meta["NUM_GROUPS"]),
-    )
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta["BLOCK_SIZE"]),
+            triton.cdiv(K, meta["NUM_GROUPS"]),
+        )
+
     wrap_triton(triton_fp8_blockwise_act_quant_rhs_kernel)[grid](
         x,
         x.stride(0),
@@ -549,10 +560,12 @@ def triton_fp8_blockwise_act_quant_transposed_lhs(
         (K, M_blocks),  # shape
         (1, K),  # stride
     )
-    grid = lambda meta: (
-        triton.cdiv(M, meta["BLOCK_SIZE"]),
-        triton.cdiv(K, meta["NUM_GROUPS"]),
-    )
+
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta["BLOCK_SIZE"]),
+            triton.cdiv(K, meta["NUM_GROUPS"]),
+        )
 
     wrap_triton(triton_fp8_blockwise_act_quant_transposed_lhs_kernel)[grid](
         x,
@@ -639,10 +652,13 @@ def triton_fp8_blockwise_weight_quant_rhs(
         (M_blocks, N_blocks),  # shape
         (1, M_blocks),  # stride
     )
-    grid = lambda meta: (
-        triton.cdiv(M, meta["BLOCK_SIZE"]),
-        triton.cdiv(N, meta["BLOCK_SIZE"]),
-    )
+
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta["BLOCK_SIZE"]),
+            triton.cdiv(N, meta["BLOCK_SIZE"]),
+        )
+
     wrap_triton(triton_fp8_blockwise_weight_quant_rhs_kernel)[grid](
         x,
         x.stride(0),
@@ -744,10 +760,13 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs(
         (n_blocks, m_blocks),  # shape
         (1, n_blocks),  # stride
     )
-    grid = lambda meta: (
-        triton.cdiv(M, meta["BLOCK_SIZE"]),
-        triton.cdiv(N, meta["BLOCK_SIZE"]),
-    )
+
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta["BLOCK_SIZE"]),
+            triton.cdiv(N, meta["BLOCK_SIZE"]),
+        )
+
     wrap_triton(triton_fp8_blockwise_weight_quant_transposed_rhs_kernel)[grid](
         x,
         x.stride(0),
@@ -794,6 +813,7 @@ def torch_blockwise_scale_act_quant_lhs(x, tile_size=128):
     # Reshape quantized output back to original shape and reshape scales accordingly
     x = x.reshape(*orig_shape)
     s = s.reshape(orig_shape[0], -1).to(torch.float)
+    s = s.transpose(-2, -1).contiguous().transpose(-2, -1)
 
     # Return output tensor and reciprocal scale
     return x, 1.0 / s
