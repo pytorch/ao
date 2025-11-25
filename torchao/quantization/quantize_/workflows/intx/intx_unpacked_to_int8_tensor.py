@@ -343,6 +343,36 @@ def _(func, types, args, kwargs):
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
+@implements(aten.conv2d.default)
+@implements_torch_function(torch.nn.functional.conv2d)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        dilation,
+        groups,
+    ) = fill_defaults(args, 7, [None, [1, 1], [0, 0], [1, 1], 1])
+    assert isinstance(weight_tensor, IntxUnpackedToInt8Tensor)
+
+    # Apply dynamic activation quant
+    if weight_tensor.activation_quantization is not None:
+        if (
+            weight_tensor.activation_quantization
+            == IntxUnpackedToInt8TensorActivationQuantization.INT8_ASYM_PER_TOKEN
+        ):
+            input_tensor = _apply_int8_act_asym_per_token_quant_dequant(input_tensor)
+        else:
+            raise NotImplementedError(
+                f"Unsupported activation quantization: {weight_tensor.activation_quantization}"
+            )
+
+    weight_tensor = weight_tensor.dequantize()
+    return func(input_tensor, weight_tensor, bias, stride, padding, dilation, groups)
+
+
 @implements(aten.embedding.default)
 @implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
