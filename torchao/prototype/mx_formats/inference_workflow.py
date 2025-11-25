@@ -102,6 +102,9 @@ def _mx_inference_linear_transform(
     module: torch.nn.Module, config: MXFPInferenceConfig
 ):
     weight = module.weight
+    is_swizzled_scales = True
+    if "xpu" in weight.device.type:
+        is_swizzled_scales = False
 
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
@@ -111,7 +114,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         gemm_kernel_choice=config.gemm_kernel_choice,
         pack_fp6=False,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
     )
 
     # Convert weight to MX Tensor
@@ -122,7 +125,7 @@ def _mx_inference_linear_transform(
         gemm_kernel_choice=config.gemm_kernel_choice,
         pack_fp6=False,  # TODO
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
     )
 
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
