@@ -108,7 +108,7 @@ import torch.nn as nn
 from torchao.quantization import quantize_
 import torchao.prototype.mx_formats
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
+    MXDynamicActivationMXWeightConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
@@ -120,7 +120,7 @@ x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
 # mxfp8
 
 m_mxfp8 = copy.deepcopy(m)
-config = MXFPInferenceConfig(
+config = MXDynamicActivationMXWeightConfig(
     activation_dtype=torch.float8_e4m3fn,
     weight_dtype=torch.float8_e4m3fn,
     kernel_preference=KernelPreference.AUTO,
@@ -132,7 +132,7 @@ y_mxfp8 = m_mxfp8(x)
 # mxfp4
 
 m_mxfp4 = copy.deepcopy(m)
-config = MXFPInferenceConfig(
+config = MXDynamicActivationMXWeightConfig(
     activation_dtype=torch.float4_e2m1fn_x2,
     weight_dtype=torch.float4_e2m1fn_x2,
     kernel_preference=KernelPreference.AUTO,
