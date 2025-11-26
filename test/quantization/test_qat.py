@@ -2082,13 +2082,15 @@ class TestQAT(TestCase):
     def test_quantize_api_nvfp4(self, use_per_tensor_scale: bool):
         """
         Test the following:
-            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="prepare"))
-            quantize_(model, QATConfig(NVFP4InferenceConfig(), step="convert"))
+            quantize_(model, QATConfig(NVFP4DynamicActivationNVFP4WeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(NVFP4DynamicActivationNVFP4WeightConfig(), step="convert"))
         """
-        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+        from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
 
         self._test_quantize_api_against_ptq(
-            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+            NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=use_per_tensor_scale
+            ),
             target_prepare_sqnr=float("inf"),
             target_convert_sqnr=float("inf"),
         )
@@ -2100,7 +2102,7 @@ class TestQAT(TestCase):
         """
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
-        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+        from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
         from torchao.prototype.qat import NVFP4FakeQuantizeConfig
 
         torch.manual_seed(self.SEED)
@@ -2108,7 +2110,9 @@ class TestQAT(TestCase):
         baseline_model = copy.deepcopy(m)
         quantize_(
             baseline_model,
-            NVFP4InferenceConfig(use_dynamic_per_tensor_scale=use_per_tensor_scale),
+            NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=use_per_tensor_scale
+            ),
         )
         qat_config = QATConfig(
             activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),

@@ -73,7 +73,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             use_triton_kernel=False,
         )
 
-        # Follow `NVFP4InferenceConfig`, always use traditional construction
+        # Follow `NVFP4DynamicActivationNVFP4WeightConfig`, always use traditional construction
         # for weights and set `use_triton_kernel` afterwards
         weight.use_triton_kernel = weight_config.use_triton_kernel
 
@@ -112,9 +112,9 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
     Example usage::
 
         from torchao.quantization import quantize_
-        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+        from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
 
-        base_config = NVFP4InferenceConfig()
+        base_config = NVFP4DynamicActivationNVFP4WeightConfig()
         quantize_(model, QATConfig(base_config, step="prepare"))
         # Model contains `NVFP4FakeQuantizedLinear` now
 

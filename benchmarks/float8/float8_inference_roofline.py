@@ -40,8 +40,7 @@ from utils import (
 import torchao
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
 )
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.quantization.quant_api import (
@@ -445,8 +444,7 @@ def run(
                     kernel_preference=KernelPreference.AUTO,
                 )
             elif recipe_name == "nvfp4":
-                config = NVFP4InferenceConfig(
-                    mm_config=NVFP4MMConfig.DYNAMIC,
+                config = NVFP4DynamicActivationNVFP4WeightConfig(
                     use_dynamic_per_tensor_scale=False,
                 )
             else:
