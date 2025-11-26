@@ -26,10 +26,6 @@ except PackageNotFoundError:
 logger = logging.getLogger(__name__)
 
 
-def is_fbcode():
-    return not hasattr(torch.version, "git_version")
-
-
 def _parse_version(version_string):
     """
     Parse version string representing pre-release with -1
@@ -52,7 +48,7 @@ skip_loading_so_files = False
 force_skip_loading_so_files = (
     os.getenv("TORCHAO_FORCE_SKIP_LOADING_SO_FILES", "0") == "1"
 )
-if force_skip_loading_so_files or is_fbcode():
+if force_skip_loading_so_files:
     # user override
     # users can set env var TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1 to skip loading .so files
     # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
