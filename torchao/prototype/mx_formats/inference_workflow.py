@@ -20,7 +20,6 @@ from torchao.prototype.mx_formats.mx_tensor import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4MMConfig,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
@@ -104,13 +103,12 @@ def _mx_inference_linear_transform(
 
 
 @dataclass
-class NVFP4InferenceConfig(AOBaseConfig):
+class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     """
     NVIDIA FP4 (NVFP4) Inference Quantization Configuration
 
     This is a specialized configuration for NVIDIA's FP4 format.
     Configuration parameters:
-    - mm_config: NVFP4MMConfig, which can be set to DYNAMIC or WEIGHT_ONLY (emulated mm in high precision)
     - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - Data: float4_e2m1fn_x2
@@ -121,25 +119,25 @@ class NVFP4InferenceConfig(AOBaseConfig):
     must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.
     """
 
-    mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC
     use_triton_kernel: bool = True
     use_dynamic_per_tensor_scale: bool = True
 
     def __post_init__(self):
         # Validate PyTorch version
         if not torch_version_at_least("2.8.0"):
-            raise RuntimeError("NVFP4InferenceConfig requires PyTorch 2.8 or later")
+            raise RuntimeError(
+                "NVFP4DynamicActivationNVFP4WeightConfig requires PyTorch 2.8 or later"
+            )
 
 
-@register_quantize_module_handler(NVFP4InferenceConfig)
+@register_quantize_module_handler(NVFP4DynamicActivationNVFP4WeightConfig)
 def _nvfp4_inference_linear_transform(
-    module: torch.nn.Linear, config: NVFP4InferenceConfig
+    module: torch.nn.Linear, config: NVFP4DynamicActivationNVFP4WeightConfig
 ):
-    """Quantization handler for NVFP4InferenceConfig"""
-    if config.mm_config == NVFP4MMConfig.DYNAMIC:
-        assert is_sm_at_least_100(), (
-            "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
-        )
+    """Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig"""
+    assert is_sm_at_least_100(), (
+        "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
+    )
 
     weight = module.weight
 
@@ -159,13 +157,11 @@ def _nvfp4_inference_linear_transform(
         tensor_amax = torch.max(torch.abs(weight))
         per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
 
-    act_quant_kwargs = None
-    if config.mm_config == NVFP4MMConfig.DYNAMIC:
-        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
-            use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
-            use_triton_kernel=config.use_triton_kernel,
-            is_swizzled_scales=True,
-        )
+    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+        use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+        use_triton_kernel=config.use_triton_kernel,
+        is_swizzled_scales=True,
+    )
 
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
@@ -181,11 +177,51 @@ def _nvfp4_inference_linear_transform(
     return module
 
 
+@dataclass
+class NVFP4WeightOnlyConfig(AOBaseConfig):
+    use_dynamic_per_tensor_scale: bool = True
+
+    def __post_init__(self):
+        # Validate PyTorch version
+        if not torch_version_at_least("2.8.0"):
+            raise RuntimeError(
+                "NVFP4DynamicActivationNVFP4WeightConfig requires PyTorch 2.8 or later"
+            )
+
+
+@register_quantize_module_handler(NVFP4WeightOnlyConfig)
+def _nvfp4_weight_only_linear_transform(
+    module: torch.nn.Linear, config: NVFP4WeightOnlyConfig
+):
+    """Quantization handler for NVFP4WeightOnlyConfig"""
+    weight = module.weight
+
+    if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
+        raise RuntimeError(
+            f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
+        )
+
+    per_tensor_scale = None
+    if config.use_dynamic_per_tensor_scale:
+        tensor_amax = torch.max(torch.abs(weight))
+        per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+
+    quantized_weight = NVFP4Tensor.to_nvfp4(
+        weight,
+        per_tensor_scale=per_tensor_scale,
+        is_swizzled_scales=True,
+        act_quant_kwargs=None,
+    )
+    # Set triton preference after construction
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
 torch.serialization.add_safe_globals(
     [
         MXTensor,
         NVFP4Tensor,
-        NVFP4MMConfig,
         QuantizeTensorToMXKwargs,
         QuantizeTensorToNVFP4Kwargs,
         ScaleCalculationMode,

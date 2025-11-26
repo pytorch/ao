@@ -12,9 +12,6 @@ import torch.nn.functional as F
 from torchao.prototype.mx_formats.constants import (
     F4_E2M1_MAX,
 )
-from torchao.prototype.mx_formats.inference_workflow import (
-    NVFP4MMConfig,
-)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
@@ -422,7 +419,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 )
 @pytest.mark.parametrize("use_gelu", [True, False])
 @pytest.mark.parametrize(
-    "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
+    "quant_type",
+    ["dynamic", "weight_only"],
 )
 @pytest.mark.parametrize("compile", [False])
 @pytest.mark.parametrize("bias", [True, False])
@@ -448,7 +446,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 )
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
-    mm_config: NVFP4MMConfig,
+    quant_type: str,
     compile: bool,
     bias: bool,
     inpt_dtype: torch.dtype,
@@ -456,14 +454,14 @@ def test_nvfp4_matmul_with_amax(
     shapes: tuple,
 ):
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
+    if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")
 
-    if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
-        pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+    if quant_type == "weight_only" and compile:
+        pytest.skip("TODO: weight_only currently errors w/ compile")
 
     m, k, n = shapes
 
@@ -483,7 +481,7 @@ def test_nvfp4_matmul_with_amax(
     a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
     act_quant_kwargs = None
-    if mm_config == NVFP4MMConfig.DYNAMIC:
+    if quant_type == "dynamic":
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
@@ -509,7 +507,7 @@ def test_nvfp4_matmul_with_amax(
     sqnr = compute_error(C_ref, C_nvfp4)
     SQNR_THRESHOLD = 16.0
     assert sqnr >= SQNR_THRESHOLD, (
-        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, mm_config={mm_config}, compile={compile}, bias={bias}"
+        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, {quant_type=}, compile={compile}, bias={bias}"
     )
 
 

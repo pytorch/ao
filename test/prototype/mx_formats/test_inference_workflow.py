@@ -14,8 +14,8 @@ from torch.profiler import ProfilerActivity, profile
 
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
@@ -138,9 +138,7 @@ def test_inference_workflow_mx(
 )
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
-@pytest.mark.parametrize(
-    "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
-)
+@pytest.mark.parametrize("quant_type", ["dynamic", "weight_only"])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("use_triton_kernel", [True, False])
 @pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
@@ -164,7 +162,7 @@ def test_inference_workflow_mx(
 def test_inference_workflow_nvfp4(
     bias: bool,
     compile: bool,
-    mm_config: NVFP4MMConfig,
+    quant_type: str,
     inpt_dtype: torch.dtype,
     use_triton_kernel: bool,
     use_dynamic_per_tensor_scale: bool,
@@ -177,14 +175,16 @@ def test_inference_workflow_nvfp4(
     Tests both DYNAMIC and WEIGHT_ONLY mm_config modes
     """
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
+    if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")
 
-    if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
-        pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+    if quant_type == "weight_only" and compile:
+        pytest.skip("TODO: weight_only quant currently errors w/ compile")
+    if quant_type == "weight_only" and use_triton_kernel:
+        pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
         shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
@@ -200,11 +200,15 @@ def test_inference_workflow_nvfp4(
     m = nn.Linear(in_features, out_features, bias=bias, dtype=inpt_dtype, device="cuda")
     m_mx = copy.deepcopy(m)
 
-    config = NVFP4InferenceConfig(
-        mm_config=mm_config,
-        use_triton_kernel=use_triton_kernel,
-        use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
-    )
+    if quant_type == "dynamic":
+        config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=use_triton_kernel,
+            use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+        )
+    else:
+        config = NVFP4WeightOnlyConfig(
+            use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+        )
     quantize_(m_mx, config=config)
 
     if compile:
@@ -216,7 +220,7 @@ def test_inference_workflow_nvfp4(
 
     y_ref = m(x)
 
-    if use_triton_kernel and mm_config != NVFP4MMConfig.WEIGHT_ONLY:
+    if use_triton_kernel and quant_type == "dynamic":
         with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
@@ -229,14 +233,14 @@ def test_inference_workflow_nvfp4(
 
     sqnr = compute_error(y_ref, y_mx)
 
-    if mm_config == NVFP4MMConfig.WEIGHT_ONLY:
+    if quant_type == "weight_only":
         SQNR_THRESHOLD = 18.0
     else:
         SQNR_THRESHOLD = 15.0
 
     assert y_mx.dtype == inpt_dtype, f"Got {y_mx.dtype} for inpt_dtype={inpt_dtype}"
     assert sqnr >= SQNR_THRESHOLD, (
-        f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
+        f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, {quant_type=}"
     )
 
 
@@ -273,9 +277,7 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         reason="torch.compile requires PyTorch 2.8+",
     )
     def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
-        config = NVFP4InferenceConfig(
-            mm_config=NVFP4MMConfig.WEIGHT_ONLY,
-            use_triton_kernel=False,
+        config = NVFP4WeightOnlyConfig(
             use_dynamic_per_tensor_scale=False,
         )
         self._test_quantize_3d_param_similar_to_vllm(config)
