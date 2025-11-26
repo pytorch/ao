@@ -36,39 +36,16 @@ from torchao.utils import (
 )
 
 
-# TODO The naming for these configs is a little weird, rename before moving to public API
-# Note: This API is extra prototype and will change in the future
 @dataclass
-class MXFPInferenceConfig(AOBaseConfig):
+class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     """
     MX Format Inference Quantization
 
     This module provides support for running inference with float8 quantization using MX formats.
-    The quantization flow works as follows:
-
-    1. Weight Quantization:
-    - In _mx_inference_linear_transform(), the module's weight is converted to an MXTensor
-    - The weight is quantized to the specified dtype (float8_e4m3fn by default)
-    - This happens when quantize_() is called with an MXFPInferenceConfig
-
-    2. Activation Quantization:
-    - A callable (_input_activation_quant_func_mxfp) is defined that will quantize
-        activations during inference to the same dtype
-    - This function is passed to to_linear_activation_quantized() along with the
-        already-quantized weight
-
-    3. Runtime Flow:
-    - When the quantized module is called, the input goes through the LinearActivationQuantizedTensor
-    - The input (activation) is quantized just-in-time using the provided function
-    - The MX quantized activation and MX weight are used together in F.linear
 
     Requirements:
     - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
     - PyTorch 2.5+ for proper serialization support
-
-    See also:
-    - LinearActivationQuantizedTensor in torchao.quantization.quant_api
-    - MXTensor in torchao.prototype.mx_formats.mx_tensor
     """
 
     block_size: int = 32
@@ -95,9 +72,9 @@ def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
-@register_quantize_module_handler(MXFPInferenceConfig)
+@register_quantize_module_handler(MXDynamicActivationMXWeightConfig)
 def _mx_inference_linear_transform(
-    module: torch.nn.Module, config: MXFPInferenceConfig
+    module: torch.nn.Module, config: MXDynamicActivationMXWeightConfig
 ):
     weight = module.weight
 

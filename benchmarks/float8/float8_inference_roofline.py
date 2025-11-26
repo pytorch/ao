@@ -39,7 +39,7 @@ from utils import (
 
 import torchao
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
+    MXDynamicActivationMXWeightConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
@@ -433,13 +433,13 @@ def run(
                     kernel_preference=KernelPreference.TORCH,
                 )
             elif recipe_name == "mxfp8_cublas":
-                config = MXFPInferenceConfig(
+                config = MXDynamicActivationMXWeightConfig(
                     activation_dtype=torch.float8_e4m3fn,
                     weight_dtype=torch.float8_e4m3fn,
                     kernel_preference=KernelPreference.AUTO,
                 )
             elif recipe_name == "mxfp4_cutlass":
-                config = MXFPInferenceConfig(
+                config = MXDynamicActivationMXWeightConfig(
                     activation_dtype=torch.float4_e2m1fn_x2,
                     weight_dtype=torch.float4_e2m1fn_x2,
                     kernel_preference=KernelPreference.AUTO,
