@@ -10,12 +10,9 @@ from dataclasses import dataclass
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.config import (
     _validate_elem_dtype,
-    _validate_gemm_kernel_choice,
+    _validate_kernel_preference,
 )
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
@@ -29,6 +26,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     per_tensor_amax_to_scale,
 )
 from torchao.quantization.quant_api import _quantization_type
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -80,7 +78,7 @@ class MXFPInferenceConfig(AOBaseConfig):
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
     # Which kernel to run for mm
-    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.CUBLAS
+    kernel_preference: KernelPreference = KernelPreference.AUTO
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
@@ -88,8 +86,8 @@ class MXFPInferenceConfig(AOBaseConfig):
         )
         _validate_elem_dtype(self.activation_dtype)
         _validate_elem_dtype(self.weight_dtype)
-        _validate_gemm_kernel_choice(
-            self.gemm_kernel_choice, self.block_size, self.weight_dtype
+        _validate_kernel_preference(
+            self.kernel_preference, self.block_size, self.weight_dtype
         )
 
 
@@ -109,7 +107,7 @@ def _mx_inference_linear_transform(
     act_quant_kwargs = QuantizeTensorToMXKwargs(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
-        gemm_kernel_choice=config.gemm_kernel_choice,
+        kernel_preference=config.kernel_preference,
         is_swizzled_scales=True,
     )
 
@@ -118,7 +116,7 @@ def _mx_inference_linear_transform(
         weight,
         config.weight_dtype,
         block_size=config.block_size,
-        gemm_kernel_choice=config.gemm_kernel_choice,
+        kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
         is_swizzled_scales=True,
     )
@@ -211,7 +209,6 @@ torch.serialization.add_safe_globals(
         MXTensor,
         NVFP4Tensor,
         NVFP4MMConfig,
-        MXGemmKernelChoice,
         QuantizeTensorToMXKwargs,
         QuantizeTensorToNVFP4Kwargs,
         ScaleCalculationMode,
