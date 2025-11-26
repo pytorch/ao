@@ -112,6 +112,7 @@ def _mx_inference_linear_transform(
         gemm_kernel_choice=config.gemm_kernel_choice,
         pack_fp6=False,
         is_swizzled_scales=True,
+        scaling_mode=ScaleCalculationMode.RCEIL,
     )
 
     # Convert weight to MX Tensor
@@ -123,6 +124,7 @@ def _mx_inference_linear_transform(
         pack_fp6=False,  # TODO
         act_quant_kwargs=act_quant_kwargs,
         is_swizzled_scales=True,
+        scaling_mode=ScaleCalculationMode.RCEIL,
     )
 
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
