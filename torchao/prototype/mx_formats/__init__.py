@@ -1,5 +1,4 @@
 from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
     MXLinearConfig,
     MXLinearRecipeName,
 )
@@ -16,7 +15,6 @@ from torchao.prototype.mx_formats.inference_workflow import (
 import torchao.prototype.mx_formats.mx_linear  # noqa: F401
 
 __all__ = [
-    "MXGemmKernelChoice",
     "MXLinearConfig",
     "MXLinearRecipeName",
     "MXFPInferenceConfig",

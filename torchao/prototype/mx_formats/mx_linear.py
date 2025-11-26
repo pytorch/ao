@@ -14,12 +14,12 @@ import torch
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
-    MXGemmKernelChoice,
     MXLinearConfig,
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -44,7 +44,7 @@ class mx_mm(torch.autograd.Function):
         w_elem_dtype: Any,
         grad_elem_dtype: Any,
         block_size: int,
-        gemm_kernel_choice: MXGemmKernelChoice,
+        kernel_preference: KernelPreference,
         mxfp8_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
         scale_calculation_mode: ScaleCalculationMode,
     ):
@@ -53,7 +53,7 @@ class mx_mm(torch.autograd.Function):
         ctx.w_elem_dtype = w_elem_dtype
         ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
-        ctx.gemm_kernel_choice = gemm_kernel_choice
+        ctx.kernel_preference = kernel_preference
         ctx.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
         ctx.scale_calculation_mode = scale_calculation_mode
 
@@ -65,14 +65,14 @@ class mx_mm(torch.autograd.Function):
             input_hp_r,
             in_elem_dtype,
             block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
+            kernel_preference=kernel_preference,
             scaling_mode=scale_calculation_mode,
         )
         weight_mx_dim0 = MXTensor.to_mx(
             weight_hp,
             w_elem_dtype,
             block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
+            kernel_preference=kernel_preference,
             scaling_mode=scale_calculation_mode,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
@@ -87,7 +87,7 @@ class mx_mm(torch.autograd.Function):
         w_elem_dtype = ctx.w_elem_dtype
         grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
-        gemm_kernel_choice = ctx.gemm_kernel_choice
+        kernel_preference = ctx.kernel_preference
         mxfp8_cast_kernel_choice = ctx.mxfp8_cast_kernel_choice
         scale_calculation_mode = ctx.scale_calculation_mode
 
@@ -102,7 +102,7 @@ class mx_mm(torch.autograd.Function):
             grad_output_hp_r,
             grad_elem_dtype,
             block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
+            kernel_preference=kernel_preference,
             scaling_mode=scale_calculation_mode,
         )
 
@@ -112,7 +112,7 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 w_elem_dtype,
                 weight_hp.dtype,
-                gemm_kernel_choice,
+                kernel_preference,
                 mxfp8_cast_kernel_choice,
                 scale_calculation_mode,
             )
@@ -122,7 +122,7 @@ class mx_mm(torch.autograd.Function):
                 weight_hp_t_c,
                 w_elem_dtype,
                 block_size,
-                gemm_kernel_choice=gemm_kernel_choice,
+                kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
             )
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
@@ -137,7 +137,7 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 grad_elem_dtype,
                 grad_output_hp_r.dtype,
-                gemm_kernel_choice,
+                kernel_preference,
                 mxfp8_cast_kernel_choice,
                 scale_calculation_mode,
             )
@@ -146,7 +146,7 @@ class mx_mm(torch.autograd.Function):
                 grad_output_hp_r.t().contiguous(),
                 grad_elem_dtype,
                 block_size,
-                gemm_kernel_choice=gemm_kernel_choice,
+                kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
             )
 
@@ -156,7 +156,7 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 in_elem_dtype,
                 input_hp_r.dtype,
-                gemm_kernel_choice,
+                kernel_preference,
                 mxfp8_cast_kernel_choice,
                 scale_calculation_mode,
             )
@@ -166,7 +166,7 @@ class mx_mm(torch.autograd.Function):
                 input_hp_r.t().contiguous(),
                 in_elem_dtype,
                 block_size,
-                gemm_kernel_choice=gemm_kernel_choice,
+                kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
             )
             input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
@@ -215,7 +215,7 @@ class MXLinear(torch.nn.Linear):
             config.elem_dtype_weight_override or config.elem_dtype,
             config.elem_dtype_grad_output_override or config.elem_dtype,
             config.block_size,
-            config.gemm_kernel_choice,
+            config.kernel_preference,
             config.mxfp8_cast_kernel_choice,
             config.scale_calculation_mode,
         )

@@ -15,20 +15,7 @@ from torchao.prototype.mx_formats.constants import (
     DTYPE_TO_SHORT_STR,
     SUPPORTED_ELEM_DTYPES,
 )
-
-
-class MXGemmKernelChoice(Enum):
-    # always available - MX operands are dequantized and a high precision
-    # gemm is run
-    EMULATED = "emulated"
-
-    # available only when CUDA capability is greater than or equal to 10.0
-    CUTLASS = "cutlass"
-
-    # available only when CUDA capability is greater than or equal to 10.0
-    # available on recent versions of PyTorch nightly, with https://github.com/pytorch/pytorch/pull/147548
-    # note: torch.compile does not work yet, see https://github.com/pytorch/pytorch/issues/147873
-    CUBLAS = "cublas"
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 
 class MXFP8Dim1CastKernelChoice(Enum):
@@ -85,22 +72,17 @@ def _validate_elem_dtype(elem_dtype):
     )
 
 
-def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
-    if gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
-        assert block_size == 32, (
-            f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {block_size}"
-        )
-        valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
-        assert elem_dtype in valid_dtypes, (
-            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
-        )
-    elif gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
-        assert block_size in [16, 32], (
-            f"block_size must be in [16, 32] to use the cuBLAS MX gemm kernels, got {block_size}"
-        )
-        valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
-        assert elem_dtype in valid_dtypes, (
-            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+def _validate_kernel_preference(kernel_preference, block_size, elem_dtype):
+    if kernel_preference == KernelPreference.AUTO:
+        if elem_dtype in (torch.float8_e4m3fn, torch.float4_e2m1fn_x2):
+            assert block_size == 32, f"block_size must be 32, got {block_size}"
+        else:
+            raise AssertionError(
+                f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
+            )
+    else:
+        assert kernel_preference == KernelPreference.EMULATED, (
+            f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
         )
 
 
@@ -135,9 +117,9 @@ class MXLinearConfig(AOBaseConfig):
     elem_dtype_weight_override: Optional[Any] = None
     elem_dtype_grad_output_override: Optional[Any] = None
 
-    # defines the gemm kernel choice, if the chosen kernel is not supported
+    # defines the kernel preference, if the chosen kernel is not supported
     # on the given hardware an exception will be thrown
-    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
+    kernel_preference: KernelPreference = KernelPreference.EMULATED
 
     # define which kernel to use for mxfp8 casting
     # TODO(1945): remove this config option once torch.compile gives us
@@ -150,15 +132,15 @@ class MXLinearConfig(AOBaseConfig):
 
     def __post_init__(self):
         _validate_elem_dtype(self.elem_dtype)
-        _validate_gemm_kernel_choice(
-            self.gemm_kernel_choice, self.block_size, self.elem_dtype
+        _validate_kernel_preference(
+            self.kernel_preference, self.block_size, self.elem_dtype
         )
         if self.elem_dtype_weight_override is not None:
             _validate_elem_dtype(self.elem_dtype_weight_override)
-            assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
+            assert self.kernel_preference == KernelPreference.EMULATED, "unsupported"
         if self.elem_dtype_grad_output_override is not None:
             _validate_elem_dtype(self.elem_dtype_grad_output_override)
-            assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
+            assert self.kernel_preference == KernelPreference.EMULATED, "unsupported"
         _validate_mxfp8_cast_kernel_choice(
             self.mxfp8_cast_kernel_choice, self.scale_calculation_mode
         )
@@ -182,12 +164,12 @@ class MXLinearConfig(AOBaseConfig):
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(
-                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                kernel_preference=KernelPreference.AUTO,
                 mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             )
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
             return MXLinearConfig(
-                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                kernel_preference=KernelPreference.AUTO,
                 mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
             )
@@ -196,7 +178,7 @@ class MXLinearConfig(AOBaseConfig):
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:
             return MXLinearConfig(
                 elem_dtype=torch.float4_e2m1fn_x2,
-                gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+                kernel_preference=KernelPreference.AUTO,
             )
         else:
             raise AssertionError(f"unknown recipe_name {recipe_name}")
@@ -212,7 +194,7 @@ class MXLinearConfig(AOBaseConfig):
             )
         if self.elem_dtype_grad_output_override is not None:
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
-        s += f", kernel={self.gemm_kernel_choice.value}"
+        s += f", kernel={self.kernel_preference.value}"
         s += f", mxfp8_cast_kernel_choice={self.mxfp8_cast_kernel_choice.value}"
         if self.scale_calculation_mode != ScaleCalculationMode.FLOOR:
             s += f", scale_calculation_mode={self.scale_calculation_mode}"
