@@ -12,14 +12,16 @@ import torch.nn as nn
 
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
 from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.quantizeable_mm import _Float8MM, _QuantizeableMM
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
-def swap_linear_layers(
+def _swap_linear_layers(
     module: nn.Module,
     from_float_func: Callable[[nn.Linear], nn.Linear],
+    mm_from_float_func: Callable[[_QuantizeableMM], _Float8MM],
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
 ) -> nn.Module:
@@ -50,6 +52,16 @@ def swap_linear_layers(
         return from_float_func(
             module,
         )
+    elif isinstance(module, _QuantizeableMM) and (
+        module_filter_fn is None or module_filter_fn(module, "")
+    ):
+        if len(list(module.children())) > 0:
+            raise AssertionError(
+                f"Does not support a root nn.Linear with children: {module}"
+            )
+        return mm_from_float_func(
+            module,
+        )
 
     root_module = module
 
@@ -76,6 +88,15 @@ def swap_linear_layers(
                 f"Linear root module should return early: {module}"
             )
             new_linear_module = from_float_func(module)
+            cur_module_name = cur_fqn.split(".")[-1]
+            setattr(parent_module, cur_module_name, new_linear_module)
+        elif isinstance(module, _QuantizeableMM) and (
+            module_filter_fn is None or module_filter_fn(module, cur_fqn)
+        ):
+            assert parent_module is not None, (
+                f"Linear root module should return early: {module}"
+            )
+            new_linear_module = mm_from_float_func(module)
             cur_module_name = cur_fqn.split(".")[-1]
             setattr(parent_module, cur_module_name, new_linear_module)
 
@@ -106,16 +127,22 @@ def convert_to_float8_training(
     if config is None:
         config = Float8LinearConfig()
 
-    from_float = lambda m: Float8Linear.from_float(
+    linear_from_float = lambda m: Float8Linear.from_float(
         m,
         config=config,
     )
-
-    return swap_linear_layers(
+    quantizeable_mm_from_float = lambda m: _Float8MM.from_float(
+        m,
+        config=config,
+    )
+    res = _swap_linear_layers(
         module,
-        from_float,
+        linear_from_float,
+        quantizeable_mm_from_float,
         module_filter_fn=module_filter_fn,
     )
+
+    return res
 
 
 def _auto_filter_for_recipe(
