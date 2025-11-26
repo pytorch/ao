@@ -188,7 +188,6 @@ def _to_mxfp8_dim1_kernel_wrapper(
             block_size,
             hp_dtype,
             gemm_kernel_choice,
-            False,
             None,
             is_swizzled_scales,
         )
@@ -208,7 +207,6 @@ def _to_mxfp8_dim1_kernel_wrapper(
             block_size,
             hp_dtype,
             gemm_kernel_choice,
-            False,
             None,
             is_swizzled_scales,
         )
