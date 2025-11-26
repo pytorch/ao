@@ -6,8 +6,8 @@ from torchao.prototype.mx_formats.config import (
 # Note: Prototype and subject to change
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 
 # import mx_linear here to register the quantize_ transform logic
@@ -18,6 +18,6 @@ __all__ = [
     "MXLinearConfig",
     "MXLinearRecipeName",
     "MXDynamicActivationMXWeightConfig",
-    "NVFP4InferenceConfig",
-    "NVFP4MMConfig",
+    "NVFP4DynamicActivationNVFP4WeightConfig",
+    "NVFP4WeightOnlyConfig",
 ]
