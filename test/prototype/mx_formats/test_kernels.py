@@ -34,9 +34,6 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e3m2_unpacked,
     get_bits,
     pack_uint4,
-    pack_uint6,
-    triton_f6_e2m3_to_bf16,
-    triton_f6_e3m2_to_bf16,
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
@@ -421,36 +418,6 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
     f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(-f32_val, device=device))
     assert f6_e3m2_unpacked.item() == (f6_e3m2_enc | 0b100000)
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-def test_fp6_e2m3_pack_unpack():
-    orig_vals = torch.Tensor([[0.0, 0.5, 7.5, -0.0], [-0.875, 1.0, -6.0, 0.125]]).to(
-        "cuda"
-    )
-    orig_vals_f6_unpacked = f32_to_f6_e2m3_unpacked(orig_vals)
-    orig_vals_f6_packed = pack_uint6(orig_vals_f6_unpacked)
-    assert orig_vals_f6_packed.numel() == (3 * orig_vals.numel() // 4)
-    orig_vals_f6_packed_unpacked = triton_f6_e2m3_to_bf16(orig_vals_f6_packed).to(
-        torch.float32
-    )
-    assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-def test_fp6_e3m2_pack_unpack():
-    orig_vals = torch.Tensor([[0.0, 5.0, 28.0, -0.0], [-0.25, 0.1875, 0.0625, 8.0]]).to(
-        "cuda"
-    )
-    orig_vals_f6_unpacked = f32_to_f6_e3m2_unpacked(orig_vals)
-    orig_vals_f6_packed = pack_uint6(orig_vals_f6_unpacked)
-    assert orig_vals_f6_packed.numel() == (3 * orig_vals.numel() // 4)
-    orig_vals_f6_packed_unpacked = triton_f6_e3m2_to_bf16(orig_vals_f6_packed).to(
-        torch.float32
-    )
-    assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
 
 
 def triton_to_mxfp8_dim0_reference(
