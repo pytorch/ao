@@ -74,12 +74,12 @@ from torchao.utils import (
     benchmark_model,
     check_cpu_version,
     check_xpu_version,
+    get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
     unwrap_tensor_subclass,
-    get_current_accelerator_device,
 )
 
 try:
@@ -1053,7 +1053,11 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest(
                 f"weight_only_quant_force_mixed_mm can't be constructed on {device}"
             )
-        if torch.cuda.is_available() and dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+        if (
+            torch.cuda.is_available()
+            and dtype == torch.bfloat16
+            and torch.cuda.get_device_capability() < (8, 0)
+        ):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
 
@@ -1085,7 +1089,11 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest(
                 f"weight_only_quant_force_mixed_mm can't be constructed on {device}"
             )
-        if torch.cuda.is_available() and dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+        if (
+            torch.cuda.is_available()
+            and dtype == torch.bfloat16
+            and torch.cuda.get_device_capability() < (8, 0)
+        ):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
@@ -1255,7 +1263,11 @@ class SmoothquantIntegrationTest(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skip("Seg fault?")
     def test_non_dynamically_quantizable_linear(self):
-        if torch.cuda.is_available() and torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+        if (
+            torch.cuda.is_available()
+            and torch.cuda.is_available()
+            and torch.cuda.get_device_capability() < (8, 0)
+        ):
             self.skipTest("test requires SM capability of at least (8, 0).")
         model = (
             torch.nn.Sequential(
@@ -1695,7 +1707,10 @@ class TestAutoQuant(unittest.TestCase):
             self.assertGreater(compute_error(ref, out), 20)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_90(),
+        "Need cuda arch greater than SM90",
+    )
     @unittest.skipIf(
         True, "Skipping for now, do to lowering bug in inductor"
     )  # TODO unblock when fixed
@@ -1938,9 +1953,9 @@ class TestBenchmarkModel(unittest.TestCase):
         num_runs = 1
         return benchmark_model(m_bf16, num_runs, example_inputs)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_benchmark_model_cuda(self):
-        assert self.run_benchmark_model(_DEVICE) is not None
+        assert self.run_benchmark_model("cuda") is not None
 
     def test_benchmark_model_cpu(self):
         assert self.run_benchmark_model("cpu") is not None
