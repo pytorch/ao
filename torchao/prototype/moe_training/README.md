@@ -187,6 +187,41 @@ To reproduce this benchmark, on a B200 GPU machine, run the following command:
 - torchao: `0.14.0+gitc7b8e13da`
 - torch: `2.10.0a0+gitf6de195`
 
+### Roofline Performance Analysis
+
+The following roofline plots provide roofline analysis and benchmarks for the following:
+
+1. **Net Speedup vs () Size** - MXFP8 vs BF16 for forward + backward pass
+2. **2D Quantization + Block Format Kernels** - Bandwidth utilization for input quantization and per-group scale conversion to blocked format
+3. **3D Quantization + Block Format Kernels** - Bandwidth utilization for weight quantization and per-group scale conversion to blocked format
+4. **Grouped GEMM Kernel Speedup** - MXFP8 over BF16 for 2D/3D and 2D/2D GEMM operations
+5. **Kernel Breakdown** - Stacked bar chart showing actual measured times for each kernel component (quantization, conversion to blocked format, GEMM) across forward, backward input, and backward weight passes
+
+These benchmarks were generated on **November 26, 2025** and will be updated with every change that affects performance.
+
+Next steps for optimization:
+* Improve 2D-2D MXFP8 grouped GEMM CUTLASS kernel performance (used for computing wgrad), which currently produces much lower speedups than the 2D-3D case (used for computing output and dgrad).
+
+#### Llama4 Shapes (K=5120, N=8192, G=8)
+
+![Llama Rooflines](../../../benchmarks/prototype/moe_training/mxfp8/llama_rooflines.png)
+
+**Command to reproduce:**
+```bash
+cd benchmarks/prototype/moe_training/mxfp8
+python roofline_unified.py --K=5120 --N=8192 --G=8 --power_limit_percent=100 --breakdown_M=131072 --plot_file=llama_rooflines.png
+```
+
+#### DeepSeek V3 Shapes (K=7168, N=2048, G=8)
+
+![DeepSeek V3 Rooflines](../../../benchmarks/prototype/moe_training/mxfp8/dsv3_rooflines.png)
+
+**Command to reproduce:**
+```bash
+cd benchmarks/prototype/moe_training/mxfp8
+python roofline_unified.py --K=7168 --N=2048 --G=8 --power_limit_percent=100 --breakdown_M=131072 --plot_file=dsv3_rooflines.png
+```
+
 ## Benchmark: single MoE layer forward + backward pass
 
 | Model        | total_M | N    | K    | bf16 time (ms) | mxfp8 time (ms) | speedup |
