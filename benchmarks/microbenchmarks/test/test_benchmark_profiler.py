@@ -162,7 +162,6 @@ class TestBenchmarkProfiler(unittest.TestCase):
             quantization=None,
             sparsity=None,
             params={
-                "enable_memory_profiler": True,
                 "device": "cuda",
             },
             shape_name="test",
@@ -201,7 +200,6 @@ class TestBenchmarkProfiler(unittest.TestCase):
             quantization=None,
             sparsity=None,
             params={
-                "enable_memory_profiler": True,
                 "device": "cuda",
             },
             shape_name="test",
@@ -255,7 +253,6 @@ class TestBenchmarkProfiler(unittest.TestCase):
                 quantization=None,
                 sparsity=None,
                 params={
-                    "enable_memory_profiler": True,
                     "device": "cpu",  # Force CPU to test CUDA unavailable case
                 },
                 shape_name="test",

@@ -17,7 +17,7 @@ model_params:
     device: "cuda"
     model_type: "linear"
     enable_profiler: true  # Enable profiling for this model
-    enable_memory_profiler: true  # Enable memory profiling for this model
+    enable_memory_visualizer: true  # Enable memory visualization for this model
 
   - name: "ln_linear_sigmoid_cuda"
     matrix_shapes:
@@ -30,7 +30,7 @@ model_params:
     device: "cuda"
     model_type: "ln_linear_sigmoid"
     enable_profiler: true
-    enable_memory_profiler: true
+    enable_memory_visualizer: true
 
   - name: "bf16_transformer_block"
     matrix_shapes:
@@ -43,7 +43,7 @@ model_params:
     device: "cuda"
     model_type: "transformer_block" # TODO: Add a custom model (Figure out how to do this, maybe pass a .py file with model definition)
     enable_profiler: true
-    enable_memory_profiler: true
+    enable_memory_visualizer: true
 
   - name: "large_bf16_ln_linear"
     matrix_shapes:
@@ -59,4 +59,4 @@ model_params:
     device: "cuda"
     model_type: "linear"
     enable_profiler: true
-    enable_memory_profiler: true
+    enable_memory_visualizer: true

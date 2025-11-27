@@ -12,6 +12,7 @@ on:
 jobs:
   benchmark:
     runs-on: linux.aws.h100
+    timeout-minutes: 480  # 8 hours (increased from default 6 hours)
     strategy:
       matrix:
         torch-spec:
