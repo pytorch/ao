@@ -682,7 +682,7 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32),
     ):
-        if not _DEVICE in test_device:
+        if not torch.accelerator.is_available():
             self.skipTest("test requires gpu")
         with torch.no_grad():
             m, k, n = test_shape
@@ -1403,12 +1403,13 @@ class TestAutoQuant(unittest.TestCase):
         if (
             is_supported_device and torch.version.hip is None
         ):  # Only apply to CUDA, not ROCm
-            device_capability = torch.cuda.get_device_capability()
-            if torch.cuda.is_available() and device_capability < (8, 0):
-                if dtype == torch.bfloat16:
-                    self.skipTest("bfloat16 requires sm80+")
-                if m1 == 1 or m2 == 1:
-                    self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
+            if torch.cuda.is_available():
+                device_capability = torch.cuda.get_device_capability()
+                if device_capability < (8, 0):
+                    if dtype == torch.bfloat16:
+                        self.skipTest("bfloat16 requires sm80+")
+                    if m1 == 1 or m2 == 1:
+                        self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
 
         # TODO remove this once https://github.com/pytorch/pytorch/issues/155838 is resolved
         if m1 == 1 or m2 == 1:
