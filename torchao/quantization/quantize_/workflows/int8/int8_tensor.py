@@ -21,7 +21,6 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
-    _get_reduction_params,
 )
 from torchao.quantization.quantize_.common import QuantizeTensorKwargs
 from torchao.quantization.utils import get_block_size
@@ -128,14 +127,9 @@ class Int8Tensor(TorchAOBaseTensor):
                 f"Expected 2D or 3D tensor with matching block_size dimensions, "
                 f"got tensor dim={w_hp.dim()}, block_size length={len(block_size)}"
             )
-
         if act_quant_kwargs is not None and act_quant_kwargs.act_quant_scale is not None and act_quant_kwargs.is_act:
-            # Static quantization
-            shape_for_reduction, reduction_dims = _get_reduction_params(
-                block_size, w_hp.size()
-            )
-            scale = w_hp.view(shape_for_reduction)
-            scale = torch.amin(scale, dim=reduction_dims, keepdim=False)
+            # Static activation quantization
+            scale = torch.amin(w_hp, keepdim=False)
             scale = scale.fill_(act_quant_kwargs.act_quant_scale)
             scale = scale.to(device=w_hp.device, dtype=w_hp.dtype)
             if act_quant_kwargs.act_quant_zero_point is not None:
@@ -146,7 +140,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
             int_data = quantize_affine(
                 w_hp,
-                block_size=block_size,
+                block_size=w_hp.shape,
                 scale=scale,
                 zero_point=zero_point,
                 output_dtype=torch.int8,
