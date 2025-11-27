@@ -20,6 +20,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_quantize_nvfp4,
     unpack_uint4,
 )
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.mx_tensor import (
     tensor_size_fp4x2_to_hp,
     tensor_size_hp_to_fp4x2,
@@ -158,6 +159,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         use_triton_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
+        rounding_mode: RoundingMode = RoundingMode.RN,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -171,6 +173,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             is_swizzled_scales: If True, store scales in swizzled format for faster matrix multiplication
             use_triton_kernel: If True, use Triton kernel for quantization
             act_quant_kwargs: If specified, config for quantizing the activation
+            rounding_mode: Rounding mode to use (RN for round-nearest, RS for stochastic)
 
         Returns:
             NVFP4Tensor: Quantized tensor in NVFP4 format
@@ -183,10 +186,14 @@ class NVFP4Tensor(TorchAOBaseTensor):
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
-            blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
+            # Convert RoundingMode enum to boolean for triton kernel
+            use_stochastic_rounding = rounding_mode == RoundingMode.RS
+            blockwise_scales, data_lp = triton_quantize_nvfp4(
+                data_hp, per_tensor_scale, use_stochastic_rounding
+            )
         else:
             blockwise_scales, data_lp = nvfp4_quantize(
-                data_hp, block_size, per_tensor_scale
+                data_hp, block_size, per_tensor_scale, rounding_mode
             )
             if is_swizzled_scales:
                 scale_shape = (math.prod(leading_dims) * M, K // block_size)
@@ -677,6 +684,7 @@ def nvfp4_quantize(
     data_hp: torch.Tensor,
     block_size: int = 16,
     per_tensor_scale: Optional[torch.Tensor] = None,
+    rounding_mode: RoundingMode = RoundingMode.RN,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """NVIDIA FP4 quantization with UE4M3 scales.
 
@@ -688,6 +696,7 @@ def nvfp4_quantize(
         block_size: Block size for quantization (must be 16)
         per_tensor_amax: Optional pre-computed absolute maximum for calibration.
             If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
+        rounding_mode: Rounding mode to use (RN or RS)
 
     Returns:
         tuple: A tuple containing:
@@ -742,7 +751,7 @@ def nvfp4_quantize(
 
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
-    data_lp = f32_to_f4_unpacked(data_scaled)
+    data_lp = f32_to_f4_unpacked(data_scaled, rounding_mode)
     # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
     # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
     data_lp = pack_uint4(data_lp)
