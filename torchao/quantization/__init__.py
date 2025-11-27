@@ -59,6 +59,7 @@ from .quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,

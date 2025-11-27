@@ -43,11 +43,13 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    Int8StaticActivationInt8WeightConfig,
     _replace_with_custom_fn_if_matches_filter,
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    choose_qparams_affine,
     dequantize_affine,
 )
 from torchao.quantization.smoothquant import (
@@ -1004,6 +1006,25 @@ class TestDynamicQuant(unittest.TestCase):
         sqnr = compute_error(y_ref, y_test)
         self.assertGreater(sqnr, 40.0)
 
+class TestStaticQuant(unittest.TestCase):
+    def test_static_quant(self):
+        M, K, N = 8, 16, 8
+        x = torch.randn(M, K)
+        m = nn.Sequential(nn.Linear(K, N))
+        block_size = [M, K]  # per-tensor quantization
+        scale, _ = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=torch.int8,
+        )
+
+        y_ref = m(x)
+        quantize_(m, Int8StaticActivationInt8WeightConfig(act_quant_scale=scale))
+        y_test = m(x)
+
+        sqnr = compute_error(y_ref, y_test)
+        self.assertGreater(sqnr, 40.0)
 
 class TestWeightOnlyInt8Quant(unittest.TestCase):
     def test_weight_only_quant(self):
@@ -1037,7 +1058,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
         quantize_(
             m,
-            Int8WeightOnlyConfig(group_size=group_size),
+            Int8WeightOnlyConfig(group_size=group_size,version=2),
             filter_fn=lambda x, *args: isinstance(x, nn.Embedding),
         )
         y_q = m(input)

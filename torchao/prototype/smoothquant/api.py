@@ -15,6 +15,7 @@ from torchao.quantization.linear_activation_scale import (
 )
 from torchao.quantization.quant_api import (
     _QUANTIZE_CONFIG_HANDLER,
+    Int8StaticActivationInt8WeightConfig,
     _linear_extra_repr,
 )
 from torchao.quantization.transform_module import (
@@ -96,8 +97,27 @@ def _smooth_quant_transform(
         raise ValueError(f"Unexpected step: {step}")
 
     # Compute smoothed weight parameters
-    smoothing_factor = observed_linear.obs.calculate_qparams()
+    act_quant_min, act_quant_max = None, None
+    if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
+        act_quant_min, act_quant_max = -127, 127
+    smoothing_factor, act_quant_scale = observed_linear.obs.calculate_qparams(
+        act_quant_min, act_quant_max
+    )
     weight = observed_linear.weight * smoothing_factor
+
+    # Quantize weights
+    if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
+        base_config.act_quant_scale = act_quant_scale
+    base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
+    dummy_mod = DummyModule(weight)
+    quant_mod = base_config_handler(dummy_mod, base_config)
+    qw = quant_mod.weight
+
+    # Add smoothing factor metadata
+    use_inv_scale = qw.device.type == "cpu"
+    qw = to_weight_tensor_with_linear_activation_scale_metadata(
+        qw, smoothing_factor.to(qw.dtype), use_inv_scale
+    )
 
     # Create new linear layer
     with torch.device("meta"):
@@ -108,19 +128,8 @@ def _smooth_quant_transform(
             device=observed_linear.weight.device,
             dtype=observed_linear.weight.dtype,
         )
-    linear.bias = observed_linear.bias
-
-    # Quantize weights
-    base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
-    dummy_mod = DummyModule(weight)
-    quant_mod = base_config_handler(dummy_mod, base_config)
-    qw = quant_mod.weight
-
-    # Add smoothing factor metadata
-    qw = to_weight_tensor_with_linear_activation_scale_metadata(
-        qw, smoothing_factor.to(qw.dtype)
-    )
     linear.weight = torch.nn.Parameter(qw, requires_grad=False)
     linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
+    linear.bias = observed_linear.bias
 
     return linear

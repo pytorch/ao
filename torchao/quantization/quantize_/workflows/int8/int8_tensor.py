@@ -11,12 +11,17 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity, PerRow
+from torchao.quantization.granularity import (
+    Granularity,
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
+    _get_reduction_params,
 )
 from torchao.quantization.quantize_.common import QuantizeTensorKwargs
 from torchao.quantization.utils import get_block_size
@@ -33,9 +38,15 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
+        is_act (bool): whether the tensor is activation tensor
+        act_quant_scale (Optional[float]): pre-computed scale for static activation quantization
+        act_quant_zero_point (Optional[float]): pre-computed zero point for static activation quantization
     """
 
     granularity: Granularity = PerRow()
+    is_act: bool = False
+    act_quant_scale: Optional[float] = None
+    act_quant_zero_point: Optional[float] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -49,7 +60,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
-        act_quant_kwargs: flags for dynamic activation quantization
+        act_quant_kwargs: flags for activation quantization
     """
 
     # TODO: Static quantization support using `static_scale`
@@ -118,24 +129,50 @@ class Int8Tensor(TorchAOBaseTensor):
                 f"got tensor dim={w_hp.dim()}, block_size length={len(block_size)}"
             )
 
-        scale, zero_point = choose_qparams_affine(
-            input=w_hp,
-            mapping_type=MappingType.SYMMETRIC,
-            block_size=block_size,
-            target_dtype=torch.int8,
-            quant_min=-128,
-            quant_max=127,
-            scale_dtype=w_hp.dtype,
-            zero_point_dtype=torch.int8,
-        )
+        if act_quant_kwargs is not None and act_quant_kwargs.act_quant_scale is not None and act_quant_kwargs.is_act:
+            # Static quantization
+            shape_for_reduction, reduction_dims = _get_reduction_params(
+                block_size, w_hp.size()
+            )
+            scale = w_hp.view(shape_for_reduction)
+            scale = torch.amin(scale, dim=reduction_dims, keepdim=False)
+            scale = scale.fill_(act_quant_kwargs.act_quant_scale)
+            scale = scale.to(device=w_hp.device, dtype=w_hp.dtype)
+            if act_quant_kwargs.act_quant_zero_point is not None:
+                zero_point = scale.fill_(act_quant_kwargs.act_quant_zero_point)
+                zero_point = zero_point.to(device=w_hp.device, dtype=torch.int)
+            else:
+                zero_point = torch.zeros_like(scale, dtype=torch.int)
 
-        int_data = quantize_affine(
-            w_hp,
-            block_size=block_size,
-            scale=scale,
-            zero_point=zero_point,
-            output_dtype=torch.int8,
-        )
+            int_data = quantize_affine(
+                w_hp,
+                block_size=block_size,
+                scale=scale,
+                zero_point=zero_point,
+                output_dtype=torch.int8,
+                quant_min=-127,
+                quant_max=127,
+            )
+        else:
+            # Dynamic quantization
+            scale, zero_point = choose_qparams_affine(
+                input=w_hp,
+                mapping_type=MappingType.SYMMETRIC,
+                block_size=block_size,
+                target_dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                scale_dtype=w_hp.dtype,
+                zero_point_dtype=torch.int8,
+            )
+
+            int_data = quantize_affine(
+                w_hp,
+                block_size=block_size,
+                scale=scale,
+                zero_point=zero_point,
+                output_dtype=torch.int8,
+            )
 
         return cls(
             int_data,
@@ -230,7 +267,7 @@ def _slice_scale(
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
-    """INT8 quantization: dynamic activation or weight-only"""
+    """INT8 quantization: static/dynamic activation or weight-only"""
     activation_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -243,10 +280,15 @@ def _(func, types, args, kwargs):
     output_dtype = activation_tensor.dtype
 
     if weight_tensor.act_quant_kwargs is not None:
-        activation_tensor = Int8Tensor.from_hp(
-            activation_tensor, weight_tensor.act_quant_kwargs.granularity
-        )
-        # Dynamic activation quantization path
+        if not isinstance(activation_tensor, Int8Tensor):
+            act_kwargs = weight_tensor.act_quant_kwargs
+            act_kwargs.is_act = True
+            if act_kwargs.act_quant_scale is not None:
+                # Static activation quantization path
+                act_kwargs.granularity = PerTensor()
+            activation_tensor = Int8Tensor.from_hp(
+                activation_tensor, act_kwargs.granularity, act_kwargs
+            )
 
         # 1. do the matrix form of dot(X_i, W_j)
         #
