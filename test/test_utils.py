@@ -386,7 +386,6 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         @Parent.implements([torch.ops.aten.cat.default])
         def _cat_op(func, types, args, kwargs):
             counter["calls"] += 1
-            return func(*args, **kwargs)
 
         class Child(Parent):
             tensor_data_names = ["qdata"]
