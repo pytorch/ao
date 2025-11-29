@@ -2591,7 +2591,7 @@ def _fqn_to_config_handler(
                 top_level_params.pop(i)
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
+                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS or True:
                     # may be more than one param specified, so don't return prematurely
                     module = handler(module, c, parameter_name=parameter_name)
                 else:
