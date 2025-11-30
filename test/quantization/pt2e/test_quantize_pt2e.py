@@ -69,7 +69,7 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     QuantizationConfig,
 )
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
-from torchao.utils import torch_version_at_least, get_current_accelerator_device
+from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
 DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else []) + (["xpu"] if TEST_XPU else [])
 _DEVICE = get_current_accelerator_device()

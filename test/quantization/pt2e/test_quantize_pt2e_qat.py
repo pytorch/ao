@@ -28,7 +28,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
-from torch.testing._internal.common_utils import run_tests, TEST_XPU
+from torch.testing._internal.common_utils import TEST_XPU, run_tests
 
 from torchao.quantization.pt2e import (
     FusedMovingAvgObsFakeQuantize,
@@ -52,9 +52,10 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import torch_version_at_least, get_current_accelerator_device
+from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
 _DEVICE = get_current_accelerator_device()
+
 
 class PT2EQATTestCase(QuantizationTestCase):
     """
