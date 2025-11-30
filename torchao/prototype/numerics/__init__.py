@@ -1,3 +1,4 @@
+from torchao.quantization.quantize_.workflows.int4.int4_tensor import int4_row_quantize_zp
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -27,6 +28,10 @@ import math
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
+from torchao.quantization import Int4Tensor
+from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
+from torchao.quantization import Int4WeightOnlyConfig
+import time
 
 
 @dataclass
@@ -75,10 +80,7 @@ class ObserverTensor(TorchAOBaseTensor):
 
     if in REPLAY mode, when it comes across a meta input to mm, it will pop an input from the saved activations, and return the quantized mm output.
 
-
-
     Then to sequentially quantize we can do the following:
-
 
     quantize_(layer N, ObserverTensor.OBSERVE)
 
@@ -120,154 +122,100 @@ class ObserverTensor(TorchAOBaseTensor):
 
     def to_accelerated(self, torchao_base_tensor_type):
         if torchao_base_tensor_type == "gptq_int4":
+            acceleration_config = Int4WeightOnlyConfig()
+            block_size = [1, acceleration_config.group_size]
+            # calculate hessian
             H = _calculate_hessian(self.inputs, None, self.device)
+            W = self.hp_data.view(-1, self.shape[-1])
+            gptq_block_size = 256
+            percdamp = .01
+            group_size = acceleration_config.group_size
 
-            W = self.hp_data
-            Q, DQ, all_qparams = self.faster_quant(
-                H, W.view(-1, W.shape[-1]).detach(), self.device
-            )
+            W = W.detach()
+            _, columns = W.shape[0], W.shape[1]
+            device = W.device
 
+            if acceleration_config.group_size == -1:
+                group_size = columns
+            else:
+                blocksize = math.ceil(gptq_block_size/ group_size) * group_size
+
+            dead = torch.diag(H) == 0
+            H[dead, dead] = 1
+            W[:, dead] = 0
+
+            Q = torch.zeros_like(W, dtype=torch.int8)
+
+            damp = percdamp * torch.mean(torch.diag(H))
+            diag = torch.arange(columns, device=device)
+            H[diag, diag] += damp
+            H = torch.linalg.cholesky(H)
+            H = torch.cholesky_inverse(H)
+            H = torch.linalg.cholesky(H, upper=True)
+            Hinv = H
+
+            all_qparams = []
+
+            for block_start in range(
+                0, columns, blocksize
+            ):  # go through all columns block by block
+                block_end = min(block_start + blocksize, columns)
+                W1 = W[:, block_start:block_end].clone()
+                Q1 = torch.zeros_like(W1, dtype=torch.int8)
+                Err1 = torch.zeros_like(W1)
+                Hinv1 = Hinv[block_start:block_end, block_start:block_end]
+                for group_start in range(
+                    block_start, block_end, group_size
+                ):  # break up blocks by groupsize
+                    group_end = min(group_start + group_size, columns)
+                    if group_start % group_size == 0:
+                        # needed for when group_size == columns so only calculate qparams once
+                        _, scale, zero = int4_row_quantize_zp(W[:, group_start:group_end], group_size) 
+                        all_qparams.append((scale, zero))
+
+                    for index in range(group_start, group_end):  # within each group
+                        i = index - block_start
+                        w = W1[:, i]
+                        d = Hinv1[i, i]
+
+                        q = Int4Tensor.int4_row_quantize_zp_precomputed_qparams(w.unsqueeze(1), scale, zero, group_size=group_size)
+                        Q1[:, i] = q.flatten()
+
+                        dq = Int4Tensor(
+                            qdata=q,
+                            scale=scale,
+                            zero_point=zero,
+                            block_size=block_size,
+                            shape=q.shape,
+                            act_pre_scale=None
+                        ).dequantize().flatten()
+
+                        err1 = (w - dq) / d
+                        W1[:, i:] -= (
+                            err1.to(Hinv1.dtype)
+                            .unsqueeze(1)
+                            .matmul(Hinv1[i, i:].unsqueeze(0))
+                        )
+                        Err1[:, i] = err1
+
+                Q[:, block_start:block_end] = Q1
+                W[:, block_end:] -= Err1.to(Hinv.dtype).matmul(
+                    Hinv[block_start:block_end, block_end:]
+                )
+
+            if "cuda" in device.type:
+                torch.cuda.synchronize()
+
+            final_qparams = [torch.cat(x, dim=0) for x in zip(*all_qparams)]
             return Int4Tensor(
-                qdata=Q, 
-                scale=all_qparams[0], 
-                zero_point=all_qparams[1], 
-                block_size=None,
+                qdata=pack_int4(Q),
+                scale=final_qparams[0].to(self.dtype),
+                zero_point=final_qparams[1].to(self.dtype), 
+                block_size=block_size, 
                 shape=W.shape,
                 act_pre_scale=None,
             )
 
-    def faster_quant(self, H, W, device):
-        """
-        GPTQ quantization implementation.
-
-        Args:
-            H: Hessian matrix approximation
-            W: Weight matrix to quantize
-            device: accelerator device
-        """
-
-        zero_point_domain = ZeroPointDomain.FLOAT
-        n_bit = 4
-        group_size = -1
-        # self.scale = hp_data
-        self.get_qparams_func = lambda w, precision: get_groupwise_affine_qparams(
-            w,
-            n_bit,
-            group_size,
-            dtype=precision,
-            zero_point_domain=self.zero_point_domain,
-        )
-        self.quantize_func = (
-            lambda w, qparams: groupwise_affine_quantize_tensor_from_qparams(
-                w,
-                qparams[0],
-                qparams[1],
-                n_bit,
-                group_size,
-                zero_point_domain=self.zero_point_domain,
-            )
-        )
-        self.dequantize_func = (
-            lambda q, qparams: groupwise_affine_dequantize_tensor_from_qparams(
-                q,
-                qparams[0],
-                qparams[1],
-                n_bit,
-                group_size,
-                zero_point_domain=self.zero_point_domain,
-            )
-        )
-        self.combine_qparams_list_func = lambda qparams_list: [
-            torch.cat(x, dim=1) for x in zip(*qparams_list)
-        ]
-
-        percdamp = 0.01
-        blocksize = 128
-        group_size = -1
-        orig_dtype = W.dtype
-        W = W.detach().float()
-        _, columns = W.shape[0], W.shape[1]
-        device = W.device
-
-        if group_size == -1:
-            group_size = columns
-        else:
-            blocksize = math.ceil(blocksize / group_size) * group_size
-
-        dead = torch.diag(H) == 0
-        H[dead, dead] = 1
-        W[:, dead] = 0
-
-        DQ = torch.zeros_like(W)
-
-        damp = percdamp * torch.mean(torch.diag(H))
-        diag = torch.arange(columns, device=device)
-        H[diag, diag] += damp
-        H = torch.linalg.cholesky(H)
-        H = torch.cholesky_inverse(H)
-        H = torch.linalg.cholesky(H, upper=True)
-        Hinv = H
-
-        cur_qparams = None
-        all_qparams = []
-
-        for block_start in range(
-            0, columns, blocksize
-        ):  # go through all columns block by block
-            block_end = min(block_start + blocksize, columns)
-            W1 = W[:, block_start:block_end].clone()
-            DQ1 = torch.zeros_like(W1)
-            Err1 = torch.zeros_like(W1)
-            Hinv1 = Hinv[block_start:block_end, block_start:block_end]
-            for group_start in range(
-                block_start, block_end, group_size
-            ):  # break up blocks by groupsize
-                group_end = min(group_start + group_size, columns)
-                if group_start % group_size == 0:
-                    # needed for when group_size == columns so only calculate qparams once
-                    cur_qparams = self.get_qparams_func(
-                        W[:, group_start:group_end], orig_dtype
-                    )
-                    all_qparams.append(cur_qparams)
-
-                for index in range(group_start, group_end):  # within each group
-                    i = index - block_start
-                    if i >= W1.shape[1]:
-                        break
-                    w = W1[:, i]
-                    d = Hinv1[i, i]
-
-                    q = self.quantize_func(w.unsqueeze(1), cur_qparams).flatten()
-                    dq = self.dequantize_func(q.unsqueeze(1), cur_qparams).flatten()
-
-                    DQ1[:, i] = dq
-
-                    err1 = (w - dq) / d
-                    W1[:, i:] -= (
-                        err1.to(Hinv1.dtype)
-                        .unsqueeze(1)
-                        .matmul(Hinv1[i, i:].unsqueeze(0))
-                    )
-                    Err1[:, i] = err1
-
-            DQ[:, block_start:block_end] = DQ1
-            W[:, block_end:] -= Err1.to(Hinv.dtype).matmul(
-                Hinv[block_start:block_end, block_end:]
-            )
-
-        if "xpu" in device.type:
-            torch.xpu.synchronize()
-        elif "cuda" in device.type:
-            torch.cuda.synchronize()
-        else:
-            pass
-
-        if all_qparams == []:
-            all_qparams.append(cur_qparams)
-
-        all_qparams = self.combine_qparams_list_func(all_qparams)
-        Q = self.quantize_func(DQ, all_qparams)
-        return Q, DQ.to(orig_dtype), all_qparams
 
 
 implements = ObserverTensor.implements

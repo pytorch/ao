@@ -239,6 +239,89 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         # making sure activation pre scaling is successfully applied to the activation
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
+    @parametrize("group_size", [32, 64, 128, 256])
+    @parametrize("shape", [(128, 256), (256, 512), (64, 128)])
+    def test_int4_row_dequantize_zp(self, group_size, shape):
+        """
+        Test that int4_row_dequantize_zp correctly reverses the quantization
+        process performed by int4_row_quantize_zp.
+        """
+        from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp
+
+        from torchao.quantization.quantize_.workflows.int4.int4_tensor import (
+            Int4Tensor,
+        )
+
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        # Create a random weight tensor
+        original_weight = torch.randn(*shape, dtype=dtype, device=device)
+
+        # Quantize using fbgemm's int4_row_quantize_zp
+        quantized, scale, zero_point = int4_row_quantize_zp(
+            original_weight, group_size
+        )
+
+        # Dequantize using Int4Tensor.int4_row_dequantize_zp
+        dequantized = Int4Tensor.int4_row_dequantize_zp(
+            quantized, scale, zero_point, group_size
+        )
+
+        # Check that dequantized tensor has the same shape as original
+        self.assertEqual(dequantized.shape, original_weight.shape)
+
+        # Check that dequantization is reasonably close to the original
+        # (won't be exact due to quantization loss)
+        # Using SQNR (Signal-to-Quantization-Noise Ratio) as a measure
+        error = compute_error(original_weight.float(), dequantized.float())
+
+        # SQNR should be reasonably high for int4 quantization (typically > 15 dB)
+        self.assertGreater(
+            error,
+            15.0,
+            f"SQNR too low: {error:.2f} dB for group_size={group_size}, shape={shape}",
+        )
+
+    def test_int4_row_dequantize_zp_roundtrip_simple(self):
+        """
+        Test a simple roundtrip: quantize then dequantize and verify the result
+        is close to the original.
+        """
+        from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp
+
+        from torchao.quantization.quantize_.workflows.int4.int4_tensor import (
+            Int4Tensor,
+        )
+
+        dtype = torch.bfloat16
+        device = "cuda"
+        group_size = 128
+
+        # Create a simple weight tensor with known values
+        original_weight = torch.randn(128, 256, dtype=dtype, device=device)
+
+        # Quantize
+        quantized, scale, zero_point = int4_row_quantize_zp(original_weight, group_size)
+
+        # Dequantize
+        dequantized = Int4Tensor.int4_row_dequantize_zp(
+            quantized, scale, zero_point, group_size
+        )
+
+        # Verify output dtype is float32 (as specified in the function)
+        self.assertEqual(dequantized.dtype, torch.float32)
+
+        # Verify shape is preserved
+        self.assertEqual(dequantized.shape, original_weight.shape)
+
+        # Check numerical accuracy
+        max_diff = torch.abs(original_weight.float() - dequantized).max().item()
+
+        # The max difference should be within a reasonable range for 4-bit quantization
+        # For group-wise quantization with group_size=128, we expect relatively small errors
+        self.assertLess(max_diff, 1.0, f"Max difference too large: {max_diff:.4f}")
+
 
 instantiate_parametrized_tests(TestInt4Tensor)
 

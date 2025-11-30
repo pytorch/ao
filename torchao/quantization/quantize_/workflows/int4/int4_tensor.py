@@ -88,6 +88,47 @@ class Int4Tensor(TorchAOBaseTensor):
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
+
+    @staticmethod
+    def int4_row_quantize_zp_precomputed_qparams(
+        x: torch.Tensor,
+        scales: torch.Tensor ,
+        zeros: torch.Tensor ,
+        group_size: int = 128,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        n_bit = 4  # Number of target bits.
+        # Split input into chunks of group_size. This approach allows K that isnt divisible by group_size.
+        to_quant = torch.split(x.to(torch.float), group_size, dim=-1)
+        
+        # Use provided scales and zeros
+        # Transpose from column major back to row major and split
+        scales_row = scales.t().contiguous()  # Shape: [..., K // group_size]
+        zeros_row = zeros.t().contiguous()    # Shape: [..., K // group_size]
+        scales_list = torch.split(scales_row, 1, dim=-1)
+        zeros_list = torch.split(zeros_row, 1, dim=-1)
+        
+        # Compute min_val from zeros and scales for quantization
+        min_val = [
+            zero_chunk - scale_chunk * (2 ** (n_bit - 1))
+            for zero_chunk, scale_chunk in zip(zeros_list, scales_list)
+        ]
+        max_int = 2**n_bit - 1
+        min_int = 0
+        
+        out = [
+            chunk.sub(min_chunk).div(scale_chunk).round().clamp_(min_int, max_int)
+            for chunk, min_chunk, scale_chunk in zip(to_quant, min_val, scales_list)
+        ]
+        # Recenter output and move to int8.
+        out = [(chunk - 2 ** (n_bit - 1)).to(dtype=torch.int8) for chunk in out]
+        # Recombine chunks.
+        out = torch.cat(out, dim=-1)
+        
+        return out
+
+    def dequantize(self):
+        return self.int4_row_dequantize_zp(self.qdata, self.scale, self.zero_point, group_size=self.block_size[-1])
+
     @classmethod
     def from_hp(
         cls,
@@ -130,6 +171,57 @@ class Int4Tensor(TorchAOBaseTensor):
             act_pre_scale=None,
         )
 
+    @staticmethod
+    def int4_row_dequantize_zp(
+        x: torch.Tensor,
+        scales: torch.Tensor,
+        zeros: torch.Tensor,
+        group_size: int = 128,
+    ) -> torch.Tensor:
+        """
+        Dequantize int4 row-quantized tensor with zero point.
+        
+        Args:
+            x: Quantized tensor of shape [..., K] with int8 dtype (recentered int4 values)
+            scales: Scale factors of shape [K // group_size, ...] (transposed)
+            zeros: Zero points of shape [K // group_size, ...] (transposed)
+            group_size: Size of quantization groups (default: 128)
+        
+        Returns:
+            Dequantized tensor in float32
+        """
+        n_bit = 4
+        
+        # Transpose scales and zeros back from column major to row major
+        scales = scales.t().contiguous()  # Shape: [..., K // group_size]
+        zeros = zeros.t().contiguous()    # Shape: [..., K // group_size]
+        
+        # Split quantized tensor into chunks
+        x_chunks = torch.split(x, group_size, dim=-1)
+        
+        # Split scales and zeros to match chunks
+        scales_list = torch.split(scales, 1, dim=-1)
+        zeros_list = torch.split(zeros, 1, dim=-1)
+        
+        # Dequantize each chunk
+        dequant_chunks = []
+        for chunk, scale_chunk, zero_chunk in zip(x_chunks, scales_list, zeros_list):
+            # Convert back to float and recenter (undo the -2^(n_bit-1) operation)
+            chunk_float = chunk.to(torch.float32) + 2 ** (n_bit - 1)
+            
+            # Apply scale and add minimum value
+            # Original: out = (x - min) / scale
+            # Reverse: x_original = out * scale + min
+            # But min = zero - scale * 2^(n_bit-1)
+            min_val = zero_chunk - scale_chunk * (2 ** (n_bit - 1))
+            dequant = chunk_float * scale_chunk + min_val
+            
+            dequant_chunks.append(dequant)
+        
+        # Recombine chunks
+        return torch.cat(dequant_chunks, dim=-1)
+
+
 
 implements = Int4Tensor.implements
 implements_torch_function = Int4Tensor.implements_torch_function
@@ -158,6 +250,7 @@ def _(func, types, args, kwargs):
     orig_out_features = weight_tensor.shape[-2]
 
     input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
+    # breakpoint()
     res = torch.ops.fbgemm.bf16i4bf16_rowwise(
         input_tensor,
         weight_tensor.qdata,

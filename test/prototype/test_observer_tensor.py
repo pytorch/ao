@@ -114,6 +114,7 @@ class TestObserverTensor(unittest.TestCase):
         print("content:", content)
 
     def test_gptq_with_input_recorder(self):
+        torch.manual_seed(43)
         from torchao.quantization.GPTQ import (
             Int4WeightOnlyGPTQQuantizer,
             MultiTensorInputRecorder,
@@ -135,52 +136,42 @@ class TestObserverTensor(unittest.TestCase):
             idx = torch.randint(1, 10000, (10, 2, 50)).to(torch.int32)
             test_input = prepare_inputs_for_model(idx[0])
         
+            model2 = copy.deepcopy(model)
+            model_baseline = copy.deepcopy(model)
 
-        # get new gptq implementation out
-        gptqnew_config = ObserverConfig()
-        quantize_(model, gptqnew_config)
+            # get new gptq implementation out
+            gptqnew_config = ObserverConfig()
+            quantize_(model, gptqnew_config)
 
-        # new calibration
-        for i in range(10):
-            input = prepare_inputs_for_model(idx[i])
-            model(*input)
+            # new calibration
+            for i in range(10):
+                input = prepare_inputs_for_model(idx[i])
+                model(*input)
 
-        convert_config = ObserverConfig(step="convert")
-
-        quantize_(model, convert_config)
-
-        breakpoint()
-
-
-        # get old gptq implementation out
-        model2 = copy.deepcopy(model)
-        quantize_(model2, Int4WeightOnlyConfig(version=1))
-        outq = model2(*test_input)
-        del model2
-
-        input_recorder = MultiTensorInputRecorder()
-        for i in range(10):
-            input = prepare_inputs_for_model(idx[i])
-            input_recorder(*input)
-
-        args = input_recorder.get_recorded_inputs()
-
-        quantizer = Int4WeightOnlyGPTQQuantizer()
-
-        quantizer.quantize(model, *args)
-
-        outgptq = model(*test_input)
-
-        from torchao.quantization.utils import compute_error
-        self.assertGreater(compute_error(outgptq, out), 30)
-        self.assertGreater(compute_error(outgptq, out), compute_error(outq, out))
-        torch.set_default_dtype(torch.float32)
-        print(outgptq)
-        print(out)
-        breakpoint()
+            convert_config = ObserverConfig(step="convert")
+            quantize_(model, convert_config)
+            out_gptq = model(*test_input)
 
 
-    def test_asdf(self):
+            quantize_(model2, Int4WeightOnlyConfig(version=2))
+            out_rtn = model2(*test_input)
+
+            out = model_baseline(*test_input)
+
+            from torchao.quantization.utils import compute_error
+
+            print("rtn: ", compute_error(out_rtn, out))
+            print("new gptq: ", compute_error(out_gptq, out))
+
+            print(out)
+            print(out_rtn)
+            print(out_gptq)
+
+            breakpoint()
+
+
+    def test_baseline(self):
+        torch.manual_seed(43)
         from torchao.quantization.GPTQ import (
             Int4WeightOnlyGPTQQuantizer,
             MultiTensorInputRecorder,
@@ -205,9 +196,6 @@ class TestObserverTensor(unittest.TestCase):
         model2 = copy.deepcopy(model)
         out = model(*test_input)
         quantize_(model2, Int4WeightOnlyConfig(version=2))
-
-        breakpoint()
-
         outq = model2(*test_input)
         del model2
 
@@ -218,7 +206,7 @@ class TestObserverTensor(unittest.TestCase):
 
         args = input_recorder.get_recorded_inputs()
 
-        quantizer = Int4WeightOnlyGPTQQuantizer()
+        quantizer = Int4WeightOnlyGPTQQuantizer(group_size=128, blocksize=256)
 
         quantizer.quantize(model, *args)
 
@@ -230,7 +218,6 @@ class TestObserverTensor(unittest.TestCase):
         torch.set_default_dtype(torch.float32)
         print(outgptq)
         print(out)
-        breakpoint()
           
 
 if __name__ == "__main__":
