@@ -454,7 +454,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=False)
         self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
 
-    @unittest.skipIf(not TEST_CUDA or not TEST_XPU, "GPU unavailable")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_fusion_cuda(self):
         m = self._get_conv_bn_model().to(_DEVICE)
         example_inputs = (self.example_inputs[0].to(_DEVICE),)
@@ -541,7 +541,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=True)
         self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
 
-    @unittest.skipIf(not TEST_CUDA or not TEST_XPU, "GPU unavailable")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_relu_fusion_cuda(self):
         m = self._get_conv_bn_model(has_relu=True).to(_DEVICE)
         example_inputs = (self.example_inputs[0].to(_DEVICE),)
