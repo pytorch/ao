@@ -221,6 +221,22 @@ class _Round(torch.autograd.Function):
         return gy
 
 
+class _StochasticRound(torch.autograd.Function):
+    """
+    Implementation of stochastic round operation with backward STE.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        floor_x = torch.floor(x)
+        prob = x - floor_x  # fractional part as probability
+        return floor_x + (torch.rand_like(x) < prob).to(x.dtype)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        return gy
+
+
 class _RoundToFloat8(torch.autograd.Function):
     """
     Implementation of `tensor.to(float8_dtype)` with backward STE.

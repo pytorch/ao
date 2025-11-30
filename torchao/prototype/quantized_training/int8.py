@@ -10,6 +10,7 @@ from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.core.config import AOBaseConfig
+from torchao.quantization.quant_primitives import _StochasticRound
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -44,7 +45,7 @@ def quantize_int8_rowwise(
     )  # slightly faster than divide directly
 
     if stochastic_rounding:
-        tensor = (tensor + torch.rand_like(tensor)).floor()
+        tensor = _StochasticRound.apply(tensor)
     else:
         tensor = tensor.round()
 

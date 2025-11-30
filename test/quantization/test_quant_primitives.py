@@ -9,6 +9,12 @@
 import unittest
 
 import torch
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
@@ -21,6 +27,8 @@ from torchao.quantization.quant_primitives import (
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
     _quantize_affine_float8,
+    _Round,
+    _StochasticRound,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -193,7 +201,7 @@ def _groupwise_affine_dequantize_tensor_from_qparams(
     return w_dq
 
 
-class TestQuantPrimitives(unittest.TestCase):
+class TestQuantPrimitives(TestCase):
     SEED = 123
 
     def test_get_group_qparams_symmetric(self):
@@ -913,6 +921,23 @@ class TestQuantPrimitives(unittest.TestCase):
         assert scale.shape == (B, 1, N)
         assert data.shape == (B, K, N)
 
+    @parametrize("round_fn", [_Round, _StochasticRound])
+    def test_round_functions(self, round_fn):
+        x = torch.tensor([1.3, 2.7, -1.6, -2.2], dtype=torch.float32)
+        x_samples = x.view(1, -1).repeat(10000, 1)
+        rounded_samples = round_fn.apply(x_samples)
+
+        assert rounded_samples.dtype == x.dtype
+        torch.testing.assert_close(
+            rounded_samples, rounded_samples.round(), atol=0, rtol=0
+        )
+
+        # Unbiased property only holds for stochastic rounding
+        if round_fn == _StochasticRound:
+            torch.testing.assert_close(rounded_samples.mean(0), x, atol=5e-2, rtol=5e-2)
+
+
+instantiate_parametrized_tests(TestQuantPrimitives)
 
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
