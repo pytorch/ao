@@ -66,7 +66,12 @@ def get_config(method: str):
         ),
     }
     emb_cfg, lin_cfg = configs[method]
-    return ModuleFqnToConfig({"_default": lin_cfg, "model.embed_tokens": emb_cfg})
+    return ModuleFqnToConfig(
+        {
+            "re:.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$": lin_cfg,
+            "model.embed_tokens": emb_cfg,
+        }
+    )
 
 
 def benchmark_method(
@@ -75,16 +80,17 @@ def benchmark_method(
     """Benchmark a single method."""
     print(f"\n{'=' * 60}\n{method}\n{'=' * 60}")
 
-    # Ensure clean CUDA state before loading
+    # Clean CUDA
     torch.cuda.synchronize()
     gc.collect()
     torch.cuda.empty_cache()
 
     # Load and quantize
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="auto", torch_dtype=torch.bfloat16
+        model_id, device_map="auto", dtype=torch.bfloat16
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.pad_token or tokenizer.eos_token
 
     torch.cuda.reset_peak_memory_stats()
     t0 = time.time()
@@ -126,7 +132,7 @@ def benchmark_method(
         method, size_gb, comp_ratio, quant_time, fwd_ms, tok_per_s, peak_mem, accuracy
     )
 
-    # Cleanup with proper synchronization
+    # Clean CUDA
     del model
     del tokenizer
     torch.cuda.synchronize()
@@ -146,7 +152,7 @@ def main():
     parser.add_argument("--methods", nargs="+", default=["INT8-INT4", "INT8-INT4-HQQ"])
     parser.add_argument("--tasks", nargs="+", default=["gsm8k"], help="lm_eval tasks")
     parser.add_argument("--limit", type=int, default=50, help="lm_eval limit per task")
-    parser.add_argument("--output", default="results.csv")
+    parser.add_argument("--output", default="benchmarks/benchmark_intx.csv")
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
     print(f"Benchmarking {args.model_id} on {args.methods}")
@@ -154,7 +160,7 @@ def main():
     # Baseline
     print("\nMeasuring baseline...")
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, device_map="auto", torch_dtype=torch.bfloat16
+        args.model_id, device_map="auto", dtype=torch.bfloat16
     )
     baseline = get_model_size_in_bytes(model)
     print(f"Baseline: {baseline / 1e9:.3f} GB")
