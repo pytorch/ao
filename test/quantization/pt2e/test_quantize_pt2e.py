@@ -2134,7 +2134,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 x = self.dropout(x)
                 return x
 
-        if TEST_CUDA or TEST_XPU:
+        if TEST_CUDA:
             m = M().train().to(_assert_ops_are_correct)
             example_inputs = (torch.randn(1, 3, 3, 3).to(_DEVICE),)
         else:
