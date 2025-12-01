@@ -40,6 +40,8 @@ __all__ = [
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
+    "Int8Tensor",
+    "QuantizeTensorToInt8Kwargs",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
     "IntxChooseQParamsAlgorithm",
