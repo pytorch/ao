@@ -6,7 +6,6 @@
 
 import math
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -38,11 +37,6 @@ from torchao.utils import TorchAOBaseTensor, fill_defaults
 E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 
 aten = torch.ops.aten
-
-
-class NVFP4MMConfig(Enum):
-    DYNAMIC = "dynamic"
-    WEIGHT_ONLY = "weight_only"
 
 
 @dataclass
