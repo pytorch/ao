@@ -490,7 +490,7 @@ class MXTensor(TorchAOBaseTensor):
     tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = [
         "_elem_dtype",
-        "_block_size",
+        "block_size",
         "_orig_dtype",
         "_gemm_kernel_choice",
         "_pack_fp6",
@@ -547,7 +547,7 @@ class MXTensor(TorchAOBaseTensor):
         self.qdata = qdata
         self.scale = scale_e8m0_bits
         self._elem_dtype = elem_dtype
-        self._block_size = block_size
+        self.block_size = block_size
         self._orig_dtype = orig_dtype
         self._gemm_kernel_choice = gemm_kernel_choice
         self._pack_fp6 = pack_fp6
@@ -560,7 +560,7 @@ class MXTensor(TorchAOBaseTensor):
         return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, _is_swizzled_scales={self._is_swizzled_scales}"  # noqa: E501
 
     def _quantization_type(self):
-        return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
+        return f"{self._elem_dtype=}, {self.block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
@@ -575,9 +575,9 @@ class MXTensor(TorchAOBaseTensor):
             else:
                 leading_dims, M, K = self.shape[:-2], self.shape[-2], self.shape[-1]
             scale = from_blocked(
-                scale, math.prod(leading_dims) * M, K // self._block_size
+                scale, math.prod(leading_dims) * M, K // self.block_size
             )
-            scale = scale.view(*leading_dims, M, K // self._block_size)
+            scale = scale.view(*leading_dims, M, K // self.block_size)
             if is_transposed:
                 scale = scale.transpose(-2, -1)
 
@@ -585,7 +585,7 @@ class MXTensor(TorchAOBaseTensor):
             self.qdata,
             scale,
             self._elem_dtype,
-            self._block_size,
+            self.block_size,
             output_dtype,
             self._pack_fp6,
         )
@@ -699,19 +699,19 @@ def _addmm_mx_dispatch(
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         assert a.qdata.is_contiguous()
         assert b.qdata.t().is_contiguous()
-        assert a._block_size == 32, f"Invalid block size {a._block_size}"
-        assert b._block_size == 32, f"Invalid block size {b._block_size}"
+        assert a.block_size == 32, f"Invalid block size {a.block_size}"
+        assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
         if a._is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale = a.scale.view(M, K // a._block_size)
+            a_scale = a.scale.view(M, K // a.block_size)
             a_scale_block = to_blocked(a_scale)
 
         if b._is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale = b.scale.t().view(N, K // b._block_size)
+            b_scale = b.scale.t().view(N, K // b.block_size)
             b_scale_block = to_blocked(b_scale)
 
         if a._elem_dtype == torch.float8_e4m3fn:
@@ -804,7 +804,7 @@ def mx_t(func, types, args, kwargs):
         old.qdata.t(),
         old.scale.t(),
         old._elem_dtype,
-        old._block_size,
+        old.block_size,
         old._orig_dtype,
         old._gemm_kernel_choice,
         old._pack_fp6,
@@ -849,7 +849,7 @@ def mx_view_op(func, types, args, kwargs):
         new_data,
         args[0].scale,
         args[0]._elem_dtype,
-        args[0]._block_size,
+        args[0].block_size,
         args[0]._orig_dtype,
         args[0]._gemm_kernel_choice,
         args[0]._pack_fp6,
@@ -875,7 +875,7 @@ def mx_slice(func, types, args, kwargs):
             sliced_data,
             sliced_scale,
             x._elem_dtype,
-            x._block_size,
+            x.block_size,
             x._orig_dtype,
             x._gemm_kernel_choice,
             x._pack_fp6,
@@ -910,7 +910,7 @@ def mx_select(func, types, args, kwargs):
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],
         old_mx_tensor._elem_dtype,
-        old_mx_tensor._block_size,
+        old_mx_tensor.block_size,
         old_mx_tensor._orig_dtype,
         old_mx_tensor._gemm_kernel_choice,
         old_mx_tensor._pack_fp6,
