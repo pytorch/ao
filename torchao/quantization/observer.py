@@ -12,7 +12,7 @@ import torch
 
 from torchao.quantization.quant_primitives import _fake_quantize_affine
 
-from .granularity import Granularity
+from .granularity import Granularity, PerRow, PerTensor  # noqa: F401
 from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
