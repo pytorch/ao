@@ -47,9 +47,11 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
+    get_current_accelerator_device,
 )
 
 torch.manual_seed(0)
+_DEVICE = get_current_accelerator_device()
 
 if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -396,9 +398,9 @@ def test_fp6_values(dtype_name):
     [
         "cpu",
         pytest.param(
-            "cuda",
+            _DEVICE,
             marks=pytest.mark.skipif(
-                not torch.cuda.is_available(), reason="CUDA not available"
+                not torch.accelerator.is_available(), reason="GPU not available"
             ),
         ),
     ],
@@ -440,13 +442,13 @@ def triton_to_mxfp8_dim0_reference(
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_89(),
+    torch.cuda.is_available() and not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
 def test_triton_mxfp8_dim1_randn(M, K):
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=_DEVICE)
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
@@ -455,13 +457,13 @@ def test_triton_mxfp8_dim1_randn(M, K):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
+    torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="mxfp8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
 def test_triton_mxfp8_dim0_randn(M, K):
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=_DEVICE)
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
@@ -470,11 +472,11 @@ def test_triton_mxfp8_dim0_randn(M, K):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
+    torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="mxfp8 requires CUDA capability 10.0 or greater",
 )
 def test_triton_mxfp8_dim0_zeros():
-    x = torch.zeros(128, 256, dtype=torch.bfloat16, device="cuda")
+    x = torch.zeros(128, 256, dtype=torch.bfloat16, device=_DEVICE)
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
     assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
@@ -484,14 +486,14 @@ def test_triton_mxfp8_dim0_zeros():
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
+    torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="mxfp8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
 @pytest.mark.parametrize("orig_dtype", (torch.float32, torch.bfloat16))
 def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
-    x = torch.zeros(M, K, dtype=orig_dtype, device="cuda")
+    x = torch.zeros(M, K, dtype=orig_dtype, device=_DEVICE)
     block_size = 32
     x_data, x_scales = triton_to_mxfp8_dim0_reference(x, block_size=32)
     hp_ref = to_dtype(
@@ -505,7 +507,7 @@ def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
     torch.testing.assert_close(hp_t, hp_ref, rtol=0, atol=0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -520,14 +522,14 @@ def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
     ],
 )
 def test_rearrange(shape):
-    scales = torch.randint(256, size=shape, device="cuda", dtype=torch.uint8)
+    scales = torch.randint(256, size=shape, device=_DEVICE, dtype=torch.uint8)
     eager = to_blocked(scales, False)
     triton = to_blocked(scales, True)
     torch.testing.assert_close(eager, triton, atol=0, rtol=0)
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
+    torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.skipif(
@@ -550,7 +552,7 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
 
     # Use disinct incrementing values from 0 to M*K-1 to make debugging easier.
     x = (
-        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        torch.arange(0, M * K, dtype=input_dtype, device=_DEVICE)
         .reshape(M, K)
         .contiguous()
     )
@@ -579,7 +581,7 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
+    torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.skipif(
@@ -592,7 +594,7 @@ def test_cuda_mx_dim0_not_supported():
     M, K = 64, 64
     block_size = 32
     x = (
-        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
+        torch.arange(0, M * K, dtype=torch.bfloat16, device=_DEVICE)
         .reshape(M, K)
         .contiguous()
     )
@@ -607,7 +609,7 @@ def test_cuda_mx_dim0_not_supported():
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
+    torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.skipif(
@@ -619,7 +621,7 @@ def test_cuda_mx_dim1_invalid_block_size():
 
     M, K = 64, 64
     x = (
-        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
+        torch.arange(0, M * K, dtype=torch.bfloat16, device=_DEVICE)
         .reshape(M, K)
         .contiguous()
     )
