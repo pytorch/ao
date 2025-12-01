@@ -110,7 +110,6 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         gemm_kernel_choice=config.gemm_kernel_choice,
-        pack_fp6=False,
         is_swizzled_scales=True,
     )
 
@@ -120,7 +119,6 @@ def _mx_inference_linear_transform(
         config.weight_dtype,
         block_size=config.block_size,
         gemm_kernel_choice=config.gemm_kernel_choice,
-        pack_fp6=False,  # TODO
         act_quant_kwargs=act_quant_kwargs,
         is_swizzled_scales=True,
     )
