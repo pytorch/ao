@@ -27,10 +27,10 @@ from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
+    get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
-    get_current_accelerator_device,
 )
 
 torch.manual_seed(2)
@@ -637,7 +637,10 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
-@pytest.mark.skipif(torch.cuda.is_available() and not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not torch_version_at_least("2.8.0"),
+    reason="requires PyTorch 2.8+",
+)
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
     "shape",
@@ -691,7 +694,10 @@ def test_scale_shape_matches_qdata(transpose, shape):
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
-@pytest.mark.skipif(torch.cuda.is_available() and not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not torch_version_at_least("2.8.0"),
+    reason="requires PyTorch 2.8+",
+)
 @pytest.mark.parametrize("elem_dtype", (torch.float8_e4m3fn, torch.float4_e2m1fn_x2))
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(

@@ -43,11 +43,11 @@ from torchao.prototype.mx_formats.kernels import (
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtype, to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
+    get_current_accelerator_device,
     is_cuda_version_at_least,
     is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
-    get_current_accelerator_device,
 )
 
 torch.manual_seed(0)
