@@ -119,6 +119,8 @@ source_suffix = {
     ".md": "markdown",
 }
 
+myst_fence_as_directive = ["mermaid"]
+
 # The master toctree document.
 master_doc = "index"
 
