@@ -15,10 +15,8 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.quantization import (
-    Int4WeightOnlyConfig,
-    quantize_,
-)
+from torchao.prototype.int4_opaque_tensor import Int4WeightOnlyOpaqueTensorConfig
+from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
@@ -27,9 +25,8 @@ from torchao.utils import (
 
 
 def get_config(group_size, use_hqq):
-    return Int4WeightOnlyConfig(
+    return Int4WeightOnlyOpaqueTensorConfig(
         group_size=group_size,
-        int4_packing_format="opaque",
         int4_choose_qparams_algorithm="hqq" if use_hqq else "tinygemm",
     )
 
@@ -68,7 +65,7 @@ class TestInt4OpaqueTensor(TestCase):
         quantize_(linear, get_config(group_size=128, use_hqq=use_hqq))
         self.assertEqual(
             str(type(linear.weight)),
-            "<class 'torchao.quantization.Int4OpaqueTensor'>",
+            "<class 'torchao.prototype.int4_opaque_tensor.Int4OpaqueTensor'>",
         )
 
         with tempfile.NamedTemporaryFile() as f:
@@ -77,7 +74,7 @@ class TestInt4OpaqueTensor(TestCase):
             state_dict = torch.load(f)
             self.assertEqual(
                 str(type(state_dict["weight"])),
-                "<class 'torchao.quantization.Int4OpaqueTensor'>",
+                "<class 'torchao.prototype.int4_opaque_tensor.Int4OpaqueTensor'>",
             )
 
     @parametrize("use_hqq", [True, False])
