@@ -109,8 +109,8 @@ from torchao.quantization import quantize_
 import torchao.prototype.mx_formats
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 from torchao.quantization.quantize_.common import KernelPreference
 
@@ -129,6 +129,27 @@ quantize_(m_mxfp8, config=config)
 m_mxfp8 = torch.compile(m_mxfp8, fullgraph=True)
 y_mxfp8 = m_mxfp8(x)
 
+# nvfp4 dynamic quant
+
+m_nvfp4 = copy.deepcopy(m)
+config = NVFP4DynamicActivationNVFP4WeightConfig(
+    use_dynamic_per_tensor_scale=True,
+    use_triton_kernel=True,
+)
+quantize_(m_nvfp4, config=config)
+m_nvfp4 = torch.compile(m_nvfp4, fullgraph=True)
+y_nvfp4 = m_nvfp4(x)
+
+# nvfp4 weight-only quant
+
+m_nvfp4_wo = copy.deepcopy(m)
+config = NVFP4WeightOnlyConfig(
+    use_dynamic_per_tensor_scale=True,
+)
+quantize_(m_nvfp4_wo, config=config)
+m_nvfp4_wo = torch.compile(m_nvfp4_wo, fullgraph=True)
+y_nvfp4 = m_nvfp4_wo(x)
+
 # mxfp4
 
 m_mxfp4 = copy.deepcopy(m)
@@ -140,17 +161,6 @@ config = MXDynamicActivationMXWeightConfig(
 quantize_(m_mxfp4, config=config)
 m_mxfp4 = torch.compile(m_mxfp4, fullgraph=True)
 y_mxfp4 = m_mxfp4(x)
-
-# nvfp4
-
-m_nvfp4 = copy.deepcopy(m)
-config = NVFP4InferenceConfig(
-    mm_config=NVFP4MMConfig.DYNAMIC,
-    use_dynamic_per_tensor_scale=True,
-)
-quantize_(m_nvfp4, config=config)
-m_nvfp4 = torch.compile(m_nvfp4, fullgraph=True)
-y_nvfp4 = m_nvfp4(x)
 ```
 
 ## MXTensor
