@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import QuantizeTensorToInt8Kwargs
 import logging
 import re
 import types
@@ -81,6 +82,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
+    Int8Tensor,
     Int4TilePackedTo4dTensor,
     IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
@@ -1332,7 +1334,9 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     """
 
     group_size: Optional[int] = None
+    granularity: Granularity = PerRow()
     set_inductor_config: bool = True
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
@@ -1343,22 +1347,27 @@ int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyC
 
 
 def _int8_weight_only_quantize_tensor(weight, config):
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int64
-    group_size = config.group_size
-    if group_size is None:
-        group_size = weight.shape[-1]
-    block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
-    new_weight = to_affine_quantized_intx(
-        weight,
-        mapping_type,
-        block_size,
-        target_dtype,
-        eps=eps,
-        zero_point_dtype=zero_point_dtype,
-    )
+    if config.version == 1:
+        mapping_type = MappingType.SYMMETRIC
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
+        group_size = config.group_size
+        if group_size is None:
+            group_size = weight.shape[-1]
+        block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
+        new_weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype,
+            eps=eps,
+            zero_point_dtype=zero_point_dtype,
+        )
+        return new_weight
+    else:
+        assert config.version == 2, f"Unexpected version: {config.version}"
+        new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
     return new_weight
 
 
@@ -1509,7 +1518,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
+    granularity: Optional[Union[PerRow, PerTensor]] = PerRow()
     set_inductor_config: bool = True
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1524,52 +1535,66 @@ int8_dynamic_activation_int8_weight = _ConfigDeprecationWrapper(
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
-    layout = config.layout
-    act_mapping_type = config.act_mapping_type
-    weight_only_decode = config.weight_only_decode
+    if config.version == 1:
+        layout = config.layout
+        act_mapping_type = config.act_mapping_type
+        weight_only_decode = config.weight_only_decode
 
-    in_features = weight.shape[-1]
-    # int8 dynamic quantization only has benefit when in_feature > 16
-    if in_features <= 16:
-        logger.info(
-            f"Skipping applying Int8DynamicActivationInt8WeightConfig to weight of shape {weight.shape}"
-            f" because `in_feature` is <= 16: {in_features}"
-        )
-        return weight
+        in_features = weight.shape[-1]
+        # int8 dynamic quantization only has benefit when in_feature > 16
+        if in_features <= 16:
+            logger.info(
+                f"Skipping applying Int8DynamicActivationInt8WeightConfig to weight of shape {weight.shape}"
+                f" because `in_feature` is <= 16: {in_features}"
+            )
+            return weight
 
-    # weight settings
-    mapping_type = MappingType.SYMMETRIC
-    weight_zero_point_domain = ZeroPointDomain.NONE
+        # weight settings
+        mapping_type = MappingType.SYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.NONE
 
-    def get_weight_block_size(x):
-        return tuple([1 for _ in range(x.dim() - 1)] + [x.shape[-1]])
+        def get_weight_block_size(x):
+            return tuple([1 for _ in range(x.dim() - 1)] + [x.shape[-1]])
 
-    target_dtype = torch.int8
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int64
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
 
-    if weight_only_decode:
-        input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
-    else:
-        # input settings
-        if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant
+        if weight_only_decode:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
         else:
-            input_quant_func = _int8_asymm_per_token_quant
+            # input settings
+            if act_mapping_type == MappingType.SYMMETRIC:
+                input_quant_func = _int8_symm_per_token_reduced_range_quant
+            else:
+                input_quant_func = _int8_asymm_per_token_quant
 
-    block_size = get_weight_block_size(weight)
-    new_weight = to_affine_quantized_intx(
-        weight,
-        mapping_type,
-        block_size,
-        target_dtype,
-        eps=eps,
-        zero_point_dtype=zero_point_dtype,
-        _layout=layout,
-        zero_point_domain=weight_zero_point_domain,
-    )
-    new_weight = to_linear_activation_quantized(new_weight, input_quant_func)
-    return new_weight
+        block_size = get_weight_block_size(weight)
+        new_weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype,
+            eps=eps,
+            zero_point_dtype=zero_point_dtype,
+            _layout=layout,
+            zero_point_domain=weight_zero_point_domain,
+        )
+        new_weight = to_linear_activation_quantized(new_weight, input_quant_func)
+        return new_weight
+    else:
+        activation_granularity, weight_granularity = _normalize_granularity(config.granularity)
+        act_quant_kwargs = QuantizeTensorToInt8Kwargs(
+            activation_granularity,
+            # hp_value_lb=activation_value_lb,
+            # hp_value_ub=activation_value_ub,
+        )
+        new_weight = Int8Tensor.from_hp(
+            weight,
+            granularity=weight_granularity,
+            act_quant_kwargs=act_quant_kwargs
+        )
+        return new_weight
 
 
 @register_quantize_module_handler(Int8DynamicActivationInt8WeightConfig)

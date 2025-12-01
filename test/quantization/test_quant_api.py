@@ -35,6 +35,7 @@ from torchao.dtypes import (
 )
 from torchao.quantization import (
     Float8Tensor,
+    Int8Tensor,
     Int4TilePackedTo4dTensor,
     IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
@@ -626,8 +627,7 @@ class TestQuantFlow(TestCase):
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
-        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear2.weight._layout, PlainLayout)
+        assert isinstance(model.linear2.weight, Int8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_module_name(self):
@@ -640,8 +640,7 @@ class TestQuantFlow(TestCase):
         model(*example_inputs)
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
-        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear2.weight._layout, PlainLayout)
+        assert isinstance(model.linear2.weight, Int8Tensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_regex_basic(self):
@@ -1209,8 +1208,8 @@ class TestFqnToConfig(TestCase):
         )
         quantize_(m, quant_config, filter_fn=None)
 
-        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(m.nested.linear.weight, Int8Tensor)
+        assert isinstance(m.linear1.weight, Int8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_fqn_config_quantized_nested_module_param(self):
@@ -1234,8 +1233,8 @@ class TestFqnToConfig(TestCase):
         )
         quantize_(m, quant_config, filter_fn=None)
 
-        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(m.nested.linear.weight, Int8Tensor)
+        assert isinstance(m.linear1.weight, Int8Tensor)
 
     def test_fqn_config_module_config_and_fqn_config_both_specified(self):
         with self.assertRaises(ValueError):

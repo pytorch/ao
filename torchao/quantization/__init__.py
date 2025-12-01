@@ -93,6 +93,7 @@ from .quant_primitives import (
 )
 from .quantize_.workflows import (
     Float8Tensor,
+    Int8Tensor,
     Int4MarlinSparseTensor,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
@@ -164,6 +165,7 @@ __all__ = [
     "FqnToConfig",
     "ModuleFqnToConfig",
     # tensor subclasses
+    "Int8Tensor",
     "Int4Tensor",
     "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
