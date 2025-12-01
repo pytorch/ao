@@ -3047,6 +3047,78 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
 
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_fp8_scaled_embedding_bag(self):
+        dtype = torch.float8_e4m3fn
+
+        class FP8QDQEmbeddingBag(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight_scale = 2.0
+
+            def forward(
+                self,
+                weight,
+                input,
+                offsets=None,
+            ):
+                weight = (
+                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+                        tensor=weight.data,
+                        scale=torch.tensor([self.weight_scale]),
+                        output_dtype=torch.float,
+                    )
+                )
+
+                return torch.nn.functional.embedding_bag(
+                    input,
+                    weight,
+                    offsets,
+                    mode="sum",
+                    include_last_offset=True,
+                )
+
+        EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
+        EMBEDINGBAG_BAG_SIZES = [1, 2, 128, 1024]
+        EMBEDINGBAG_VECTOR_SIZES = [1, 128, 512]
+        EMBEDINGBAG_INDEX_DTYPES = [torch.int64, torch.int32]
+
+        EMBEDINGBAG_TEST_PARAMS = list(
+            itertools.product(
+                EMBEDINGBAG_MULTIHOT_SIZES,
+                EMBEDINGBAG_BAG_SIZES,
+                EMBEDINGBAG_VECTOR_SIZES,
+                EMBEDINGBAG_INDEX_DTYPES,
+            )
+        )
+
+        for multi_hot, batch_size, vector_size, index_type in EMBEDINGBAG_TEST_PARAMS:
+            with torch.no_grad():
+                mod = FP8QDQEmbeddingBag()
+
+                weight = torch.randn((1000, vector_size)).to(dtype)
+                indices = torch.randint(1000, (batch_size * multi_hot,)).to(index_type)
+                offsets = torch.arange(0, (batch_size + 1) * multi_hot, multi_hot).to(
+                    index_type
+                )
+
+                def matcher_check_fn():
+                    self.assertEqual(
+                        counters["inductor"]["scaled_embedding_bag_matcher_count"], 1
+                    )
+
+                self._test_common(
+                    mod,
+                    (weight, indices, offsets),
+                    matcher_check_fn,
+                )
+
 
 instantiate_parametrized_tests(TestPatternMatcher)
 if __name__ == "__main__":
