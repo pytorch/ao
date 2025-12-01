@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
+    MXDynamicActivationMXWeightConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
@@ -41,7 +41,7 @@ def test_serialization(recipe_name):
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         if recipe_name == "mxfp8":
-            config = MXFPInferenceConfig(
+            config = MXDynamicActivationMXWeightConfig(
                 activation_dtype=torch.float8_e4m3fn,
                 weight_dtype=torch.float8_e4m3fn,
                 kernel_preference=KernelPreference.EMULATED,
