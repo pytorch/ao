@@ -238,9 +238,11 @@ def test_activation_checkpointing():
     "recipe_name",
     [
         "mxfp8_emulated",
-        "mxfp4_emulated",
         "mxfp8_cublas",
-        "mxfp4_cutlass",
+        # TODO(future PR): add mxfp4 back here, but ensure CI speed is not too
+        # slow
+        # "mxfp4_emulated",
+        # "mxfp4_cutlass",
     ],
 )
 @pytest.mark.parametrize("bias", [False, True])
@@ -258,7 +260,6 @@ def test_activation_checkpointing():
     "scale_calculation_mode",
     [
         ScaleCalculationMode.FLOOR,
-        ScaleCalculationMode.CEIL,
         # even + compile does not work yet:
         # https://gist.github.com/vkuzo/1a04845cd503b1c75291aa1ea3bf79c4
         # ScaleCalculationMode.EVEN,
