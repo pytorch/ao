@@ -24,7 +24,6 @@ from torchao.utils import (
 
 logger = logging.getLogger(__name__)
 
-
 def get_bits(x: torch.Tensor) -> str:
     bits_per_byte = 8
     # Numpy has a nice function to get the string representation of binary.
