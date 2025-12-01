@@ -113,7 +113,6 @@ class TestObserverTensor(unittest.TestCase):
         print("content:", content)
 
 
-        print("DONE")
         breakpoint()
 
         convert_config = FqnToConfig(
