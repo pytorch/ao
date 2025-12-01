@@ -96,6 +96,7 @@ def triton_fp8_gemm_1x128_128x128_kernel(
     tl.store(c_ptrs, c, mask=c_mask)
 
 
+@triton_op("torchao::triton_fp8_gemm_1x128_128x128", mutates_args={})
 def triton_fp8_gemm_1x128_128x128(
     a: torch.Tensor,  # (M, K)
     b: torch.Tensor,  # (K, N)
@@ -103,7 +104,7 @@ def triton_fp8_gemm_1x128_128x128(
     b_s: torch.Tensor,  # (K // block_size, N // block_size)
     block_size: int = 128,
     out_dtype: torch.dtype = torch.float32,
-):
+) -> torch.Tensor:
     # 'a' must be in row-major layout, 'b' must be in column-major layout
     assert _is_row_major(a), "a must be row-major"
     assert _is_column_major(b), "b must be column-major"
@@ -214,6 +215,7 @@ def triton_fp8_gemm_1x128_128x1_kernel(
     tl.store(c_ptrs, c, mask=c_mask)
 
 
+@triton_op("torchao::triton_fp8_gemm_1x128_128x1", mutates_args={})
 def triton_fp8_gemm_1x128_128x1(
     a: torch.Tensor,  # (M, K)
     b: torch.Tensor,  # (K, N)
@@ -221,7 +223,7 @@ def triton_fp8_gemm_1x128_128x1(
     b_s: torch.Tensor,  # (K // block_size, N) reciprocals of scales
     block_size: int = 128,
     out_dtype: torch.dtype = torch.float32,
-):
+) -> torch.Tensor:
     # 'a' must be in row-major layout, 'b' must be in column-major layout
     assert _is_row_major(a), "a must be row-major"
     assert _is_column_major(b), "b must be column-major"

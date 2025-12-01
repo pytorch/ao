@@ -16,12 +16,13 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_and_quantize_affine_hqq,
     _quantize_affine_tinygemm,
 )
+from torchao.quantization.quantize_.workflows import (
+    Int4ChooseQParamsAlgorithm,
+)
 from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import (
     TorchAOBaseTensor,
 )
-
-from .int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 
 __all__ = [
     "Int4OpaqueTensor",
@@ -241,7 +242,7 @@ def _(func, types, args, kwargs):
     return y.to(orig_dtype)
 
 
-Int4OpaqueTensor.__module__ = "torchao.quantization"
+Int4OpaqueTensor.__module__ = "torchao.prototype.int4_opaque_tensor"
 
 # Allow a model with Int4OpaqueTensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Int4OpaqueTensor])

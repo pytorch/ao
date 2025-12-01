@@ -16,11 +16,9 @@ from tokenizer import get_tokenizer
 
 import torchao
 from torchao._models.llama.model import prepare_inputs_for_model
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
 )
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -188,10 +186,9 @@ def run_evaluation(
             # of `lm_head`/`output`
             quantize_(model, config)
         if quantization == "mxfp8":
-            config = MXFPInferenceConfig(
+            config = MXDynamicActivationMXWeightConfig(
                 activation_dtype=torch.float8_e4m3fn,
                 weight_dtype=torch.float8_e4m3fn,
-                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
             )
             # TODO(future): all workflows in this file should be skipping quantization
             # of `lm_head`/`output`
@@ -202,9 +199,9 @@ def run_evaluation(
                 and fqn != "output",
             )
         if quantization == "nvfp4":
-            config = NVFP4InferenceConfig(
-                mm_config=NVFP4MMConfig.DYNAMIC,
+            config = NVFP4DynamicActivationNVFP4WeightConfig(
                 use_dynamic_per_tensor_scale=True,
+                use_triton_kernel=True,
             )
             # TODO(future): all workflows in this file should be skipping quantization
             # of `lm_head`/`output`
