@@ -552,7 +552,7 @@ def triton_f6_e2m3_to_bf16(x: torch.Tensor) -> torch.Tensor:
     output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
 
     assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
+    assert (x.is_cuda and output.is_cuda) or (x.is_xpu and output.is_xpu)
 
     n_mx_blocks = x.shape[0]
     grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
@@ -588,7 +588,7 @@ def triton_f6_e3m2_to_bf16(x: torch.Tensor) -> torch.Tensor:
     output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
 
     assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
+    assert (x.is_cuda and output.is_cuda) or (x.is_xpu and output.is_xpu)
 
     n_mx_blocks = x.shape[0]
     grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
@@ -628,7 +628,7 @@ def triton_f6_e2m3_to_scaled_bf16(
     output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
 
     assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
+    assert (x.is_cuda and output.is_cuda) or (x.is_xpu and output.is_xpu)
 
     n_mx_blocks = x.shape[0]
     grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
@@ -671,7 +671,7 @@ def triton_f6_e3m2_to_scaled_bf16(
     output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
 
     assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
+    assert (x.is_cuda and output.is_cuda) or (x.is_xpu and output.is_xpu)
 
     n_mx_blocks = x.numel() // packed_mx_block_size
     grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
