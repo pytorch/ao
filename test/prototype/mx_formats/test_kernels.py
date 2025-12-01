@@ -486,7 +486,7 @@ def test_triton_mxfp8_dim0_zeros():
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    torch.cuda.is_available() and not is_sm_at_least_100(),
+    not is_sm_at_least_100(),
     reason="mxfp8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("M", (128, 256))
