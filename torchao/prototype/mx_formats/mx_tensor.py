@@ -29,7 +29,7 @@ from torch.utils._python_dispatch import (
 from torch.utils._pytree import tree_map
 
 import torchao.ops
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, ScaleCalculationMode
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP6_E2M3,
@@ -69,6 +69,7 @@ from torchao.prototype.mx_formats.utils import (
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 aten = torch.ops.aten
@@ -87,7 +88,7 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     elem_dtype: Union[torch.dtype, str] = torch.float8_e4m3fn
     block_size: int = 32
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
-    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
+    kernel_preference: KernelPreference = KernelPreference.EMULATED
     is_swizzled_scales: bool = False
 
 
@@ -438,7 +439,7 @@ class MXTensor(TorchAOBaseTensor):
         "_elem_dtype",
         "block_size",
         "_orig_dtype",
-        "_gemm_kernel_choice",
+        "kernel_preference",
         "act_quant_kwargs",
         "_is_swizzled_scales",
     ]
@@ -450,7 +451,7 @@ class MXTensor(TorchAOBaseTensor):
         elem_dtype,
         block_size,
         orig_dtype,
-        gemm_kernel_choice,
+        kernel_preference,
         act_quant_kwargs,
         is_swizzled_scales,
     ):
@@ -487,7 +488,7 @@ class MXTensor(TorchAOBaseTensor):
         self._elem_dtype = elem_dtype
         self.block_size = block_size
         self._orig_dtype = orig_dtype
-        self._gemm_kernel_choice = gemm_kernel_choice
+        self.kernel_preference = kernel_preference
         self.act_quant_kwargs = act_quant_kwargs
         self._is_swizzled_scales = is_swizzled_scales
         return self
@@ -497,7 +498,7 @@ class MXTensor(TorchAOBaseTensor):
         return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, _is_swizzled_scales={self._is_swizzled_scales}"  # noqa: E501
 
     def _quantization_type(self):
-        return f"{self._elem_dtype=}, {self.block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
+        return f"{self._elem_dtype=}, {self.block_size=}, {self._orig_dtype=}, {self.kernel_preference=}, {self.act_quant_kwargs=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
@@ -534,7 +535,7 @@ class MXTensor(TorchAOBaseTensor):
         block_size: int = BLOCK_SIZE_DEFAULT,
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
         # TODO(future PR): switch default gemm to cublas
-        gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
+        kernel_preference: KernelPreference = KernelPreference.EMULATED,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
     ):
@@ -551,7 +552,7 @@ class MXTensor(TorchAOBaseTensor):
                 elem_dtype,
                 block_size,
                 data_hp.dtype,
-                gemm_kernel_choice,
+                kernel_preference,
                 act_quant_kwargs,
                 is_swizzled_scales,
             )
@@ -569,7 +570,7 @@ class MXTensor(TorchAOBaseTensor):
             elem_dtype,
             block_size,
             data_hp.dtype,
-            gemm_kernel_choice,
+            kernel_preference,
             act_quant_kwargs,
             is_swizzled_scales,
         )
@@ -589,8 +590,8 @@ def _(func, types, args, kwargs):
 
 
 def _get_gemm_choice(
-    choice_a: Optional[MXGemmKernelChoice], choice_b: Optional[MXGemmKernelChoice]
-) -> MXGemmKernelChoice:
+    choice_a: Optional[KernelPreference], choice_b: Optional[KernelPreference]
+) -> KernelPreference:
     if choice_a is not None and choice_b is not None:
         assert choice_a == choice_b, (
             "Both MXTensor inputs must have the same gemm config if specified"
@@ -620,13 +621,13 @@ def _addmm_mx_dispatch(
             k.elem_dtype,
             k.block_size,
             k.scaling_mode,
-            k.gemm_kernel_choice,
+            k.kernel_preference,
             k.is_swizzled_scales,
         )
 
-    gemm_choice = _get_gemm_choice(a._gemm_kernel_choice, b._gemm_kernel_choice)
+    gemm_choice = _get_gemm_choice(a.kernel_preference, b.kernel_preference)
 
-    if gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
+    if gemm_choice == KernelPreference.AUTO:
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         assert a.qdata.is_contiguous()
@@ -648,10 +649,6 @@ def _addmm_mx_dispatch(
 
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            assert gemm_choice is MXGemmKernelChoice.CUBLAS, (
-                "CUBLAS is the only supported kernel choice for MX FP8 operations"
-            )
-
             res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,
@@ -663,7 +660,6 @@ def _addmm_mx_dispatch(
         else:
             assert a._elem_dtype == torch.float4_e2m1fn_x2
             assert b._elem_dtype == torch.float4_e2m1fn_x2
-            assert gemm_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
             # FP4 operations
             res = torchao.ops.mx_fp4_bf16(
                 a.qdata, b.qdata, a_scale_block, b_scale_block
@@ -673,6 +669,7 @@ def _addmm_mx_dispatch(
                 res = res + bias
 
     else:
+        assert gemm_choice == KernelPreference.EMULATED, "unimplemented"
         # emulated MX gemm
         a_hp = a.dequantize(a._orig_dtype)
         b_hp = b.dequantize(b._orig_dtype)
@@ -738,7 +735,7 @@ def mx_t(func, types, args, kwargs):
         old._elem_dtype,
         old.block_size,
         old._orig_dtype,
-        old._gemm_kernel_choice,
+        old.kernel_preference,
         old.act_quant_kwargs,
         old._is_swizzled_scales,
     )
@@ -779,7 +776,7 @@ def mx_view_op(func, types, args, kwargs):
         args[0]._elem_dtype,
         args[0].block_size,
         args[0]._orig_dtype,
-        args[0]._gemm_kernel_choice,
+        args[0].kernel_preference,
         args[0].act_quant_kwargs,
         args[0]._is_swizzled_scales,
     )
@@ -804,7 +801,7 @@ def mx_slice(func, types, args, kwargs):
             x._elem_dtype,
             x.block_size,
             x._orig_dtype,
-            x._gemm_kernel_choice,
+            x.kernel_preference,
             x.act_quant_kwargs,
             x._is_swizzled_scales,
         ),
@@ -838,7 +835,7 @@ def mx_select(func, types, args, kwargs):
         old_mx_tensor._elem_dtype,
         old_mx_tensor.block_size,
         old_mx_tensor._orig_dtype,
-        old_mx_tensor._gemm_kernel_choice,
+        old_mx_tensor.kernel_preference,
         old_mx_tensor.act_quant_kwargs,
         old_mx_tensor._is_swizzled_scales,
     )
