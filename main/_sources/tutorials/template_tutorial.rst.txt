@@ -10,8 +10,8 @@
     .. note::
         :class: sphx-glr-download-link-note
 
-        :ref:`Go to the end <sphx_glr_download_tutorials_template_tutorial.py>`
-        to download the full example code.
+        Click :ref:`here <sphx_glr_download_tutorials_template_tutorial.py>`
+        to download the full example code
 
 .. rst-class:: sphx-glr-example-title
 
@@ -52,7 +52,7 @@ Example code (the output below is generated automatically):
 
 .. GENERATED FROM PYTHON SOURCE LINES 41-46
 
-.. code-block:: Python
+.. code-block:: default
 
     import torch
 
@@ -67,11 +67,11 @@ Example code (the output below is generated automatically):
 
  .. code-block:: none
 
-    tensor([[0.6685, 0.9557, 0.3354],
-            [0.7210, 0.1235, 0.3515],
-            [0.7240, 0.2840, 0.9597],
-            [0.8204, 0.3229, 0.4648],
-            [0.0332, 0.3521, 0.2318]])
+    tensor([[0.6893, 0.7404, 0.0324],
+            [0.1598, 0.3101, 0.0498],
+            [0.8623, 0.6214, 0.6537],
+            [0.0628, 0.0843, 0.6063],
+            [0.7975, 0.4820, 0.2757]])
 
 
 
@@ -101,7 +101,7 @@ Further Reading
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.003 seconds)
+   **Total running time of the script:** ( 0 minutes  0.004 seconds)
 
 
 .. _sphx_glr_download_tutorials_template_tutorial.py:
@@ -110,17 +110,14 @@ Further Reading
 
   .. container:: sphx-glr-footer sphx-glr-footer-example
 
-    .. container:: sphx-glr-download sphx-glr-download-jupyter
-
-      :download:`Download Jupyter notebook: template_tutorial.ipynb <template_tutorial.ipynb>`
 
     .. container:: sphx-glr-download sphx-glr-download-python
 
       :download:`Download Python source code: template_tutorial.py <template_tutorial.py>`
 
-    .. container:: sphx-glr-download sphx-glr-download-zip
+    .. container:: sphx-glr-download sphx-glr-download-jupyter
 
-      :download:`Download zipped: template_tutorial.zip <template_tutorial.zip>`
+      :download:`Download Jupyter notebook: template_tutorial.ipynb <template_tutorial.ipynb>`
 
 
 .. only:: html

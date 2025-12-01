@@ -7,16 +7,15 @@
 
     <div class="sphx-glr-thumbnails">
 
-.. thumbnail-parent-div-open
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="Author: FirstName LastName">
+    <div class="sphx-glr-thumbcontainer" tooltip="**Author:** `FirstName LastName &lt;https://github.com/username&gt;`_">
 
 .. only:: html
 
   .. image:: /tutorials/images/thumb/sphx_glr_template_tutorial_thumb.png
-    :alt:
+    :alt: Template Tutorial
 
   :ref:`sphx_glr_tutorials_template_tutorial.py`
 
@@ -25,8 +24,6 @@
       <div class="sphx-glr-thumbnail-title">Template Tutorial</div>
     </div>
 
-
-.. thumbnail-parent-div-close
 
 .. raw:: html
 
