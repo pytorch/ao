@@ -90,8 +90,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         quantize_(model_q, config)
 
-        self.assertEqual(model_q.linear2.weight.scale.shape, (K,))
-        self.assertEqual(model_q.linear2.weight.scale.ndim, 1)
+        self.assertEqual(model_q.linear2.weight.scale.shape, (K, 1))
+        self.assertEqual(model_q.linear2.weight.scale.ndim, 2)
 
         if compile:
             model_q = torch.compile(model_q, fullgraph=True)
