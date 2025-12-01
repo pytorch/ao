@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch.profiler import ProfilerActivity, profile
 
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
+    MXDynamicActivationMXWeightConfig,
     NVFP4InferenceConfig,
     NVFP4MMConfig,
 )
@@ -106,7 +106,7 @@ def test_inference_workflow_mx(
         kernel_choice = KernelPreference.EMULATED
     else:
         kernel_choice = KernelPreference.AUTO
-    config = MXFPInferenceConfig(
+    config = MXDynamicActivationMXWeightConfig(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
         kernel_preference=kernel_choice,
@@ -247,7 +247,7 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         reason="torch.compile requires PyTorch 2.8+",
     )
     def test_slice_and_copy_similar_to_vllm(self):
-        config = MXFPInferenceConfig(
+        config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
             kernel_preference=KernelPreference.EMULATED,
@@ -260,7 +260,7 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         reason="torch.compile requires PyTorch 2.8+",
     )
     def test_narrow_similar_to_vllm(self):
-        config = MXFPInferenceConfig(
+        config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
             kernel_preference=KernelPreference.EMULATED,
