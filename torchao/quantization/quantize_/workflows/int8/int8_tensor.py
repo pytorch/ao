@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import List, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -34,6 +34,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
     """
+
     granularity: Granularity = PerRow()
     hp_value_lb: Optional[float] = None
     hp_value_ub: Optional[float] = None
@@ -314,7 +315,7 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             sliced_qdata,
             sliced_scale,
-            block_size=self.block_size[1:], 
+            block_size=self.block_size[1:],
             act_quant_kwargs=self.act_quant_kwargs,
             dtype=self.dtype,
         ),

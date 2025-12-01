@@ -15,7 +15,6 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import QuantizeTensorToInt8Kwargs
 import logging
 import re
 import types
@@ -82,13 +81,16 @@ from torchao.quantization.quantize_.workflows import (
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
-    Int8Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Tensor,
     IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
+)
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1583,16 +1585,16 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         new_weight = to_linear_activation_quantized(new_weight, input_quant_func)
         return new_weight
     else:
-        activation_granularity, weight_granularity = _normalize_granularity(config.granularity)
+        activation_granularity, weight_granularity = _normalize_granularity(
+            config.granularity
+        )
         act_quant_kwargs = QuantizeTensorToInt8Kwargs(
             activation_granularity,
             # hp_value_lb=activation_value_lb,
             # hp_value_ub=activation_value_ub,
         )
         new_weight = Int8Tensor.from_hp(
-            weight,
-            granularity=weight_granularity,
-            act_quant_kwargs=act_quant_kwargs
+            weight, granularity=weight_granularity, act_quant_kwargs=act_quant_kwargs
         )
         return new_weight
 

@@ -30,13 +30,12 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
     Int4XPULayout,
-    PlainLayout,
     TensorCoreTiledLayout,
 )
 from torchao.quantization import (
     Float8Tensor,
-    Int8Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Tensor,
     IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
     PerGroup,
