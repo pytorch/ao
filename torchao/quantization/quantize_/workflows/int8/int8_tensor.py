@@ -10,8 +10,9 @@ from typing import List, Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity, PerRow
+from torchao.quantization.granularity import Granularity, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -21,7 +22,6 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.common import QuantizeTensorKwargs
 from torchao.quantization.utils import get_block_size
 from torchao.utils import TorchAOBaseTensor, fill_defaults
-from torchao.float8.inference import _slice_scale_for_dimension
 
 __all__ = ["Int8Tensor", "QuantizeTensorToInt8Kwargs"]
 
@@ -30,15 +30,13 @@ aten = torch.ops.aten
 
 @dataclass
 class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
-    """Tensor kwargs for creating int8 tensor (either activation or weight)
+    """Tensor kwargs for creating int8 tensor from high precision
 
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
     """
 
     granularity: Granularity = PerRow()
-    hp_value_lb: Optional[float] = None
-    hp_value_ub: Optional[float] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -110,8 +108,6 @@ class Int8Tensor(TorchAOBaseTensor):
         cls,
         hp_tensor: torch.Tensor,
         granularity: Granularity = PerRow(),
-        hp_value_lb: Optional[float] = None,
-        hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
@@ -123,8 +119,8 @@ class Int8Tensor(TorchAOBaseTensor):
             mapping_type=MappingType.SYMMETRIC,
             block_size=block_size,
             target_dtype=torch.int8,
-            quant_min=hp_value_lb,
-            quant_max=hp_value_ub,
+            quant_min=-128,
+            quant_max=127,
             scale_dtype=hp_tensor.dtype,
             zero_point_dtype=torch.int8,
         )
@@ -137,9 +133,10 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=torch.int8,
         )
 
+        # make scale the correct dim
         if isinstance(granularity, PerRow):
             scale = scale.unsqueeze(1)
-        else:
+        elif isinstance(granularity, PerTensor):
             scale = scale.unsqueeze(0).unsqueeze(1)
 
         return cls(
@@ -152,9 +149,6 @@ class Int8Tensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
-        if output_dtype is None:
-            output_dtype = self.dtype
-
         return dequantize_affine(
             input=self.qdata,
             block_size=self.block_size,
@@ -163,12 +157,13 @@ class Int8Tensor(TorchAOBaseTensor):
             input_dtype=torch.int8,
             quant_min=-128,
             quant_max=127,
-            output_dtype=output_dtype,
+            output_dtype=output_dtype or self.dtype,
         )
 
 
 implements = Int8Tensor.implements
 implements_torch_function = Int8Tensor.implements_torch_function
+
 
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
@@ -180,7 +175,9 @@ def _(func, types, args, kwargs):
         args[2] if len(args) > 2 else None,
     )
 
-    assert isinstance(weight_tensor, Int8Tensor), f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
+    assert isinstance(weight_tensor, Int8Tensor), (
+        f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
+    )
 
     output_dtype = activation_tensor.dtype
 
@@ -217,7 +214,7 @@ def _(func, types, args, kwargs):
         )
 
     else:
-        # FP × INT8 (weight-only) 1Code has comments. Press enter to view.
+        # FP × INT8 (weight-only)
         w_vals_int8_t = weight_tensor.qdata.t()
         m = torch.mm(
             activation_tensor.reshape(-1, activation_tensor.shape[-1]),
