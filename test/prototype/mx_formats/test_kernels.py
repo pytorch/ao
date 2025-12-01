@@ -529,7 +529,7 @@ def test_rearrange(shape):
 
 
 @pytest.mark.skipif(
-    torch.cuda.is_available() and not is_sm_at_least_100(),
+    not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.skipif(
@@ -581,7 +581,7 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
 
 
 @pytest.mark.skipif(
-    torch.cuda.is_available() and not is_sm_at_least_100(),
+    not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.skipif(
@@ -609,7 +609,7 @@ def test_cuda_mx_dim0_not_supported():
 
 
 @pytest.mark.skipif(
-    torch.cuda.is_available() and not is_sm_at_least_100(),
+    not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.skipif(
