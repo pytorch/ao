@@ -48,10 +48,3 @@ class Int4PackingFormat(str, Enum):
     for simplication of Int4TilePackedTo4dTensor API
     """
     TILE_PACKED_TO_4D = "tile_packed_to_4d"
-
-    """
-    Opaque packing format that's used for tensors that does not have a predefined packing format
-    (that may be decided on hardware, tensor shape, library availability etc.) and it's not
-    needed for the rest of the system to understand the specific format that's adopted.
-    """
-    OPAQUE = "opaque"
