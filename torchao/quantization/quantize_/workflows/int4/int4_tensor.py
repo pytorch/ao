@@ -250,7 +250,6 @@ def _(func, types, args, kwargs):
     orig_out_features = weight_tensor.shape[-2]
 
     input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
-    # breakpoint()
     res = torch.ops.fbgemm.bf16i4bf16_rowwise(
         input_tensor,
         weight_tensor.qdata,

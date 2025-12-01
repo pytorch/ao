@@ -1264,18 +1264,31 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(Int4WeightOnlyConfig)
 def _int4_weight_only_transform(
-    module: torch.nn.Module, config: Int4WeightOnlyConfig
+    module: torch.nn.Module, config: Int4WeightOnlyConfig, 
+    *, 
+    parameter_name="weight",
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying int8 weight only quant requires module to have weight attribute"
+    assert hasattr(module, parameter_name), (
+        "applying int4 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
-    new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    new_tensor= _int4_weight_only_quantize_tensor(getattr(module, parameter_name), config)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_tensor, requires_grad=False)
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -2550,6 +2563,7 @@ CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS = {
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     Int8WeightOnlyConfig,
+    Int4WeightOnlyConfig,
 }
 
 

@@ -11,7 +11,7 @@ import copy
 import torch
 import torch.nn as nn
 from torchao.prototype.numerics import ObserverConfig, ObserverTensor
-from torchao.quantization import quantize_, FqnToConfig
+from torchao.quantization import quantize_, FqnToConfig, Int4WeightOnlyConfig
 from torchao.testing.model_architectures import LlamaModelsLlama4Experts
 
 
@@ -53,7 +53,7 @@ class TestObserverTensor(unittest.TestCase):
     def test_llama4_passthrough(self):
         original_dtype = torch.bfloat16  # tinygemm kernel only uses bfloat16 inputs
 
-        m = LlamaModelsLlama4Experts(2, 1024, 1024, dtype=torch.bfloat16, device="cuda").eval()
+        m = LlamaModelsLlama4Experts(2, 1024, 512, dtype=torch.bfloat16, device="cuda").eval()
 
         x = torch.randn(2, 1024,1024, 
             dtype=original_dtype,
@@ -68,23 +68,28 @@ class TestObserverTensor(unittest.TestCase):
             print(f"calibrating {i}")
             m(x)
         
-        breakpoint()
         
     def test_gptq_hf(self, device="cuda"):
         from transformers import AutoModelForCausalLM, TorchAoConfig, AutoTokenizer
 
         config = FqnToConfig(
             {
-                r"model.layers.0.feed_forward.experts.down_proj": GPTQConfig()
+                r"model.layers.0.feed_forward.experts.down_proj": ObserverConfig()
+                # r"model.layers.0.feed_forward.experts.gate_up_proj": Int4WeightOnlyConfig()
             }
         )
         quant_config = TorchAoConfig(quant_type=config)
         model = AutoModelForCausalLM.from_pretrained(
-            "jcaip/Llama-4-Scout-17B-two-layers-only-testing",
+            "unsloth/Llama-4-Scout-17B-16E-Instruct",
             device_map="auto",
             dtype=torch.bfloat16,
-            quantization_config=quant_config,
+            # quantization_config=quant_config,
         )
+        # model.model.layers[0].feed_forward.experts.gate_up_proj = nn.Parameter(
+        #     model.model.layers[0].feed_forward.experts.gate_up_proj.transpose(-2, -1).contiguous()
+        # )
+        quantize_(model, config, filter_fn=None)
+
 
         tokenizer = AutoTokenizer.from_pretrained("unsloth/Llama-4-Scout-17B-16E-Instruct")
         prompt = "Give me a short introduction to large language model."
@@ -101,16 +106,29 @@ class TestObserverTensor(unittest.TestCase):
         # conduct text completion
         generated_ids = model.generate(
             **model_inputs,
+            max_new_tokens=128,
+        )
+        output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
+        content = tokenizer.decode(output_ids, skip_special_tokens=True)
+        print("content:", content)
+
+
+        print("DONE")
+        breakpoint()
+
+        convert_config = FqnToConfig(
+            {
+                r"model.layers.0.feed_forward.experts.down_proj": ObserverConfig(step="convert")
+            }
+        )
+        quantize_(model, convert_config, filter_fn=None)
+
+        generated_ids = model.generate(
+            **model_inputs,
             max_new_tokens=128
         )
         output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
-
         content = tokenizer.decode(output_ids, skip_special_tokens=True)
-
-        asdf = model.model.layers[0].feed_forward.experts.down_proj
-        breakpoint()
-        result = asdf.gptq_quantize()
-
         print("content:", content)
 
     def test_gptq_with_input_recorder(self):
@@ -167,57 +185,7 @@ class TestObserverTensor(unittest.TestCase):
             print(out_rtn)
             print(out_gptq)
 
-            breakpoint()
 
-
-    def test_baseline(self):
-        torch.manual_seed(43)
-        from torchao.quantization.GPTQ import (
-            Int4WeightOnlyGPTQQuantizer,
-            MultiTensorInputRecorder,
-        )
-        from torchao._models.llama.model import (
-            ModelArgs,
-            Transformer,
-            prepare_inputs_for_model,
-        )
-        from torchao.quantization import Int4WeightOnlyConfig
-
-        torch.set_default_dtype(torch.bfloat16)
-
-        config = ModelArgs(n_layer=2)
-
-        with torch.device("cuda"):
-            model = Transformer(config)
-            model.setup_caches(max_batch_size=2, max_seq_length=100)
-            idx = torch.randint(1, 10000, (10, 2, 50)).to(torch.int32)
-            test_input = prepare_inputs_for_model(idx[0])
-        
-        model2 = copy.deepcopy(model)
-        out = model(*test_input)
-        quantize_(model2, Int4WeightOnlyConfig(version=2))
-        outq = model2(*test_input)
-        del model2
-
-        input_recorder = MultiTensorInputRecorder()
-        for i in range(10):
-            input = prepare_inputs_for_model(idx[i])
-            input_recorder(*input)
-
-        args = input_recorder.get_recorded_inputs()
-
-        quantizer = Int4WeightOnlyGPTQQuantizer(group_size=128, blocksize=256)
-
-        quantizer.quantize(model, *args)
-
-        outgptq = model(*test_input)
-
-        from torchao.quantization.utils import compute_error
-        self.assertGreater(compute_error(outgptq, out), 30)
-        self.assertGreater(compute_error(outgptq, out), compute_error(outq, out))
-        torch.set_default_dtype(torch.float32)
-        print(outgptq)
-        print(out)
           
 
 if __name__ == "__main__":
