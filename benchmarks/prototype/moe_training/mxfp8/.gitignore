@@ -1,0 +1,5 @@
+# Ignore CSV output files
+*.csv
+
+# Ignore PNG plot files
+*.png

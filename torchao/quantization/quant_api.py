@@ -77,7 +77,6 @@ from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
-    Int4OpaqueTensor,
     Int4PackingFormat,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
@@ -1163,12 +1162,9 @@ def _int4_weight_only_quantize_tensor(weight, config):
         block_size = list(block_size)
 
         if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
-            assert int4_packing_format in [
-                Int4PackingFormat.TILE_PACKED_TO_4D,
-                Int4PackingFormat.OPAQUE,
-            ], (
+            assert int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D, (
                 f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, "
-                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D and Int4PackingFormat.OPAQUE currently"
+                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D currently"
             )
 
         if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
@@ -1194,13 +1190,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
             new_weight = Int4MarlinSparseTensor.from_hp(
                 weight,
                 block_size,
-            )
-            return new_weight
-        elif int4_packing_format == Int4PackingFormat.OPAQUE:
-            new_weight = Int4OpaqueTensor.from_hp(
-                weight,
-                block_size,
-                int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
             )
             return new_weight
         elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:
@@ -2308,20 +2297,32 @@ def _intx_weight_only_quantize_tensor(
     intx_packing_format = config.intx_packing_format
     intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
-    assert weight.dim() == 2, (
-        f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
-    )
+    if weight.dim() == 2:
+        input_dim = -1
+    elif weight.dim() == 4:
+        # conv2d: N, C_in, H, W
+        input_dim = 1
+    else:
+        raise ValueError(
+            f"IntxWeightOnlyConfig only works for 2-d and 4-d Tensors, got: {weight.dim()}"
+        )
+
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
     elif isinstance(granularity, PerAxis):
         assert granularity.axis == 0, (
             f"axis must be 0 with PerAxis, but got {granularity.axis}"
         )
-        group_size = weight.shape[-1]
+        group_size = weight.shape[input_dim]
     else:
         raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
 
-    block_size = (1, group_size)
+    if weight.dim() == 2:
+        block_size = (1, group_size)
+    else:
+        # conv2d: N, C_in, H, W
+        assert weight.dim() == 4
+        block_size = (1, group_size, 1, 1)
 
     if config.version == 2:
         if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:

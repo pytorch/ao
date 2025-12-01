@@ -6,9 +6,6 @@ from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 from .int4.int4_marlin_sparse_tensor import (
     Int4MarlinSparseTensor,
 )
-from .int4.int4_opaque_tensor import (
-    Int4OpaqueTensor,
-)
 from .int4.int4_packing_format import Int4PackingFormat
 from .int4.int4_plain_int32_tensor import (
     Int4PlainInt32Tensor,
@@ -39,7 +36,6 @@ __all__ = [
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
-    "Int4OpaqueTensor",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
     "IntxChooseQParamsAlgorithm",
