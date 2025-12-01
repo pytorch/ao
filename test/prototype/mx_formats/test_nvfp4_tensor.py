@@ -71,7 +71,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
 
     reconstructed_amax = x_nvfp4.get_hp_scales().view(shape[0], -1, 1) * F4_E2M1_MAX
     max_abs = torch.amax(
-        torch.abs(x.reshape(shape[0], -1, x_nvfp4._block_size)), dim=-1
+        torch.abs(x.reshape(shape[0], -1, x_nvfp4.block_size)), dim=-1
     ).unsqueeze(-1)
 
     assert_sqnr_gt_threshold(max_abs, reconstructed_amax, 30.0)
@@ -526,7 +526,7 @@ def test_nvfp4_to_copy():
     assert y.per_tensor_scale is None
     assert x.act_per_tensor_scale is None
     assert y.act_per_tensor_scale is None
-    assert x._block_size == y._block_size
+    assert x.block_size == y.block_size
     assert x.use_triton_kernel == y.use_triton_kernel
     assert x.act_quant_kwargs == y.act_quant_kwargs
     assert x.dtype == torch.float32
