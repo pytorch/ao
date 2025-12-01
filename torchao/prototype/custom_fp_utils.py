@@ -8,12 +8,24 @@
 # It has been refactored to support any sub-byte FP dtypes. However, some behaviors of MX dtypes remain:
 #   1. No encodings are reserved for special values (+/-inf, NaN).
 #   2. When downcasting from FP32 to Floatx,
-#      - Rounding mode is round to nearest, ties to even.
+#      - Rounding mode is round to nearest, ties to even (default).
 #      - Values outside the representable range of Floatx after rounding are clamped to the maximum Floatx
 #      magnitude (sign is preserved).
 
+from enum import Enum
+
 import torch
 from torch import Tensor
+
+
+class RoundingMode(Enum):
+    """Rounding modes for floating point quantization.
+    
+    RN: Round to nearest, ties to even (default)
+    RS: Stochastic rounding
+    """
+    RN = "round_nearest"
+    RS = "round_stochastic"
 
 
 def _n_ones(n: int) -> int:
@@ -24,7 +36,9 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
-def _f32_to_floatx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
+def _f32_to_floatx_unpacked(
+    x: Tensor, ebits: int, mbits: int, rounding_mode: RoundingMode = RoundingMode.RN
+) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
 
@@ -37,6 +51,12 @@ def _f32_to_floatx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     Note: there are no special values (NaN, inf) support in this code. Values
     outside the representable range of Floatx after rounding are clamped to the
     maximum Floatx magnitude (sign is preserved).
+
+    Args:
+        x: Input tensor of dtype torch.float
+        ebits: Number of exponent bits
+        mbits: Number of mantissa bits
+        rounding_mode: Rounding mode to use (RN, RS)
 
     Code below is an adaptation of https://fburl.com/code/ciwofcg4
 
@@ -111,13 +131,28 @@ def _f32_to_floatx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     # branch 3: stay in normal range, adjust the exponent and round
     #
     normal_x = x.view(torch.int32)
-    # resulting mantissa is odd
-    mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
-    # update exponent, rounding bias part 1
-    val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
-    normal_x += val_to_add
-    # rounding bias part 2
-    normal_x += mant_odd
+    val_to_add = (exp_bias - F32_EXP_BIAS) << MBITS_F32
+
+    if rounding_mode == RoundingMode.RN:
+        # Round to nearest, ties to even
+        # resulting mantissa is odd
+        mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
+        # update exponent, rounding bias part 1
+        val_to_add += magic_adder
+        normal_x += val_to_add
+        # rounding bias part 2
+        normal_x += mant_odd
+    elif rounding_mode == RoundingMode.RS:
+        # Stochastic rounding
+        # Add random bits to the discarded precision
+        rnd = torch.randint_like(normal_x, 0, 1 << (MBITS_F32 - mbits), dtype=torch.int32)
+        # update exponent
+        normal_x += val_to_add
+        # add randomness
+        normal_x += rnd
+    else:
+        raise ValueError(f"Unsupported rounding mode: {rounding_mode}")
+
     # take the bits!
     normal_x = normal_x >> (MBITS_F32 - mbits)
     normal_x = normal_x.to(torch.uint8)

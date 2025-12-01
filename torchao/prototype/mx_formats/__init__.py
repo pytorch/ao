@@ -11,6 +11,8 @@ from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4MMConfig,
 )
 
+from torchao.prototype.custom_fp_utils import RoundingMode
+
 # import mx_linear here to register the quantize_ transform logic
 # ruff: noqa: I001
 import torchao.prototype.mx_formats.mx_linear  # noqa: F401
@@ -22,4 +24,5 @@ __all__ = [
     "MXFPInferenceConfig",
     "NVFP4InferenceConfig",
     "NVFP4MMConfig",
+    "RoundingMode",
 ]
