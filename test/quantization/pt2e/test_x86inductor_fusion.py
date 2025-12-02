@@ -139,22 +139,10 @@ class FP8QDQLinear(torch.nn.Module):
 
 
 class FP8QDQConv2d(torch.nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=0,
-        dilation=1,
-        groups=1,
-        bias=True,
-    ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super().__init__()
         self.qtype = torch.float8_e4m3fn
-        self.weight = torch.randn(
-            (out_channels, in_channels // groups, *kernel_size)
-        ).to(self.qtype)
+        self.weight = torch.randn((out_channels, in_channels // groups, *kernel_size)).to(self.qtype)
         self.weight_scale = 2.0
         self.scale = 2.0
         self.bias = None
@@ -182,16 +170,7 @@ class FP8QDQConv2d(torch.nn.Module):
             output_dtype=torch.float,
         )
 
-        return torch.nn.functional.conv2d(
-            dq_input,
-            weight,
-            self.bias,
-            self.stride,
-            self.padding,
-            self.dilation,
-            self.groups,
-        )
-
+        return torch.nn.functional.conv2d(dq_input, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 def qdq(input, scale):
     dtype = input.dtype
@@ -226,7 +205,9 @@ def fp8_convert_(model):
     parent_child_mod_dict = generate_model_info(model)
     for name, mod in model.named_modules():
         mod_type_str = mod.__class__.__name__
-        if mod_type_str not in ["Linear", "Conv2d"]:
+        if mod_type_str not in [
+            "Linear", "Conv2d"
+        ]:
             continue
         param = mod.weight
         xmax = torch.max(param)
@@ -244,16 +225,7 @@ def fp8_convert_(model):
             patched_mod.weight_scale = weight_scale.item()
             patched_mod.weight.data = q_param
         elif mod_type_str in ["Conv2d"]:
-            patched_mod = FP8QDQConv2d(
-                mod.in_channels,
-                mod.out_channels,
-                mod.kernel_size,
-                mod.stride,
-                mod.padding,
-                mod.dilation,
-                mod.groups,
-                False,
-            )
+            patched_mod = FP8QDQConv2d(mod.in_channels, mod.out_channels, mod.kernel_size, mod.stride, mod.padding, mod.dilation, mod.groups, False)
             patched_mod.bias = mod.bias
             patched_mod.weight_scale = weight_scale.item()
             patched_mod.weight.data = q_param
@@ -638,9 +610,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize Conv2d->ReLU6 pattern.
         """
-        self._qconv2d_unary_test_helper(
-            device="cpu", unary_op=torch.nn.ReLU6(), is_fp8=True
-        )
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.ReLU6(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -657,9 +627,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize Conv2d->Hardtanh pattern.
         """
-        self._qconv2d_unary_test_helper(
-            device="cpu", unary_op=torch.nn.Hardtanh(), is_fp8=True
-        )
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardtanh(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -710,9 +678,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize Conv2d->Hardswish pattern.
         """
-        self._qconv2d_unary_test_helper(
-            device="cpu", unary_op=torch.nn.Hardswish(), is_fp8=True
-        )
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardswish(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -765,9 +731,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
         """
-        self._qconv2d_unary_test_helper(
-            device="cpu", unary_op=torch.nn.SiLU(), is_fp8=True
-        )
+        self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.SiLU(), is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -947,7 +911,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
         add_fn_list = quantization_add_fn_list
         if not is_fp8:
             add_fn_list = add_fn_list + quantization_inplace_add_fn_list
-        for add_fn, swap_inputs in itertools.product(add_fn_list, [False, True]):
+        for add_fn, swap_inputs in itertools.product(
+            add_fn_list, [False, True]
+        ):
             mod = M(add_fn, use_relu, swap_inputs).eval().to(device=device)
             x = torch.randn(
                 (1, 3, 8, 8), dtype=torch.float32, requires_grad=False, device=device
