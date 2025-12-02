@@ -14,7 +14,7 @@ both because primitives were designed based on the fusions that
 come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
-
+import inspect
 import logging
 import re
 import types
@@ -2605,7 +2605,7 @@ def _fqn_to_config_handler(
                 top_level_params.pop(i)
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS or True:
+                if "parameter_name" in inspect.signature(handler).parameters:
                     # may be more than one param specified, so don't return prematurely
                     module = handler(module, c, parameter_name=parameter_name)
                 else:
@@ -2630,7 +2630,7 @@ def _fqn_to_config_handler(
                 c = config.fqn_to_config[pattern]
                 if c is not None:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
+                    if "parameter_name" in inspect.signature(handler).parameters:
                         # may be more than one param specified, so don't return prematurely
                         module = handler(module, c, parameter_name=parameter_name)
                     else:

@@ -10,7 +10,7 @@ import copy
 
 import torch
 import torch.nn as nn
-from torchao.prototype.numerics import ObserverConfig, ObserverTensor
+from torchao.prototype.numerics import ObserverConfig, ObserverTensor, GPTQConfig 
 from torchao.quantization import quantize_, FqnToConfig, Int4WeightOnlyConfig
 from torchao.testing.model_architectures import LlamaModelsLlama4Experts
 
@@ -68,68 +68,6 @@ class TestObserverTensor(unittest.TestCase):
             print(f"calibrating {i}")
             m(x)
         
-        
-    def test_gptq_hf(self, device="cuda"):
-        from transformers import AutoModelForCausalLM, TorchAoConfig, AutoTokenizer
-
-        config = FqnToConfig(
-            {
-                r"model.layers.0.feed_forward.experts.down_proj": ObserverConfig()
-                # r"model.layers.0.feed_forward.experts.gate_up_proj": Int4WeightOnlyConfig()
-            }
-        )
-        quant_config = TorchAoConfig(quant_type=config)
-        model = AutoModelForCausalLM.from_pretrained(
-            "unsloth/Llama-4-Scout-17B-16E-Instruct",
-            device_map="auto",
-            dtype=torch.bfloat16,
-            # quantization_config=quant_config,
-        )
-        # model.model.layers[0].feed_forward.experts.gate_up_proj = nn.Parameter(
-        #     model.model.layers[0].feed_forward.experts.gate_up_proj.transpose(-2, -1).contiguous()
-        # )
-        quantize_(model, config, filter_fn=None)
-
-
-        tokenizer = AutoTokenizer.from_pretrained("unsloth/Llama-4-Scout-17B-16E-Instruct")
-        prompt = "Give me a short introduction to large language model."
-        messages = [
-            {"role": "user", "content": prompt}
-        ]
-        text = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
-
-        # conduct text completion
-        generated_ids = model.generate(
-            **model_inputs,
-            max_new_tokens=128,
-        )
-        output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
-        content = tokenizer.decode(output_ids, skip_special_tokens=True)
-        print("content:", content)
-
-
-        breakpoint()
-
-        convert_config = FqnToConfig(
-            {
-                r"model.layers.0.feed_forward.experts.down_proj": ObserverConfig(step="convert")
-            }
-        )
-        quantize_(model, convert_config, filter_fn=None)
-
-        generated_ids = model.generate(
-            **model_inputs,
-            max_new_tokens=128
-        )
-        output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
-        content = tokenizer.decode(output_ids, skip_special_tokens=True)
-        print("content:", content)
-
     def test_gptq_with_input_recorder(self):
         torch.manual_seed(43)
         from torchao.quantization.GPTQ import (
@@ -165,10 +103,10 @@ class TestObserverTensor(unittest.TestCase):
                 input = prepare_inputs_for_model(idx[i])
                 model(*input)
 
-            convert_config = ObserverConfig(step="convert")
-            quantize_(model, convert_config)
-            out_gptq = model(*test_input)
 
+            gptq_convert_config = GPTQConfig()
+            quantize_(model, gptq_convert_config)
+            out_gptq = model(*test_input)
 
             quantize_(model2, Int4WeightOnlyConfig(version=2))
             out_rtn = model2(*test_input)
@@ -180,9 +118,9 @@ class TestObserverTensor(unittest.TestCase):
             print("rtn: ", compute_error(out_rtn, out))
             print("new gptq: ", compute_error(out_gptq, out))
 
-            print(out)
-            print(out_rtn)
-            print(out_gptq)
+            # print(out)
+            # print(out_rtn)
+            # print(out_gptq)
 
 
           
