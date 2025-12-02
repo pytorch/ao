@@ -22,7 +22,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
-    ModuleFqnToConfig,
+    FqnToConfig,
     PerRow,
 )
 from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
@@ -46,7 +46,7 @@ def get_quantization_config():
         # guard against activations with groups of all-zeroes
         activation_value_lb=1.0e-12,
     )
-    module_fqn_to_config = ModuleFqnToConfig(
+    fqn_to_config = FqnToConfig(
         {
             # only quantize the routed experts, the rest of the model is left
             # in high precision
@@ -54,9 +54,7 @@ def get_quantization_config():
             r"re:.*\.feed_forward\.experts\.down_proj": expert_3d_weight_single_config,
         }
     )
-    return TorchAoConfig(
-        quant_type=module_fqn_to_config,
-    )
+    return TorchAoConfig(quant_type=fqn_to_config)
 
 
 def parse_args():
