@@ -11,6 +11,7 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
+
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -218,3 +219,4 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
 if __name__ == "__main__":
     common_utils.run_tests()
+
