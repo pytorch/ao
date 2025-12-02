@@ -39,7 +39,11 @@ from torchao.utils import get_current_accelerator_device
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else []) + (["xpu"] if torch.xpu.is_available() else [])
+_DEVICES = (
+    ["cpu"]
+    + (["cuda"] if torch.cuda.is_available() else [])
+    + (["xpu"] if torch.xpu.is_available() else [])
+)
 _DEVICE = get_current_accelerator_device()
 
 
@@ -184,7 +188,9 @@ class TestQuantizedTraining(TestCase):
         ],
     )
     @parametrize("module_swap", [False, True])
-    @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
+    @pytest.mark.skipif(
+        not torch.accelerator.is_available(), reason="GPU not available"
+    )
     def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
@@ -223,7 +229,9 @@ class TestQuantizedTraining(TestCase):
 
     @pytest.mark.skip("Flaky on CI")
     @parametrize("compile", [False, True])
-    @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
+    @pytest.mark.skipif(
+        not torch.accelerator.is_available(), reason="GPU not available"
+    )
     def test_bitnet_training(self, compile):
         # reference implementation
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
@@ -298,7 +306,7 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 
@@ -389,14 +397,18 @@ class TestFSDP2(FSDPTest):
             )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
+    @pytest.mark.skipif(
+        not torch.accelerator.is_available(), reason="GPU not available"
+    )
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,
             precompute_bitnet_scale_for_fsdp,
         )
 
-        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).to(_DEVICE)
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).to(
+            _DEVICE
+        )
         model_fsdp = copy.deepcopy(model)
         quantize_(model_fsdp, bitnet_training())
         fully_shard(model_fsdp)
