@@ -219,4 +219,3 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
 if __name__ == "__main__":
     common_utils.run_tests()
-
