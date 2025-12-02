@@ -11,7 +11,6 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
-
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -191,7 +190,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, weight_fp)}"
         )
 
-    @unittest.skipIf(not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass")
+    @unittest.skipIf(
+        not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
+    )
     def test_available_gpu_kernels(self):
         """Check which GPU kernels are used"""
         torch.compiler.reset()
