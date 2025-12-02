@@ -1342,6 +1342,8 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
+        if self.version == 2:
+            assert self.group_size is None, f"Only support version 2 with group_size=None, got {self.group_size}"
 
 
 # for BC
@@ -1590,8 +1592,6 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
         act_quant_kwargs = QuantizeTensorToInt8Kwargs(
             activation_granularity,
-            # hp_value_lb=activation_value_lb,
-            # hp_value_ub=activation_value_ub,
         )
         new_weight = Int8Tensor.from_hp(
             weight, granularity=weight_granularity, act_quant_kwargs=act_quant_kwargs

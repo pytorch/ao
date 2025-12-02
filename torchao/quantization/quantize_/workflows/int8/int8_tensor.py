@@ -276,6 +276,15 @@ def _(func, types, args, kwargs):
         ),
     )
 
+@implements(aten.index.Tensor)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
+    )
+
 
 @implements(aten.select.int)
 def _(func, types, args, kwargs):
