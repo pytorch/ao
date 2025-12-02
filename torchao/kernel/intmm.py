@@ -138,9 +138,8 @@ def int_scaled_matmul(
         if not torch.cpu._is_amx_tile_supported() and torch.cpu._is_vnni_supported():# uint8 path
             a = (a.to(torch.int32) + 128).to(torch.uint8)
             c = torch._int_mm(a, b)
-            zp = a.fill_(128)
-            zpb = torch._int_mm(zp, b)
-            c = c - zpb
+            comp = b.sum(dim=0,keepdim=True, dtype=torch.int32) * 128
+            c.sub_(comp)
             return c.to(scales1.dtype) * scales1
         else: # int8 path
             c = torch._int_mm(a, b)
