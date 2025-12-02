@@ -484,12 +484,74 @@ def triton_scale_swizzle_per_group_3d(
     )
 
 
+def triton_mx_block_rearrange_2d_K_groups_naive(
+    scales_tensor: torch.Tensor,
+    input_group_end_offsets: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Naive version with while loop (before optimization).
+    Rearranges an E8M0 tensor scale to block-scaled swizzle format on a per group basis,
+    where the groups are along the contraction dimension of the GEMM.
+
+    This format is suitable for Tmem as described in NVIDIA documentation:
+    https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+    Args:
+        scales_tensor: Input tensor containing e8m0 scales for each logical group of a target tensor.
+        input_group_end_offsets: tensor of int32 values representing group end indexes for the input scales
+    Returns:
+        - Rearranged tensor in block-scaled swizzle format
+    """
+    assert scales_tensor.ndim == 2, "scales tensor must be 2d"
+    assert scales_tensor.element_size() == 1, (
+        "Expected element size to be 1 byte (8 bits)"
+    )
+    rows, cols = scales_tensor.shape
+    # Calculate blocks needed
+    num_groups = input_group_end_offsets.shape[0]
+    num_row_blocks = ceil_div(rows, 128)
+    padded_rows = num_row_blocks * 128
+
+    # Padding needing per group is variable/data dependent, so we just pad each group by
+    # the upper bound of 4 cols to avoid a d2h sync caused by iterating over each group.
+    padded_cols = cols + num_groups * 4
+    output = scales_tensor.new_zeros((padded_rows, padded_cols))
+
+    # Output block stride for the rearranged format
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    output_stride_per_block = BLOCK_ROWS * BLOCK_COLS
+
+    # Naive grid - only parallelize by group and row
+    grid = lambda META: (
+        num_groups,
+        num_row_blocks,
+    )
+    wrap_triton(triton_scale_swizzle_2d_K_groups)[grid](
+        # Input scales
+        scales_tensor.view(torch.uint8),
+        scales_tensor.stride(0),
+        scales_tensor.stride(1),
+        rows,
+        cols,
+        padded_rows,
+        input_group_end_offsets,
+        output.view(torch.uint8),
+        output_stride_per_block,
+        num_groups=num_groups,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+        DEBUG=False,
+    )
+    return output
+
+
 @triton_op("torchao::triton_mx_block_rearrange_2d_K_groups", mutates_args={})
 def triton_mx_block_rearrange_2d_K_groups(
     scales_tensor: torch.Tensor,
     input_group_end_offsets: torch.Tensor,
 ) -> torch.Tensor:
     """
+    Parallel version (parallelized over column blocks).
     Rearranges an E8M0 tensor scale to block-scaled swizzle format on a per group basis,
     where the groups are along the contraction dimension of the GEMM.
 
@@ -522,13 +584,30 @@ def triton_mx_block_rearrange_2d_K_groups(
     BLOCK_ROWS, BLOCK_COLS = 128, 4
     output_stride_per_block = BLOCK_ROWS * BLOCK_COLS
 
-    # We parallelize per group and per row block.
-    # Cols per group is variable, so we just loop through col blocks for each group.
+    # Pre-compute cumulative column block counts to parallelize the loop
+    # Do this entirely on GPU to avoid device-to-host syncs
+    zero = torch.zeros(
+        1, dtype=input_group_end_offsets.dtype, device=scales_tensor.device
+    )
+
+    # Calculate group sizes
+    group_sizes = torch.diff(input_group_end_offsets, prepend=zero)
+
+    # Calculate number of column blocks per group: ceil_div(group_size, BLOCK_COLS)
+    group_col_block_counts = (group_sizes + BLOCK_COLS - 1) // BLOCK_COLS
+
+    # Create cumulative sum tensor: [0, count[0], count[0]+count[1], ...]
+    cumulative_col_blocks = torch.cat(
+        [zero.to(torch.int32), group_col_block_counts.to(torch.int32)]
+    ).cumsum(0)
+    total_col_blocks = cumulative_col_blocks[-1]  # Keep as tensor, no .item()
+
+    # We parallelize over all column blocks across all groups and row blocks
     grid = lambda META: (
-        num_groups,
+        total_col_blocks,
         num_row_blocks,
     )
-    wrap_triton(triton_scale_swizzle_2d_K_groups)[grid](
+    wrap_triton(triton_scale_swizzle_2d_K_groups_parallel)[grid](
         # Input scales
         scales_tensor.view(torch.uint8),
         scales_tensor.stride(0),
@@ -537,6 +616,7 @@ def triton_mx_block_rearrange_2d_K_groups(
         cols,
         padded_rows,
         input_group_end_offsets,
+        cumulative_col_blocks,
         output.view(torch.uint8),
         output_stride_per_block,
         num_groups=num_groups,
@@ -545,6 +625,104 @@ def triton_mx_block_rearrange_2d_K_groups(
         DEBUG=False,
     )
     return output
+
+
+@triton.jit
+def triton_scale_swizzle_2d_K_groups_parallel(
+    scales_ptr,  # (M, total_K//block_size)
+    scales_stride_dim0,
+    scales_stride_dim1,
+    scale_rows,
+    scale_cols,
+    padded_rows,
+    orig_offsets,  # (num_groups,)
+    cumulative_col_blocks,  # (num_groups+1,) - cumulative column block counts
+    output_scales_ptr,
+    output_stride_per_block,
+    num_groups: tl.constexpr,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+    DEBUG: tl.constexpr = False,
+):
+    """
+    Parallel version that parallelizes over column blocks.
+    Each thread block processes exactly one (row_block, col_block) pair.
+    """
+    global_col_block_id = tl.program_id(0)
+    block_row_pid = tl.program_id(1)
+
+    # Find which group this global_col_block_id belongs to via vectorized search
+    cumsum_starts = tl.load(cumulative_col_blocks + tl.arange(0, num_groups))
+    cumsum_ends = tl.load(cumulative_col_blocks + tl.arange(0, num_groups) + 1)
+
+    # Find which group this block belongs to
+    is_in_group = (global_col_block_id >= cumsum_starts) & (
+        global_col_block_id < cumsum_ends
+    )
+
+    # Get the group index
+    group_indices = tl.arange(0, num_groups)
+    group_pid = tl.sum(tl.where(is_in_group, group_indices, 0))
+
+    # Get the local column block offset within the group
+    local_col_block = tl.sum(
+        tl.where(is_in_group, global_col_block_id - cumsum_starts, 0)
+    )
+
+    # Load group offset boundaries
+    input_group_start_col = tl.load(
+        orig_offsets + group_pid - 1, mask=group_pid > 0, other=0
+    )
+    input_group_end_col = tl.load(orig_offsets + group_pid)
+
+    # Compute input column offset for this specific column block
+    curr_input_start_col = input_group_start_col + local_col_block * BLOCK_COLS
+
+    # Early exit if beyond group boundary
+    if curr_input_start_col >= input_group_end_col:
+        return
+
+    # Calculate this group's start col after blocked format padding
+    output_group_start_col = _blocked_group_start_idx(
+        group_pid, orig_offsets, num_groups, 4
+    )
+
+    row_offs = tl.arange(0, BLOCK_ROWS)[:, None]
+    col_offs = tl.arange(0, BLOCK_COLS)[None, :]
+
+    # Read block of input scales
+    block_row_offs = block_row_pid * BLOCK_ROWS + row_offs
+    block_col_offs = curr_input_start_col + col_offs
+    block_offs = (
+        block_row_offs * scales_stride_dim0 + block_col_offs * scales_stride_dim1
+    )
+    mask = (block_row_offs < scale_rows) & (block_col_offs < input_group_end_col)
+    input_scales = tl.load(scales_ptr + block_offs, mask=mask, other=0.0)
+    scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
+
+    # Compute output offset
+    out_group_base_offset = output_group_start_col * padded_rows
+
+    num_cols_in_group = input_group_end_col - input_group_start_col
+    num_col_blocks_in_group = tl.cdiv(num_cols_in_group, BLOCK_COLS)
+    stride_per_row_of_blocks_in_group = (
+        num_col_blocks_in_group * output_stride_per_block
+    )
+
+    offset_in_group = (
+        block_row_pid * stride_per_row_of_blocks_in_group
+        + local_col_block * output_stride_per_block
+    )
+    final_offset = out_group_base_offset + offset_in_group
+
+    # Apply swizzling and write
+    dest_indices_flat = _dest_indices_for_block(
+        row_offs, col_offs, BLOCK_ROWS, BLOCK_COLS
+    )
+    tl.store(
+        output_scales_ptr + final_offset + dest_indices_flat,
+        scales_flat,
+    )
 
 
 @triton.jit
