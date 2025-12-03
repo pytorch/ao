@@ -22,9 +22,9 @@ from torchao.prototype.mx_formats.utils import ceil_div
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
+    get_current_accelerator_device,
     is_sm_at_least_100,
     torch_version_at_least,
-    get_current_accelerator_device,
 )
 
 torch.manual_seed(2)
@@ -456,7 +456,11 @@ def test_nvfp4_matmul_with_amax(
     shapes: tuple,
 ):
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if quant_type == "dynamic" and torch.cuda.is_available() and not is_sm_at_least_100():
+    if (
+        quant_type == "dynamic"
+        and torch.cuda.is_available()
+        and not is_sm_at_least_100()
+    ):
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
 
     if bias and inpt_dtype == torch.float32:
