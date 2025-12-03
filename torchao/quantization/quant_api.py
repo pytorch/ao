@@ -1588,9 +1588,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             _layout=layout,
             zero_point_domain=weight_zero_point_domain,
         )
-        quantized_weight = to_linear_activation_quantized(
-            quantized_weight, input_quant_func
-        )
+        quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
     else:
         from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
             QuantizeTensorToInt8Kwargs,
