@@ -32,7 +32,6 @@ from torchao.quantization.quant_api import (
     LinearActivationQuantizedTensor,
     quantize_,
 )
-from torchao.quantization import Int8Tensor
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_90
 
@@ -51,7 +50,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         self,
         config,
         num_tokens=1,
-    model_params=None,
+        model_params=None,
         base_class=AffineQuantizedTensor,
         tensor_impl_class=None,
         dtype=torch.bfloat16,
@@ -168,12 +167,12 @@ class TestMoEQuantCompile(unittest.TestCase):
         config = MoEQuantConfig(
             Int8WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
         )
-        base_class = Int8Tensor
+        tensor_impl_class = PlainAQTTensorImpl
 
         self._test_impl_moe_quant(
             config=config,
             num_tokens=num_tokens,
-            base_class=base_class,
+            tensor_impl_class=tensor_impl_class,
             fullgraph=fullgraph,
         )
 
@@ -188,12 +187,12 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
 
         config = MoEQuantConfig(Int8WeightOnlyConfig())
-        base_class = Int8Tensor
+        tensor_impl_class = PlainAQTTensorImpl
 
         self._test_impl_moe_quant(
             config=config,
             num_tokens=num_tokens,
-            base_class=base_class,
+            tensor_impl_class=tensor_impl_class,
             fullgraph=fullgraph,
         )
 
@@ -205,12 +204,12 @@ class TestMoEQuantCompile(unittest.TestCase):
     )
     def test_int8wo_base_cpu(self, name, num_tokens, fullgraph):
         config = MoEQuantConfig(Int8WeightOnlyConfig())
-        base_class = Int8Tensor
+        tensor_impl_class = PlainAQTTensorImpl
 
         self._test_impl_moe_quant(
             config=config,
             num_tokens=num_tokens,
-            base_class=base_class,
+            tensor_impl_class=tensor_impl_class,
             fullgraph=fullgraph,
             device="cpu",
         )
@@ -228,7 +227,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             Int8DynamicActivationInt8WeightConfig(),
             use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
         )
-        base_class = Int8Tensor
+        base_class = LinearActivationQuantizedTensor
 
         self._test_impl_moe_quant(
             model_params=(512, 256, 2, 2),
@@ -248,7 +247,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
 
         config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
-        base_class = Int8Tensor 
+        base_class = LinearActivationQuantizedTensor
 
         self._test_impl_moe_quant(
             model_params=(512, 256, 2, 2),
