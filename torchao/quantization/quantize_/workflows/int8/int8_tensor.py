@@ -6,14 +6,11 @@
 
 from dataclasses import dataclass
 from typing import List, Optional
-from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
-from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity, PerRow, PerTensor
 from torchao.kernel import int_scaled_matmul
 from torchao.quantization.granularity import Granularity, PerRow
 from torchao.quantization.quant_primitives import (
@@ -126,6 +123,7 @@ class Int8Tensor(TorchAOBaseTensor):
             quant_max=127,
             scale_dtype=hp_tensor.dtype,
             zero_point_dtype=torch.int8,
+            keepdim=True,
         )
 
         int_data = quantize_affine(
@@ -135,12 +133,6 @@ class Int8Tensor(TorchAOBaseTensor):
             zero_point=zero_point,
             output_dtype=torch.int8,
         )
-
-        # make scale the correct dim
-        if isinstance(granularity, PerRow):
-            scale = scale.unsqueeze(1)
-        elif isinstance(granularity, PerTensor):
-            scale = scale.unsqueeze(0).unsqueeze(1)
 
         return cls(
             int_data,
@@ -278,6 +270,7 @@ def _(func, types, args, kwargs):
             dtype=self.dtype,
         ),
     )
+
 
 @implements(aten.index.Tensor)
 def _(func, types, args, kwargs):

@@ -89,9 +89,6 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
 )
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    QuantizeTensorToInt8Kwargs,
-)
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
@@ -1345,7 +1342,9 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
         if self.version == 2:
-            assert self.group_size is None, f"Only support version 2 with group_size=None, got {self.group_size}"
+            assert self.group_size is None, (
+                f"Only support version 2 with group_size=None, got {self.group_size}"
+            )
 
 
 # for BC
@@ -1527,9 +1526,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    # TODO: Revisit for supported granularitys
-    # https://github.com/pytorch/ao/pull/3241#discussion_r2551497849
-    granularity: Optional[Granularity] = PerRow()
+    granularity: Optional[Union[Granularity, List[Granularity, Granularity]]] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
