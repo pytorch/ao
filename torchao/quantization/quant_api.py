@@ -1608,7 +1608,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             granularity=config.granularity,
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
                 granularity=act_granularity,
-                act_mapping_type=config.act_mapping_type,
+                mapping_type=config.act_mapping_type,
             ),
         )
 

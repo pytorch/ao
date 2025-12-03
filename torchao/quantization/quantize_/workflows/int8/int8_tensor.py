@@ -37,12 +37,14 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """
 
     granularity: Granularity = PerRow()
-    act_mapping_type: MappingType = MappingType.SYMMETRIC
+    mapping_type: MappingType = MappingType.SYMMETRIC
 
 
 class Int8Tensor(TorchAOBaseTensor):
     """
-    int8 quantized tensor with plain layout
+    int8 quantized tensor with plain layout.
+
+    Currently only Symmetric quantization is supported.
 
     Tensor Attributes:
         qdata: (N, K) or (B, N, K) int8 quantized weight data (2D or 3D)
@@ -73,7 +75,7 @@ class Int8Tensor(TorchAOBaseTensor):
     ):
         kwargs = {
             "device": qdata.device,
-            "dtype": dtype,
+            "dtype": dtype or scale.dtype,
             "requires_grad": False,
         }
         return torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
@@ -110,6 +112,7 @@ class Int8Tensor(TorchAOBaseTensor):
         hp_tensor: torch.Tensor,
         granularity: Granularity = PerRow(),
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        mapping_type=MappingType.SYMMETRIC,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -117,7 +120,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
         scale, zero_point = choose_qparams_affine(
             input=hp_tensor,
-            mapping_type=MappingType.SYMMETRIC,
+            mapping_type=mapping_type,
             block_size=block_size,
             target_dtype=torch.int8,
             quant_min=-128,
@@ -179,7 +182,8 @@ def _(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is not None:
         activation_tensor = Int8Tensor.from_hp(
-            activation_tensor, weight_tensor.act_quant_kwargs.granularity
+            activation_tensor,
+            granularity=weight_tensor.act_quant_kwargs.granularity,
         )
         # Dynamic activation quantization path
 
