@@ -53,10 +53,6 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.training.roofline_utils import (
     get_inference_float8_mem_sympy,
     get_inference_gemm_time_sympy,
-    get_specs,
-    BYTES_PER_EL_BF16,
-    BYTES_PER_EL_FLOAT8,
-    KERNEL_LAUNCH_OVERHEAD_SEC,
 )
 from torchao.utils import is_MI300
 
@@ -198,7 +194,10 @@ def get_conv_equivalent_gemm_dims(
     padding: int = 0,
 ):
     """
-    Get GEMM dimensions from unfold.
+    Get equivalent GEMM dimensions for a conv operation.
+    
+    Uses torch.nn.functional.unfold to derive the correct GEMM dimensions
+    that correspond to the conv operation.
     
     Args:
         op_name: "conv2d" or "conv3d"
@@ -235,10 +234,6 @@ def get_conv_equivalent_gemm_dims(
         
     elif op_name == "conv3d":
         x = torch.randn(batch, in_channels, D, H, W, device=device)
-        
-        # Note: torch.nn.Unfold only supports 4-D tensors
-        # (https://pytorch.org/docs/stable/generated/torch.nn.Unfold.html)
-        # For 3D conv, reshape (B,C,D,H,W) -> (B*D,C,H,W) and unfold H,W
         B, C, D_in, H_in, W_in = x.shape
         x_reshaped = x.permute(0, 2, 1, 3, 4).reshape(B * D_in, C, H_in, W_in)
         unfolded = torch.nn.functional.unfold(
@@ -260,179 +255,6 @@ def get_conv_equivalent_gemm_dims(
     return gemm_M, gemm_K, gemm_N
 
 
-def benchmark_im2col_unfold(
-    op_name: str,
-    batch: int,
-    in_channels: int,
-    kernel_size: int,
-    D: Optional[int],
-    H: int,
-    W: int,
-    stride: int = 1,
-    padding: int = 0,
-    dtype=torch.bfloat16,
-):
-    """
-    Benchmark unfold operation.
-    
-    Args:
-        op_name: "conv2d" or "conv3d"
-        batch: Batch size
-        in_channels: Number of input channels
-        kernel_size: Kernel size
-        D: Depth dimension (required for conv3d)
-        H: Height dimension (required for conv2d/conv3d)
-        W: Width dimension (required for conv2d/conv3d)
-        stride: Stride value
-        padding: Padding value
-        dtype: Data type
-    
-    Returns:
-        Measured time in seconds
-    """
-    device = torch.device("cuda")
-    
-    _validate_conv_params(op_name, kernel_size, D, H, W)
-    
-    # Unfold doesn't support FP8; return -1 for unsupported dtypes
-    if dtype not in (torch.bfloat16, torch.float16, torch.float32):
-        return -1
-    
-    # Create input tensor
-    if op_name == "conv2d":
-        x = torch.randn(batch, in_channels, H, W, dtype=dtype, device=device)
-    elif op_name == "conv3d":
-        x = torch.randn(batch, in_channels, D, H, W, dtype=dtype, device=device)
-    else:
-        raise ValueError(f"Unsupported op_name: {op_name}")
-    
-    def _run_unfold():
-        if op_name == "conv2d":
-            return torch.nn.functional.unfold(
-                x, kernel_size=(kernel_size, kernel_size), stride=stride, padding=padding
-            )
-        else:  # conv3d: reshape to 4D since unfold only supports 4D
-            B, C, D_in, H_in, W_in = x.shape
-            x_reshaped = x.permute(0, 2, 1, 3, 4).reshape(B * D_in, C, H_in, W_in)
-            return torch.nn.functional.unfold(
-                x_reshaped, kernel_size=(kernel_size, kernel_size), stride=stride, padding=padding
-            )
-    
-    # Warm up
-    for _ in range(2):
-        _ = _run_unfold()
-        torch.cuda.synchronize()
-    
-    # Benchmark
-    n_iter = 10
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    
-    start.record()
-    for _ in range(n_iter):
-        _ = _run_unfold()
-    end.record()
-    torch.cuda.synchronize()
-    
-    return start.elapsed_time(end) / 1000.0 / n_iter
-
-
-def get_im2col_memory_overhead_sympy(
-    op_name: str,
-    batch: int,
-    in_channels: int,
-    out_channels: int,
-    kernel_size: int,
-    D: Optional[int],
-    H: int,
-    W: int,
-    stride: int = 1,
-    padding: int = 0,
-    dtype=torch.bfloat16,
-    gpu_name: Optional[str] = None,
-):
-    """
-    Calculate the memory overhead for im2col transformation in conv operations.
-    
-    Im2col unfolds the input tensor into a 2D matrix for efficient GEMM computation.
-    This involves:
-    1. Reading the input tensor (batch × in_channels × spatial_dims)
-    2. Writing the im2col matrix (output_spatial_positions × kernel_volume)
-    
-    The im2col matrix is typically much larger than the input due to overlapping
-    windows, especially with stride=1 and larger kernels.
-    
-    Args:
-        op_name: "conv2d" or "conv3d"
-        batch: Batch size
-        in_channels: Number of input channels
-        out_channels: Number of output channels
-        kernel_size: Kernel size
-        D: Depth dimension (required for conv3d)
-        H: Height dimension (required for conv2d/conv3d)
-        W: Width dimension (required for conv2d/conv3d)
-        stride: Stride value
-        padding: Padding value
-        dtype: Data type
-        gpu_name: GPU name for specs
-    
-    Returns:
-        sympy expression for im2col memory overhead in seconds
-    """
-    _validate_conv_params(op_name, kernel_size, D, H, W)
-    specs = get_specs(gpu_name)
-    
-    # Determine bytes per element based on dtype
-    if dtype == torch.bfloat16:
-        bytes_per_el = BYTES_PER_EL_BF16
-    elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        bytes_per_el = BYTES_PER_EL_FLOAT8
-    else:
-        bytes_per_el = BYTES_PER_EL_BF16  # default
-    
-    if op_name == "conv2d":
-        
-        # Input size
-        input_numel = batch * in_channels * H * W
-        
-        # Output spatial dimensions
-        H_out = (H - kernel_size + 2 * padding) // stride + 1
-        W_out = (W - kernel_size + 2 * padding) // stride + 1
-        
-        # Im2col matrix size: (batch * H_out * W_out) × (in_channels * kernel_size^2)
-        im2col_numel = batch * H_out * W_out * in_channels * kernel_size * kernel_size
-        
-    elif op_name == "conv3d":
-        # Input size
-        input_numel = batch * in_channels * D * H * W
-        
-        # Output spatial dimensions
-        D_out = (D - kernel_size + 2 * padding) // stride + 1
-        H_out = (H - kernel_size + 2 * padding) // stride + 1
-        W_out = (W - kernel_size + 2 * padding) // stride + 1
-        
-        # Im2col matrix size: (batch * D_out * H_out * W_out) × (in_channels * kernel_size^3)
-        im2col_numel = batch * D_out * H_out * W_out * in_channels * kernel_size * kernel_size * kernel_size
-        
-    else:
-        raise ValueError(f"Unsupported op_name: {op_name}")
-    
-    # Memory traffic: read input + write im2col matrix
-    # Note: In practice, some implementations may avoid materializing the full im2col
-    # matrix, but we model the worst case here
-    bytes_read = input_numel * bytes_per_el
-    bytes_write = im2col_numel * bytes_per_el
-    total_bytes = bytes_read + bytes_write
-    
-    # Convert to time using memory bandwidth
-    im2col_time_s = total_bytes / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
-    
-    # Account for kernel launch overhead
-    im2col_time_s = sympy.Max(im2col_time_s, KERNEL_LAUNCH_OVERHEAD_SEC)
-    
-    return im2col_time_s
-
-
 def run(
     outfile: str,
     recipe_name: str,
@@ -449,6 +271,9 @@ def run(
     H: Optional[int] = None,
     W: Optional[int] = None,
     kernel_size: Optional[int] = None,
+    stride: int = 1,
+    padding: int = 0,
+    verbose: bool = False,
 ):
     """
     Args:
@@ -457,11 +282,13 @@ def run(
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, `sweep`, or `custom`
     * `M|K|N`: if shape_gen_name is `custom`, then these values are used for MKN
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
-    # `save_profile_traces (optional)`: if True, saves profiling traces
-    # `enable_fusion_modeling`: if True, models activation -> gemm instead of just gemm
-    # `op_name`: linear, conv2d or conv3d, decides which op to benchmark
-    # `D`, `H`, `W`: spatial dimensiosn for conv3d / conv2d
-    # `kernel_size`: kernel_size for conv3d / conv2d
+    * `save_profile_traces (optional)`: if True, saves profiling traces
+    * `enable_fusion_modeling`: if True, models activation -> gemm instead of just gemm
+    * `op_name`: linear, conv2d or conv3d, decides which op to benchmark
+    * `D`, `H`, `W`: spatial dimensions for conv3d / conv2d
+    * `kernel_size`: kernel_size for conv3d / conv2d
+    * `stride`: stride for conv ops (default: 1)
+    * `padding`: padding for conv ops (default: 0)
     """
     _SUPPORTED_OPS = ["linear", "conv2d", "conv3d"]
     assert op_name in _SUPPORTED_OPS, f"Unsupported op: {op_name}, supported: {_SUPPORTED_OPS}"
@@ -481,6 +308,8 @@ def run(
         ["MKN", f"{M} {K} {N}"],
         ["DHW", f"{D} {H} {W}"],
         ["kernel_size", kernel_size],
+        ["stride", stride],
+        ["padding", padding],
     ]
     print(tabulate(config_table, headers=["Parameter", "Value"], tablefmt="simple"))
 
@@ -513,7 +342,7 @@ def run(
     print()
     
     if op_name in ("conv2d", "conv3d"):
-        print(f"{op_name}: GEMM dimensions from unfold, roofline from symbolic expressions")
+        print(f"{op_name}: GEMM dimensions derived from conv params")
         print()
     elif op_name != "linear":
         raise ValueError(f"Unsupported op_name: {op_name}")
@@ -525,17 +354,11 @@ def run(
         # Roofline: GEMM time
         "r_bf16_gemm_s", "r_fp8_gemm_s",
         
-        # Roofline: im2col overhead
-        "r_im2col_bf16_s", "r_im2col_fp8_s",
-        
         # Roofline: FP8 quantization overhead
         "r_fp8_ovhd_s",
         
-        # Roofline: GEMM-only metrics
-        "r_fp8_gemm_and_ovhd_s", "r_fp8_gemm_and_ovhd_spdp",
-        
-        # Roofline: Total (im2col + GEMM + quantization)
-        "r_bf16_total_s", "r_fp8_total_s", "r_fp8_total_spdp",
+        # Roofline: Total (GEMM + quantization)
+        "r_fp8_gemm_and_ovhd_s", "r_fp8_speedup",
         
         # Benchmarks: Direct GEMM
         "b_bf16_gemm_s", "b_fp8_gemm_s",
@@ -572,11 +395,6 @@ def run(
             r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
             r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
             
-            # Linear ops don't have im2col overhead
-            r_im2col_bf16_s, r_im2col_fp8_s = 0, 0
-            r_bf16_total_s = r_bf16_gemm_time_s
-            r_fp8_total_s = r_fp8_gemm_and_ovhd_s
-            r_total_spdp = r_speedup
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
             rb_bf16_gemm_ratio, rb_fp8_gemm_ratio = -1, -1
 
@@ -599,8 +417,6 @@ def run(
                 rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
 
         elif op_name in ("conv2d", "conv3d"):
-            # Get GEMM dimensions from unfold
-            stride, padding = 1, 0
             gemm_M, gemm_K, gemm_N = get_conv_equivalent_gemm_dims(
                 op_name=op_name,
                 batch=M_val,
@@ -625,24 +441,11 @@ def run(
                 fp8_ovhd_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
             )
             
-            # Compute combined metrics
             r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
             r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
             
-            # Roofline im2col overhead (theoretical)
-            r_im2col_bf16_s = float(get_im2col_memory_overhead_sympy(
-                op_name, M_val, K_val, N_val, kernel_size,
-                D, H, W, stride=1, padding=0, dtype=torch.bfloat16
-            ))
-            r_im2col_fp8_s = r_im2col_bf16_s * 0.5
-            
-            # Roofline total: im2col + GEMM + quantization
-            r_bf16_total_s = r_bf16_gemm_time_s + r_im2col_bf16_s
-            r_fp8_total_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s + r_im2col_fp8_s
-            r_total_spdp = r_bf16_total_s / r_fp8_total_s
-            
-            print(f"  -> Im2col: BF16={r_im2col_bf16_s*1e6:.2f} µs, FP8={r_im2col_fp8_s*1e6:.2f} µs")
-            print(f"  -> Speedup: GEMM only={r_speedup:.3f}x | Total={r_total_spdp:.3f}x")
+            print(f"  -> GEMM dims: M={gemm_M}, K={gemm_K}, N={gemm_N}")
+            print(f"  -> Speedup: {r_speedup:.3f}x")
             
             # GEMM benchmarks not yet implemented for conv ops
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
@@ -768,18 +571,11 @@ def run(
                 # Roofline: GEMM
                 r_bf16_gemm_time_s,
                 r_fp8_gemm_time_s,
-                # Roofline: im2col
-                r_im2col_bf16_s,
-                r_im2col_fp8_s,
-                # Roofline: FP8 quantization
+                # Roofline: FP8 quantization overhead
                 r_fp8_ovhd_time_s,
-                # Roofline: GEMM-only
+                # Roofline: Total (GEMM + quantization)
                 r_fp8_gemm_and_ovhd_s,
                 r_speedup,
-                # Roofline: Total
-                r_bf16_total_s,
-                r_fp8_total_s,
-                r_total_spdp,
                 # Benchmarks: GEMM
                 b_bf16_gemm_time_s,
                 b_fp8_gemm_time_s,
