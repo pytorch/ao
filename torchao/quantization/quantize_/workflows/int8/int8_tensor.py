@@ -6,6 +6,7 @@
 
 from dataclasses import dataclass
 from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -13,6 +14,8 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
 from torchao.quantization.granularity import Granularity, PerRow, PerTensor
+from torchao.kernel import int_scaled_matmul
+from torchao.quantization.granularity import Granularity, PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,

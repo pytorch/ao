@@ -38,6 +38,8 @@ __all__ = [
     "Int4MarlinSparseTensor",
     "Int4PlainInt32Tensor",
     "Int4TilePackedTo4dTensor",
+    "Int8Tensor",
+    "QuantizeTensorToInt8Kwargs",
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
     "Int8Tensor",

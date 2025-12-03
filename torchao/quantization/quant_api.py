@@ -1329,16 +1329,18 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
 
     Args:
-        group_size: Optional[int] = None - Controls the granularity of quantization. If None, applies per-channel quantization.
-            Otherwise, applies per-group quantization with the specified group size.
+        group_size (version 1) - Controls the granularity of quantization.
+        If None, applies per-channel quantization. Otherwise, applies per-group quantization with the specified group size.
+        granularity (version 2) - Quantization granularity.
+            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
     """
 
     group_size: Optional[int] = None
-    granularity: Granularity = PerRow()
+    granularity: Optional[Granularity] = PerRow()
     set_inductor_config: bool = True
-    version: int = 2
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
@@ -1352,6 +1354,9 @@ int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyC
 
 def _int8_weight_only_quantize_tensor(weight, config):
     if config.version == 1:
+        warnings.warn(
+            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
@@ -1368,7 +1373,6 @@ def _int8_weight_only_quantize_tensor(weight, config):
             eps=eps,
             zero_point_dtype=zero_point_dtype,
         )
-        return new_weight
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
         new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
@@ -1517,14 +1521,17 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             in original precision during decode operations.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
     """
 
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Optional[Union[PerRow, PerTensor]] = PerRow()
+    # TODO: Revisit for supported granularitys
+    # https://github.com/pytorch/ao/pull/3241#discussion_r2551497849
+    granularity: Optional[Granularity] = PerRow()
     set_inductor_config: bool = True
-    version: int = 2
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1584,19 +1591,27 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             _layout=layout,
             zero_point_domain=weight_zero_point_domain,
         )
-        new_weight = to_linear_activation_quantized(new_weight, input_quant_func)
-        return new_weight
+        quantized_weight = to_linear_activation_quantized(
+            quantized_weight, input_quant_func
+        )
     else:
-        activation_granularity, weight_granularity = _normalize_granularity(
-            config.granularity
+        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+            QuantizeTensorToInt8Kwargs,
         )
-        act_quant_kwargs = QuantizeTensorToInt8Kwargs(
-            activation_granularity,
+
+        assert config.version == 2, f"Unexpected version: {config.version}"
+
+        # TODO: Symmentric/Asymmetric choice for weight quantization
+        # https://github.com/pytorch/ao/pull/3241#discussion_r2551515539
+        # TODO: Add block_size args to return in from_hp
+        # https://github.com/pytorch/ao/pull/3241#discussion_r2552016429
+        quantized_weight = Int8Tensor.from_hp(
+            weight,
+            granularity=config.granularity,
+            act_quant_kwargs=QuantizeTensorToInt8Kwargs(granularity=config.granularity),
         )
-        new_weight = Int8Tensor.from_hp(
-            weight, granularity=weight_granularity, act_quant_kwargs=act_quant_kwargs
-        )
-        return new_weight
+
+    return quantized_weight
 
 
 @register_quantize_module_handler(Int8DynamicActivationInt8WeightConfig)

@@ -21,6 +21,7 @@ from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
+from torchao.utils import torch_version_at_least
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -190,6 +191,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, weight_fp)}"
         )
 
+    @unittest.skipIf(
+        not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
+    )
     def test_available_gpu_kernels(self):
         """Check which GPU kernels are used"""
         torch.compiler.reset()
