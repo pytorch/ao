@@ -114,9 +114,8 @@ def _smooth_quant_transform(
     qw = quant_mod.weight
 
     # Add smoothing factor metadata
-    use_inv_scale = qw.device.type == "cpu"
     qw = to_weight_tensor_with_linear_activation_scale_metadata(
-        qw, smoothing_factor.to(qw.dtype), use_inv_scale
+        qw, smoothing_factor.to(qw.dtype)
     )
 
     # Create new linear layer

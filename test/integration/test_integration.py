@@ -1058,7 +1058,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
         quantize_(
             m,
-            Int8WeightOnlyConfig(group_size=group_size,version=2),
+            Int8WeightOnlyConfig(group_size=group_size),
             filter_fn=lambda x, *args: isinstance(x, nn.Embedding),
         )
         y_q = m(input)
