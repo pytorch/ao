@@ -1,9 +1,13 @@
-sphinx-gallery>0.11
-sphinx==5.0.0
-sphinx_design
-sphinx_copybutton
-sphinx-tabs
-matplotlib
-myst-parser
+sphinx==5.3.0
+pytorch-sphinx-theme2
+sphinxcontrib.katex==0.8.6
+sphinxext-opengraph==0.9.1
+docutils==0.17.1  # Changed from 0.16 to match sphinx-tabs requirement
+sphinx-design==0.4.0
 sphinxcontrib-mermaid==1.0.0
--e git+https://github.com/pytorch/pytorch_sphinx_theme.git#egg=pytorch_sphinx_theme
+myst-parser==0.18.1  # if want to contribute in markdown
+sphinx-gallery==0.11.1  # if hosting interactive tutorials
+sphinx-tabs==3.4.0
+sphinx-copybutton==0.5.2
+sphinx-sitemap==2.6.0
+myst-parser

@@ -93,6 +93,9 @@ quantization_inplace_add_fn_list = [
 skipIfNoFloat8Support = unittest.skipIf(
     not torch_version_at_least("2.9.0"), "Float8 requires torch 2.9+"
 )
+skipIfNoQConvFp8Support = unittest.skipIf(
+    not torch_version_at_least("2.10.0.dev"), "QConv fp8 requires torch 2.10+"
+)
 
 
 def get_default_quantizer(is_qat, is_dynamic):
@@ -509,7 +512,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
     @skip_if_rocm("Not applicable to ROCm")
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_fp8_cpu(self):
         r"""
         This testcase will quantize a single Conv2d module.
@@ -530,7 +533,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     @skip_if_rocm("Not applicable to ROCm")
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_fp8_mixed_bf16(self):
         r"""
         This testcase will quantize a single Conv2d module with int8_mixed_bf16 quantization.
@@ -607,7 +610,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_relu_fp8_cpu(self):
         r"""
         This testcase will quantize Conv2d->ReLU pattern.
@@ -633,7 +636,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_relu6_fp8_cpu(self):
         r"""
         This testcase will quantize Conv2d->ReLU6 pattern.
@@ -652,7 +655,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_hardtanh_fp8_cpu(self):
         r"""
         This testcase will quantize Conv2d->Hardtanh pattern.
@@ -680,7 +683,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_hardtanh_fp8_mixed_bf16_cpu(self):
         r"""
         This testcase will quantize Conv2d->Hardtanh pattern.
@@ -705,7 +708,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_hardswish_fp8_cpu(self):
         r"""
         This testcase will quantize Conv2d->Hardswish pattern.
@@ -734,7 +737,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_hardswish_fp8_mixed_bf16_cpu(self):
         r"""
         This testcase will quantize Conv2d->Hardswish pattern.
@@ -760,7 +763,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_silu_fp8_cpu(self):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
@@ -789,7 +792,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_silu_fp8_mixed_bf16_cpu(self):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
@@ -991,7 +994,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_add_fp8_cpu(self):
         self._qconv2d_add_test_helper(is_fp8=True)
         self._qconv2d_add_test_helper2(is_fp8=True)
@@ -1006,7 +1009,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_add_fp8_mixed_bf16(self):
         self._qconv2d_add_test_helper(mixed_bf16=True, is_fp8=True)
         self._qconv2d_add_test_helper2(mixed_bf16=True, is_fp8=True)
@@ -1019,7 +1022,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_add_relu_fp8_cpu(self):
         self._qconv2d_add_test_helper(use_relu=True, is_fp8=True)
         self._qconv2d_add_test_helper2(use_relu=True, is_fp8=True)
@@ -1034,7 +1037,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
+    @skipIfNoQConvFp8Support
     def test_qconv2d_add_relu_fp8_mixed_bf16(self):
         self._qconv2d_add_test_helper(use_relu=True, mixed_bf16=True, is_fp8=True)
         self._qconv2d_add_test_helper2(use_relu=True, mixed_bf16=True, is_fp8=True)
