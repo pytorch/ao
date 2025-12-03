@@ -37,6 +37,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """
 
     granularity: Granularity = PerRow()
+    act_mapping_type: MappingType = MappingType.SYMMETRIC
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -59,7 +60,6 @@ class Int8Tensor(TorchAOBaseTensor):
     optional_tensor_attribute_names = [
         "block_size",
         "act_quant_kwargs",
-        "dtype",
     ]
 
     def __new__(
@@ -83,7 +83,6 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
         self.qdata = qdata
