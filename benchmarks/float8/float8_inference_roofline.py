@@ -54,7 +54,7 @@ from torchao.testing.training.roofline_utils import (
     get_inference_float8_mem_sympy,
     get_inference_gemm_time_sympy,
 )
-from torchao.utils import is_MI300
+from torchao.utils import is_MI300, is_sm_at_least_100
 
 
 @torch.no_grad()
@@ -447,7 +447,22 @@ def run(
             rb_fp8_gemm_ratio = -1
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
-        if do_benchmarks:
+        # Check hardware requirements for conv operations
+        skip_conv_benchmarks = (
+            do_benchmarks
+            and op_name in ("conv2d", "conv3d")
+            and not is_sm_at_least_100()
+        )
+
+        if skip_conv_benchmarks:
+            print(
+                f"WARNING: Skipping {op_name} benchmarks for shape ({M_val}, {K_val}, {N_val}). "
+                f"Float8 convolution requires SM 10.0+ (Blackwell/B100 GPUs). "
+                f"Current GPU: {torch.cuda.get_device_name(0)} with SM {torch.cuda.get_device_capability()}. "
+                f"Roofline model estimates are still valid."
+            )
+
+        if do_benchmarks and not skip_conv_benchmarks:
             # create the model
             if op_name == "conv2d":
                 if not enable_fusion_modeling:
