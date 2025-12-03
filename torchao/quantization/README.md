@@ -2,7 +2,7 @@
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
 ## Benchmarks
-Benchmarks and evaluation are gathered using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data on the meta-llama/Meta-Llama-3-8B model.
+Benchmarks and evaluation are gathered using the scripts for [generation](../_models/llama/generate.py) and [eval](../../benchmarks/_models/llm_eval.py). Evaluation was done using the lm_eval library for tasks/data on the meta-llama/Meta-Llama-3-8B model.
 
 ### CUDA backend |  NVIDIA-A100-80GB GPU
 | Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
@@ -33,7 +33,7 @@ Benchmarks and evaluation are gathered using the scripts for [generation](../_mo
 |             | int8wo                  |  7.447              |  59.49       | 447.27                 | 18.60            |  7.52
 
 
-Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are gathered using [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
+Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are gathered using [generation](../_models/llama/generate.py) and [eval](../../benchmarks/_models/llm_eval.py). Evaluation was done using the lm_eval library for tasks/data.
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
@@ -248,7 +248,7 @@ You try can out these apis with the `quantize_` api as above alongside the confi
 
 ### GPTQ Quantization
 We have a GPTQ quantization workflow that can be used to quantize a model to int4. More details can be found in [GPTQ](./GPTQ/README.md),
-an example can be found in `torchao/_models/llama/eval.py`.
+an example can be found in `benchmarks/_models/llm_eval.py` (use `--quantization int4wo-128-gptq`).
 
 ### Automatic Inductor Configuration
 

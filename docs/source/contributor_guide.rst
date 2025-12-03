@@ -153,7 +153,7 @@ Note: llama model (llama2/llama3) is our representative model for memory bound m
 * `llama <https://github.com/pytorch/ao/tree/main/torchao/_models/llama>`__
 
   * `benchmark <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py>`__
-  * `eval <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py>`__
+  * `eval <https://github.com/pytorch/ao/blob/main/benchmarks/_models/llm_eval.py>`__
 
 * `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
 

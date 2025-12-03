@@ -33,9 +33,11 @@ sh benchmarks/_models/eval_hf_models.sh
 
 To run lm-eval for a different hf-model with AO quantization technique, run:
 ```
-python benchmarks/_models/eval_hf_models.py --model_id meta-llama/Llama-3.1-8B --quantization float8dq-row --tasks wikitext hellaswag
+python -m benchmarks._models.llm_eval --model_id meta-llama/Llama-3.1-8B --quantization float8dq-row --tasks wikitext hellaswag
 ```
-Replace model id, quantization and tasks with your desired values Please refer to ([HuggingFace <-> TorchAO](https://huggingface.co/docs/transformers/main/en//quantization/torchao)) integration docs for more details about the supported quantization techniques.
+Replace model id, quantization and tasks with your desired values. Please refer to ([HuggingFace <-> TorchAO](https://huggingface.co/docs/transformers/main/en//quantization/torchao)) integration docs for more details about the supported quantization techniques.
+
+**Note:** The unified `llm_eval.py` script supports both HuggingFace models (`--model_id`) and gpt-fast checkpoints (`--checkpoint_path`). Run `python -m benchmarks._models.llm_eval --help` to see all available options.
 
 # SAM2
 sam2 is a fork of https://github.com/facebookresearch/sam2 at commit c2ec8e14a185632b0a5d8b161928ceb50197eddc
