@@ -178,61 +178,51 @@ def get_conv_equivalent_gemm_dims(
     padding: int = 0,
 ):
     """
-    Get equivalent GEMM dimensions for a conv operation.
-    
-    Uses torch.nn.functional.unfold to derive the correct GEMM dimensions
-    that correspond to the conv operation.
-    
+    Get equivalent GEMM dimensions for a conv operation using analytical calculation.
+
+    Conv operations can be expressed as implicit GEMM. This function computes
+    the equivalent GEMM dimensions without creating any tensors.
+
     Args:
         op_name: "conv2d" or "conv3d"
         batch: Batch size
         in_channels: Number of input channels
         out_channels: Number of output channels
-        kernel_size: Kernel size
+        kernel_size: Kernel size (assumes square/cubic kernel)
         D: Depth dimension (required for conv3d)
-        H: Height dimension (required for conv2d/conv3d)
-        W: Width dimension (required for conv2d/conv3d)
+        H: Height dimension
+        W: Width dimension
         stride: Stride value
         padding: Padding value
-    
+
     Returns:
         Tuple[int, int, int]: (gemm_M, gemm_K, gemm_N)
-            gemm_M: Number of output spatial positions
-            gemm_K: Size of each filter (in_channels * kernel volume)
+            gemm_M: Number of output spatial positions (batch * spatial_output_size)
+            gemm_K: Size of each filter (in_channels * kernel_volume)
             gemm_N: Number of filters (out_channels)
     """
-    device = torch.device("cuda")
-    
     if op_name == "conv2d":
-        x = torch.randn(batch, in_channels, H, W, device=device)
-        unfolded = torch.nn.functional.unfold(
-            x, kernel_size=(kernel_size, kernel_size),
-            stride=stride, padding=padding
-        )
-        batch_out, K, L = unfolded.shape
-        gemm_M = batch_out * L
-        gemm_K = K
+        # Output spatial dimensions
+        H_out = (H + 2 * padding - kernel_size) // stride + 1
+        W_out = (W + 2 * padding - kernel_size) // stride + 1
+
+        gemm_M = batch * H_out * W_out
+        gemm_K = in_channels * kernel_size * kernel_size
         gemm_N = out_channels
-        
+
     elif op_name == "conv3d":
-        x = torch.randn(batch, in_channels, D, H, W, device=device)
-        B, C, D_in, H_in, W_in = x.shape
-        x_reshaped = x.permute(0, 2, 1, 3, 4).reshape(B * D_in, C, H_in, W_in)
-        unfolded = torch.nn.functional.unfold(
-            x_reshaped, kernel_size=(kernel_size, kernel_size),
-            stride=stride, padding=padding
-        )
-        
-        D_out = (D - kernel_size + 2 * padding) // stride + 1
-        _, K_2d, L_2d = unfolded.shape
-        
-        gemm_K = K_2d * kernel_size  # C * kernel_size³
-        gemm_M = B * D_out * L_2d
+        # Output spatial dimensions
+        D_out = (D + 2 * padding - kernel_size) // stride + 1
+        H_out = (H + 2 * padding - kernel_size) // stride + 1
+        W_out = (W + 2 * padding - kernel_size) // stride + 1
+
+        gemm_M = batch * D_out * H_out * W_out
+        gemm_K = in_channels * kernel_size * kernel_size * kernel_size
         gemm_N = out_channels
-        
+
     else:
         raise ValueError(f"Unsupported op_name: {op_name}")
-    
+
     return gemm_M, gemm_K, gemm_N
 
 
@@ -312,7 +302,9 @@ def run(
 
     M, K, N = sympy.symbols("M K N")
 
-    if op_name == "linear":
+    # Roofline model setup: linear uses M/K/N directly, conv uses equivalent
+    # implicit GEMM dimensions (computed per-iteration in the loop below)
+    if op_name in ("linear", "conv2d", "conv3d"):
         fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
             M,
             K,
@@ -338,21 +330,17 @@ def run(
         print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
         print()
     else:
-        # TODO: enable roofline analysis for conv
         pass
 
-    # Note: roofline for conv2d/conv3d is not added yet, so most of the
-    # things for conv2d/conv3d we'll left out for now
-
     headers = [
-        "fwd_M",
-        "fwd_K",
-        "fwd_N",
+        "fwd_M",  # for conv: batch size
+        "fwd_K",  # for conv: in_channels
+        "fwd_N",  # for conv: out_channels
         "D",
         "H",
         "W",
         "kernel_size",
-        # roofline - gemm time (fwd + bwd, 3 gemms)
+        # roofline - gemm time (fwd + bwd, 3 gemms; for conv: using equivalent implicit gemm dims)
         "r_bf16_gemm_s",
         "r_fp8_gemm_s",
         # roofline - fp8 overhead time (by counting reads/writes in the ideal case)
@@ -425,17 +413,36 @@ def run(
                 rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
 
         else:
-            # roofline analysis for conv2d/conv3d are not added yet
-            r_bf16_gemm_time_s = None
-            r_fp8_gemm_time_s = None
-            r_fp8_ovhd_time_s = None
-            r_fp8_gemm_and_ovhd_s = None
-            r_speedup = None
+            # For conv ops, compute equivalent GEMM dimensions
+            # M_val=batch, K_val=in_channels, N_val=out_channels
+            gemm_M, gemm_K, gemm_N = get_conv_equivalent_gemm_dims(
+                op_name=op_name,
+                batch=M_val,
+                in_channels=K_val,
+                out_channels=N_val,
+                kernel_size=kernel_size,
+                D=D,
+                H=H,
+                W=W,
+                stride=stride,
+                padding=padding,
+            )
 
-            # real gemm benchmark time, also not added yet
-            # if enabled, also measured observed gemm time
+            # use roofline model to estimate gemm time using equivalent GEMM dims
+            r_bf16_gemm_time_s = float(
+                bf16_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
+            )
+            r_fp8_gemm_time_s = float(
+                fp8_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
+            )
+            r_fp8_ovhd_time_s = float(
+                fp8_ovhd_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
+            )
+            r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
+            r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
+
+            # gemm benchmarks for conv not implemented, as conv uses implicit GEMM
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
-            # gemm roofline ratio achieved in real benchmark
             rb_bf16_gemm_ratio = -1
             rb_fp8_gemm_ratio = -1
 
@@ -445,23 +452,51 @@ def run(
             if op_name == "conv2d":
                 if not enable_fusion_modeling:
                     m_orig = nn.Sequential(
-                        nn.Conv2d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False)
+                        nn.Conv2d(
+                            K_val,
+                            N_val,
+                            kernel_size,
+                            stride=stride,
+                            padding=padding,
+                            bias=False,
+                        )
                     ).to(memory_format=torch.channels_last)
                 else:
                     m_orig = nn.Sequential(
                         nn.ReLU(),
-                        nn.Conv2d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False),
+                        nn.Conv2d(
+                            K_val,
+                            N_val,
+                            kernel_size,
+                            stride=stride,
+                            padding=padding,
+                            bias=False,
+                        ),
                         nn.ReLU(),
                     ).to(memory_format=torch.channels_last)
             elif op_name == "conv3d":
                 if not enable_fusion_modeling:
                     m_orig = nn.Sequential(
-                        nn.Conv3d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False)
+                        nn.Conv3d(
+                            K_val,
+                            N_val,
+                            kernel_size,
+                            stride=stride,
+                            padding=padding,
+                            bias=False,
+                        )
                     ).to(memory_format=torch.channels_last_3d)
                 else:
                     m_orig = nn.Sequential(
                         nn.ReLU(),
-                        nn.Conv3d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False),
+                        nn.Conv3d(
+                            K_val,
+                            N_val,
+                            kernel_size,
+                            stride=stride,
+                            padding=padding,
+                            bias=False,
+                        ),
                         nn.ReLU(),
                     ).to(memory_format=torch.channels_last_3d)
             else:
