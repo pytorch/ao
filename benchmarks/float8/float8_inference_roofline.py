@@ -57,22 +57,6 @@ from torchao.testing.training.roofline_utils import (
 from torchao.utils import is_MI300
 
 
-def _validate_conv_params(
-    op_name: str,
-    kernel_size: Optional[int],
-    D: Optional[int],
-    H: Optional[int],
-    W: Optional[int],
-):
-    """Validate conv operation parameters."""
-    if op_name == "conv2d":
-        assert H is not None and W is not None, "H and W required for conv2d"
-        assert kernel_size is not None, "kernel_size required for conv2d"
-    elif op_name == "conv3d":
-        assert D is not None and H is not None and W is not None, "D, H, W required for conv3d"
-        assert kernel_size is not None, "kernel_size required for conv3d"
-
-
 @torch.no_grad()
 def get_gpu_kernel_time(m, x, trace_filename=None):
     # warm up
@@ -219,8 +203,6 @@ def get_conv_equivalent_gemm_dims(
     """
     device = torch.device("cuda")
     
-    _validate_conv_params(op_name, kernel_size, D, H, W)
-    
     if op_name == "conv2d":
         x = torch.randn(batch, in_channels, H, W, device=device)
         unfolded = torch.nn.functional.unfold(
@@ -244,7 +226,6 @@ def get_conv_equivalent_gemm_dims(
         D_out = (D - kernel_size + 2 * padding) // stride + 1
         _, K_2d, L_2d = unfolded.shape
         
-        # GEMM dimensions: account for depth in K
         gemm_K = K_2d * kernel_size  # C * kernel_size³
         gemm_M = B * D_out * L_2d
         gemm_N = out_channels
@@ -273,7 +254,6 @@ def run(
     kernel_size: Optional[int] = None,
     stride: int = 1,
     padding: int = 0,
-    verbose: bool = False,
 ):
     """
     Args:
@@ -291,10 +271,24 @@ def run(
     * `padding`: padding for conv ops (default: 0)
     """
     _SUPPORTED_OPS = ["linear", "conv2d", "conv3d"]
-    assert op_name in _SUPPORTED_OPS, f"Unsupported op: {op_name}, supported: {_SUPPORTED_OPS}"
-    
-    if op_name in ("conv2d", "conv3d"):
-        _validate_conv_params(op_name, kernel_size, D, H, W)
+    assert op_name in _SUPPORTED_OPS, (
+        f"Unsupported op: {op_name}, supported are: {_SUPPORTED_OPS}"
+    )
+
+    if op_name == "conv2d":
+        assert H is not None and W is not None, (
+            "Expected D, H, W to be specified for conv2d"
+        )
+        assert kernel_size is not None, (
+            "Expected kernel_size to be specified for conv2d"
+        )
+    elif op_name == "conv3d":
+        assert D is not None and H is not None and W is not None, (
+            "Expected D, H, W to be specified for conv3d"
+        )
+        assert kernel_size is not None, (
+            "Expected kernel_size to be specified for conv3d"
+        )
 
     config_table = [
         ["GPU", torch.cuda.get_device_name(0)],
@@ -318,56 +312,69 @@ def run(
 
     M, K, N = sympy.symbols("M K N")
 
-    # Create symbolic roofline expressions (same for linear and conv)
-    fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
-        M, K, N, recipe_name,
-    )
-    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
-        M, K, N, torch.bfloat16, None
-    )
+    if op_name == "linear":
+        fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
+            M,
+            K,
+            N,
+            recipe_name,
+            # TODO(future): also enable fusion modeling here
+        )
+        bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.bfloat16, None
+        )
 
-    if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
-        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-            M, K, N, torch.float4_e2m1fn_x2, recipe_name
-        )
-    else:
-        gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
-        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-            M, K, N, torch.float8_e4m3fn, gemm_recipe_name
-        )
-    
-    print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
-    print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
-    print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
-    print()
-    
-    if op_name in ("conv2d", "conv3d"):
-        print(f"{op_name}: GEMM dimensions derived from conv params")
+        if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
+            fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+                M, K, N, torch.float4_e2m1fn_x2, recipe_name
+            )
+        else:
+            gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
+            fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+                M, K, N, torch.float8_e4m3fn, gemm_recipe_name
+            )
+        print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
+        print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
+        print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
         print()
-    elif op_name != "linear":
-        raise ValueError(f"Unsupported op_name: {op_name}")
+    else:
+        # TODO: enable roofline analysis for conv
+        pass
+
+    # Note: roofline for conv2d/conv3d is not added yet, so most of the
+    # things for conv2d/conv3d we'll left out for now
 
     headers = [
-        # Shape parameters
-        "fwd_M", "fwd_K", "fwd_N", "D", "H", "W", "kernel_size",
-        
-        # Roofline: GEMM time
-        "r_bf16_gemm_s", "r_fp8_gemm_s",
-        
-        # Roofline: FP8 quantization overhead
+        "fwd_M",
+        "fwd_K",
+        "fwd_N",
+        "D",
+        "H",
+        "W",
+        "kernel_size",
+        # roofline - gemm time (fwd + bwd, 3 gemms)
+        "r_bf16_gemm_s",
+        "r_fp8_gemm_s",
+        # roofline - fp8 overhead time (by counting reads/writes in the ideal case)
         "r_fp8_ovhd_s",
-        
-        # Roofline: Total (GEMM + quantization)
-        "r_fp8_gemm_and_ovhd_s", "r_fp8_speedup",
-        
-        # Benchmarks: Direct GEMM
-        "b_bf16_gemm_s", "b_fp8_gemm_s",
-        
-        # Benchmarks: End-to-end
-        "b_bf16_e2e_s", "b_fp8_e2e_s", "b_fp8_e2e_spdp",
-        
-        # Roofline vs benchmark ratios
-        "rb_bf16_gemm_ratio", "rb_fp8_gemm_ratio",
+        # roofline - fp8 gemm + fp8 overhead time (does not include LN or sigmoid)
+        "r_fp8_gemm_and_ovhd_s",
+        "r_fp8_gemm_and_ovhd_spdp",
+        # benchmarks - gemm time (fwd + bwd, 3 gemms)
+        "b_bf16_gemm_s",
+        "b_fp8_gemm_s",
+        # benchmarks - e2e LNLinearSigmoid time fwd + bwd
+        "b_bf16_e2e_s",
+        "b_fp8_e2e_s",
+        # note that e2e speedup is not the same as the roofline speedup:
+        # 1. roofline speedup: (bf16_gemm_time) / (fp8_gemm_time + fp8_ovhd_time)
+        # 2. e2e speedup: (ln + bf16_gemm_time + sigmoid) / (ln + fp8_gemm_time + fp8_ovhd_time + sigmoid)
+        # the difference is the fwd+bwd ln and sigmoid terms, for now to keep things simple
+        # we don't break them out and don't have a roofline for them.
+        "b_fp8_e2e_spdp",
+        # how well benchmarked gemms match roofline predicted gemms
+        "rb_bf16_gemm_ratio",
+        "rb_fp8_gemm_ratio",
     ]
 
     results = []
@@ -394,10 +401,11 @@ def run(
             )
             r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
             r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
-            
-            b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
-            rb_bf16_gemm_ratio, rb_fp8_gemm_ratio = -1, -1
 
+            # if enabled, also measured observed gemm time
+            b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
+            rb_bf16_gemm_ratio = -1
+            rb_fp8_gemm_ratio = -1
             if do_benchmarks:
                 # TODO(future): make the bf16 gemm times exactly match the e2e
                 # benchmarks, there is a slight deviation, probably related to gemm
@@ -416,43 +424,20 @@ def run(
                 rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
                 rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
 
-        elif op_name in ("conv2d", "conv3d"):
-            gemm_M, gemm_K, gemm_N = get_conv_equivalent_gemm_dims(
-                op_name=op_name,
-                batch=M_val,
-                in_channels=K_val,
-                out_channels=N_val,
-                kernel_size=kernel_size,
-                D=D,
-                H=H,
-                W=W,
-                stride=stride,
-                padding=padding,
-            )
-            
-            # Use pre-computed symbolic expressions (created upfront)
-            r_bf16_gemm_time_s = float(
-                bf16_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
-            )
-            r_fp8_gemm_time_s = float(
-                fp8_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
-            )
-            r_fp8_ovhd_time_s = float(
-                fp8_ovhd_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
-            )
-            
-            r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
-            r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
-            
-            print(f"  -> GEMM dims: M={gemm_M}, K={gemm_K}, N={gemm_N}")
-            print(f"  -> Speedup: {r_speedup:.3f}x")
-            
-            # GEMM benchmarks not yet implemented for conv ops
-            b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
-            rb_bf16_gemm_ratio, rb_fp8_gemm_ratio = -1, -1
-        
         else:
-            raise ValueError(f"Unsupported op_name: {op_name}")
+            # roofline analysis for conv2d/conv3d are not added yet
+            r_bf16_gemm_time_s = None
+            r_fp8_gemm_time_s = None
+            r_fp8_ovhd_time_s = None
+            r_fp8_gemm_and_ovhd_s = None
+            r_speedup = None
+
+            # real gemm benchmark time, also not added yet
+            # if enabled, also measured observed gemm time
+            b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
+            # gemm roofline ratio achieved in real benchmark
+            rb_bf16_gemm_ratio = -1
+            rb_fp8_gemm_ratio = -1
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
         if do_benchmarks:
@@ -460,23 +445,23 @@ def run(
             if op_name == "conv2d":
                 if not enable_fusion_modeling:
                     m_orig = nn.Sequential(
-                        nn.Conv2d(K_val, N_val, kernel_size, bias=False)
+                        nn.Conv2d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False)
                     ).to(memory_format=torch.channels_last)
                 else:
                     m_orig = nn.Sequential(
                         nn.ReLU(),
-                        nn.Conv2d(K_val, N_val, kernel_size, bias=False),
+                        nn.Conv2d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False),
                         nn.ReLU(),
                     ).to(memory_format=torch.channels_last)
             elif op_name == "conv3d":
                 if not enable_fusion_modeling:
                     m_orig = nn.Sequential(
-                        nn.Conv3d(K_val, N_val, kernel_size, bias=False)
+                        nn.Conv3d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False)
                     ).to(memory_format=torch.channels_last_3d)
                 else:
                     m_orig = nn.Sequential(
                         nn.ReLU(),
-                        nn.Conv3d(K_val, N_val, kernel_size, bias=False),
+                        nn.Conv3d(K_val, N_val, kernel_size, stride=stride, padding=padding, bias=False),
                         nn.ReLU(),
                     ).to(memory_format=torch.channels_last_3d)
             else:
@@ -568,22 +553,22 @@ def run(
                 H,
                 W,
                 kernel_size,
-                # Roofline: GEMM
+                # roofline - gemm
                 r_bf16_gemm_time_s,
                 r_fp8_gemm_time_s,
-                # Roofline: FP8 quantization overhead
+                # roofline - fp8 overhead
                 r_fp8_ovhd_time_s,
-                # Roofline: Total (GEMM + quantization)
+                # roofline - gemm + overhead, and speedup
                 r_fp8_gemm_and_ovhd_s,
                 r_speedup,
-                # Benchmarks: GEMM
+                # benchmarks - gemm
                 b_bf16_gemm_time_s,
                 b_fp8_gemm_time_s,
-                # Benchmarks: e2e
+                # benchmarks - e2e, and speedup
                 b_bf16_e2e_time_s,
                 b_fp8_e2e_time_s,
                 b_bf16_e2e_time_s / (b_fp8_e2e_time_s + 1e-20),
-                # Roofline vs benchmark ratios
+                # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,
             ]
