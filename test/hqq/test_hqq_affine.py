@@ -15,11 +15,13 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import get_current_accelerator_device
 
-cuda_available = torch.cuda.is_available()
+cuda_available = torch.accelerator.is_available()
+_DEVICE = get_current_accelerator_device()
 
 # Parameters
-device = "cuda:0"
+device = f"{_DEVICE}:0"
 compute_dtype = torch.bfloat16
 group_size = 64
 mapping_type = MappingType.ASYMMETRIC
