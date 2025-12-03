@@ -356,7 +356,7 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     assert swizzled_scales.shape == expected_shape
 
 
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
 )
@@ -366,7 +366,7 @@ def test_nvfp4_swizzled_scales_get_scales_method():
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
 @pytest.mark.skipif(
-    torch.cuda.is_available() and not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
+    not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
 )
 @torch.no_grad()
 def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
