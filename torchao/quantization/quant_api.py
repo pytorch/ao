@@ -88,6 +88,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
+    QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1590,10 +1591,6 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
         quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
     else:
-        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-            QuantizeTensorToInt8Kwargs,
-        )
-
         assert config.granularity in {PerRow(), PerTensor()}, (
             "Only PerRow and PerTensor are supported"
         )
@@ -1608,7 +1605,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             granularity=config.granularity,
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
                 granularity=act_granularity,
-                act_mapping_type=config.act_mapping_type,
+                mapping_type=config.act_mapping_type,
             ),
         )
 
@@ -1617,7 +1614,10 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(Int8DynamicActivationInt8WeightConfig)
 def _int8_dynamic_activation_int8_weight_transform(
-    module: torch.nn.Module, config: Int8DynamicActivationInt8WeightConfig
+    module: torch.nn.Module,
+    config: Int8DynamicActivationInt8WeightConfig,
+    *,
+    parameter_name="weight",
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
@@ -1630,6 +1630,65 @@ def _int8_dynamic_activation_int8_weight_transform(
         module.weight, config
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
+    """
+    Configuration for applying float8 static symmetric quantization to
+
+    Args:
+        scale (torch.Tensor): The scale tensor for activation quantization.
+        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
+        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+        set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+    """
+
+    scale: torch.Tensor
+    zero_point: Optional[torch.Tensor] = None
+    act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
+    granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
+    set_inductor_config: bool = True
+    version: int = 1
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8StaticActivationInt8WeightConfig"
+        )
+
+
+@register_quantize_module_handler(Int8StaticActivationInt8WeightConfig)
+def _int8_static_activation_int8_weight_transform(
+    module: torch.nn.Module, config: Int8StaticActivationInt8WeightConfig
+):
+    assert config.granularity in {PerRow(), PerTensor()}, (
+        "Only PerRow and PerTensor are supported"
+    )
+
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    activation_granularity, weight_granularity = _normalize_granularity(
+        config.granularity
+    )
+    weight = module.weight
+
+    # TODO: Symmentric/Asymmetric choice for weight quantization
+    # https://github.com/pytorch/ao/pull/3241#discussion_r2551515539
+    quantized_weight = Int8Tensor.from_hp(
+        weight,
+        granularity=weight_granularity,
+        act_quant_kwargs=QuantizeTensorToInt8Kwargs(
+            granularity=activation_granularity,
+            mapping_type=config.act_mapping_type,
+            scale=config.scale,
+            zero_point=config.zero_point,
+        ),
+    )
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 

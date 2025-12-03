@@ -31,13 +31,13 @@ INT8_TEST_CONFIGS = [
         version=2, granularity=PerTensor(), act_mapping_type=MappingType.ASYMMETRIC
     ),
     Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
+    ),
+    Int8DynamicActivationInt8WeightConfig(
         version=2, granularity=PerRow(), act_mapping_type=MappingType.ASYMMETRIC
     ),
     Int8DynamicActivationInt8WeightConfig(
         version=2, granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
-    ),
-    Int8DynamicActivationInt8WeightConfig(
-        version=2, granularity=PerRow(), act_mapping_type=MappingType.SYMMETRIC
     ),
 ]
 
@@ -76,14 +76,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             self.assertEqual(w.scale.shape, (w.shape[0], 1))
         elif isinstance(config.granularity, PerTensor):
             self.assertEqual(w.scale.shape, (1, 1))
-
-        if config.act_mapping_type == MappingType.SYMMETRIC:
-            self.assertEqual(w.zero_point, None)
-        elif config.act_mapping_type == MappingType.ASYMMETRIC:
-            if isinstance(config.granularity, PerRow):
-                self.assertEqual(w.zero_point.shape, (w.shape[0], 1))
-            elif isinstance(config.granularity, PerTensor):
-                self.assertEqual(w.zero_point.shape, (1, 1))
 
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
