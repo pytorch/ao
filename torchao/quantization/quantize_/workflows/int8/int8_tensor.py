@@ -103,6 +103,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_kwargs={self.act_quant_kwargs}, "
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
+            f"zero_point={self.scale}, "
             f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
@@ -133,6 +134,8 @@ class Int8Tensor(TorchAOBaseTensor):
             keepdim=True,
         )
 
+        # if they are given, then use them to quantize
+        # this is how we support static quantization
         int_data = quantize_affine(
             hp_tensor,
             block_size=block_size,
@@ -151,6 +154,9 @@ class Int8Tensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
+        zero_point = self.zero_point
+        if zero_point is not None:
+            zero_point = zero_point.squeeze()
         return dequantize_affine(
             input=self.qdata,
             block_size=self.block_size,
