@@ -14,7 +14,7 @@ from torchao.quantization import (
     ZeroPointDomain,
     quantize_,
 )
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import get_current_accelerator_device
 
 cuda_available = torch.accelerator.is_available()
@@ -116,6 +116,7 @@ class TestHQQ(unittest.TestCase):
         )
 
     @skip_if_rocm("ROCm enablement in progress")
+    @skip_if_xpu("XPU enablement in progress")
     def test_hqq_plain_4bit(self):
         self._test_hqq(
             dtype=torch.uint4,
