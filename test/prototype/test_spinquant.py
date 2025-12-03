@@ -16,7 +16,7 @@ def _init_model(name="7B", device="cpu", precision=torch.bfloat16):
     return model.eval()
 
 
-_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else []) + (["xpu"] if torch.xpu.is_available() else [])
 
 
 @pytest.mark.parametrize("device", _AVAILABLE_DEVICES)
