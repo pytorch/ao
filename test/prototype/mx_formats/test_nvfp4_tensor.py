@@ -366,7 +366,7 @@ def test_nvfp4_swizzled_scales_get_scales_method():
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
+    torch.cuda.is_available() and not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
 )
 @torch.no_grad()
 def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
@@ -444,7 +444,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
 @pytest.mark.skipif(
-    torch.cuda.is_available() and not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
 )
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
