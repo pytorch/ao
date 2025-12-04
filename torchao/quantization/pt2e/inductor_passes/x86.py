@@ -2889,7 +2889,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             kwargs["mode"],
             kwargs["include_last_offset"],
         )
-        # only support fp32 output, next setp support more dtype
+        # only support fp32 output, next step to support more dtype
         o_scale = 1.0
 
         graph = match.graph
