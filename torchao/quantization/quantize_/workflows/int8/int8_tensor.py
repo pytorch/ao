@@ -62,23 +62,22 @@ class Int8Tensor(TorchAOBaseTensor):
 
     # TODO: Static quantization support using `static_scale`
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = ["block_size"]
+    tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
-        "dtype",
     ]
 
     def __new__(
         cls: type,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: List[int] = None,
+        block_size: List[int],
+        dtype: torch.dtype,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        dtype: Optional[torch.dtype] = None,
     ):
         kwargs = {
             "device": qdata.device,
-            "dtype": dtype or scale.dtype,
+            "dtype": dtype,
             "requires_grad": False,
         }
         return torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
@@ -88,13 +87,14 @@ class Int8Tensor(TorchAOBaseTensor):
         qdata: torch.Tensor,
         scale: torch.Tensor,
         block_size: List[int],
+        dtype: torch.dtype,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
+        # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
 
     def __repr__(self):
@@ -145,8 +145,8 @@ class Int8Tensor(TorchAOBaseTensor):
             int_data,
             scale,
             block_size,
+            hp_tensor.dtype,
             act_quant_kwargs=act_quant_kwargs,
-            dtype=hp_tensor.dtype,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -159,7 +159,7 @@ class Int8Tensor(TorchAOBaseTensor):
             input_dtype=torch.int8,
             quant_min=-128,
             quant_max=127,
-            output_dtype=output_dtype or self.dtype,
+            output_dtype=output_dtype if output_dtype is not None else self.dtype,
         )
 
 
@@ -273,8 +273,8 @@ def _(func, types, args, kwargs):
             sliced_qdata,
             sliced_scale,
             block_size,
+            self.dtype,
             act_quant_kwargs=self.act_quant_kwargs,
-            dtype=self.dtype,
         ),
     )
 
@@ -304,8 +304,8 @@ def _(func, types, args, kwargs):
         old_int8_tensor.qdata[index],
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
-        old_int8_tensor.act_quant_kwargs,
         old_int8_tensor.dtype,
+        old_int8_tensor.act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 

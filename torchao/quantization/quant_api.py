@@ -1610,7 +1610,6 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         quantized_weight = Int8Tensor.from_hp(
             weight,
             granularity=weight_granularity,
-            mapping_type=MappingType.SYMMETRIC,
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
                 granularity=act_granularity,
                 mapping_type=config.act_mapping_type,
