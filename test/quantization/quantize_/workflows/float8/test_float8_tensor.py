@@ -31,7 +31,7 @@ from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
-    auto_detect_device,
+    get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
@@ -41,7 +41,7 @@ from torchao.utils import (
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
 
-_DEVICE = auto_detect_device()
+_DEVICE = get_current_accelerator_device()
 
 
 class ToyLinearModel(torch.nn.Module):

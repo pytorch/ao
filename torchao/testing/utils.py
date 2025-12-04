@@ -26,7 +26,7 @@ from torchao.quantization.transform_module import (
 from torchao.testing.model_architectures import LlamaModelsLlama4Experts
 from torchao.utils import (
     DummyModule,
-    auto_detect_device,
+    get_current_accelerator_device,
     get_compute_capability,
 )
 
@@ -497,7 +497,7 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         # and does not use tensor parallelism
 
         dtype = torch.bfloat16
-        device = auto_detect_device()
+        device = get_current_accelerator_device()
         l = torch.nn.Linear(1024, 1024, device=device, dtype=dtype)
         quantize_(l, config)
 
