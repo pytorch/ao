@@ -392,8 +392,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     )
 
     torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
-    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
-    triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata.view(torch.uint8))
+    triton_unpacked = unpack_uint4(nvfp4_triton.qdata.view(torch.uint8))
     torch.testing.assert_close(
         pt_unpacked,
         triton_unpacked,
@@ -611,3 +611,17 @@ def test_3d_transpose(dims, is_swizzled_scales):
     x_hp_t = x_hp.transpose(dims[0], dims[1])
     x_nvfp4_t = x_nvfp4.transpose(dims[0], dims[1])
     assert x_hp_t.shape == x_nvfp4_t.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("use_triton_kernel", [False, True])
+def test_uses_fp4_qdata(use_triton_kernel):
+    x_hp = torch.randn(2, 128, 256, device="cuda")
+    # TODO also test triton kernel
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x_hp, use_triton_kernel=use_triton_kernel, is_swizzled_scales=True
+    )
+    assert x_nvfp4.qdata.dtype == torch.float4_e2m1fn_x2

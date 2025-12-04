@@ -76,6 +76,7 @@ def _test_mx(
     prev_dims, K = data_hp.shape[:-1], data_hp.shape[-1]
     if elem_dtype is torch.float4_e2m1fn_x2:
         assert data_mx.qdata.shape == (*prev_dims, K // 2)
+        assert data_mx.qdata.dtype == torch.float4_e2m1fn_x2
     else:
         assert data_mx.qdata.shape == (*prev_dims, K)
     assert data_mx.scale.shape == (*prev_dims, K // block_size)
