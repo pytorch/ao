@@ -41,7 +41,7 @@ class SmoothQuantObserver(torch.nn.Module):
         self.inputs.append(input.to("cpu"))
         return input
 
-    def calculate_qparams(self):
+    def calculate_qparams(self, act_quant_min=None, act_quant_max=None):
         assert self.inputs and len(self.inputs) > 0, (
             "calibrate observer first by running model on exemplar data"
         )
@@ -57,12 +57,20 @@ class SmoothQuantObserver(torch.nn.Module):
 
         # Calculate smoothing factor
         if self.alpha is None:
-            return torch.ones_like(x_abs_max)
+            smooth_factor = torch.ones_like(x_abs_max)
+        else:
+            eps = torch.finfo(torch.float32).eps
+            smooth_factor = torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
+                w_abs_max + eps, 1 - self.alpha
+            )
 
-        eps = torch.finfo(torch.float32).eps
-        return torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
-            w_abs_max + eps, 1 - self.alpha
-        )
+        # Calculate per-tensor act_quant_scale
+        act_quant_scale = None
+        if act_quant_min is not None and act_quant_max is not None:
+            x_abs_max_t = acc.abs().max()
+            act_quant_scale = (x_abs_max_t / (act_quant_max - act_quant_min) / 2).item()
+
+        return smooth_factor, act_quant_scale
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):

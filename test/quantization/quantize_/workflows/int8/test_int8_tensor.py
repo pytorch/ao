@@ -14,6 +14,7 @@ from torch.testing._internal import common_utils
 
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     quantize_,
 )
@@ -66,6 +67,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         "config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8StaticActivationInt8WeightConfig(version=2),
             Int8WeightOnlyConfig(version=2),
         ],
     )
@@ -108,6 +110,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         "config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8StaticActivationInt8WeightConfig(version=2),
             Int8WeightOnlyConfig(version=2),
         ],
     )
@@ -173,6 +176,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         "config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8StaticActivationInt8WeightConfig(version=2),
             Int8WeightOnlyConfig(version=2),
         ],
     )

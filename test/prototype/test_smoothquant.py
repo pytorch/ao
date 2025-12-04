@@ -20,6 +20,7 @@ from torchao.quantization.linear_activation_scale import (
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig
 )
 from torchao.quantization.utils import (
     compute_error as SQNR,
@@ -84,6 +85,7 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
+            Int8StaticActivationInt8WeightConfig(),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
         ],
@@ -139,6 +141,7 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
+            Int8StaticActivationInt8WeightConfig(),
             # TODO: Check more quantization APIs
         ],
     )
@@ -178,6 +181,7 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(),
+            Int8StaticActivationInt8WeightConfig(),
             # TODO: Check more quantization APIs
         ],
     )
