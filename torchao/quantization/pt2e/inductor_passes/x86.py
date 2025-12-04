@@ -2981,8 +2981,7 @@ def _register_quantization_weight_pack_pass():
         _register_qconv_binary_fusion()
         _register_qlinear_unary_fusion()
         _register_qlinear_binary_fusion()
-
-    _register_quantization_embeddingbag_pass()
+        _register_quantization_embeddingbag_pass()
 
 
 def quant_lift_up(module_graph: torch.fx.graph.Graph):
