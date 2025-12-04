@@ -230,7 +230,7 @@ Note: the accuracy results below are WIP and are not optimized yet.
 | recipe | wikitext word_perplexity | winogrande |
 | ------ | -------- | ---------- |
 | bfloat16 (baseline) | 7.5472105433748435 | 0.7426992896606156 |
-| mxfp8 | 7.609070006132819 | 0.7292817679558011 |
+| mxfp8 | 7.605192917647689 | 0.7355958958168903 |
 | nvfp4 | 8.44478255417328 | 0.7182320441988951 |
 
 To reproduce:

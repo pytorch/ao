@@ -87,6 +87,7 @@ EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
 class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     elem_dtype: Union[torch.dtype, str] = torch.float8_e4m3fn
     block_size: int = 32
+    # TODO(future PR): flip the scaling_mode default to RCEIL
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     kernel_preference: KernelPreference = KernelPreference.EMULATED
     is_swizzled_scales: bool = False
@@ -533,6 +534,7 @@ class MXTensor(TorchAOBaseTensor):
         data_hp: torch.Tensor,
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
+        # TODO(future PR): flip the scaling_mode default to RCEIL
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
         # TODO(future PR): switch default gemm to cublas
         kernel_preference: KernelPreference = KernelPreference.EMULATED,
