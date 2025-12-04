@@ -1526,7 +1526,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
+    granularity: Union[PerRow, PerTensor] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1597,15 +1597,19 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         assert config.granularity in {PerRow(), PerTensor()}, (
             "Only PerRow and PerTensor are supported"
         )
-        weight_granularity, act_granularity = _normalize_granularity(config.granularity)
+        weight_granularity = config.granularity
+        act_granularity = config.granularity
 
+        assert config.act_mapping_type == MappingType.SYMMETRIC, (
+            "asymmetric dynamic quant not supported currently"
+        )
         assert config.version == 2, f"Unexpected version: {config.version}"
 
         # TODO: Symmentric/Asymmetric choice for weight quantization
         # https://github.com/pytorch/ao/pull/3241#discussion_r2551515539
         quantized_weight = Int8Tensor.from_hp(
             weight,
-            granularity=config.granularity,
+            granularity=weight_granularity,
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
                 granularity=act_granularity,
                 mapping_type=config.act_mapping_type,

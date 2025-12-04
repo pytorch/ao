@@ -30,10 +30,11 @@ aten = torch.ops.aten
 
 @dataclass
 class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
-    """Tensor kwargs for creating int8 tensor from high precision
+    """Tensor kwargs for creating int8 tensor for activation.
 
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
+        mapping_type: whether to use symmetric or asymmetric quant, only symmetric is supported currently
     """
 
     granularity: Granularity = PerRow()
@@ -151,7 +152,7 @@ class Int8Tensor(TorchAOBaseTensor):
         return dequantize_affine(
             input=self.qdata,
             block_size=self.block_size,
-            scale=self.scale.squeeze(),
+            scale=self.scale,
             zero_point=None,
             input_dtype=torch.int8,
             quant_min=-128,
@@ -298,7 +299,7 @@ def _(func, types, args, kwargs):
     assert len(old_int8_tensor.qdata.shape) == len(old_int8_tensor.block_size), (
         "unsupported"
     )
-    new_int8_tensor = old_int8_tensor.__class__(
+    new_int8_tensor = Int8Tensor(
         old_int8_tensor.qdata[index],
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
