@@ -30,7 +30,6 @@ if common_utils.SEED is None:
     common_utils.SEED = 1234
 
 from packaging.version import Version
-
 from torchao import optim
 from torchao.optim.quant_utils import (
     _fp32_to_bf16_sr,
