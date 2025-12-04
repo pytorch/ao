@@ -87,18 +87,18 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
             )
             gathered_mx = torch.ops._c10d_functional.wait_tensor.default(gathered_mx)
             
-            # ✅ Verify type
+            # Verify type
             assert isinstance(gathered_mx, MXTensor), f"Expected MXTensor, got {type(gathered_mx)}"
             
-            # ✅ Verify shape
+            # Verify shape
             assert gathered_mx.shape == golden_mx.shape, \
                 f"Shape mismatch: {gathered_mx.shape} vs {golden_mx.shape}"
             
-            # ✅ Verify qdata matches golden exactly
+            # Verify qdata matches golden exactly
             if not torch.equal(gathered_mx.qdata, golden_qdata):
                 assert False, "qdata mismatch"
             
-            # ✅ Verify scale matches golden exactly
+            # Verify scale matches golden exactly
             if not torch.equal(gathered_mx._scale_e8m0.view(torch.uint8), golden_scale.view(torch.uint8)):
                 assert False, "scale mismatch"
             
