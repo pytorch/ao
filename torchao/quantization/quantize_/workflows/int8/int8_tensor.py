@@ -12,7 +12,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity, PerRow
+from torchao.quantization.granularity import Granularity
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -40,7 +40,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
         mapping_type: whether to use symmetric or asymmetric quant, only symmetric is supported currently
     """
 
-    granularity: Granularity = PerRow()
+    granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
 
 
@@ -113,7 +113,7 @@ class Int8Tensor(TorchAOBaseTensor):
     def from_hp(
         cls,
         hp_tensor: torch.Tensor,
-        granularity: Granularity = PerRow(),
+        granularity: Granularity,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         mapping_type=MappingType.SYMMETRIC,
     ):

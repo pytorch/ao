@@ -59,7 +59,7 @@ def _choose_quant_func_and_quantize_tensor(
         return Int8Tensor.from_hp(
             tensor,
             quant_kwargs.granularity,
-            quant_kwargs.mapping_type,
+            mapping_type=quant_kwargs.mapping_type,
         )
 
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")

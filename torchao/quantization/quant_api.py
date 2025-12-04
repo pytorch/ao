@@ -1526,7 +1526,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Union[PerRow, PerTensor] = PerRow()
+    granularity: Granularity = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
