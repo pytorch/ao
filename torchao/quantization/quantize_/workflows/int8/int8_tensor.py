@@ -62,9 +62,8 @@ class Int8Tensor(TorchAOBaseTensor):
 
     # TODO: Static quantization support using `static_scale`
     tensor_data_names = ["qdata", "scale"]
-    tensor_attribute_names = []
+    tensor_attribute_names = ["block_size"]
     optional_tensor_attribute_names = [
-        "block_size",
         "act_quant_kwargs",
         "dtype",
     ]
@@ -73,7 +72,7 @@ class Int8Tensor(TorchAOBaseTensor):
         cls: type,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: Optional[List[int]] = None,
+        block_size: List[int] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
     ):
@@ -88,7 +87,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self,
         qdata: torch.Tensor,
         scale: torch.Tensor,
-        block_size: Optional[List[int]] = None,
+        block_size: List[int],
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
     ):
@@ -145,7 +144,7 @@ class Int8Tensor(TorchAOBaseTensor):
         return cls(
             int_data,
             scale,
-            block_size=block_size,
+            block_size,
             act_quant_kwargs=act_quant_kwargs,
             dtype=hp_tensor.dtype,
         )
@@ -273,7 +272,7 @@ def _(func, types, args, kwargs):
         Int8Tensor(
             sliced_qdata,
             sliced_scale,
-            block_size=block_size,
+            block_size,
             act_quant_kwargs=self.act_quant_kwargs,
             dtype=self.dtype,
         ),
