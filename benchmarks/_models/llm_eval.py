@@ -320,7 +320,7 @@ def run_evaluation(
         model=model,
         checkpoint_path=checkpoint_path,
         model_id=model_id,
-        device=device if model_format != "gptfast" else "cpu",
+        device=device,
         precision=precision,
     )
 
