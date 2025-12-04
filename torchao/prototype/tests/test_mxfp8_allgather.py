@@ -4,14 +4,14 @@ import torch
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() != (10, 0):
     pytest.skip("Test requires CUDA build on SM100", allow_module_level=True)
 
+import torch.distributed as dist
 from torch.testing._internal.common_distributed import (
     MultiProcessTestCase,
 )
-import torch.distributed as dist
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
-    run_tests,
 )
+
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
