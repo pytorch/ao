@@ -3047,20 +3047,41 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
 
-    @skipIfNoDynamoSupport
-    @skipIfNoONEDNN
-    @skipIfNoFloat8Support
-    @unittest.skipIf(
-        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
-        reason="cpp kernels not built",
-    )
-    def test_fp8_scaled_embedding_bag(self):
-        dtype = torch.float8_e4m3fn
-
+    def _test_scaled_embedding_bag_helper(self, dtype, with_quant=False):
         class FP8QDQEmbeddingBag(torch.nn.Module):
             def __init__(self):
                 super().__init__()
                 self.weight_scale = 2.0
+                self.output_scale = 3.0
+
+            def _dq(self, weight):
+                if dtype == torch.float8_e4m3fn:
+                    res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+                        tensor=weight.data,
+                        scale=torch.tensor([self.weight_scale]),
+                        output_dtype=torch.float,
+                    )
+                else:
+                    res = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
+                        weight.data,
+                        self.weight_scale,
+                        0,
+                        -128, 127, torch.int8,
+                    )
+                return res
+
+            def _q(self, x):
+                if dtype == torch.float8_e4m3fn:
+                    qx = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
+                        tensor=x,
+                        scale=torch.tensor([self.output_scale]),
+                        float8_dtype=dtype,
+                    )
+                else:
+                    qx = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+                        x, self.output_scale, 0, -128, 127, torch.int8
+                    )
+                return qx
 
             def forward(
                 self,
@@ -3068,21 +3089,18 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 input,
                 offsets=None,
             ):
-                weight = (
-                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-                        tensor=weight.data,
-                        scale=torch.tensor([self.weight_scale]),
-                        output_dtype=torch.float,
-                    )
-                )
+                weight = self._dq(weight)
 
-                return torch.nn.functional.embedding_bag(
+                res = torch.nn.functional.embedding_bag(
                     input,
                     weight,
                     offsets,
                     mode="sum",
                     include_last_offset=True,
                 )
+                if with_quant:
+                    res = self._q(res)
+                return res
 
         EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
         EMBEDINGBAG_BAG_SIZES = [1, 2, 128, 1024]
@@ -3109,8 +3127,11 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 )
 
                 def matcher_check_fn():
+                    counter_name = "scaled_embedding_bag"
+                    if with_quant:
+                        counter_name += "_with_quant"
                     self.assertEqual(
-                        counters["inductor"]["scaled_embedding_bag_matcher_count"], 1
+                        counters["inductor"][f"{counter_name}_matcher_count"], 1
                     )
 
                 self._test_common(
@@ -3118,6 +3139,38 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     (weight, indices, offsets),
                     matcher_check_fn,
                 )
+
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_fp8_scaled_embedding_bag(self):
+        self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_scaled_embedding_bag(self):
+        self._test_scaled_embedding_bag_helper(torch.int8)
+
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_scaled_embedding_bag_with_quant(self):
+        self._test_scaled_embedding_bag_helper(torch.int8, True)
 
 
 instantiate_parametrized_tests(TestPatternMatcher)

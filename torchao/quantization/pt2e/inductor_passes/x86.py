@@ -2893,20 +2893,17 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             kwargs["mode"],
             kwargs["include_last_offset"],
         )
-        # only support fp32 and int8 output on kernel
-        # next step to support more output_type
         output_type = torch.float
         o_scale = 1.0
         if "o_dtype" in kwargs:
-            output_type = torch.int8
+            output_type = kwargs["o_dtype"]
             o_scale = kwargs["o_inv_scale"]
 
         graph = match.graph
         with graph.inserting_before(getitem_node):
-            # scale type is float on int8 q/dq
-            # Not support float scale yet on scaled_embedding_bag
+            # float scale not supported on scaled_embedding_bag
             # convert scale from float into tensor
-            if output_type == torch.int8:
+            if type(w_scale) is float:
                 w_scale = graph.call_function(
                     torch.ops.aten.full.default,
                     args=([1], w_scale),
@@ -2927,7 +2924,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
                 torch.ops.torchao._scaled_embedding_bag.default, args=new_args
             )
 
-            # remove quant node
+            # Erase quant pattern
             if output_type == torch.int8:
                 quant_node.replace_all_uses_with(getitem_node)
                 getitem_node.meta.update(quant_node.meta)
@@ -2942,8 +2939,11 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             # Erase the dequant pattern
             graph.erase_node(dequant_node)
 
-        counters["inductor"]["scaled_embedding_bag_matcher_count"] += 1
-        counters["inductor"]["scaled_embedding_bag_matcher_nodes"] += len(match.nodes)
+        counter_name = "scaled_embedding_bag"
+        if "o_dtype" in kwargs:
+            counter_name += "_with_quant"
+        counters["inductor"][f"{counter_name}_matcher_count"] += 1
+        counters["inductor"][f"{counter_name}_matcher_nodes"] += len(match.nodes)
 
 
 def _generate_scaled_embedding_bag_patterns(dq_pattern):
