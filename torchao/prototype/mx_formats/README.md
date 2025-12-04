@@ -223,7 +223,28 @@ To reproduce this on supported hardware, you can run the following command:
 
 ## inference
 
-Coming soon!
+Eval results on LLaMa 3.1 8B on common tasks. `mxfp8` and `nvfp4` recipes quantize all linears except `lm_head`. 
+
+Note: the accuracy results below are WIP and are not optimized yet.
+
+| recipe | wikitext word_perplexity | winogrande |
+| ------ | -------- | ---------- |
+| bfloat16 (baseline) | 7.5472105433748435 | 0.7426992896606156 |
+| mxfp8 | 7.609070006132819 | 0.7292817679558011 |
+| nvfp4 | 8.44478255417328 | 0.7182320441988951 |
+
+To reproduce:
+
+```bash
+# baseline
+python torchao/_models/llama/eval.py --checkpoint_path checkpoints/meta-llama/Meta-Llama-3.1-8B/model.pth --print_model --tasks wikitext winogrande
+
+# mxfp8
+python torchao/_models/llama/eval.py --checkpoint_path checkpoints/meta-llama/Meta-Llama-3.1-8B/model.pth --print_model --tasks wikitext winogrande --quantization mxfp8
+
+# nvfp4
+python torchao/_models/llama/eval.py --checkpoint_path checkpoints/meta-llama/Meta-Llama-3.1-8B/model.pth --print_model --tasks wikitext winogrande --quantization nvfp4
+```
 
 # testing
 
