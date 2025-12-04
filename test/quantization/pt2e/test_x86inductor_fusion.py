@@ -44,7 +44,6 @@ from torchao.quantization.pt2e.quantize_pt2e import (
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
@@ -451,6 +450,7 @@ class TestPatternMatcherBase(TestCase):
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestPatternMatcher(TestPatternMatcherBase):
     def _qconv2d_test_helper(self, device="cpu", mixed_bf16=False, is_fp8=False):
         class M(torch.nn.Module):
@@ -502,7 +502,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qconv2d_cpu(self):
         r"""
         This testcase will quantize a single Conv2d module.
@@ -511,7 +510,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     @skipIfNoQConvFp8Support
     def test_qconv2d_fp8_cpu(self):
         r"""
@@ -522,7 +520,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qconv2d_int8_mixed_bf16(self):
         r"""
         This testcase will quantize a single Conv2d module with int8_mixed_bf16 quantization.
@@ -532,7 +529,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     @skipIfNoQConvFp8Support
     def test_qconv2d_fp8_mixed_bf16(self):
         r"""
@@ -1271,7 +1267,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d(self):
         r"""
         This testcase will quantize a single Conv2d module with qat flow.
@@ -1414,7 +1409,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d_add(self):
         r"""
         This testcase will quantize a Conv2d->Add pattern as:
@@ -1480,7 +1474,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d_add_relu(self):
         r"""
         This testcase will quantize a Conv2d->Add->ReLU pattern as:
@@ -1620,7 +1613,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qconv2d_dequant_promotion_cpu(self):
         self._test_qconv2d_dequant_promotion_helper()
 
