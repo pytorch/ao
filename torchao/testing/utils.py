@@ -26,8 +26,8 @@ from torchao.quantization.transform_module import (
 from torchao.testing.model_architectures import LlamaModelsLlama4Experts
 from torchao.utils import (
     DummyModule,
-    get_current_accelerator_device,
     get_compute_capability,
+    get_current_accelerator_device,
 )
 
 """
