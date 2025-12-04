@@ -27,18 +27,6 @@ gpu_name_to_specs = {
         # which would hit about 2.2k GBPS on Meta's H100 variant
         "pct_achievable_mem_bw": 0.92,
     },
-    "NVIDIA H200": {
-        # H200 has same compute as H100 but more memory and higher bandwidth
-        # https://www.nvidia.com/en-us/data-center/h200/, divide by 2 because no sparsity
-        "bf16_peak_tops": 989e12,
-        "fp8_peak_tops": 1979e12,
-        # 4.8 TB per second for H200 (double the standard H100)
-        "peak_mem_bw_bytes_sec": 4.8e12,
-        # copy from H100
-        "pct_achievable_gemm_tops": 0.78,
-        # copy from H100
-        "pct_achievable_mem_bw": 0.92,
-    },
     "NVIDIA B200": {
         # https://resources.nvidia.com/en-us-blackwell-architecture, page 19,
         # divide by 2 because no sparsity
