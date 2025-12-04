@@ -16,6 +16,10 @@ from tokenizer import get_tokenizer
 
 import torchao
 from torchao._models.llama.model import prepare_inputs_for_model
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -170,6 +174,8 @@ def run_evaluation(
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
             )
         if quantization == "float8_a1x128_w128x128":
             config = Float8DynamicActivationFloat8WeightConfig(
@@ -177,8 +183,34 @@ def run_evaluation(
                 activation_value_lb=1e-12,
             )
             # TODO(future): all workflows in this file should be skipping quantization
-            # of `lm_head`
+            # of `lm_head`/`output`
             quantize_(model, config)
+        if quantization == "mxfp8":
+            config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float8_e4m3fn,
+                weight_dtype=torch.float8_e4m3fn,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(
+                model,
+                config,
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
+            )
+        if quantization == "nvfp4":
+            config = NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=True,
+                use_triton_kernel=True,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(
+                model,
+                config,
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
+            )
         if "autoround" in quantization:
             from transformers import AutoTokenizer
 
@@ -284,8 +316,8 @@ def run_evaluation(
 
     if compile:
         # TODO(future PR): clean this up
-        if quantization == "float8_a1x128_w128x128":
-            # we don't need max-autotune for float8 blockwise quant
+        if quantization in ("float8_a1x128_w128x128", "mxfp8", "nvfp4"):
+            # we don't need max-autotune for float8 blockwise or mxfp8 quant
             model = torch.compile(model)
         else:
             model = torch.compile(model, mode="max-autotune", fullgraph=True)
