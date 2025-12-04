@@ -171,14 +171,6 @@ def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Te
         torch.abs(output_ref)
     )
 
-
-def auto_detect_device():
-    if torch.accelerator.is_available():
-        return torch.accelerator.current_accelerator()
-    else:
-        return None
-
-
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     import torch.utils.benchmark as benchmark  # this avoids importing numpy when torchao module is loaded
 
