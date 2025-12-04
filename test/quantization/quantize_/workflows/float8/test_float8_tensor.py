@@ -1376,7 +1376,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     @common_utils.parametrize("dim", [-2, -1])
     def test_chunk(self, dim):
-        x = torch.randn(16, 5120, 16384, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(16, 5120, 16384, device=_DEVICE, dtype=torch.bfloat16)
         x_fp8 = Float8Tensor.from_hp(x)
         self._test_chunk_similar_to_vllm_llama4(x_fp8, dim)
 
