@@ -855,6 +855,8 @@ def mx_all_gather(func, types, args, kwargs):
     mx_tensor = args[0]
     group_tag = args[1] if len(args) > 1 else "default"
     
+    #TODO: Add support for concat CC as a future optimization
+    
     # Gather both data and scale
     gathered_qdata = torch.ops._c10d_functional.all_gather_into_tensor.default(
         mx_tensor.qdata,  # The quantized data
