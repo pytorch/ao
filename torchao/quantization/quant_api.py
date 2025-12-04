@@ -1634,7 +1634,14 @@ def _int8_dynamic_activation_int8_weight_transform(
         module.weight, config
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -1652,9 +1659,8 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     """
 
     scale: torch.Tensor
-    zero_point: Optional[torch.Tensor] = None
+    granularity: Granularity
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
-    granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1662,14 +1668,25 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
+        if isinstance(self.granularity, PerTensor):
+            assert self.scale.numel() == 1
 
 
 @register_quantize_module_handler(Int8StaticActivationInt8WeightConfig)
 def _int8_static_activation_int8_weight_transform(
-    module: torch.nn.Module, config: Int8StaticActivationInt8WeightConfig
+    module: torch.nn.Module,
+    config: Int8StaticActivationInt8WeightConfig,
+    *,
+    parameter_name="weight",
 ):
     assert config.granularity in {PerRow(), PerTensor()}, (
         "Only PerRow and PerTensor are supported"
+    )
+    assert config.act_mapping_type == MappingType.SYMMETRIC, (
+        "asymmetric static quant not supported currently"
+    )
+    assert hasattr(module, parameter_name), (
+        f"Expected module to have attribute `{parameter_name}` but not found"
     )
 
     if config.set_inductor_config:
@@ -1678,22 +1695,29 @@ def _int8_static_activation_int8_weight_transform(
     activation_granularity, weight_granularity = _normalize_granularity(
         config.granularity
     )
-    weight = module.weight
 
-    # TODO: Symmentric/Asymmetric choice for weight quantization
-    # https://github.com/pytorch/ao/pull/3241#discussion_r2551515539
-    quantized_weight = Int8Tensor.from_hp(
-        weight,
+    quantized_tensor = Int8Tensor.from_hp(
+        getattr(module, parameter_name),
         granularity=weight_granularity,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
-            mapping_type=config.act_mapping_type,
             scale=config.scale,
-            zero_point=config.zero_point,
         ),
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_tensor, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 

@@ -14,11 +14,15 @@ from torch.testing._internal import common_utils
 
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -216,6 +220,38 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         FileCheck().check_count("triton_per_fused", 1).check_count(
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@common_utils.instantiate_parametrized_tests
+class TestInt8StaticQuant(TorchAOIntegrationTestCase):
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    @common_utils.parametrize("compile", [False])
+    def test_static_activation_per_row_int8_weight(self, dtype, compile):
+        torch.compiler.reset()
+
+        M, N, K = 64, 128, 32
+        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
+        model_static_quant = torch.nn.Linear(K, N).eval().to(device="cuda", dtype=dtype)
+        model_dynamic_quant = copy.deepcopy(model_static_quant)
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(version=2)
+        quantize_(model_dynamic_quant, dynamic_config)
+
+        if compile:
+            model_dynamic_quant = torch.compile(model_dynamic_quant, fullgraph=True)
+
+        dynamic_quantize_out = model_dynamic_quant(input_tensor)
+
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor, model_dynamic_quant.weight.act_quant_kwargs
+        )
+
+        static_config = Int8StaticActivationInt8WeightConfig(scale=int8_input.scale)
+        quantize_(model_static_quant, static_config)
+
+        static_quantize_out = model_static_quant(input_tensor)
+
+        torch.testing.assert_close(dynamic_quantize_out, static_quantize_out)
 
 
 if __name__ == "__main__":
