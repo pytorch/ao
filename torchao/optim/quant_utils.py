@@ -148,7 +148,15 @@ def _fp32_to_bf16_sr(_x_f32: Tensor) -> Tensor:
     # x_f32_bits = (x_f32_bits + rand_16bit) & 0xFFFF0000
     x_bf16_trunc = x_f32_bits.view(torch.float32).bfloat16()
 
-    return DTensor.from_local(
-        x_bf16_trunc, _x_f32.device_mesh, _x_f32.placements,
-        run_check=False, shape=tuple(_x_f32.shape), stride=tuple(_x_f32.stride()),
-    ) if is_dt else x_bf16_trunc
+    return (
+        DTensor.from_local(
+            x_bf16_trunc,
+            _x_f32.device_mesh,
+            _x_f32.placements,
+            run_check=False,
+            shape=tuple(_x_f32.shape),
+            stride=tuple(_x_f32.stride()),
+        )
+        if is_dt
+        else x_bf16_trunc
+    )

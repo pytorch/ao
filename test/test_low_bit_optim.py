@@ -124,8 +124,8 @@ class TestQuantize(TestCase):
     def test_bf16_stochastic_round_dtensor(self, device, compile):
         pytest.importorskip("torch.distributed")
         import torch.distributed as dist
-        from torch.distributed.tensor import DTensor, Replicate
         from torch.distributed.device_mesh import init_device_mesh
+        from torch.distributed.tensor import DTensor, Replicate
 
         created_pg = False
         if dist.is_available() and not dist.is_initialized():
