@@ -42,6 +42,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
+    scale: Optional[torch.Tensor] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -116,23 +117,28 @@ class Int8Tensor(TorchAOBaseTensor):
         granularity: Granularity,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         mapping_type=MappingType.SYMMETRIC,
+        scale: Optional[torch.Tensor] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
-        scale, zero_point = choose_qparams_affine(
-            input=hp_tensor,
-            mapping_type=mapping_type,
-            block_size=block_size,
-            target_dtype=torch.int8,
-            quant_min=-128,
-            quant_max=127,
-            scale_dtype=hp_tensor.dtype,
-            zero_point_dtype=torch.int8,
-            keepdim=True,
-        )
+        if scale is None:
+            scale, zero_point = choose_qparams_affine(
+                input=hp_tensor,
+                mapping_type=mapping_type,
+                block_size=block_size,
+                target_dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                scale_dtype=hp_tensor.dtype,
+                zero_point_dtype=torch.int8,
+                keepdim=True,
+            )
+        else:
+            zero_point = torch.zeros_like(scale)
 
+        # if scale is given, then use to quantize. this is how we support static quantization
         int_data = quantize_affine(
             hp_tensor,
             block_size=block_size,
