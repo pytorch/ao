@@ -57,7 +57,7 @@ jobs:
       package-name: torchao
       trigger-event: ${{ github.event_name }}
       # This is the CUDA version to be uploaded to torchao-nightly pypi
-      upload-to-pypi: cu121
+      upload-to-pypi: cu121,cu126,cu128,cu129,cu130
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
   notify:
