@@ -302,11 +302,15 @@ class TestQuantPrimitives(unittest.TestCase):
                 input, dtype
             )
         )
+        # With keepdim=True, scale and zero_point now keep dimensions
+        # Match reference shapes for comparison
         scale_ref = scale_ref.squeeze()
         zp_ref = zp_ref.squeeze()
+        scale_squeezed = scale.squeeze()
+        zp_squeezed = zero_point.squeeze()
 
-        torch.testing.assert_close(scale, scale_ref, atol=10e-3, rtol=10e-3)
-        self.assertTrue(torch.equal(zero_point, zp_ref))
+        torch.testing.assert_close(scale_squeezed, scale_ref, atol=10e-3, rtol=10e-3)
+        self.assertTrue(torch.equal(zp_squeezed, zp_ref))
 
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_tensor_asym(self):
@@ -324,11 +328,14 @@ class TestQuantPrimitives(unittest.TestCase):
         scale_ref, zp_ref = torch.ops.quantized_decomposed.choose_qparams(
             input, quant_min, quant_max, eps, dtype
         )
+        # With keepdim=True, scale and zero_point now keep dimensions
         scale_ref = scale_ref.squeeze()
         zp_ref = zp_ref.squeeze()
+        scale_squeezed = scale.squeeze()
+        zp_squeezed = zero_point.squeeze()
 
-        self.assertTrue(torch.equal(scale, scale_ref))
-        self.assertTrue(torch.equal(zero_point, zp_ref))
+        self.assertTrue(torch.equal(scale_squeezed, scale_ref))
+        self.assertTrue(torch.equal(zp_squeezed, zp_ref))
 
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_tensor_sym(self):
@@ -346,11 +353,14 @@ class TestQuantPrimitives(unittest.TestCase):
         scale_ref, zp_ref = torch.ops.quantized_decomposed.choose_qparams_symmetric(
             input, quant_min, quant_max, eps, dtype
         )
+        # With keepdim=True, scale and zero_point now keep dimensions
         scale_ref = scale_ref.squeeze()
         zp_ref = zp_ref.squeeze()
+        scale_squeezed = scale.squeeze()
+        zp_squeezed = zero_point.squeeze()
 
-        self.assertTrue(torch.equal(scale, scale_ref))
-        self.assertTrue(torch.equal(zero_point, zp_ref))
+        self.assertTrue(torch.equal(scale_squeezed, scale_ref))
+        self.assertTrue(torch.equal(zp_squeezed, zp_ref))
 
     def test_quantize_activation_per_token_abs_max(self):
         input = torch.randn(10, 10)
