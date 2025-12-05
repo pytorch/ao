@@ -104,7 +104,6 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_kwargs={self.act_quant_kwargs}, "
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
-            f"zero_point={self.scale}, "
             f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
@@ -137,7 +136,7 @@ class Int8Tensor(TorchAOBaseTensor):
                 keepdim=True,
             )
         else:
-            zero_point = None
+            zero_point = torch.zeros_like(scale)
 
         # if scale is given, then use to quantize. this is how we support static quantization
         int_data = quantize_affine(

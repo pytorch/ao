@@ -34,6 +34,9 @@ INT8_TEST_CONFIGS = [
     Int8DynamicActivationInt8WeightConfig(
         version=2, granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
     ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerRow(), act_mapping_type=MappingType.SYMMETRIC
+    ),
 ]
 
 
@@ -237,17 +240,19 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         dynamic_config = Int8DynamicActivationInt8WeightConfig(version=2)
         quantize_(model_dynamic_quant, dynamic_config)
 
-        if compile:
-            model_dynamic_quant = torch.compile(model_dynamic_quant, fullgraph=True)
-
         dynamic_quantize_out = model_dynamic_quant(input_tensor)
 
         int8_input = _choose_quant_func_and_quantize_tensor(
             input_tensor, model_dynamic_quant.weight.act_quant_kwargs
         )
 
-        static_config = Int8StaticActivationInt8WeightConfig(scale=int8_input.scale)
+        static_config = Int8StaticActivationInt8WeightConfig(
+            scale=int8_input.scale.clone().detach()
+        )
         quantize_(model_static_quant, static_config)
+
+        if compile:
+            model_static_quant = torch.compile(model_static_quant, fullgraph=True)
 
         static_quantize_out = model_static_quant(input_tensor)
 

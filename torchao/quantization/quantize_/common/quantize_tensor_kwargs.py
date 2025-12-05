@@ -31,7 +31,9 @@ class QuantizeTensorKwargs(abc.ABC):
 
 
 def _choose_quant_func_and_quantize_tensor(
-    tensor: torch.Tensor, quant_kwargs: QuantizeTensorKwargs
+    tensor: torch.Tensor,
+    quant_kwargs: QuantizeTensorKwargs,
+    scale=None,
 ) -> torch.Tensor:
     """Given a tensor and a kwargs container, chooses a derived dtype (float8, int8, etc) to quantize tensor to, based on the type of quant_kwargs
     quantizes tensor to the derived dtype chosen in (1)
@@ -60,6 +62,7 @@ def _choose_quant_func_and_quantize_tensor(
             tensor,
             quant_kwargs.granularity,
             mapping_type=quant_kwargs.mapping_type,
+            scale=quant_kwargs.scale,
         )
 
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")
