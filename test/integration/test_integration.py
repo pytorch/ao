@@ -1263,11 +1263,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skip("Seg fault?")
     def test_non_dynamically_quantizable_linear(self):
-        if (
-            torch.cuda.is_available()
-            and torch.cuda.is_available()
-            and torch.cuda.get_device_capability() < (8, 0)
-        ):
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         model = (
             torch.nn.Sequential(
