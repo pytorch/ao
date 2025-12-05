@@ -869,7 +869,7 @@ def mx_all_gather(func, types, args, kwargs):
     )
 
     gathered_scale = torch.ops._c10d_functional.all_gather_into_tensor.default(
-        mx_tensor._scale_e8m0.view(
+        mx_tensor.scale.view(
             torch.uint8
         ),  # The scale factors, Need to cast to uint8 as float8_e8m0fnu is not support for all gather.
         group_tag,
@@ -884,11 +884,11 @@ def mx_all_gather(func, types, args, kwargs):
         gathered_qdata,
         gathered_scale,
         mx_tensor._elem_dtype,
-        mx_tensor._block_size,
+        mx_tensor.block_size,
         mx_tensor._orig_dtype,
-        mx_tensor._gemm_kernel_choice,
-        mx_tensor._pack_fp6,
+        mx_tensor.kernel_preference,
         mx_tensor.act_quant_kwargs,
+        mx_tensor._is_swizzled_scales,
     )
 
 
@@ -908,16 +908,16 @@ def mx_wait_tensor(func, types, args, kwargs):
     )
 
     waited_scale = torch.ops._c10d_functional.wait_tensor.default(
-        mx_tensor._scale_e8m0, *args[1:], **kwargs
+        mx_tensor.scale, *args[1:], **kwargs
     )
 
     return MXTensor(
         waited_qdata,
         waited_scale,
         mx_tensor._elem_dtype,
-        mx_tensor._block_size,
+        mx_tensor.block_size,
         mx_tensor._orig_dtype,
-        mx_tensor._gemm_kernel_choice,
-        mx_tensor._pack_fp6,
+        mx_tensor.kernel_preference,
         mx_tensor.act_quant_kwargs,
+        mx_tensor._is_swizzled_scales,
     )

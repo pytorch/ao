@@ -1,9 +1,4 @@
-import pytest
 import torch
-
-if not torch.cuda.is_available() or torch.cuda.get_device_capability() != (10, 0):
-    pytest.skip("Test requires CUDA build on SM100", allow_module_level=True)
-
 import torch.distributed as dist
 from torch.testing._internal.common_distributed import (
     MultiProcessTestCase,
@@ -23,7 +18,7 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
 
     @property
     def world_size(self) -> int:
-        return 4
+        return 2
 
     @property
     def device(self) -> torch.device:
@@ -64,9 +59,9 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
                 elem_dtype=torch.float8_e5m2,
                 block_size=32,
                 orig_dtype=torch.float32,
-                gemm_kernel_choice=None,
-                pack_fp6=None,
+                kernel_preference=None,
                 act_quant_kwargs=None,
+                is_swizzled_scales=None,
             )
 
             world_size = self.world_size
@@ -82,9 +77,9 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
                 elem_dtype=torch.float8_e5m2,
                 block_size=32,
                 orig_dtype=torch.float32,
-                gemm_kernel_choice=None,
-                pack_fp6=None,
+                kernel_preference=None,
                 act_quant_kwargs=None,
+                is_swizzled_scales=None,
             )
 
             # Perform all_gather
@@ -111,12 +106,12 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
 
             # Verify scale matches golden exactly
             if not torch.equal(
-                gathered_mx._scale_e8m0.view(torch.uint8),
+                gathered_mx.scale.view(torch.uint8),
                 golden_scale.view(torch.uint8),
             ):
                 assert False, "scale mismatch"
 
-            assert gathered_mx._block_size == 32
+            assert gathered_mx.block_size == 32
 
         finally:
             dist.destroy_process_group()
