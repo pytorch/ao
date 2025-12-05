@@ -29,6 +29,7 @@ __all__ = [
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
     "TorchAOBaseTensor",
+    "is_cuda_version_at_least",
     "is_MI300",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
@@ -512,9 +513,11 @@ def _implements_common_tensor_ops(cls):
         if hasattr(self, "optional_tensor_data_names"):
             # either both are None or both are not Tensors and the shape match
             _optional_tensor_shape_match = all(
-                getattr(self, t_name).shape == getattr(src, t_name).shape
-                if getattr(self, t_name) is not None
-                else getattr(src, t_name) is None
+                (
+                    getattr(self, t_name).shape == getattr(src, t_name).shape
+                    if getattr(self, t_name) is not None
+                    else getattr(src, t_name) is None
+                )
                 for t_name in self.optional_tensor_data_names
             )
 
@@ -1095,6 +1098,16 @@ def is_sm_at_least_100():
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (10, 0)
     )
+
+
+def is_cuda_version_at_least(major: int, minor: int) -> bool:
+    if not torch.cuda.is_available():
+        return False
+    cuda_version = torch.version.cuda
+    if cuda_version is None:
+        return False
+    cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2])
+    return (cuda_major, cuda_minor) >= (major, minor)
 
 
 def check_cpu_version(device, version="2.6.0"):
