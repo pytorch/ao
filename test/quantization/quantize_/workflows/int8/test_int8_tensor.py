@@ -18,10 +18,22 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import torch_version_at_least
+
+INT8_TEST_CONFIGS = [
+    Int8WeightOnlyConfig(version=2, granularity=PerTensor()),
+    Int8WeightOnlyConfig(version=2, granularity=PerRow()),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
+    ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerRow(), act_mapping_type=MappingType.SYMMETRIC
+    ),
+]
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -36,13 +48,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         torch.manual_seed(42)
 
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
-        ],
-    )
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_creation_and_attributes(self, config):
         """Test tensor creation, dtypes, and ranges"""
         linear = torch.nn.Linear(
@@ -60,15 +66,17 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(w.qdata.dtype, torch.int8)
         self.assertTrue(torch.all(w.qdata >= -128) and torch.all(w.qdata <= 127))
 
+        if isinstance(config.granularity, PerRow):
+            self.assertEqual(w.scale.shape, (w.shape[0], 1))
+        elif isinstance(config.granularity, PerTensor):
+            self.assertEqual(w.scale.shape, (1, 1))
+
+        if hasattr(config, "act_mapping_type"):
+            self.assertEqual(w.act_quant_kwargs.mapping_type, config.act_mapping_type)
+
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
-        ],
-    )
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     @common_utils.parametrize(
         "sizes",
         [
@@ -84,6 +92,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         sizes: tuple,
     ):
         """Test linear operation supports including shape and compile"""
+        torch.compiler.reset()
+
         M, N, K = sizes
         input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
         model = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
@@ -91,10 +101,19 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         quantize_(model_q, config)
 
-        self.assertEqual(model_q.linear2.weight.scale.shape, (K,))
-        self.assertEqual(model_q.linear2.weight.scale.ndim, 1)
+        if isinstance(config.granularity, PerRow):
+            self.assertEqual(model_q.linear2.weight.scale.shape, (K, 1))
+        elif isinstance(config.granularity, PerTensor):
+            self.assertEqual(model_q.linear2.weight.scale.shape, (1, 1))
+
+        self.assertEqual(model_q.linear2.weight.scale.ndim, 2)
 
         if compile:
+            if isinstance(config, Int8WeightOnlyConfig) and isinstance(
+                config.granularity, PerTensor
+            ):
+                # currently the inductor lowering for weight only quant in core does not support per-tensor gpu, so this errors. Skipping for now, but will address this in core
+                return
             model_q = torch.compile(model_q, fullgraph=True)
 
         output_fp = model(input_tensor)
@@ -104,13 +123,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
         )
 
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
-        ],
-    )
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     @common_utils.parametrize("device", ["cpu", "cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_slice(self, config, device, dtype):
@@ -128,27 +141,24 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, slice_sizes[0]))
         self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, slice_sizes[1]))
-        self.assertEqual(weight1.scale, dummy.weight.scale.narrow(0, 0, slice_sizes[0]))
+
+        if isinstance(config.granularity, PerRow):
+            self.assertEqual(
+                weight1.scale, dummy.weight.scale.narrow(0, 0, slice_sizes[0])
+            )
+
         self.assertEqual(weight2.scale, dummy.weight.scale)
         with self.assertRaises(NotImplementedError):
             _ = dummy.weight[::2]
 
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig,
-            Int8WeightOnlyConfig,
-        ],
-    )
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
-    def test_index_select(self, config, granularity):
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    def test_index_select(self, config):
         """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
         x = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
         linear.weight.data = x
 
-        config = config(version=2, granularity=granularity)
         quantize_(linear, config)
 
         x_int8 = linear.weight
@@ -160,22 +170,16 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
         # Test block_size granularity
-        if isinstance(granularity, PerRow):
+        if isinstance(config.granularity, PerRow):
             self.assertEqual(
-                list(get_block_size(x_int8.shape, x_int8.granularity)), [1, K]
+                list(get_block_size(x_int8.shape, config.granularity)), [1, K]
             )
-        elif isinstance(granularity, PerTensor):
+        elif isinstance(config.granularity, PerTensor):
             self.assertEqual(
-                list(get_block_size(x_int8.shape, x_int8.granularity)), [N, K]
+                list(get_block_size(x_int8.shape, config.granularity)), [N, K]
             )
 
-    @common_utils.parametrize(
-        "config",
-        [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8WeightOnlyConfig(version=2),
-        ],
-    )
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_dequantization_accuracy(self, config):
         """Test dequantization accuracy separately"""
         linear = torch.nn.Linear(

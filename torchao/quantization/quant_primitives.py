@@ -1217,6 +1217,7 @@ def choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = torch.int32,
+    keepdim: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -1247,6 +1248,7 @@ def choose_qparams_affine(
         eps,
         scale_dtype,
         zero_point_dtype,
+        keepdim,
     )
 
 
@@ -1521,6 +1523,7 @@ def _choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = None,
+    keepdim: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
 
@@ -1550,8 +1553,8 @@ def _choose_qparams_affine(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
 
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
