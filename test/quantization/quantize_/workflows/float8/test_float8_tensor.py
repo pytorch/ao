@@ -44,6 +44,7 @@ from torchao.utils import (
 torch._dynamo.config.cache_size_limit = 128
 
 _DEVICE = get_current_accelerator_device()
+assert _DEVICE is not None, "Accelerator device is required for float8 tests"
 
 
 class ToyLinearModel(torch.nn.Module):

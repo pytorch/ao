@@ -498,6 +498,7 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
 
         dtype = torch.bfloat16
         device = get_current_accelerator_device()
+        assert device is not None, "no accelerator device found"
         l = torch.nn.Linear(1024, 1024, device=device, dtype=dtype)
         quantize_(l, config)
 
