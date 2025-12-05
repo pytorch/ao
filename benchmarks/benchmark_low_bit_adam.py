@@ -18,6 +18,16 @@
 #   --amp bf16 \
 #   --optim AdamW
 #
+# To fine-tune a pre-trained ViT-Giant DINOv2 with full BF16, using AdamW optimizer with CPU offload
+# (https://github.com/pytorch/ao/blob/main/torchao/optim/README.md#optimizer-cpu-offload)
+# python benchmark_low_bit_adam.py \
+#   --model "timm/vit_giant_patch14_dinov2.lvd142m" \
+#   --full_bf16 \
+#   --optim AdamW \
+#   --batch_size 32 \
+#   --checkpoint_activations \
+#   --optim_cpu_offload ao
+#
 # See OPTIM_MAP for the available optimizer options
 # To profile and export chrome trace, set --profile
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
@@ -120,6 +130,7 @@ def get_parser():
 
 def get_dloader(args, training: bool):
     transforms = [v2.ToImage()]
+
     input_size = (
         args.data_config["input_size"][1] if args.data_config is not None else 224
     )  # Standard ViT input size
