@@ -98,6 +98,7 @@ from .quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Tensor,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
 )
@@ -164,6 +165,7 @@ __all__ = [
     "FqnToConfig",
     "ModuleFqnToConfig",
     # tensor subclasses
+    "Int8Tensor",
     "Int4Tensor",
     "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
