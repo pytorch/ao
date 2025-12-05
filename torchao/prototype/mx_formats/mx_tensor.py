@@ -841,11 +841,12 @@ def mx_select(func, types, args, kwargs):
     )
     return return_and_correct_aliasing(func, args, kwargs, new_mx_tensor)
 
+
 @implements([torch.ops._c10d_functional.all_gather_into_tensor.default])
 def mx_all_gather(func, types, args, kwargs):
     """
     All-gather for MXTensor
-    
+
     Args:
         func: The operation (all_gather_into_tensor)
         types: Tensor types involved
@@ -854,26 +855,28 @@ def mx_all_gather(func, types, args, kwargs):
     """
     mx_tensor = args[0]
     group_tag = args[1] if len(args) > 1 else "default"
-    
-    #TODO: Add support for concat CC as a future optimization
-    
+
+    # TODO: Add support for concat CC as a future optimization
+
     # Gather both data and scale
     gathered_qdata = torch.ops._c10d_functional.all_gather_into_tensor.default(
         mx_tensor.qdata,  # The quantized data
         group_tag,
         *args[2:],
-        **kwargs
-    )
-    
-    gathered_scale = torch.ops._c10d_functional.all_gather_into_tensor.default(
-        mx_tensor._scale_e8m0.view(torch.uint8),  # The scale factors, Need to cast to uint8 as float8_e8m0fnu is not support for all gather.
-        group_tag,
-        *args[2:],
-        **kwargs
+        **kwargs,
     )
 
-    gathered_scale=gathered_scale.view(torch.float8_e8m0fnu)
-    
+    gathered_scale = torch.ops._c10d_functional.all_gather_into_tensor.default(
+        mx_tensor._scale_e8m0.view(
+            torch.uint8
+        ),  # The scale factors, Need to cast to uint8 as float8_e8m0fnu is not support for all gather.
+        group_tag,
+        *args[2:],
+        **kwargs,
+    )
+
+    gathered_scale = gathered_scale.view(torch.float8_e8m0fnu)
+
     # Return new MXTensor with gathered data
     return MXTensor(
         gathered_qdata,
@@ -883,32 +886,29 @@ def mx_all_gather(func, types, args, kwargs):
         mx_tensor._orig_dtype,
         mx_tensor._gemm_kernel_choice,
         mx_tensor._pack_fp6,
-        mx_tensor.act_quant_kwargs
+        mx_tensor.act_quant_kwargs,
     )
+
 
 @implements([torch.ops._c10d_functional.wait_tensor.default])
 def mx_wait_tensor(func, types, args, kwargs):
     """
     Wait for async collective to complete on MXTensor
-    
+
     This is called after collectives like all_gather to ensure
     the operation has completed before using the tensor.
     """
     mx_tensor = args[0]
-    
+
     # Wait on both components
     waited_qdata = torch.ops._c10d_functional.wait_tensor.default(
-        mx_tensor.qdata,
-        *args[1:],
-        **kwargs
+        mx_tensor.qdata, *args[1:], **kwargs
     )
-    
+
     waited_scale = torch.ops._c10d_functional.wait_tensor.default(
-        mx_tensor._scale_e8m0,
-        *args[1:],
-        **kwargs
+        mx_tensor._scale_e8m0, *args[1:], **kwargs
     )
-    
+
     return MXTensor(
         waited_qdata,
         waited_scale,
@@ -917,5 +917,5 @@ def mx_wait_tensor(func, types, args, kwargs):
         mx_tensor._orig_dtype,
         mx_tensor._gemm_kernel_choice,
         mx_tensor._pack_fp6,
-        mx_tensor.act_quant_kwargs
+        mx_tensor.act_quant_kwargs,
     )

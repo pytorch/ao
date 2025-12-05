@@ -44,11 +44,19 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
         self._init_process()
         try:
             torch.manual_seed(42)
-            golden_qdata = torch.randint(0, 256, (256, 512), dtype=torch.uint8).to(torch.float8_e5m2).to(self.device)
-    
+            golden_qdata = (
+                torch.randint(0, 256, (256, 512), dtype=torch.uint8)
+                .to(torch.float8_e5m2)
+                .to(self.device)
+            )
+
             # Random scale factors (typically float32 or uint8 for e8m0)
-            golden_scale = torch.randint(0, 256, (256, 16), dtype=torch.uint8).view(torch.float8_e8m0fnu).to(self.device)
-            
+            golden_scale = (
+                torch.randint(0, 256, (256, 16), dtype=torch.uint8)
+                .view(torch.float8_e8m0fnu)
+                .to(self.device)
+            )
+
             # Create golden MXTensor
             golden_mx = MXTensor(
                 golden_qdata,
@@ -58,15 +66,15 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
                 orig_dtype=torch.float32,
                 gemm_kernel_choice=None,
                 pack_fp6=None,
-                act_quant_kwargs=None
+                act_quant_kwargs=None,
             )
-            
+
             world_size = self.world_size
             # Each rank gets its shard (split along dim 0)
             shard_size = golden_qdata.shape[0] // world_size  # 2 rows per rank
             start_idx = self.rank * shard_size
             end_idx = (self.rank + 1) * shard_size
-            
+
             # Create local MXTensor from shard
             local_mx = MXTensor(
                 golden_qdata[start_idx:end_idx].clone().to(self.device),
@@ -76,9 +84,9 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
                 orig_dtype=torch.float32,
                 gemm_kernel_choice=None,
                 pack_fp6=None,
-                act_quant_kwargs=None
+                act_quant_kwargs=None,
             )
-            
+
             # Perform all_gather
             gathered_mx = torch.ops._c10d_functional.all_gather_into_tensor.default(
                 local_mx,
@@ -86,22 +94,28 @@ class MXFP8OnDeviceAllGatherTest(MultiProcessTestCase):
                 "0",
             )
             gathered_mx = torch.ops._c10d_functional.wait_tensor.default(gathered_mx)
-            
+
             # Verify type
-            assert isinstance(gathered_mx, MXTensor), f"Expected MXTensor, got {type(gathered_mx)}"
-            
+            assert isinstance(gathered_mx, MXTensor), (
+                f"Expected MXTensor, got {type(gathered_mx)}"
+            )
+
             # Verify shape
-            assert gathered_mx.shape == golden_mx.shape, \
+            assert gathered_mx.shape == golden_mx.shape, (
                 f"Shape mismatch: {gathered_mx.shape} vs {golden_mx.shape}"
-            
+            )
+
             # Verify qdata matches golden exactly
             if not torch.equal(gathered_mx.qdata, golden_qdata):
                 assert False, "qdata mismatch"
-            
+
             # Verify scale matches golden exactly
-            if not torch.equal(gathered_mx._scale_e8m0.view(torch.uint8), golden_scale.view(torch.uint8)):
+            if not torch.equal(
+                gathered_mx._scale_e8m0.view(torch.uint8),
+                golden_scale.view(torch.uint8),
+            ):
                 assert False, "scale mismatch"
-            
+
             assert gathered_mx._block_size == 32
 
         finally:
