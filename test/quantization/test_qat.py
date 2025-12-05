@@ -96,13 +96,14 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
 )
+from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
 )
-from torchao.testing.utils import skip_if_xpu
+
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
