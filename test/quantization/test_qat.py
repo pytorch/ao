@@ -104,7 +104,6 @@ from torchao.utils import (
     is_sm_at_least_89,
 )
 
-
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
 _DEVICE = get_current_accelerator_device()
