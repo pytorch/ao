@@ -50,6 +50,25 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         error = compute_error(original, quantized)
         self.assertTrue(error > 20)
 
+    def test_add(self):
+        dtype = torch.bfloat16
+        device = "cpu"
+        a = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
+        b = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
+        a_orig = copy.deepcopy(a)
+        sum = a.weight + b.weight
+
+        quantize_(a, self.config)
+        a_quant_sum = a.weight + b.weight
+
+        quantize_(b, self.config)
+        b_quant_sum = a_orig.weight + b.weight
+        a_b_quant_sum = a.weight + b.weight
+
+        for quantized_sum in [a_quant_sum, b_quant_sum, a_b_quant_sum]:
+            error = compute_error(sum, quantized_sum)
+            self.assertTrue(error > 20)
+
     def test_linear(self):
         dtype = torch.bfloat16
         device = "cpu"
