@@ -1,3 +1,4 @@
+import pytest
 import torch
 import torch.distributed as dist
 from torch.testing._internal.common_distributed import (
@@ -8,6 +9,11 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+
+if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (9, 0):
+    pytest.skip(
+        "Test Requires CUDA and compute capability >= 9.0", allow_module_level=True
+    )
 
 
 @instantiate_parametrized_tests
